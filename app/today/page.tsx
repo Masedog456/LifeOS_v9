@@ -18,6 +18,9 @@ import { buildContinueThinking } from "@/lib/memory/continue";
 import { buildReflectionPrompts } from "@/lib/memory/prompts";
 import { buildLivingMemory } from "@/lib/memory/living";
 import { ExplanationSummary } from "@/components/ExplanationDetail";
+import { getPinned } from "@/lib/command/recent";
+import { resolveRecord } from "@/lib/command/records";
+import { openQuickCapture } from "@/lib/command/events";
 
 function daysAgo(iso: string): number {
   return Math.floor((Date.now() - Date.parse(iso)) / 86400000);
@@ -64,6 +67,9 @@ export default function TodayPage() {
     return { activeRecs, highRecs, proposals, openDialogues, openTensions, activeResearch, staleBeliefs, duePractices, recentCaptures, openDecisions, completed, continueThinking, reflectionPrompts, memory };
   }, [state]);
 
+  // Pinned records (LIFEOS-027) — read from prefs, reconciled against the store.
+  const pinned = mounted ? getPinned(state) : [];
+
   if (!mounted) {
     return <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Loading your day…</p></main>;
   }
@@ -76,9 +82,12 @@ export default function TodayPage() {
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
+          <button type="button" onClick={openQuickCapture} className="shrink-0 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900">＋ Quick capture</button>
+        </div>
         <p className="mt-1 text-sm text-zinc-500">
-          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} — a projection of what deserves attention. Nothing here is a copy; every card links to the record itself.
+          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} — a projection of what deserves attention. Nothing here is a copy; every card links to the record itself. Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> to search or run a command.
         </p>
       </header>
 
@@ -96,6 +105,18 @@ export default function TodayPage() {
         </div>
       ) : !empty && (
         <div className="flex flex-col gap-4">
+          {/* Pinned — fast access to favourite records (LIFEOS-027, Feature 4). */}
+          <Card title="Pinned" href="/today" linkLabel="⌘K to manage" show={pinned.length > 0}>
+            {pinned.map((p) => {
+              const href = resolveRecord(state, p.kind, p.id)?.href ?? "/today";
+              return (
+                <Link key={`${p.kind}:${p.id}`} href={href} className="block py-0.5 text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">
+                  <span aria-hidden className="mr-1 text-amber-500">★</span>{snip(p.title, 56)}
+                </Link>
+              );
+            })}
+          </Card>
+
           {/* Needs attention */}
           <Card title="Needs attention" href="/orchestrator" linkLabel="LifeOS Inbox →" show={view.activeRecs.length > 0}>
             <p className="text-sm text-zinc-700 dark:text-zinc-200">

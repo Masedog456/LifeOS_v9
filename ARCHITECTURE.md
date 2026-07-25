@@ -1031,6 +1031,84 @@ knowledge or stores a duplicate.
   computed projections; only migrate if persistent storage is absolutely
   required" constraint. The migration chain remains 0001–0020, unmodified.
 
+## Command Center & friction elimination (LIFEOS-027 — implemented)
+
+A unified command center that makes the existing system faster to use every day —
+capture, find, create, continue, and navigate in far fewer clicks — for both
+mouse/mobile users and keyboard-first power users. No new cognitive engine, no
+LLM, no embeddings, no background jobs. Everything is deterministic, local, and
+scoped to the single user; search and history never leave the device beyond the
+existing best-effort `user_prefs` mirror.
+
+- **Command library** (`lib/command/`). Reusable, framework-free modules:
+  - `types.ts` — `CommandItem`, `SearchEntry/Result/Group`, `RecentItem`,
+    `PinnedItem`.
+  - `records.ts` — ONE catalog mapping every searchable/openable record kind to
+    a label, href, and how to read its title/body/status/timestamp; used by
+    search, recent, and pinning so there's a single source of truth.
+  - `search.ts` + `ranking.ts` — a normalized index built once per store
+    snapshot and queried per keystroke (allocation-free hot path). Ranking is
+    documented and deterministic: **exact title (1000) > title prefix (800) >
+    title contains (600) > alias/concept (400) > body/notes (200)**, ties broken
+    by recency, then shorter title, then id (a total, reproducible order).
+    Matching is case-insensitive, partial, and punctuation-tolerant (query and
+    fields are normalized identically).
+  - `recent.ts` — recent history (cap 20, most-recent-first, deduped) and
+    pinning, both stored as record REFERENCES in `prefs` and reconciled against
+    the live store on read (deleted records vanish, renamed records refresh).
+    Pure helpers (`applyVisit`/`applyToggle`/`reconcile`) make the logic
+    unit-testable without a store.
+  - `shortcuts.ts` — a pure `resolveKey` that turns a key event + context
+    (typing? chord pending? mac?) into an outcome; single-key shortcuts and "g"
+    chords never fire while typing; modifier combos (⌘K, ⇧⌘K) are always safe.
+  - `registry.ts` — an **extensible** registry: future modules register a static
+    list or a provider without touching the palette; `build(ctx)` merges all,
+    de-duplicated by id (first wins).
+  - `commands.ts` — built-in navigation, Create-Anything (each opens the
+    existing canonical creation flow — no shadow forms), and providers for
+    Continue Work (reuses the LIFEOS-026 `buildContinueThinking` projection),
+    recent, and pinned.
+  - `events.ts` — a tiny window-event bridge so the nav/Today/mobile buttons open
+    the palette or quick capture without prop-drilling.
+- **UI** (`components/command/`). `CommandPalette` (combobox/listbox semantics,
+  arrow/Enter/Escape, focus trap, `aria-activedescendant`, opens with no network
+  round trip), `CommandResult` (selection shown by background AND
+  `aria-selected` — never color alone; inline pin toggle), `QuickCapture` (Feature
+  5 — tiny default flow reusing `addCapture`, collapsible advanced fields, draft
+  preservation across accidental closes, duplicate-submit guard, success link),
+  `ShortcutHelp` (platform-correct labels), `MobileCommandTrigger` (a visible
+  bottom bar with large tap targets on small screens). `CommandCenter` is the
+  single orchestrator mounted in the root layout: it owns the "which overlay is
+  open" state (so duplicate dialogs are impossible), installs global shortcuts,
+  manages the "g" chord, restores focus to the previously-focused element on
+  close, and tracks recently-viewed records from the route.
+- **Keyboard map.** ⌘/Ctrl+K command palette · ⌘/Ctrl+⇧+K quick capture · `/`
+  focus search (when not typing) · `?` shortcut help · Escape close · `g` then
+  `t/m/r/d/w/h/c` navigation chords. Everything is reachable without the
+  keyboard.
+- **Navigation cleanup** (`components/Nav.tsx`). Regrouped (no destination
+  removed or renamed) into Today · Capture · Think · Research · Memory · Decide ·
+  System, so the daily workflow reads apart from the deep knowledge modules and
+  Memory/Timeline/Themes are easy to find. A search button (⌘K) is added to the
+  nav for discoverability.
+- **Privacy & isolation.** All results derive only from the in-memory store and
+  the user's own `prefs`; nothing is sent to an external search service and no
+  search terms or record contents are logged. Recent/pinned are per-user via the
+  same local + `user_prefs` mechanism as onboarding.
+- **Performance.** The palette opens with no network round trip; the search index
+  is built once per store snapshot (memoized) and reused across keystrokes; the
+  self-test's fixture-based budget builds the index over a 400×-scaled store and
+  runs five queries well under budget.
+- **Persistence.** NONE added. Recent history and pinning are stored in `prefs`
+  (localStorage + the existing own-rows `user_prefs` key/value table from
+  migration 0020). The migration chain remains **0001–0020, unmodified** — no
+  `0021` was needed.
+- **Testing.** `lib/command/selftest.ts` (surfaced at `/dev/command-tests`,
+  asserted by `command.mjs`) covers registration + duplicate prevention, ranking
+  (all five fields), grouped output, stable sorting, recent dedupe/cap/
+  reconciliation (deleted + renamed), pinning, shortcut guards, user isolation,
+  projection purity, and performance.
+
 ## Future vector search layer
 
 Not implemented. When built, the expected approach is `pgvector` on

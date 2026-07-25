@@ -1914,3 +1914,39 @@ scope or order.
   `build`=0. Screenshots captured (memory, timeline, theme detail, today-with-
   memory, orchestrator explanation). No agents, no new AI routes, no auto-
   mutation — the whole subsystem observes and explains, never acts.
+- 2026-07-25 — Implemented **LIFEOS-027 Command Center & friction elimination**
+  (base: LIFEOS-026 on `main`; branch restarted from `origin/main`). A unified
+  command center to make the existing system dramatically faster to use daily —
+  NO new cognitive engine, no LLM/embeddings/background jobs. New reusable
+  library `lib/command/`: `types.ts`, `records.ts` (one record→label/href/field
+  catalog), `ranking.ts` (documented deterministic scoring: exact 1000 > prefix
+  800 > contains 600 > alias 400 > body 200; ties by recency→title length→id),
+  `search.ts` (normalized index built once per store snapshot, queried per
+  keystroke), `recent.ts` (recent history cap-20 + pinning, stored as record
+  refs in prefs, reconciled against the store for deletes/renames; pure
+  helpers), `shortcuts.ts` (pure `resolveKey` + typing guards + platform
+  labels + "g" chords), `registry.ts` (extensible provider registry, dedupe by
+  id), `commands.ts` (navigation + Create-Anything reusing canonical flows +
+  Continue Work reusing LIFEOS-026 `buildContinueThinking` + recent/pinned
+  providers), `events.ts` (window-event bridge), and `selftest.ts` (39
+  assertions). New UI `components/command/`: `CommandPalette` (combobox/listbox,
+  arrows/Enter/Escape, focus trap, aria-activedescendant, no network to open),
+  `CommandResult`, `QuickCapture` (reuses `addCapture`; tiny default flow, draft
+  preservation, duplicate-submit guard, success link), `ShortcutHelp`,
+  `MobileCommandTrigger`, and `CommandCenter` (single orchestrator in the root
+  layout: one-overlay state, global shortcuts, chord, focus restoration,
+  route-based recent tracking). Modified: `app/layout.tsx` (mounts
+  CommandCenter), `components/Nav.tsx` (regrouped Today·Capture·Think·Research·
+  Memory·Decide·System with no destination removed/renamed + a ⌘K search
+  button), `app/today/page.tsx` (Pinned section + quick-capture button),
+  `lib/prefs.ts` (adds `recent`/`pinned` to Prefs — reuses the local +
+  `user_prefs` mirror). Keyboard map: ⌘/Ctrl+K palette, ⌘/Ctrl+⇧+K quick
+  capture, `/` search, `?` help, Escape close, `g`-chords. NO migration — recent/
+  pinning reuse `user_prefs` (0020); chain stays 0001–0020. Verified 27/27
+  command E2E + 39/39 self-tests + FULL regression re-run green (gen1 41,
+  memory 29, dialogue 19, synthesis 22, orchestration 22, research 21, world 21,
+  formation 26, authoring 23, decision 33, compare 15, inquiry 22, threads 21,
+  reason, retrieval 11, semantic 19, sync, graph 15); `lint`=0, `build`=0.
+  Screenshots captured (command palette, mobile command bar). Privacy: results
+  derive only from the local store + own prefs; nothing sent externally, no
+  search terms logged. No agents, no new AI routes, no auto-mutation.

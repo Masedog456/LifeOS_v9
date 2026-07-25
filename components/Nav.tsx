@@ -3,15 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { pendingProposals, useStore } from "@/lib/mvpStore";
+import { openCommandPalette } from "@/lib/command/events";
 import SyncStatus from "@/components/SyncStatus";
 import AuthControl from "@/components/AuthControl";
 
 /**
- * Generation 1 information architecture (LIFEOS-025): one destination per
- * capability, grouped by the kind of work — capture, knowledge, reasoning,
- * reflection, action, system. Labels are stable (no renames of existing
- * destinations), every group is keyboard-navigable (plain links), and the
- * brand mark is a persistent way back to Daily Home from every page.
+ * Information architecture (LIFEOS-027 cleanup of LIFEOS-025): one destination
+ * per capability, regrouped so the daily workflow (Capture) reads apart from the
+ * deep knowledge modules (Think), and Memory/Timeline/Themes are easy to find.
+ * No destination was removed or renamed — only regrouped. Every group is
+ * keyboard-navigable (plain links); the brand mark returns to Daily Home; and a
+ * search button opens the universal command palette (⌘K / Ctrl K).
+ *
+ * Groups: Today · Capture · Think · Research · Memory · Decide · System.
  */
 const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
   {
@@ -22,30 +26,23 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
     ],
   },
   {
-    label: "Knowledge",
+    label: "Think",
     links: [
-      { href: "/library", label: "Library" },
       { href: "/world", label: "World" },
       { href: "/constitution", label: "Constitution" },
-    ],
-  },
-  {
-    label: "Reasoning",
-    links: [
+      { href: "/library", label: "Library" },
       { href: "/compare", label: "Compare" },
       { href: "/inquiry", label: "Inquiry" },
       { href: "/threads", label: "Threads" },
       { href: "/reason", label: "Reason" },
-      { href: "/research", label: "Research" },
       { href: "/dialogue", label: "Dialogue" },
-      { href: "/author", label: "Author" },
     ],
   },
   {
-    label: "Reflection",
+    label: "Research",
     links: [
-      { href: "/formation", label: "Reflect" },
-      { href: "/review", label: "Review" },
+      { href: "/research", label: "Research" },
+      { href: "/author", label: "Author" },
     ],
   },
   {
@@ -57,9 +54,11 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
     ],
   },
   {
-    label: "Action",
+    label: "Decide",
     links: [
       { href: "/decisions", label: "Decide" },
+      { href: "/formation", label: "Reflect" },
+      { href: "/review", label: "Review" },
       { href: "/orchestrator", label: "Orchestrator" },
     ],
   },
@@ -93,6 +92,19 @@ export default function Nav() {
           >
             Today
           </Link>
+          {/* Universal command palette trigger (⌘K / Ctrl K). */}
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            aria-label="Open command palette"
+            aria-keyshortcuts="Control+K Meta+K"
+            title="Search or run a command (⌘K / Ctrl K)"
+            className="hidden items-center gap-2 rounded-full border border-black/[.10] px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-900 sm:flex dark:border-white/[.12] dark:hover:text-zinc-100"
+          >
+            <span aria-hidden>⌕</span>
+            <span className="hidden md:inline">Search</span>
+            <kbd className="hidden rounded border border-black/[.12] px-1 text-[10px] lg:inline dark:border-white/[.15]">⌘K</kbd>
+          </button>
         </div>
         <div className="hidden sm:block">
           <SyncStatus />
