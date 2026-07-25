@@ -14,6 +14,10 @@ import Link from "next/link";
 import { pendingProposals, useStore } from "@/lib/mvpStore";
 import { isActive } from "@/lib/orchestrator";
 import { isOnboardingDone } from "@/lib/prefs";
+import { buildContinueThinking } from "@/lib/memory/continue";
+import { buildReflectionPrompts } from "@/lib/memory/prompts";
+import { buildLivingMemory } from "@/lib/memory/living";
+import { ExplanationSummary } from "@/components/ExplanationDetail";
 
 function daysAgo(iso: string): number {
   return Math.floor((Date.now() - Date.parse(iso)) / 86400000);
@@ -51,7 +55,13 @@ export default function TodayPage() {
       ...state.recommendations.filter((r) => r.completed && daysAgo(r.createdAt) <= 7).map((r) => ({ at: r.createdAt, label: `Recommendation done: ${snip(r.suggestedAction, 44)}`, href: "/orchestrator" })),
     ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5);
 
-    return { activeRecs, highRecs, proposals, openDialogues, openTensions, activeResearch, staleBeliefs, duePractices, recentCaptures, openDecisions, completed };
+    // LIFEOS-026 — Continue Thinking, Reflection Prompts, and Living Memory,
+    // all pure projections over the same state.
+    const continueThinking = buildContinueThinking(state).slice(0, 5);
+    const reflectionPrompts = buildReflectionPrompts(state, { limit: 3 });
+    const memory = buildLivingMemory(state, { limit: 4 });
+
+    return { activeRecs, highRecs, proposals, openDialogues, openTensions, activeResearch, staleBeliefs, duePractices, recentCaptures, openDecisions, completed, continueThinking, reflectionPrompts, memory };
   }, [state]);
 
   if (!mounted) {
@@ -92,6 +102,15 @@ export default function TodayPage() {
               {view.activeRecs.length} active recommendation{view.activeRecs.length === 1 ? "" : "s"}{view.highRecs.length > 0 ? ` — ${view.highRecs.length} high priority` : ""}.
             </p>
             {view.highRecs.slice(0, 2).map((r) => <p key={r.id} className="mt-1 text-xs text-zinc-500">• {r.suggestedAction}</p>)}
+          </Card>
+
+          {/* Continue thinking — the primary way back into unfinished threads (LIFEOS-026, Feature 5). */}
+          <Card title="Continue thinking" href="/memory" linkLabel="Living Memory →" show={view.continueThinking.length > 0}>
+            {view.continueThinking.map((c) => (
+              <Link key={c.id} href={c.href} className="block py-0.5 text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">
+                {snip(c.title, 54)} <span className="text-xs text-zinc-400">· {c.reason}</span>
+              </Link>
+            ))}
           </Card>
 
           <Card title="To review" href="/inbox" linkLabel="Belief Inbox →" show={view.proposals.length > 0}>
@@ -140,6 +159,23 @@ export default function TodayPage() {
           <Card title="Recent captures" href="/" linkLabel="Capture →" show={view.recentCaptures.length > 0}>
             {view.recentCaptures.map((c) => (
               <p key={c.id} className="py-0.5 text-sm text-zinc-700 dark:text-zinc-200">{snip(c.text, 64)} <span className="text-xs text-zinc-400">· {ago(c.createdAt)}</span></p>
+            ))}
+          </Card>
+
+          {/* From your memory — deterministic resurfacing, each item self-explaining (LIFEOS-026, Feature 1). */}
+          <Card title="From your memory" href="/memory" linkLabel="Living Memory →" show={view.memory.length > 0}>
+            {view.memory.map((m) => (
+              <div key={m.id} className="border-b border-black/[.04] py-1.5 last:border-0 dark:border-white/[.05]">
+                <Link href={m.href} className="block text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">{snip(m.title, 60)}</Link>
+                <div className="mt-0.5"><ExplanationSummary explanation={m.explanation} /></div>
+              </div>
+            ))}
+          </Card>
+
+          {/* Reflection prompts — evidence-bearing questions, never unexplained (LIFEOS-026, Feature 6). */}
+          <Card title="Reflection prompts" href="/memory" linkLabel="Living Memory →" show={view.reflectionPrompts.length > 0}>
+            {view.reflectionPrompts.map((p) => (
+              <p key={p.id} className="py-0.5 text-sm text-zinc-700 dark:text-zinc-200">{p.text}</p>
             ))}
           </Card>
 

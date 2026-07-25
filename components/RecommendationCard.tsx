@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import type { Recommendation } from "@/types/mvp";
 import {
@@ -9,7 +8,10 @@ import {
   dismissRecommendation,
   reopenRecommendation,
   snoozeRecommendation,
+  useStore,
 } from "@/lib/mvpStore";
+import { explainRecommendation } from "@/lib/memory/recommendation";
+import ExplanationDetail from "@/components/ExplanationDetail";
 
 const TYPE_LABEL: Record<Recommendation["type"], string> = {
   open_dialogue: "Open a dialogue",
@@ -53,9 +55,10 @@ function statusLabel(r: Recommendation): string | null {
 }
 
 export default function RecommendationCard({ rec }: { rec: Recommendation }) {
-  const [showWhy, setShowWhy] = useState(false);
+  const state = useStore();
   const status = statusLabel(rec);
   const settled = rec.completed || rec.dismissed;
+  const explanation = explainRecommendation(state, rec);
 
   return (
     <div className={`rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10] ${settled ? "opacity-60" : ""}`}>
@@ -81,10 +84,7 @@ export default function RecommendationCard({ rec }: { rec: Recommendation }) {
         </p>
       )}
 
-      <button type="button" onClick={() => setShowWhy((v) => !v)} className="mt-2 text-[11px] text-zinc-500 underline-offset-4 hover:underline">
-        {showWhy ? "Hide rationale" : "Why am I seeing this?"}
-      </button>
-      {showWhy && <p className="mt-1 rounded-lg bg-black/[.02] px-2.5 py-1.5 text-xs text-zinc-600 dark:bg-white/[.03] dark:text-zinc-300">{rec.rationale}</p>}
+      <ExplanationDetail explanation={explanation} />
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {rec.actionHref && !settled && (

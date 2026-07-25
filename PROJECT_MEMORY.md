@@ -1878,3 +1878,39 @@ scope or order.
   criteria, rollback procedure) and `.github/ISSUE_TEMPLATE/finding.yml`
   (severity / data-loss risk / module / repro / expected / actual / evidence).
   README links the new doc. No app code touched.
+- 2026-07-24 — Implemented **LIFEOS-026 Living Memory & Insight Engine** (base:
+  Generation 1 / v1.0.0-rc1 on `main`; branch restarted from `origin/main`).
+  Makes LifeOS feel like a living memory: deterministic, read-only, self-
+  explaining resurfacing of the user's own history — no new LLM orchestration,
+  no autonomous agent, no background jobs, no hidden reasoning, no knowledge
+  mutation, no duplicate storage, everything derived from existing objects.
+  New engines under `lib/memory/`: `explanation.ts` (Feature 7 — shared
+  `MemoryExplanation`: triggers + evidence-refs + qualitative confidence +
+  generatedAt + "Suggested because:" summary; `isCompleteExplanation` gate),
+  `living.ts` (Feature 1 — 10 rules, multi-reason merge-map keyed by record id,
+  most-reasons-first), `timeline.ts` (Feature 2 — belief formation/revisions,
+  captures, accepted syntheses, research/formation milestones, decision
+  outcomes, dialogue completions, newest-first), `themes.ts` (Feature 3 —
+  concept themes via explicit refs + name/alias mention, monthly frequency
+  buckets; precompiled per-theme matcher), `recommendation.ts` (Feature 4 —
+  `explainRecommendation` → shared explanation), `continue.ts` (Feature 5 —
+  open threads to resume), `prompts.ts` (Feature 6 — changed_view /
+  never_challenged / multi_source / hidden_link, each evidence-bearing), and
+  `selftest.ts` (54 fixture-driven assertions incl. projection purity + perf
+  budget). New UI: `app/memory/page.tsx`, `app/timeline/page.tsx`,
+  `app/themes/page.tsx`, `app/themes/[id]/page.tsx`, `app/dev/memory-tests/
+  page.tsx`, and `components/ExplanationDetail.tsx` (one disclosure for every
+  explanation). Modified: `app/today/page.tsx` (Continue thinking / From your
+  memory / Reflection prompts sections), `components/RecommendationCard.tsx`
+  (structured explanation replaces the raw rationale toggle), `components/
+  Nav.tsx` (Memory group: Memory · Timeline · Themes). Optimized two O(n³)/
+  regex-per-record hot paths (Living Memory concept-term precompute; Themes
+  precompiled matcher) so the 300× perf budget holds (<1.5s). Verified 29/29
+  memory E2E + 54/54 self-tests + EVERY prior suite re-run green (gen1 41,
+  orchestration 22, synthesis 22, dialogue 19, research 21, world 21,
+  formation 26, authoring 23, decision 33, compare 15, inquiry 22, threads 21,
+  reason, retrieval 11, semantic 19, sync, graph 15). NO migration — every
+  surface is a computed projection; the chain stays 0001–0020. `lint`=0,
+  `build`=0. Screenshots captured (memory, timeline, theme detail, today-with-
+  memory, orchestrator explanation). No agents, no new AI routes, no auto-
+  mutation — the whole subsystem observes and explains, never acts.

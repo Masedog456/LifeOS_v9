@@ -951,6 +951,86 @@ mutates another by being viewed. No new AI route.
   diagnostics, and integrity findings are derived at view time by design. No
   table/row/RLS/migration 0001–0019 is modified.
 
+## Living Memory & Insight Engine (LIFEOS-026 — implemented)
+
+Makes LifeOS feel like a living memory rather than a database: it proactively
+reconnects the user with meaningful ideas from their own history, always in
+transparent, deterministic ways. No opaque AI, no new orchestration, no
+autonomous agent, no background jobs, no new persistence — every surface is a
+read-only projection over existing objects (`StoreState` + the LIFEOS-021
+graph), computed at view time and self-explaining. Nothing here mutates
+knowledge or stores a duplicate.
+
+- **Memory Explanation API** (`lib/memory/explanation.ts`, Feature 7). The
+  shared foundation every surface reuses. A `MemoryExplanation` always exposes
+  the exact `triggers` that fired (machine `rule` + human `label`), the
+  supporting records (`evidence` — references, never copies), a qualitative
+  `confidence` (from `lib/dialectic/confidence.ts`, derived deterministically
+  from the number of independent triggers unless supplied), a `generatedAt`
+  timestamp (injectable for test determinism), and a one-line "Suggested
+  because: …" summary. `isCompleteExplanation` is the integrity gate — no
+  surfaced item may be unexplained.
+- **Living Memory** (`lib/memory/living.ts`, Feature 1). Ten deterministic
+  rules resurface records: not-revisited (stale accepted beliefs),
+  related-to-recent-capture (concept-term overlap), recurring concept,
+  unfinished dialogue, unresolved tension, abandoned research, forgotten
+  decision, recurring theme, anniversary, and frequently-referenced. A single
+  record accumulates MULTIPLE reasons via a merge-map keyed by record id (e.g.
+  "last reviewed 96 days ago; connected to 3 recent captures; unresolved
+  dialogue still exists"), sorted most-reasons-first. All thresholds are
+  explicit constants. Surfaced at `/memory`.
+- **Insight Timeline** (`lib/memory/timeline.ts`, Feature 2). A newest-first
+  chronology of intellectual evolution — beliefs forming and each non-proposed
+  revision, important captures, accepted syntheses, research/formation
+  milestones, decision outcomes, dialogue completions — every entry carrying
+  its evidence. Surfaced at `/timeline`, grouped by month.
+- **Theme Evolution** (`lib/memory/themes.ts`, Feature 3). A theme is an
+  existing world-model concept; `buildTheme` gathers every connected belief,
+  capture, research project, dialogue, synthesis, and open tension via EXPLICIT
+  id links OR name/alias text mention (each connection tagged `reference` vs
+  `mention`), plus monthly frequency buckets. Surfaced at `/themes` and
+  `/themes/[id]`, everything clickable back to the record.
+- **Explain This Recommendation** (`lib/memory/recommendation.ts`, Feature 4).
+  `explainRecommendation` maps any orchestrator `Recommendation` into the shared
+  explanation (triggers = the recommendation type's "because" phrase + the
+  originating subsystem; evidence = affected records; confidence + timestamp
+  from the recommendation itself). `components/RecommendationCard.tsx` now
+  renders this structured disclosure — every recommendation is visibly
+  explained, never a bare suggestion.
+- **Continue Thinking** (`lib/memory/continue.ts`, Feature 5). Every open
+  thread the user can pick back up: unfinished dialogues, in-progress research,
+  open/under-synthesis tensions, stale/ questioned belief reviews, candidate
+  syntheses, and stale decisions — a primary re-entry point surfaced on Daily
+  Home and linking straight to the record.
+- **Reflection Prompts** (`lib/memory/prompts.ts`, Feature 6). Evidence-bearing
+  prompts from records alone: changed_view (a belief revised ≥3×),
+  never_challenged (an accepted belief with no contradiction/dialogue/
+  questioning), multi_source (an idea backed by ≥3 independent sources),
+  hidden_link (two beliefs that share a concept with no direct edge). Each
+  carries the exact records it derived from.
+- **Shared explanation UI** (`components/ExplanationDetail.tsx`). One
+  disclosure component renders any `MemoryExplanation` — summary, triggers with
+  their rule ids, evidence as links back to the real record, confidence, and a
+  "derived from your existing records — nothing stored" note. Used by Living
+  Memory, Themes, Recommendations, and Daily Home so explanation looks and
+  behaves identically everywhere.
+- **Daily Home integration** (`app/today/page.tsx`). Three new projection
+  sections — Continue thinking, From your memory (each item self-explaining),
+  and Reflection prompts — composed from the same engines.
+- **Testing.** `lib/memory/selftest.ts` holds 54 fixture-driven unit
+  assertions (explanation contract, per-rule surfacing, multi-reason
+  accumulation, determinism, timeline ordering, theme connections,
+  recommendation explanation, Continue Thinking, reflection prompts, PROJECTION
+  PURITY — engines never mutate the store — and a performance budget), surfaced
+  at the dev route `/dev/memory-tests` and asserted by the `memory.mjs` E2E
+  suite (29 checks: surfacing, timeline, themes, recommendation explanation,
+  Continue Thinking, reflection prompts, projection purity via record-count,
+  nav).
+- **Persistence.** NONE. No migration is added — every memory surface is a
+  computed projection derived from existing objects, satisfying the "prefer
+  computed projections; only migrate if persistent storage is absolutely
+  required" constraint. The migration chain remains 0001–0020, unmodified.
+
 ## Future vector search layer
 
 Not implemented. When built, the expected approach is `pgvector` on

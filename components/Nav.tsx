@@ -49,6 +49,14 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
     ],
   },
   {
+    label: "Memory",
+    links: [
+      { href: "/memory", label: "Memory" },
+      { href: "/timeline", label: "Timeline" },
+      { href: "/themes", label: "Themes" },
+    ],
+  },
+  {
     label: "Action",
     links: [
       { href: "/decisions", label: "Decide" },
