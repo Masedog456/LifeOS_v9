@@ -28,6 +28,31 @@ and recently-viewed records appear in the palette and on Today). All of this is
 also reachable with the mouse — shortcuts are an accelerator, never a
 requirement.
 
+## Reading companion
+
+Import a book, article, essay, transcript, or paper at **Reading** (`/reading`)
+by pasting plain text or Markdown — headings become sections and paragraphs
+become passages (parsing is local and deterministic; nothing is sent anywhere).
+Open a document to read it in a three-pane workspace: navigation on the left,
+the passage reader in the center, and annotations + linked knowledge on the
+right. You can:
+
+- **Highlight** any selection (five colors), and add **markdown notes** to
+  passages, sections, or the whole document — the source text is never modified.
+- **Convert** a passage or highlight into a capture, belief, concept, question,
+  research item, or synthesis. Each conversion reuses LifeOS's canonical
+  creation logic and writes a **citation** back to the exact document, section,
+  page, passage, and highlight — so every derived idea can always answer "where
+  did this come from?" and link back.
+- Track **reading progress** (Not Started · Reading · Paused · Completed ·
+  Abandoned) with a per-document percentage and a reading streak on the
+  dashboard.
+
+Reader keyboard shortcuts: `J`/`K` next/previous passage, `H` highlight the
+selection, `N` add a note, `Esc` clear. Documents, authors, passages,
+highlights, and reading notes are all searchable from the command palette
+(`Ctrl`/`Cmd`+`K`).
+
 ## Local development
 
 ```bash

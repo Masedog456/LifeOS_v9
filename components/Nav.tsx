@@ -26,11 +26,17 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
     ],
   },
   {
+    label: "Read",
+    links: [
+      { href: "/reading", label: "Reading" },
+      { href: "/library", label: "Library" },
+    ],
+  },
+  {
     label: "Think",
     links: [
       { href: "/world", label: "World" },
       { href: "/constitution", label: "Constitution" },
-      { href: "/library", label: "Library" },
       { href: "/compare", label: "Compare" },
       { href: "/inquiry", label: "Inquiry" },
       { href: "/threads", label: "Threads" },

@@ -1109,6 +1109,87 @@ existing best-effort `user_prefs` mirror.
   reconciliation (deleted + renamed), pinning, shortcut guards, user isolation,
   projection purity, and performance.
 
+## Reading companion foundation (LIFEOS-028 — implemented)
+
+The canonical document model for all future reading, research, and study — so a
+user can READ inside LifeOS, not merely store. A document can be gradually
+transformed into captures, beliefs, concepts, questions, research, and syntheses
+while every derived record keeps a citation back to the exact source location.
+Everything is deterministic and offline: no LLM, no embeddings, no OCR, no PDF/
+EPUB parsing, no AI summarization, no background jobs (all explicitly out of
+scope; this sprint establishes the architecture only).
+
+- **Document model** (`types/mvp.ts`). `ReadingDocument` → `DocumentSection[]` →
+  `Passage[]`; a passage carries `highlights`, `annotations`, and `linked`
+  record refs. `Highlight` is a colored character span (+ note + linked
+  records); `Annotation` is a markdown note that never edits the source text;
+  `ReadingProgress` tracks status/percent/position/read-passages; `Citation` is
+  the reusable source reference (record → document/section/page/passage/
+  highlight). Authors are plain names (deduped by normalized name) — LifeOS has
+  no separate Author entity, so no duplicate author objects are created.
+- **Import pipeline** (`lib/library/importer.ts`, Feature 11). Deterministic
+  parsers behind a `DocumentParser` interface: **plain text** (paragraphs →
+  passages) and **Markdown** (`#`/`##` → sections, `###`+ → passage headings,
+  blank-line blocks → passages) are implemented; **PDF/EPUB/HTML** are declared
+  against the same interface but throw "not implemented" so future formats plug
+  in without touching callers.
+- **Assembly & projections** (`lib/library/documents.ts`). `assembleDocument`
+  turns parsed input into a canonical document (ids, order, deterministic cover
+  tint, author de-dup); `readingDashboard` derives Currently Reading / Continue
+  Reading / Unread / Completed / Recent Highlights / Recent Notes / reading
+  streak; `authors`/`documentsByAuthor` derive the author projection.
+- **Reader navigation** (`lib/library/reader.ts`, Feature 14). Flatten passages,
+  next/prev, section jump, progress position — the pure core the React reader
+  wires to J/K and section controls.
+- **Progress** (`lib/library/progress.ts`, Feature 8). Pure transforms:
+  mark-read → recompute percent → derive status (not_started → reading →
+  completed); explicit status set; estimated minutes remaining (word count at a
+  fixed WPM). Statuses: Not Started · Reading · Paused · Completed · Abandoned.
+- **Highlights & annotations** (`lib/library/highlights.ts`,
+  `annotations.ts`, Features 4–5). Deterministic factories; a small safe inline
+  markdown renderer for notes. General/section/passage notes are separate from
+  the immutable passage text.
+- **Citation system** (`lib/library/citations.ts`, Features 7 & 13). `makeCitation`
+  builds the reference; `formatCitation` renders it; `citationHref` returns the
+  reader to the cited passage/highlight; `citationsForRecord` /
+  `citationsForDocument` resolve it in both directions; `reconcileCitation`
+  keeps cached titles fresh after renames.
+- **Knowledge conversion** (`lib/mvpStore.ts` `convertPassage`, Feature 6). From
+  a passage (or a specific highlight), create a **capture / belief / concept /
+  question / research / synthesis** using ONLY the existing canonical creators
+  (`addCapture`, `createBeliefFromText`, `createConcept`, `createResearchProject`,
+  `createDialogue`) — no duplicated forms. Each conversion writes a `Citation`
+  and links the new record to the passage and highlight. (Inquiry and standalone
+  synthesis pipelines require the AI dialectic flow, which is out of scope, so
+  "Question" maps to a research question and "Synthesis" opens a synthesis
+  dialogue — both deterministic and documented.)
+- **Reading workspace** (`app/reading/page.tsx`, `app/document/[id]/page.tsx`,
+  `app/reading/author/[name]/page.tsx`, Feature 3). `/reading` is Library Home
+  (import + dashboard). `/document/[id]` is a three-pane reader — left
+  navigation, center passage reader with inline highlight marks, right
+  annotations + linked knowledge + notes — collapsing to a single column with a
+  pane switcher on mobile. Highlighting captures exact selection offsets
+  (`selectionOffsets` walks the passage container). Keyboard: J/K passages, H
+  highlight, N note, Esc clear — guarded against typing.
+- **Search integration** (`lib/command/records.ts`, Feature 9). The LIFEOS-027
+  index is extended (not duplicated) to cover documents, authors, passages,
+  highlights, and reading notes; results group under Documents / Authors /
+  Passages / Highlights / Reading notes.
+- **Command & nav** — a "New document" create command, an "Open Reading"
+  navigation command, document recent-history tracking, and a new **Read** nav
+  group (Reading · Library). Documents are pinnable via the existing prefs
+  mechanism.
+- **Persistence.** NONE added. Documents and citations live in the canonical
+  local store (`StoreState` → localStorage), matching the app's local-first
+  model; no `0021_reading_library.sql` was required for the foundation — the
+  chain remains **0001–0020, unmodified**. A remote `user_documents` mirror is a
+  clean additive future step (extension point).
+- **Testing.** `lib/library/selftest.ts` (surfaced at `/dev/reading-tests`,
+  asserted by `reading.mjs`) covers import parsing, section/passage generation,
+  assembly, reader navigation, progress, highlights, annotations, citation
+  generation + source-reference lookup, search integration, and a performance
+  budget (assemble + index a large document under 1s).
+
 ## Future vector search layer
 
 Not implemented. When built, the expected approach is `pgvector` on

@@ -20,7 +20,8 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:today", title: "Open Today", group: "Navigate", kind: "navigate", href: "/today", icon: "◎", keywords: ["home", "daily", "dashboard"] },
   { id: "nav:capture", title: "Open Capture", group: "Navigate", kind: "navigate", href: "/", icon: "✎", keywords: ["note", "thought"] },
   { id: "nav:inbox", title: "Open Belief Inbox", group: "Navigate", kind: "navigate", href: "/inbox", icon: "▤", keywords: ["proposals", "judge"] },
-  { id: "nav:library", title: "Open Library", group: "Navigate", kind: "navigate", href: "/library", icon: "▦", keywords: ["sources", "books"] },
+  { id: "nav:library", title: "Open Library", group: "Navigate", kind: "navigate", href: "/library", icon: "▦", keywords: ["sources"] },
+  { id: "nav:reading", title: "Open Reading", group: "Navigate", kind: "navigate", href: "/reading", icon: "❧", keywords: ["documents", "books", "read", "library"] },
   { id: "nav:world", title: "Open World Model", group: "Navigate", kind: "navigate", href: "/world", icon: "◍", keywords: ["concepts", "graph"] },
   { id: "nav:constitution", title: "Open Constitution", group: "Navigate", kind: "navigate", href: "/constitution", icon: "§", keywords: ["beliefs"] },
   { id: "nav:compare", title: "Open Compare", group: "Navigate", kind: "navigate", href: "/compare", icon: "⇌" },
@@ -43,6 +44,7 @@ export const NAV_COMMANDS: CommandItem[] = [
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */
 export const CREATE_COMMANDS: CommandItem[] = [
   { id: "create:capture", title: "New capture", group: "Create", kind: "action", action: "quick-capture", icon: "＋", keywords: ["note", "thought", "quick"], shortcut: "⇧⌘K" },
+  { id: "create:document", title: "New document", group: "Create", kind: "create", href: "/reading?new=1", icon: "＋", keywords: ["import", "read", "book", "article", "paste"] },
   { id: "create:belief", title: "New belief", group: "Create", kind: "create", href: "/inbox", icon: "＋", keywords: ["constitution", "principle"] },
   { id: "create:concept", title: "New concept", group: "Create", kind: "create", href: "/world?new=1", icon: "＋", keywords: ["world model"] },
   { id: "create:dialogue", title: "New dialogue", group: "Create", kind: "create", href: "/dialogue?new=1", icon: "＋", keywords: ["socratic", "investigate"] },

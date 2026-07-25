@@ -35,6 +35,7 @@ function routeToRecord(pathname: string): { kind: string; id: string } | null {
   const map: Record<string, string> = {
     dialogue: "dialogue", research: "research_project", decisions: "decision",
     themes: "theme", formation: "formation", library: "source", inquiry: "inquiry", author: "knowledge_project",
+    document: "document",
   };
   // Guard against non-id second segments (e.g. /formation/timeline, /review/weekly).
   if (!map[head] || ["timeline", "weekly", "concept", "new"].includes(id)) return null;

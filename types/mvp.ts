@@ -2094,4 +2094,148 @@ export interface StoreState {
   tensions: Tension[];
   syntheses: Synthesis[];
   recommendations: Recommendation[];
+  documents: ReadingDocument[];
+  citations: Citation[];
+}
+
+// ---------- Reading companion foundation (LIFEOS-028) ----------
+
+/**
+ * The canonical document model for all future reading, research, and study.
+ * A ReadingDocument is a first-class, user-owned entity that can be gradually
+ * transformed into captures/beliefs/concepts/questions/research/syntheses while
+ * every derived record keeps a Citation back to the exact originating location.
+ * Deterministic and offline: no LLM, no OCR, no format parsing beyond the plain
+ * importer. `authors` are plain names (deduped by normalized name) — LifeOS has
+ * no separate Author entity, so no duplicate author objects are created.
+ */
+export type DocumentKind =
+  | "book" | "article" | "essay" | "paper" | "transcript"
+  | "lecture_notes" | "journal_article" | "report" | "other";
+
+export type ReadingStatus =
+  | "not_started" | "reading" | "paused" | "completed" | "abandoned";
+
+/** A deterministic highlight over a passage's text (character span). */
+export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "orange";
+export interface Highlight {
+  id: string;
+  passageId: string;
+  color: HighlightColor;
+  /** The highlighted substring (a copy for display; span is the source of truth). */
+  text: string;
+  /** Character offsets into the passage text. */
+  start: number;
+  end: number;
+  note?: string;
+  /** Knowledge records generated from this highlight (references, never copies). */
+  linked: RecordRefLite[];
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+/** A lightweight typed reference to any knowledge record. */
+export interface RecordRefLite { kind: string; id: string }
+
+/** A markdown annotation attached to a passage (a note; never edits the source). */
+export interface Annotation {
+  id: string;
+  passageId: string;
+  /** Markdown body. */
+  text: string;
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+/** A meaningful reading unit within a section. Text is immutable once imported. */
+export interface Passage {
+  id: string;
+  sectionId: string;
+  heading?: string;
+  text: string;
+  page?: number;
+  /** A free-form locator (e.g. "loc 1423", "0:14:30", "¶3"). */
+  location?: string;
+  order: number;
+  highlights: Highlight[];
+  annotations: Annotation[];
+  /** Knowledge records linked to this passage (both auto-citation targets and manual links). */
+  linked: RecordRefLite[];
+}
+
+export interface DocumentSection {
+  id: string;
+  title: string;
+  order: number;
+  passages: Passage[];
+  /** Section-level markdown note (never mutates passages). */
+  note?: string;
+}
+
+export interface ReadingProgress {
+  status: ReadingStatus;
+  currentSectionId?: string;
+  currentPassageId?: string;
+  /** 0–100, whole number. Derived deterministically from passages marked read. */
+  percent: number;
+  /** Passage ids the user has marked read (drives percent + estimated remaining). */
+  readPassageIds: string[];
+  lastOpenedAt?: ISO;
+  startedAt?: ISO;
+  finishedAt?: ISO;
+}
+
+export interface DocumentSourceMeta {
+  /** Which importer produced this document. */
+  importFormat: "plain" | "markdown" | "paste" | "pdf" | "epub" | "html";
+  importedFrom?: string;
+  originalLength?: number;
+}
+
+export interface ReadingDocument {
+  id: string;
+  title: string;
+  subtitle?: string;
+  authors: string[];
+  publication?: string;
+  publicationDate?: string;
+  language?: string;
+  description?: string;
+  kind: DocumentKind;
+  status: ReadingStatus;
+  /** 0–5 user rating (optional). */
+  rating?: number;
+  /** A deterministic placeholder cover tint (no image storage). */
+  coverColor?: string;
+  tags: string[];
+  /** General document-level markdown notes. */
+  notes: string;
+  sections: DocumentSection[];
+  progress: ReadingProgress;
+  sourceMetadata: DocumentSourceMeta;
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+/**
+ * A source reference from a generated knowledge record back to the exact place
+ * it came from. The canonical answer to "where did this come from?". Stored once
+ * (no duplication) and reversible in both directions (record→citation and
+ * passage→linked records).
+ */
+export interface Citation {
+  id: string;
+  recordKind: string;
+  recordId: string;
+  documentId: string;
+  /** Cached for display/citation formatting; live values re-resolve from the store. */
+  documentTitle: string;
+  author?: string;
+  sectionId?: string;
+  sectionTitle?: string;
+  page?: number;
+  passageId?: string;
+  location?: string;
+  highlightId?: string;
+  createdAt: ISO;
 }
