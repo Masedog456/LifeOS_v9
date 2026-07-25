@@ -13,11 +13,29 @@ import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
 const PREFS_KEY = "lifeos.prefs.v1";
 
+/** A stored reference to a record (recent history / pinning). Never a copy. */
+export interface RecordRef {
+  kind: string;
+  id: string;
+  title: string;
+  at: string; // ISO
+}
+
 export interface Prefs {
   /** "done" | "skipped" | undefined (never started). */
   onboarding?: "done" | "skipped";
   /** Which onboarding step the user is on (resume support). */
   onboardingStep?: number;
+  /**
+   * Recently-viewed records (LIFEOS-027). Most-recent-first, capped, deduped by
+   * kind+id. Titles are a convenience cache — the live title is re-resolved
+   * from the store on read so renames/deletions are handled gracefully. Stored
+   * here (not in the domain blob) and mirrored to `user_prefs` when signed in,
+   * so it is per-user and needs no schema migration.
+   */
+  recent?: RecordRef[];
+  /** Pinned/favorite records (LIFEOS-027). Same storage + reconciliation model. */
+  pinned?: RecordRef[];
 }
 
 export function readPrefs(): Prefs {

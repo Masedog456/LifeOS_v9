@@ -6,6 +6,28 @@ notes, conversations, and reflections into organized knowledge and
 practical life formation, built on Next.js, Supabase, and the Anthropic
 API.
 
+## Command center & keyboard controls
+
+Every page has a universal command palette for capturing, finding, creating,
+and navigating without hunting through menus. Open it with the **Search** button
+in the nav, the mobile bar at the bottom of small screens, or a shortcut:
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl`/`Cmd` + `K` | Open the command palette (navigate, create, or search all records) |
+| `Ctrl`/`Cmd` + `Shift` + `K` | Quick capture (save a thought without leaving the page) |
+| `/` | Focus global search (when not typing in a field) |
+| `?` | Show the keyboard-shortcuts help |
+| `Esc` | Close the palette or any dialog |
+| `g` then `t` / `m` / `r` / `d` / `w` / `h` / `c` | Go to Today / Memory / Research / Dialogue / World / Health / Capture |
+
+Search is deterministic and local (no external service): results are grouped by
+record type and ranked by exact title, then prefix, then contains, then alias,
+then body — with recency as a tiebreak. Star any record to **pin** it (pinned
+and recently-viewed records appear in the palette and on Today). All of this is
+also reachable with the mouse — shortcuts are an accelerator, never a
+requirement.
+
 ## Local development
 
 ```bash
