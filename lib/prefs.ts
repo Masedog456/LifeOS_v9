@@ -36,6 +36,17 @@ export interface Prefs {
   recent?: RecordRef[];
   /** Pinned/favorite records (LIFEOS-027). Same storage + reconciliation model. */
   pinned?: RecordRef[];
+  /**
+   * Unified inspector navigation memory (LIFEOS-029): the last-viewed entity,
+   * the open tab, which sections are expanded, and the panel scroll position —
+   * so the workspace resumes where the user left off across sessions.
+   */
+  inspector?: {
+    last?: { kind: string; id: string };
+    tab?: string;
+    expanded?: Record<string, boolean>;
+    scroll?: number;
+  };
 }
 
 export function readPrefs(): Prefs {

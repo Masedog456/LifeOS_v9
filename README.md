@@ -61,6 +61,25 @@ Reading pages shows **Saved / Saving… / Saved locally / Sync error**. Very lar
 imports are warned about (and blocked past a safe size) so browser storage stays
 healthy; your text is never silently truncated.
 
+## Unified inspector & context
+
+LifeOS is navigable through ideas, not just menus. Any object — a belief,
+concept, document, decision, dialogue, author, passage, and more — can be
+**inspected in place** without leaving the page: the inspector opens as a
+right-side panel on desktop and a bottom sheet on mobile. Open one from the
+**Inspect (ⓘ)** action on a command-palette search result, or by clicking any
+linked entity (e.g. a passage's linked knowledge in the reader).
+
+The inspector has five tabs — **Overview** (summary, dates, tags, status, notes,
+citations, pinned state), **Relationships** (references, supports, contradicts,
+derived-from, related documents/authors/themes/decisions — all one click to
+follow), **Backlinks** (who links here, grouped by type), **Timeline** (the
+object's history — creation, edits, highlights, conversions, reading and
+decision activity), and **Graph** (a miniature relationship graph of immediate
+neighbors). Hovering any entity link shows an instant preview card. The inspector
+remembers your last entity, tab, expanded sections, and scroll position across
+sessions, and is fully keyboard-navigable (arrow keys switch tabs, `Esc` closes).
+
 ## Local development
 
 ```bash

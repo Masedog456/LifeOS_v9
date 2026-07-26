@@ -20,6 +20,7 @@ import { buildIndex, searchGrouped } from "@/lib/command/search";
 import { getPinned, getRecent, recordVisit, togglePin } from "@/lib/command/recent";
 import { hrefForRecord } from "@/lib/command/commands";
 import { normalizeQuery } from "@/lib/command/ranking";
+import { openInspector } from "@/lib/entities/inspector";
 import type { CommandItem } from "@/lib/command/types";
 import CommandResult, { type CommandRow } from "@/components/command/CommandResult";
 
@@ -199,6 +200,7 @@ export default function CommandPalette({ onClose, onAction }: { onClose: () => v
                   onActivate={() => activate(r.row)}
                   onHover={() => setSelected(r.index)}
                   onTogglePin={r.row.recordKind && r.row.recordId ? () => onTogglePin(r.row) : undefined}
+                  onInspect={r.row.recordKind && r.row.recordId ? () => { const k = r.row.recordKind!, i = r.row.recordId!; onClose(); openInspector(k, i); } : undefined}
                 />
               ),
             )

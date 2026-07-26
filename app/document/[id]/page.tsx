@@ -28,6 +28,7 @@ import { HIGHLIGHT_COLORS, COLOR_HEX } from "@/lib/library/highlights";
 import { renderMarkdownInline } from "@/lib/library/annotations";
 import { STATUS_LABEL, READING_STATUSES, estimatedMinutesRemaining } from "@/lib/library/progress";
 import SyncStatus from "@/components/SyncStatus";
+import EntityLink from "@/components/entity/EntityLink";
 import type { HighlightColor, Passage, ReadingDocument } from "@/types/mvp";
 
 const CONVERSIONS: { target: ConversionTarget; label: string }[] = [
@@ -298,7 +299,7 @@ function Reader() {
                         const live = resolveRecord(state, l.kind, l.id);
                         return (
                           <li key={`${l.kind}:${l.id}:${i}`}>
-                            {live ? <Link href={live.href} className="text-[12px] text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-200">{l.kind}: {live.title.slice(0, 44)}</Link> : <span className="text-[12px] text-zinc-400">{l.kind} (removed)</span>}
+                            {live ? <EntityLink kind={l.kind} id={l.id} className="text-[12px] text-zinc-700 underline-offset-2 hover:underline dark:text-zinc-200">{l.kind}: {live.title.slice(0, 44)}</EntityLink> : <span className="text-[12px] text-zinc-400">{l.kind} (removed)</span>}
                           </li>
                         );
                       })}

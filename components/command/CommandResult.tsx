@@ -17,7 +17,7 @@ export interface CommandRow extends CommandItem {
 }
 
 export default function CommandResult({
-  row, selected, id, onActivate, onHover, onTogglePin,
+  row, selected, id, onActivate, onHover, onTogglePin, onInspect,
 }: {
   row: CommandRow;
   selected: boolean;
@@ -25,8 +25,10 @@ export default function CommandResult({
   onActivate: () => void;
   onHover: () => void;
   onTogglePin?: () => void;
+  onInspect?: () => void;
 }) {
   const canPin = Boolean(row.recordKind && row.recordId && onTogglePin);
+  const canInspect = Boolean(row.recordKind && row.recordId && onInspect);
   return (
     <li
       id={id}
@@ -41,6 +43,16 @@ export default function CommandResult({
         <span className="block truncate text-zinc-900 dark:text-zinc-100">{row.title}</span>
         {row.subtitle && <span className="block truncate text-[11px] text-zinc-400">{row.subtitle}</span>}
       </span>
+      {canInspect && (
+        <button
+          type="button"
+          aria-label={`Inspect ${row.title}`}
+          onClick={(e) => { e.stopPropagation(); onInspect?.(); }}
+          className="shrink-0 rounded px-1 text-[12px] text-zinc-300 hover:text-zinc-600 dark:text-zinc-600 dark:hover:text-zinc-300"
+        >
+          ⓘ
+        </button>
+      )}
       {canPin && (
         <button
           type="button"
