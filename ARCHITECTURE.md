@@ -1179,16 +1179,70 @@ scope; this sprint establishes the architecture only).
   navigation command, document recent-history tracking, and a new **Read** nav
   group (Reading · Library). Documents are pinnable via the existing prefs
   mechanism.
-- **Persistence.** NONE added. Documents and citations live in the canonical
-  local store (`StoreState` → localStorage), matching the app's local-first
-  model; no `0021_reading_library.sql` was required for the foundation — the
-  chain remains **0001–0020, unmodified**. A remote `user_documents` mirror is a
-  clean additive future step (extension point).
 - **Testing.** `lib/library/selftest.ts` (surfaced at `/dev/reading-tests`,
   asserted by `reading.mjs`) covers import parsing, section/passage generation,
   assembly, reader navigation, progress, highlights, annotations, citation
   generation + source-reference lookup, search integration, and a performance
   budget (assemble + index a large document under 1s).
+
+### Durable persistence (LIFEOS-028 amendment — migration 0021)
+
+The reading library is a first-class, user-owned, RLS-protected set of NORMALIZED
+tables — durable across sessions/browsers/devices — not a browser-local JSON
+blob. Local-first still holds: the whole `StoreState` (documents + citations
+included) persists to localStorage synchronously, and remote sync is an additive
+mirror.
+
+- **Schema** (`supabase/migrations/0021_reading_library.sql`). Six independently
+  durable tables: `reading_documents` (with reading progress embedded as jsonb —
+  a 1:1 lifecycle — plus an `import_complete` flag), `document_sections`,
+  `document_passages`, `document_highlights`, `document_annotations`,
+  `document_citations`. Every row carries `id`, `user_id` (defaulted to
+  `auth.uid()`), and timestamps. Small nested metadata (authors, tags,
+  source_metadata, progress, per-highlight/passage `linked` refs) is jsonb;
+  every major independently-changing entity is its own row.
+- **Foreign keys & deletion.** section→document, passage→document+section,
+  highlight→document+passage, annotation→document+passage,
+  citation→document (+optional passage/highlight `on delete set null`). Deleting
+  a document CASCADES to its owned sections/passages/highlights/annotations/
+  citations. A citation's link to an EXTERNAL knowledge record is
+  `record_kind`+`record_id` with NO foreign key — deleting a document never
+  deletes the belief/concept it produced.
+- **RLS.** Enabled on all six tables; four own-row CRUD policies each (24 total).
+  Child inserts/updates additionally require (via `exists`) that the parent
+  document/section/passage belongs to `auth.uid()`, so a row can never be
+  attached to another user's document. Verified on Postgres: a second user sees
+  zero of the first user's documents and is blocked from inserting into their
+  tree.
+- **Adapter** (`lib/adapters/supabaseAdapter.ts` + pure `lib/library/rows.ts`).
+  `loadState` fetches the six tables and rebuilds the nested hierarchy
+  (`rowsToDocuments`), resilient to missing tables (degrades to an empty reading
+  library rather than failing the whole load). `saveState` now receives the
+  last-synced `base` snapshot and syncs with ROW-LEVEL granularity: brand-new
+  documents import atomically through the `import_reading_document` RPC (one
+  transaction — a partial import can't look complete); existing documents push
+  only their changed rows (`diffById`) and delete only removed ones; a removed
+  document deletes its row (DB cascades children). Editing one annotation
+  therefore writes one row, not the library. Deletes run child→parent; upserts
+  parent→child (FK-safe).
+- **Offline-first sync.** Unchanged from LIFEOS-021/025: writes go to
+  localStorage immediately; the debounced remote flush pushes only dirty
+  domains, re-queues + auto-retries on failure (never destroying local data),
+  and flushes automatically on reconnect. Offline-created reading data
+  synchronizes on reconnect; repeated syncs are idempotent (upsert by id).
+- **Import consistency.** The atomic RPC gives all-or-nothing import; the
+  `import_complete` flag marks a document whose children are still being written
+  (recoverable — the local store re-pushes). The reader and dashboard surface
+  the four sync states via `SyncStatus`: **Saved** (fully synced) · **Saving…** ·
+  **Saved locally / Offline — saved locally** (waiting to sync) · **Sync error**
+  (with Retry).
+- **Citation integrity.** Citations store STABLE ids (document/section/passage/
+  highlight/record ids), never display strings; labels are re-derived from the
+  live referenced records on hydration (rename-safe). A broken target (deleted
+  knowledge record) renders visibly as "(removed)", never a crash.
+- **Storage safety.** `checkImportSize` warns above ~400 KB (explicit confirm
+  required) and hard-blocks above ~1.5 MB per document to keep the localStorage
+  blob under the browser cap; user text is never silently truncated.
 
 ## Future vector search layer
 

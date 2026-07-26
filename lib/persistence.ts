@@ -246,7 +246,7 @@ async function flush(): Promise<void> {
   // successful flush. First sync (no baseline) pushes everything.
   const dirty = dirtyDomainsOf(snapshot, lastSyncedState);
   try {
-    await remote.saveState(snapshot, dirty);
+    await remote.saveState(snapshot, dirty, lastSyncedState);
     lastSyncedState = snapshot;
     retryAttempt = 0;
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }

@@ -27,6 +27,7 @@ import { flatten, nextPassageId, prevPassageId, findPassage, sectionOfPassage } 
 import { HIGHLIGHT_COLORS, COLOR_HEX } from "@/lib/library/highlights";
 import { renderMarkdownInline } from "@/lib/library/annotations";
 import { STATUS_LABEL, READING_STATUSES, estimatedMinutesRemaining } from "@/lib/library/progress";
+import SyncStatus from "@/components/SyncStatus";
 import type { HighlightColor, Passage, ReadingDocument } from "@/types/mvp";
 
 const CONVERSIONS: { target: ConversionTarget; label: string }[] = [
@@ -161,7 +162,10 @@ function Reader() {
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
       {/* Header */}
       <header className="mb-4">
-        <Link href="/reading" className="text-xs text-zinc-500 underline-offset-4 hover:underline">← Reading</Link>
+        <div className="flex items-center justify-between gap-2">
+          <Link href="/reading" className="text-xs text-zinc-500 underline-offset-4 hover:underline">← Reading</Link>
+          <SyncStatus />
+        </div>
         <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">{doc.title}</h1>

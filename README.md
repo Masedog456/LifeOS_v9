@@ -53,6 +53,14 @@ selection, `N` add a note, `Esc` clear. Documents, authors, passages,
 highlights, and reading notes are all searchable from the command palette
 (`Ctrl`/`Cmd`+`K`).
 
+Your reading library is durable, per-user, and cross-device: documents,
+sections, passages, highlights, annotations, and citations are stored as
+first-class RLS-protected records (migration `0021_reading_library.sql`) and
+mirrored from local storage when you're signed in — the sync indicator on the
+Reading pages shows **Saved / Saving… / Saved locally / Sync error**. Very large
+imports are warned about (and blocked past a safe size) so browser storage stays
+healthy; your text is never silently truncated.
+
 ## Local development
 
 ```bash

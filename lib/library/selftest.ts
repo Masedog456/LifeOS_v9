@@ -19,6 +19,10 @@ import { makeAnnotation, renderMarkdownInline } from "@/lib/library/annotations"
 import { makeCitation, formatCitation, citationHref, citationsForRecord, primaryCitation } from "@/lib/library/citations";
 import { buildSearchEntries } from "@/lib/command/records";
 import { searchFlat } from "@/lib/command/search";
+import {
+  allDocumentRows, citationToRow, diffById, documentToImportPayload, documentToRows,
+  newDocumentIds, rowsToDocuments,
+} from "@/lib/library/rows";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -166,6 +170,60 @@ export function runReadingSelfTests(): SelfTestReport {
   const perfMs = Date.now() - p0;
   check(results, "perf: assemble + index a large doc under budget", perfMs < 1000, `${perfMs}ms, ${bigIndex.length} entries, ${hits} hits`);
 
+  // ---- Persistence: flatten / rebuild / diff (0021 normalized sync) ----
+  // Build a document with a highlight + annotation + citation to exercise rows.
+  const pdoc = assembleDocument(SAMPLE, idClock(700));
+  const p0id = pdoc.sections[0].passages[0].id;
+  pdoc.sections[0].passages[0].highlights = [{ id: "h1", passageId: p0id, color: "yellow", text: "Attention", start: 0, end: 9, note: undefined, linked: [], createdAt: "2026-08-15T00:00:00Z", updatedAt: "2026-08-15T00:00:00Z" }];
+  pdoc.sections[0].passages[0].annotations = [{ id: "a1", passageId: p0id, text: "note", createdAt: "2026-08-15T00:00:00Z", updatedAt: "2026-08-15T00:00:00Z" }];
+
+  const rowset = documentToRows(pdoc);
+  check(results, "rows: flatten produces one document row", rowset.documents.length === 1);
+  check(results, "rows: flatten sections + passages", rowset.sections.length === 2 && rowset.passages.length === 4);
+  check(results, "rows: flatten highlights + annotations", rowset.highlights.length === 1 && rowset.annotations.length === 1);
+  check(results, "rows: highlight span mapped to offsets", rowset.highlights[0].start_offset === 0 && rowset.highlights[0].end_offset === 9);
+
+  // Round-trip: rows → document rebuilds the same hierarchy.
+  const rebuilt = rowsToDocuments(rowset.documents, rowset.sections, rowset.passages, rowset.highlights, rowset.annotations)[0];
+  check(results, "rows: rebuild round-trips sections/passages", rebuilt.sections.length === 2 && rebuilt.sections.flatMap((s) => s.passages).length === 4);
+  check(results, "rows: rebuild restores highlight + annotation", rebuilt.sections[0].passages[0].highlights.length === 1 && rebuilt.sections[0].passages[0].annotations.length === 1);
+  check(results, "rows: rebuild restores progress + authors", rebuilt.progress.status === pdoc.progress.status && rebuilt.authors[0] === "Simone Weil");
+  check(results, "rows: import payload has all child arrays", (() => { const p = documentToImportPayload(pdoc) as Record<string, unknown[]>; return p.sections.length === 2 && p.passages.length === 4 && p.highlights.length === 1 && p.annotations.length === 1; })());
+
+  // Diff: editing ONE annotation upserts ONE row, not the whole library.
+  const before = allDocumentRows([pdoc]);
+  const edited = JSON.parse(JSON.stringify(pdoc)) as ReadingDocumentT;
+  edited.sections[0].passages[0].annotations[0].text = "edited note";
+  const after = allDocumentRows([edited]);
+  const annDiff = diffById(after.annotations, before.annotations);
+  check(results, "diff: one annotation edit → one upsert, no deletes", annDiff.upsert.length === 1 && annDiff.deleteIds.length === 0);
+  const passDiff = diffById(after.passages, before.passages);
+  check(results, "diff: unrelated passages unchanged (no rewrite)", passDiff.upsert.length === 0);
+
+  // Diff: deleting a highlight → a delete id, no upsert.
+  const noHl = JSON.parse(JSON.stringify(pdoc)) as ReadingDocumentT;
+  noHl.sections[0].passages[0].highlights = [];
+  const hlDiff = diffById(allDocumentRows([noHl]).highlights, before.highlights);
+  check(results, "diff: deleted highlight → delete id", hlDiff.upsert.length === 0 && hlDiff.deleteIds.length === 1 && hlDiff.deleteIds[0] === "h1");
+
+  // New vs existing document detection (import RPC vs incremental).
+  const other = assembleDocument({ title: "Second", authors: ["X"], content: "Body." }, idClock(900));
+  check(results, "diff: new document detected for atomic import", newDocumentIds([pdoc, other], [pdoc]).has(other.id) && !newDocumentIds([pdoc, other], [pdoc]).has(pdoc.id));
+
+  // Citation row round-trip.
+  const crow = citationToRow(cite);
+  check(results, "rows: citation carries stable ids (not display strings)", crow.record_kind === "capture" && crow.record_id === "cap-9" && crow.document_id === doc.id && crow.passage_id === passage.id);
+
+  // Malformed / partial remote rows hydrate gracefully (no crash).
+  const partial = rowsToDocuments(
+    [{ id: "d9", title: "Partial", subtitle: null, authors: "not-an-array" as unknown as string[], publication: null, publication_date: null, language: null, description: null, kind: "book", status: "reading", rating: null, cover_color: null, tags: null as unknown as string[], notes: "", source_metadata: null, progress: null as unknown as ReadingProgressT, created_at: "2026-08-15T00:00:00Z", updated_at: "2026-08-15T00:00:00Z" }],
+    [], [], [], [],
+  );
+  check(results, "rows: malformed rows hydrate to a safe document", partial.length === 1 && Array.isArray(partial[0].authors) && partial[0].progress.status === "not_started");
+
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };
 }
+
+type ReadingDocumentT = import("@/types/mvp").ReadingDocument;
+type ReadingProgressT = import("@/types/mvp").ReadingProgress;

@@ -26,13 +26,15 @@ export default function AuthorPage() {
   const docs = useMemo(() => documentsByAuthor(state, name), [state, name]);
   const related = useMemo(() => {
     const seen = new Set<string>();
-    const out: { kind: string; id: string; title: string; href: string }[] = [];
+    const out: { kind: string; id: string; title: string; href?: string; removed?: boolean }[] = [];
     for (const d of docs) for (const c of citationsForDocument(state, d.id)) {
       const key = `${c.recordKind}:${c.recordId}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      // Broken citation targets (a deleted knowledge record) are shown visibly
+      // as "removed" rather than silently dropped — the citation never crashes.
       const live = resolveRecord(state, c.recordKind, c.recordId);
-      if (live) out.push({ kind: c.recordKind, id: c.recordId, title: live.title, href: live.href });
+      out.push(live ? { kind: c.recordKind, id: c.recordId, title: live.title, href: live.href } : { kind: c.recordKind, id: c.recordId, title: "(removed)", removed: true });
     }
     return out;
   }, [state, docs]);
@@ -69,7 +71,11 @@ export default function AuthorPage() {
               <ul className="flex flex-wrap gap-1.5">
                 {related.map((r) => (
                   <li key={`${r.kind}:${r.id}`}>
-                    <Link href={r.href} className="rounded-full bg-black/[.05] px-2 py-0.5 text-[11px] text-zinc-600 hover:underline dark:bg-white/[.06] dark:text-zinc-300">{r.kind}: {r.title.slice(0, 40)}</Link>
+                    {r.href ? (
+                      <Link href={r.href} className="rounded-full bg-black/[.05] px-2 py-0.5 text-[11px] text-zinc-600 hover:underline dark:bg-white/[.06] dark:text-zinc-300">{r.kind}: {r.title.slice(0, 40)}</Link>
+                    ) : (
+                      <span className="rounded-full bg-black/[.05] px-2 py-0.5 text-[11px] text-zinc-400 line-through dark:bg-white/[.06]" title="The linked record was deleted">{r.kind}: {r.title}</span>
+                    )}
                   </li>
                 ))}
               </ul>

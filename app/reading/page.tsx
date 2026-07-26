@@ -15,8 +15,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createDocument, useStore } from "@/lib/mvpStore";
 import { readingDashboard, documentStats, parsedPassages } from "@/lib/library/documents";
+import { checkImportSize } from "@/lib/library/importer";
 import { getPinned } from "@/lib/command/recent";
 import { STATUS_LABEL } from "@/lib/library/progress";
+import SyncStatus from "@/components/SyncStatus";
 import type { DocumentKind, ReadingDocument } from "@/types/mvp";
 
 const KIND_OPTIONS: DocumentKind[] = ["book", "article", "essay", "paper", "transcript", "lecture_notes", "journal_article", "report", "other"];
@@ -41,6 +43,7 @@ function ReadingHome() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Reading</h1>
           <p className="mt-1 text-sm text-zinc-500">Import a document and gradually turn it into captures, beliefs, concepts, and research — every derived record keeps a citation home. {dash.streakDays > 0 && <span className="text-emerald-600 dark:text-emerald-400">🔥 {dash.streakDays}-day streak</span>}</p>
+          <div className="mt-1.5"><SyncStatus /></div>
         </div>
         <button type="button" onClick={() => setShowImport((v) => !v)} className="shrink-0 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900">＋ Add document</button>
       </header>
@@ -119,10 +122,14 @@ function ImportPanel({ onDone, onCancel }: { onDone: (id: string) => void; onCan
   const [kind, setKind] = useState<DocumentKind>("book");
   const [format, setFormat] = useState<"markdown" | "plain">("markdown");
   const [content, setContent] = useState("");
+  const [confirmLarge, setConfirmLarge] = useState(false);
   const passages = content.trim() ? parsedPassages(content, format) : 0;
+  const size = checkImportSize(content);
 
   const submit = () => {
     if (!title.trim() || !content.trim()) return;
+    if (!size.ok) return;                       // hard-blocked (too large)
+    if (size.warn && !confirmLarge) return;     // needs explicit confirmation
     const id = createDocument({
       title, kind, format,
       authors: authors.split(",").map((a) => a.trim()).filter(Boolean),
@@ -148,11 +155,21 @@ function ImportPanel({ onDone, onCancel }: { onDone: (id: string) => void; onCan
           </select>
         </div>
         <textarea value={content} onChange={(e) => setContent(e.target.value)} rows={8} placeholder="Paste the document text here…" aria-label="Document content" className="w-full resize-y rounded-lg border border-black/[.10] bg-transparent px-3 py-2 font-mono text-xs outline-none focus:border-black/[.25] dark:border-white/[.12]" />
+        {size.message && (
+          <div className={`rounded-lg px-3 py-2 text-[11px] ${size.ok ? "bg-amber-500/[.10] text-amber-700 dark:text-amber-300" : "bg-rose-500/[.10] text-rose-700 dark:text-rose-300"}`} role="alert">
+            {size.message}
+            {size.ok && size.warn && (
+              <label className="mt-1 flex items-center gap-1.5">
+                <input type="checkbox" checked={confirmLarge} onChange={(e) => setConfirmLarge(e.target.checked)} /> Import this large document anyway
+              </label>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-zinc-400">{passages} passage{passages === 1 ? "" : "s"} detected</span>
+          <span className="text-[11px] text-zinc-400">{passages} passage{passages === 1 ? "" : "s"} detected · {Math.round(size.chars / 1000)} KB</span>
           <div className="flex gap-2">
             <button type="button" onClick={onCancel} className="rounded-full border border-black/[.12] px-3 py-1.5 text-[11px] text-zinc-500 dark:border-white/[.15]">Cancel</button>
-            <button type="button" onClick={submit} disabled={!title.trim() || !content.trim()} className="rounded-full bg-zinc-900 px-5 py-1.5 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900">Import & read →</button>
+            <button type="button" onClick={submit} disabled={!title.trim() || !content.trim() || !size.ok || (size.warn && !confirmLarge)} className="rounded-full bg-zinc-900 px-5 py-1.5 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900">Import & read →</button>
           </div>
         </div>
       </div>

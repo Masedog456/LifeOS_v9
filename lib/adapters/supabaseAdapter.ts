@@ -43,8 +43,14 @@ import type {
   RevisionEntry,
   SourceType,
   StoreState,
+  Citation,
+  ReadingDocument,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
+import {
+  allDocumentRows, citationToRow, diffById, documentToImportPayload, newDocumentIds, rowsToDocuments,
+  type AnnotationRow, type CitationRow, type DocumentRow, type HighlightRow, type PassageRow, type SectionRow,
+} from "@/lib/library/rows";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -131,6 +137,11 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const revsByBelief = groupBy((revisions.data ?? []) as any[], "belief_id");
     const judsByBelief = groupBy((judgments.data ?? []) as any[], "belief_id");
 
+    // Reading library (LIFEOS-028): fetched separately and resiliently — if the
+    // 0021 tables are missing on an older deployment, hydration degrades to an
+    // empty reading library rather than failing the whole load.
+    const reading = await this.loadReading();
+
     return {
       sources: (sources.data ?? []).map((r: any) =>
         rowToSource(r, (quotesBySource[r.id] ?? []).map((q) => q.text as string)),
@@ -166,10 +177,12 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       tensions: (tensions.data ?? []).map(rowToTension),
       syntheses: (syntheses.data ?? []).map(rowToSynthesis),
       recommendations: (recommendations.data ?? []).map(rowToRecommendation),
+      documents: reading.documents,
+      citations: reading.citations,
     };
   }
 
-  async saveState(state: StoreState, dirty?: Set<keyof StoreState>): Promise<void> {
+  async saveState(state: StoreState, dirty?: Set<keyof StoreState>, base?: StoreState | null): Promise<void> {
     // Incremental sync (LIFEOS-021): with a `dirty` set, push only changed
     // domains; without one, push everything (full/backward-compatible sync).
     const w = (k: keyof StoreState) => !dirty || dirty.has(k);
@@ -265,8 +278,61 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("recommendations") && state.recommendations.length) {
       await this.throwing(this.client.from("recommendations").upsert(state.recommendations.map(recommendationToRow)));
     }
+    // ---- Reading library (LIFEOS-028): normalized, row-level incremental sync ----
+    if (w("documents")) await this.syncReadingDocuments(state.documents, base?.documents ?? []);
+    if (w("citations")) await this.syncCitations(state.citations, base?.citations ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
+  }
+
+  /**
+   * Sync the reading document hierarchy with ROW-LEVEL granularity: brand-new
+   * documents import atomically via the RPC (so a partial import can never look
+   * complete); existing documents push only their changed rows and delete only
+   * removed ones; removed documents delete their row (DB cascades owned
+   * children). Editing one annotation therefore touches one row, not the library.
+   */
+  private async syncReadingDocuments(current: ReadingDocument[], base: ReadingDocument[]): Promise<void> {
+    const isNew = newDocumentIds(current, base);
+    // 1. Atomic import for brand-new documents (transactional RPC).
+    for (const doc of current) {
+      if (isNew.has(doc.id)) {
+        await this.throwing(this.client.rpc("import_reading_document", { payload: documentToImportPayload(doc) }));
+      }
+    }
+    // 2. Incremental upsert/delete for the rest (existing, possibly edited).
+    const existingCurrent = current.filter((d) => !isNew.has(d.id));
+    const cur = allDocumentRows(existingCurrent);
+    const prev = allDocumentRows(base.filter((d) => current.some((c) => c.id === d.id) && !isNew.has(d.id)));
+
+    const dDoc = diffById<DocumentRow>(cur.documents, prev.documents);
+    const dSec = diffById<SectionRow>(cur.sections, prev.sections);
+    const dPas = diffById<PassageRow>(cur.passages, prev.passages);
+    const dHl = diffById<HighlightRow>(cur.highlights, prev.highlights);
+    const dAn = diffById<AnnotationRow>(cur.annotations, prev.annotations);
+
+    // Upserts parent → child (FK-safe).
+    if (dDoc.upsert.length) await this.throwing(this.client.from("reading_documents").upsert(dDoc.upsert));
+    if (dSec.upsert.length) await this.throwing(this.client.from("document_sections").upsert(dSec.upsert));
+    if (dPas.upsert.length) await this.throwing(this.client.from("document_passages").upsert(dPas.upsert));
+    if (dHl.upsert.length) await this.throwing(this.client.from("document_highlights").upsert(dHl.upsert));
+    if (dAn.upsert.length) await this.throwing(this.client.from("document_annotations").upsert(dAn.upsert));
+
+    // Deletes child → parent (also covers whole-document deletion; cascade is a backstop).
+    const removedDocIds = base.filter((d) => !current.some((c) => c.id === d.id)).map((d) => d.id);
+    if (dAn.deleteIds.length) await this.throwing(this.client.from("document_annotations").delete().in("id", dAn.deleteIds));
+    if (dHl.deleteIds.length) await this.throwing(this.client.from("document_highlights").delete().in("id", dHl.deleteIds));
+    if (dPas.deleteIds.length) await this.throwing(this.client.from("document_passages").delete().in("id", dPas.deleteIds));
+    if (dSec.deleteIds.length) await this.throwing(this.client.from("document_sections").delete().in("id", dSec.deleteIds));
+    if (removedDocIds.length) await this.throwing(this.client.from("reading_documents").delete().in("id", removedDocIds));
+  }
+
+  private async syncCitations(current: Citation[], base: Citation[]): Promise<void> {
+    const cur = current.map(citationToRow);
+    const prev = base.map(citationToRow);
+    const d = diffById<CitationRow>(cur, prev);
+    if (d.upsert.length) await this.throwing(this.client.from("document_citations").upsert(d.upsert));
+    if (d.deleteIds.length) await this.throwing(this.client.from("document_citations").delete().in("id", d.deleteIds));
   }
 
   async saveSource(source: KnowledgeSource): Promise<void> {
@@ -322,9 +388,45 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     await this.insertIgnore("saved_quotes", [{ source_id: sourceId, text: quote }], "source_id,text");
   }
 
+  /** Load the reading hierarchy + citations, resilient to missing tables. */
+  private async loadReading(): Promise<{ documents: ReadingDocument[]; citations: Citation[] }> {
+    try {
+      const [docs, secs, pass, hls, anns, cites] = await Promise.all([
+        this.client.from("reading_documents").select("*"),
+        this.client.from("document_sections").select("*"),
+        this.client.from("document_passages").select("*"),
+        this.client.from("document_highlights").select("*"),
+        this.client.from("document_annotations").select("*"),
+        this.client.from("document_citations").select("*"),
+      ]);
+      // A missing table / permission error → treat reading as empty (graceful).
+      if (docs.error || secs.error || pass.error || hls.error || anns.error || cites.error) {
+        return { documents: [], citations: [] };
+      }
+      const documents = rowsToDocuments(
+        (docs.data ?? []) as DocumentRow[], (secs.data ?? []) as SectionRow[], (pass.data ?? []) as PassageRow[],
+        (hls.data ?? []) as HighlightRow[], (anns.data ?? []) as AnnotationRow[],
+      );
+      const citations: Citation[] = ((cites.data ?? []) as CitationRow[]).map((r) => ({
+        id: r.id, recordKind: r.record_kind, recordId: r.record_id, documentId: r.document_id,
+        documentTitle: documents.find((d) => d.id === r.document_id)?.title ?? "",
+        author: documents.find((d) => d.id === r.document_id)?.authors[0],
+        sectionId: r.section_id ?? undefined, passageId: r.passage_id ?? undefined, highlightId: r.highlight_id ?? undefined,
+        page: r.page ?? undefined, location: r.location ?? undefined, createdAt: r.created_at,
+      }));
+      return { documents, citations };
+    } catch {
+      return { documents: [], citations: [] };
+    }
+  }
+
   async deleteAll(): Promise<void> {
     const uid = await this.uid();
     if (!uid) return;
+    // Reading library: deleting the documents cascades sections/passages/
+    // highlights/annotations/citations. Guarded so a missing 0021 table is a
+    // no-op rather than an error.
+    try { await this.client.from("reading_documents").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
     // Delete beliefs first (cascades revisions/judgments), then the rest.
     // saved_quotes cascade from sources.
     await this.throwing(this.client.from("recommendations").delete().eq("user_id", uid));

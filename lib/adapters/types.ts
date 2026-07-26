@@ -44,9 +44,12 @@ export interface PersistenceAdapter {
   /**
    * Persist state (idempotent upserts for remote). When `dirty` is provided
    * (LIFEOS-021 incremental sync), only those domains are pushed; when omitted,
-   * the whole state is persisted (full sync — backward compatible).
+   * the whole state is persisted (full sync — backward compatible). `base` is the
+   * last successfully-synced state, used by normalized domains (LIFEOS-028
+   * reading library) to compute row-level upserts/deletes so a single edit does
+   * not rewrite every document. Adapters that don't need it ignore it.
    */
-  saveState(state: StoreState, dirty?: Set<keyof StoreState>): Promise<void>;
+  saveState(state: StoreState, dirty?: Set<keyof StoreState>, base?: StoreState | null): Promise<void>;
 
   // Granular saves — append-only where the ontology requires it.
   saveSource(source: KnowledgeSource): Promise<void>;

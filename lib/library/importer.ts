@@ -136,3 +136,24 @@ export function parseInput(input: string, format?: DocumentParser["format"]): { 
 export function passageCount(parsed: ParsedDocument): number {
   return parsed.sections.reduce((n, s) => n + s.passages.length, 0);
 }
+
+/**
+ * Storage-safety limits (LIFEOS-028 amendment). The whole store is mirrored to
+ * one localStorage blob (~5 MB browser cap), so a single import is soft-warned
+ * above WARN and hard-blocked above MAX to keep browser storage safe. User text
+ * is NEVER silently truncated — the UI must warn and require confirmation.
+ */
+export const WARN_IMPORT_CHARS = 400_000;   // ~400 KB — warn + confirm
+export const MAX_IMPORT_CHARS = 1_500_000;  // ~1.5 MB — blocked
+
+export interface ImportSizeCheck { ok: boolean; warn: boolean; chars: number; message?: string }
+export function checkImportSize(content: string): ImportSizeCheck {
+  const chars = content.length;
+  if (chars > MAX_IMPORT_CHARS) {
+    return { ok: false, warn: true, chars, message: `This text is ${Math.round(chars / 1000)} KB — larger than the ${Math.round(MAX_IMPORT_CHARS / 1000)} KB per-document limit for safe in-browser storage. Split it into smaller documents.` };
+  }
+  if (chars > WARN_IMPORT_CHARS) {
+    return { ok: true, warn: true, chars, message: `This is a large document (${Math.round(chars / 1000)} KB). Importing it uses a meaningful share of browser storage; confirm to continue.` };
+  }
+  return { ok: true, warn: false, chars };
+}
