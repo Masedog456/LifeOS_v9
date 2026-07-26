@@ -191,7 +191,22 @@
     0001–0019, existing rows, other tables, or their RLS. System-health
     reporting, sync diagnostics, and integrity findings are deliberately
     DERIVED at view time — no tables are added for them.
-21. **Project Settings → API**: copy the **Project URL** and the **anon
+21. Then run `supabase/migrations/0021_reading_library.sql` (LIFEOS-028
+    amendment — the durable Reading Companion library). Adds six independently
+    durable, own-rows-RLS tables: `reading_documents` (reading progress embedded
+    as jsonb, 1:1; `import_complete` flag), `document_sections`,
+    `document_passages`, `document_highlights`, `document_annotations`,
+    `document_citations`, plus the atomic `import_reading_document(payload jsonb)`
+    RPC. Foreign keys: section→document, passage→document+section,
+    highlight/annotation→document+passage, citation→document (+optional
+    passage/highlight `on delete set null`); deleting a document CASCADES to its
+    owned children. A citation's link to an external knowledge record is
+    `record_kind`+`record_id` with NO FK — deleting a document never deletes the
+    belief/concept it produced. RLS: four own-row CRUD policies per table (24),
+    with child inserts/updates additionally requiring the parent to belong to the
+    same user. Additive and rerunnable; it does not touch migrations 0001–0020,
+    existing rows, other tables, or their RLS.
+22. **Project Settings → API**: copy the **Project URL** and the **anon
    public** key. (Never copy the **service-role** key into this project.)
 
 ### 1b. Supabase authentication (email magic link)
@@ -531,6 +546,28 @@ changes runtime behavior.
       `0020_generation_one_hardening.sql` applies cleanly and is idempotent on
       a Postgres 16 schema built from 0001–0019; `user_prefs` mirroring is
       code-complete and credential-pending like all remote sync.
+- [x] **Reading library durable persistence (LIFEOS-028 amendment, migration
+      0021).** Validated on Postgres 16 against a schema built from 0001–0020
+      (0010's pgvector is Supabase-only and skipped locally, and 0021 is
+      independent of it): `0021_reading_library.sql` applies successfully and is
+      IDEMPOTENT applied **3×** (create-if-not-exists + drop/create policies).
+      Verified present: all **6 tables** (`reading_documents`,
+      `document_sections`, `document_passages`, `document_highlights`,
+      `document_annotations`, `document_citations`); **RLS enabled on all 6**;
+      **24 policies** (4 own-row CRUD each); **24 indexes** (user_id, document_id,
+      section_id, passage_id, updated_at, status, citation target); **16 foreign
+      keys** with the intended `on delete` actions; the atomic
+      `import_reading_document` RPC. Behavior verified: deleting a document
+      **cascades** to its sections/passages/highlights/annotations/citations
+      (children → 0), while the external knowledge record a citation points at is
+      NOT deleted (no FK). Cross-user isolation verified as a non-superuser role:
+      user B sees **0** of user A's documents, user A sees their own, and user B
+      is **blocked by RLS** from inserting a section into user A's document
+      ("new row violates row-level security"). No prior table (0001–0020) is
+      modified. Remote reading sync is code-complete and credential-pending like
+      all remote sync; local-first persistence is fully exercised by the reading
+      E2E + self-tests (row flatten/rebuild/diff, malformed-row resilience,
+      one-annotation-edit-is-one-row).
 - [x] `npm run lint` = 0, `npm run build` = 0.
 - [x] **Production build** (`next start`) serves `/`, `/library`, `/inbox`,
       `/constitution`, and `/api/ai` (verifies no local-only assumption
@@ -660,3 +697,12 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   already has remote data, then sign in, the remote copy is adopted as the
   source of truth (those particular offline edits are not merged). Append-
   only history is never lost. Sign in before editing to avoid this.
+- **Reading library (LIFEOS-028):** remote reading sync is code-complete and
+  validated against Postgres, but — like all remote sync in this repo — is
+  **credential-pending** (no Supabase credentials in this environment). Row-level
+  incremental sync means editing one annotation writes one row; brand-new
+  documents import atomically via the `import_reading_document` RPC. A partial
+  remote import leaves the document `import_complete = false` and is recoverable
+  (the local store re-pushes on the next flush); local data is never destroyed by
+  a sync failure. Per-document import is soft-warned above ~400 KB and
+  hard-blocked above ~1.5 MB to keep the localStorage blob under the browser cap.

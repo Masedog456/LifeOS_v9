@@ -94,8 +94,21 @@ import type {
   DialecticConfidence,
   DialecticEvidenceLink,
   Recommendation,
+  ReadingDocument,
+  ReadingStatus,
+  DocumentSection,
+  Passage,
+  Highlight,
+  Annotation,
+  RecordRefLite,
+  Citation,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
+import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
+import { withPassageRead, withPosition, withStatus } from "@/lib/library/progress";
+import { makeHighlight } from "@/lib/library/highlights";
+import { makeAnnotation } from "@/lib/library/annotations";
+import { makeCitation } from "@/lib/library/citations";
 import type { ProposalDraft } from "@/lib/proposals";
 import { clearState, loadState, saveLocalOnly, saveState } from "@/lib/persistence";
 import { makeFingerprint, threadDeps, weeklyDeps, conceptDeps, projectDeps, researchDeps, dialogueDeps } from "@/lib/freshness/fingerprint";
@@ -133,6 +146,8 @@ const EMPTY_STATE: StoreState = {
   tensions: [],
   syntheses: [],
   recommendations: [],
+  documents: [],
+  citations: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -373,6 +388,32 @@ export function hydrate() {
           ...r,
           affected: asArray<Recommendation["affected"][number]>(r?.affected),
         })),
+        documents: asArray<ReadingDocument>(parsed.documents).map((d) => ({
+          ...d,
+          authors: asArray<string>(d?.authors),
+          tags: asArray<string>(d?.tags),
+          sections: asArray<DocumentSection>(d?.sections).map((s) => ({
+            ...s,
+            passages: asArray<Passage>(s?.passages).map((p) => ({
+              ...p,
+              highlights: asArray<Highlight>(p?.highlights).map((h) => ({ ...h, linked: asArray<RecordRefLite>(h?.linked) })),
+              annotations: asArray<Annotation>(p?.annotations),
+              linked: asArray<RecordRefLite>(p?.linked),
+            })),
+          })),
+          progress: {
+            status: d?.progress?.status ?? "not_started",
+            percent: d?.progress?.percent ?? 0,
+            currentSectionId: d?.progress?.currentSectionId,
+            currentPassageId: d?.progress?.currentPassageId,
+            readPassageIds: asArray<string>(d?.progress?.readPassageIds),
+            lastOpenedAt: d?.progress?.lastOpenedAt,
+            startedAt: d?.progress?.startedAt,
+            finishedAt: d?.progress?.finishedAt,
+          },
+          sourceMetadata: d?.sourceMetadata ?? { importFormat: "plain" },
+        })),
+        citations: asArray<Citation>(parsed.citations),
       };
       emit();
     }
@@ -388,7 +429,7 @@ export function resetStore() {
     captures: [], proposals: [], beliefs: [], sources: [], feedback: [],
     comparisons: [], inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [],
     concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
-    tensions: [], syntheses: [], recommendations: [],
+    tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
   });
 }
 
@@ -2839,4 +2880,172 @@ export function repairStaleRecommendations(): number {
   const removed = state.recommendations.length - keep.length;
   if (removed > 0) setState({ ...state, recommendations: keep });
   return removed;
+}
+
+// ---------- Reading companion (LIFEOS-028) ----------
+
+// Single-map document updater; stamps updatedAt once.
+function patchDocument(docId: string, update: (d: ReadingDocument) => ReadingDocument): void {
+  setState({
+    ...state,
+    documents: state.documents.map((d) => (d.id === docId ? { ...update(d), updatedAt: now() } : d)),
+  });
+}
+
+/** Import a document from parsed input. Returns the new document id. */
+export function createDocument(input: NewDocumentInput): string {
+  const doc = assembleDocument(input, { id, now });
+  setState({ ...state, documents: [doc, ...state.documents] });
+  return doc.id;
+}
+
+/** Edit document metadata (title, authors, tags, rating, kind, status, notes, …). */
+export function updateDocumentMeta(docId: string, patch: Partial<Pick<ReadingDocument, "title" | "subtitle" | "authors" | "publication" | "publicationDate" | "language" | "description" | "kind" | "status" | "rating" | "tags" | "notes">>): void {
+  patchDocument(docId, (d) => {
+    const next = { ...d, ...patch };
+    // Keep progress.status and document.status in sync when status is set here.
+    if (patch.status && patch.status !== d.status) next.progress = withStatus(d.progress, patch.status, now());
+    return next;
+  });
+}
+
+/** Delete a document and every citation that points into it. */
+export function deleteDocument(docId: string): void {
+  setState({ ...state, documents: state.documents.filter((d) => d.id !== docId), citations: state.citations.filter((c) => c.documentId !== docId) });
+}
+
+export function setDocumentNotes(docId: string, notes: string): void {
+  patchDocument(docId, (d) => ({ ...d, notes }));
+}
+export function setSectionNote(docId: string, sectionId: string, note: string): void {
+  patchDocument(docId, (d) => ({ ...d, sections: d.sections.map((s) => (s.id === sectionId ? { ...s, note } : s)) }));
+}
+
+/** Record that the reader opened at a location (updates progress + lastOpened). */
+export function openDocumentAt(docId: string, sectionId?: string, passageId?: string): void {
+  patchDocument(docId, (d) => ({ ...d, progress: withPosition(d.progress, sectionId, passageId, now()) }));
+}
+
+/** Mark a passage read/unread; recomputes percent and status. */
+export function markPassageRead(docId: string, passageId: string, read: boolean): void {
+  patchDocument(docId, (d) => {
+    const total = d.sections.reduce((n, s) => n + s.passages.length, 0);
+    const progress = withPassageRead(d.progress, passageId, read, total, now());
+    return { ...d, progress, status: progress.status };
+  });
+}
+
+/** Set the reading status explicitly. */
+export function setDocumentStatus(docId: string, status: ReadingStatus): void {
+  patchDocument(docId, (d) => ({ ...d, status, progress: withStatus(d.progress, status, now()) }));
+}
+
+// ---- Highlights ----
+function mapPassage(d: ReadingDocument, passageId: string, fn: (p: Passage) => Passage): ReadingDocument {
+  return { ...d, sections: d.sections.map((s) => ({ ...s, passages: s.passages.map((p) => (p.id === passageId ? fn(p) : p)) })) };
+}
+
+export function addHighlight(docId: string, passageId: string, start: number, end: number, color: Highlight["color"], note?: string): string | null {
+  const doc = state.documents.find((d) => d.id === docId);
+  const passage = doc?.sections.flatMap((s) => s.passages).find((p) => p.id === passageId);
+  if (!doc || !passage) return null;
+  const h = makeHighlight(passageId, passage.text, start, end, color, { id, now }, note);
+  if (!h) return null;
+  patchDocument(docId, (d) => mapPassage(d, passageId, (p) => ({ ...p, highlights: [...p.highlights, h] })));
+  return h.id;
+}
+export function updateHighlight(docId: string, highlightId: string, patch: Partial<Pick<Highlight, "color" | "note">>): void {
+  patchDocument(docId, (d) => ({ ...d, sections: d.sections.map((s) => ({ ...s, passages: s.passages.map((p) => ({ ...p, highlights: p.highlights.map((h) => (h.id === highlightId ? { ...h, ...patch, updatedAt: now() } : h)) })) })) }));
+}
+export function removeHighlight(docId: string, highlightId: string): void {
+  patchDocument(docId, (d) => ({ ...d, sections: d.sections.map((s) => ({ ...s, passages: s.passages.map((p) => ({ ...p, highlights: p.highlights.filter((h) => h.id !== highlightId) })) })) }));
+}
+
+// ---- Annotations ----
+export function addAnnotation(docId: string, passageId: string, text: string): string | null {
+  const a = makeAnnotation(passageId, text, { id, now });
+  if (!a) return null;
+  patchDocument(docId, (d) => mapPassage(d, passageId, (p) => ({ ...p, annotations: [...p.annotations, a] })));
+  return a.id;
+}
+export function updateAnnotation(docId: string, annotationId: string, text: string): void {
+  patchDocument(docId, (d) => ({ ...d, sections: d.sections.map((s) => ({ ...s, passages: s.passages.map((p) => ({ ...p, annotations: p.annotations.map((a) => (a.id === annotationId ? { ...a, text, updatedAt: now() } : a)) })) })) }));
+}
+export function removeAnnotation(docId: string, annotationId: string): void {
+  patchDocument(docId, (d) => ({ ...d, sections: d.sections.map((s) => ({ ...s, passages: s.passages.map((p) => ({ ...p, annotations: p.annotations.filter((a) => a.id !== annotationId) })) })) }));
+}
+
+/** Create an accepted belief directly from text (canonical: capture → proposal → belief). */
+export function createBeliefFromText(text: string, opts?: { theme?: string }): string {
+  const at = now();
+  const captureId = id();
+  const proposalId = id();
+  const beliefId = id();
+  const capture: Capture = { id: captureId, text: text.trim(), createdAt: at };
+  const proposal: Proposal = { id: proposalId, captureId, claim: text.trim(), theme: opts?.theme, source: "mock", createdAt: at, resolved: true };
+  const belief: Belief = {
+    id: beliefId, captureId, proposalId, text: text.trim(), theme: opts?.theme, status: "accepted", createdAt: at, updatedAt: at,
+    revisions: [{ text: text.trim(), at, reason: "accepted" }], judgments: [{ decision: "accepted", at }],
+  };
+  setState({ ...state, captures: [capture, ...state.captures], proposals: [proposal, ...state.proposals], beliefs: [belief, ...state.beliefs] });
+  return beliefId;
+}
+
+export type ConversionTarget = "capture" | "belief" | "concept" | "question" | "research" | "synthesis";
+
+/**
+ * Convert a passage (optionally a specific highlight) into a knowledge record
+ * using the EXISTING canonical creators, then attach a Citation back to the
+ * source and link the record to the passage/highlight. Returns the record's
+ * kind + id. Everything deterministic; no AI.
+ */
+export function convertPassage(
+  docId: string,
+  passageId: string,
+  target: ConversionTarget,
+  opts?: { text?: string; title?: string; highlightId?: string },
+): { kind: string; id: string } | null {
+  const doc = state.documents.find((d) => d.id === docId);
+  const section = doc?.sections.find((s) => s.passages.some((p) => p.id === passageId));
+  const passage = section?.passages.find((p) => p.id === passageId);
+  if (!doc || !section || !passage) return null;
+  const highlight = opts?.highlightId ? passage.highlights.find((h) => h.id === opts.highlightId) : undefined;
+  const text = (opts?.text ?? highlight?.text ?? passage.text).trim();
+  const title = (opts?.title ?? text).slice(0, 80);
+
+  let recordKind: string;
+  let recordId: string;
+  switch (target) {
+    case "capture": recordKind = "capture"; recordId = addCapture(text); break;
+    case "belief": recordKind = "belief"; recordId = createBeliefFromText(text, { theme: passage.heading }); break;
+    case "concept": recordKind = "concept"; recordId = createConcept({ name: title, description: text, source: "user" }); break;
+    case "question": recordKind = "research_project"; recordId = createResearchProject({ title: `Question: ${title}`, question: text }); break;
+    case "research": recordKind = "research_project"; recordId = createResearchProject({ title, question: text }); break;
+    case "synthesis": recordKind = "dialogue"; recordId = createDialogue({ title: `Synthesis: ${title}`, topic: text, purpose: "Integrate this passage into a synthesis" }); break;
+    default: return null;
+  }
+
+  // Attach citation + link the record to the passage (and highlight, if any).
+  const citation = makeCitation(doc, { section, passage, highlight }, { kind: recordKind, id: recordId }, { id, now });
+  const ref: RecordRefLite = { kind: recordKind, id: recordId };
+  setState({
+    ...state,
+    citations: [citation, ...state.citations],
+    documents: state.documents.map((d) => (d.id !== docId ? d : {
+      ...d,
+      updatedAt: now(),
+      sections: d.sections.map((s) => ({
+        ...s,
+        passages: s.passages.map((p) => {
+          if (p.id !== passageId) return p;
+          return {
+            ...p,
+            linked: p.linked.some((l) => l.kind === ref.kind && l.id === ref.id) ? p.linked : [...p.linked, ref],
+            highlights: highlight ? p.highlights.map((h) => (h.id === highlight.id ? { ...h, linked: [...h.linked, ref], updatedAt: now() } : h)) : p.highlights,
+          };
+        }),
+      })),
+    })),
+  });
+  return { kind: recordKind, id: recordId };
 }

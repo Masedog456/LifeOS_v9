@@ -26,12 +26,18 @@ export const RECORD_LABELS: Record<string, string> = {
   knowledge_project: "Authoring",
   source: "Library",
   inquiry: "Questions",
+  document: "Documents",
+  author: "Authors",
+  passage: "Passages",
+  highlight: "Highlights",
+  annotation: "Reading notes",
 };
 
 /** Deterministic group ordering for search output (index = priority). */
 export const RECORD_ORDER: string[] = [
-  "belief", "concept", "theme", "capture", "dialogue", "research_project",
+  "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
   "synthesis", "tension", "decision", "inquiry", "formation", "knowledge_project", "source",
+  "passage", "highlight", "annotation",
 ];
 
 const norm = (s: string | undefined): string => (s ?? "").toLowerCase();
@@ -87,6 +93,28 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
   for (const k of state.knowledgeProjects) add("knowledge_project", k.id, k.title, { body: k.title, status: k.status, updatedAt: k.updatedAt, href: `/author/${k.id}` });
   for (const s of state.sources) add("source", s.id, s.title, { body: `${s.title} ${s.author ?? ""}`, aliases: s.author ? [s.author] : [], status: s.status, updatedAt: s.addedAt, href: `/library/${s.id}` });
 
+  // ---- Reading companion (LIFEOS-028): documents, authors, passages, highlights, notes ----
+  const authorSeen = new Set<string>();
+  for (const doc of state.documents) {
+    const sectionNotes = doc.sections.map((s) => s.note ?? "").join(" ");
+    add("document", doc.id, doc.title, {
+      body: `${doc.title} ${doc.subtitle ?? ""} ${doc.authors.join(" ")} ${doc.publication ?? ""} ${doc.description ?? ""} ${doc.tags.join(" ")} ${doc.notes} ${sectionNotes}`,
+      aliases: [...doc.authors, ...doc.tags],
+      status: doc.status, updatedAt: doc.updatedAt, href: `/document/${doc.id}`,
+    });
+    for (const a of doc.authors) {
+      const key = a.toLowerCase().trim();
+      if (!key || authorSeen.has(key)) continue;
+      authorSeen.add(key);
+      add("author", key, a, { body: a, updatedAt: doc.updatedAt, href: `/reading/author/${encodeURIComponent(a)}` });
+    }
+    for (const s of doc.sections) for (const p of s.passages) {
+      add("passage", p.id, p.heading || snip(p.text, 60), { body: p.text, updatedAt: doc.updatedAt, href: `/document/${doc.id}?passage=${p.id}` });
+      for (const h of p.highlights) add("highlight", h.id, snip(h.text, 60), { body: `${h.text} ${h.note ?? ""}`, updatedAt: h.updatedAt, href: `/document/${doc.id}?passage=${p.id}&highlight=${h.id}` });
+      for (const an of p.annotations) add("annotation", an.id, snip(an.text, 60), { body: an.text, updatedAt: an.updatedAt, href: `/document/${doc.id}?passage=${p.id}` });
+    }
+  }
+
   return out;
 }
 
@@ -110,6 +138,7 @@ export function resolveRecord(state: StoreState, kind: string, id: string): { ti
     case "formation": { const f = state.formationSessions.find((x) => x.id === id); return f && { title: f.title || snip(f.prompt, 60), href: `/formation/${f.id}`, status: f.status }; }
     case "knowledge_project": { const k = state.knowledgeProjects.find((x) => x.id === id); return k && { title: k.title, href: `/author/${k.id}`, status: k.status }; }
     case "source": { const s = state.sources.find((x) => x.id === id); return s && { title: s.title, href: `/library/${s.id}`, status: s.status }; }
+    case "document": { const d = state.documents.find((x) => x.id === id); return d && { title: d.title, href: `/document/${d.id}`, status: d.status }; }
     default: return undefined;
   }
 }

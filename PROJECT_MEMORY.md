@@ -1950,3 +1950,64 @@ scope or order.
   Screenshots captured (command palette, mobile command bar). Privacy: results
   derive only from the local store + own prefs; nothing sent externally, no
   search terms logged. No agents, no new AI routes, no auto-mutation.
+- 2026-07-25 — Implemented **LIFEOS-028 Reading companion foundation** (base:
+  LIFEOS-027 on `main`; branch restarted from `origin/main`). The canonical
+  document model for all future reading/research/study — deterministic, offline,
+  no LLM/embeddings/OCR/PDF/EPUB/AI/background jobs (architecture only). New
+  types: `ReadingDocument` → `DocumentSection` → `Passage` (+ `Highlight`,
+  `Annotation`, `ReadingProgress`, `Citation`), added to `StoreState`. New
+  `lib/library/`: `importer.ts` (plain + markdown parsers; PDF/EPUB/HTML declared
+  as interfaces, not implemented), `documents.ts` (assembly + dashboard + author
+  projections), `reader.ts` (navigation), `progress.ts` (status/percent/estimate),
+  `highlights.ts`, `annotations.ts` (+ safe inline markdown), `citations.ts`
+  (build/format/href/reverse-lookup), `selftest.ts` (46 assertions). Store
+  actions (`lib/mvpStore.ts`): createDocument, updateDocumentMeta, deleteDocument,
+  set notes/section-note, openDocumentAt, markPassageRead, setDocumentStatus,
+  add/update/remove highlight + annotation, createBeliefFromText, and
+  `convertPassage` (capture/belief/concept/question/research/synthesis via
+  existing canonical creators, writing a Citation + linking the record).
+  Persistence: documents + citations added to EMPTY_STATE/normalize/hydrate/
+  localAdapter — LOCAL ONLY, NO migration (chain stays 0001–0020). Search:
+  extended `lib/command/records.ts` (reuses LIFEOS-027) to index documents,
+  authors, passages, highlights, reading notes. UI: `app/reading` (Library Home +
+  import), `app/document/[id]` (three-pane reader, inline highlights, notes,
+  convert menu, J/K/H/N/Esc, mobile pane switch), `app/reading/author/[name]`,
+  `app/dev/reading-tests`; Nav gains a Read group (Reading · Library); command
+  palette gains New document + Open Reading. Verified 30/30 reading E2E + 46/46
+  self-tests + FULL regression re-run green (gen1 41, memory 29, command 27,
+  dialogue 19, synthesis 22, orchestration 22, research 21, world 21, formation
+  26, authoring 23, decision 33, compare 15, inquiry 22, threads 21, reason,
+  retrieval 11, semantic 19, sync, graph 15); `lint`=0, `build`=0. Screenshots
+  captured (reader desktop + mobile). No AI, no migration, no auto-mutation —
+  the source text is immutable; notes/highlights/citations are separate records.
+- 2026-07-25 — **LIFEOS-028 persistence amendment** (same PR #17, unmerged;
+  before-merge fix). The reading library was local-blob-only; made it durable,
+  cross-device, user-isolated, RLS-protected, consistent with the Supabase
+  architecture. NEW migration `0021_reading_library.sql` (additive, idempotent,
+  rerunnable; 0001–0020 untouched): six tables — reading_documents (progress
+  embedded as jsonb, 1:1; import_complete flag), document_sections,
+  document_passages, document_highlights, document_annotations,
+  document_citations — each with id/user_id/timestamps, FKs (section→document,
+  passage→document+section, highlight/annotation→document+passage,
+  citation→document +optional passage/highlight on-delete-set-null; external
+  record_kind/record_id NON-FK so citations never cascade-delete knowledge),
+  own-row RLS (24 policies) with child-parent EXISTS checks, 24 indexes, and an
+  atomic `import_reading_document(payload jsonb)` RPC. NEW `lib/library/rows.ts`
+  (pure flatten/rebuild/diff). Adapter: `saveState(state, dirty, base)` — new
+  docs import via RPC, existing docs push only changed rows (`diffById`) + delete
+  removed, doc deletion cascades; `loadState` rebuilds the nested hierarchy
+  resiliently (missing tables → empty). `types.ts`/`localAdapter`/`persistence.ts`
+  pass the base snapshot. UI: `SyncStatus` on the reading dashboard + reader
+  (4 states); import size guard (`checkImportSize` — warn >400 KB w/ confirm,
+  block >1.5 MB); author page shows broken citation targets visibly as
+  "(removed)". Migration validated on Postgres 16 (built from 0001–0020, 0010
+  pgvector Supabase-only/skipped): applied 3× idempotently; 6 tables, RLS on all
+  6, 24 policies, 24 indexes, 16 FKs, RPC present; doc-delete cascades children;
+  cross-user isolation + child-attach block enforced by RLS. Reading self-tests
+  now 60 (added flatten/rebuild/diff/malformed-row/new-vs-existing). Verified
+  30/30 reading E2E + FULL regression green (gen1 41, memory 29, command 27,
+  dialogue 19, synthesis 22, orchestration 22, research 21, world 21, formation
+  26, authoring 23, decision 33, compare 15, inquiry 22, threads 21, reason,
+  retrieval 11, semantic 19, sync, graph 15); `lint`=0, `build`=0. Local-first
+  preserved; sync failures never destroy local data. Manual step for production:
+  apply `0021_reading_library.sql` in Supabase (SQL editor / CLI).

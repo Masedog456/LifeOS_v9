@@ -87,6 +87,8 @@ function normalize(partial: Partial<StoreState> | null): StoreState {
     tensions: partial?.tensions ?? [],
     syntheses: partial?.syntheses ?? [],
     recommendations: partial?.recommendations ?? [],
+    documents: partial?.documents ?? [],
+    citations: partial?.citations ?? [],
   };
 }
 
@@ -244,7 +246,7 @@ async function flush(): Promise<void> {
   // successful flush. First sync (no baseline) pushes everything.
   const dirty = dirtyDomainsOf(snapshot, lastSyncedState);
   try {
-    await remote.saveState(snapshot, dirty);
+    await remote.saveState(snapshot, dirty, lastSyncedState);
     lastSyncedState = snapshot;
     retryAttempt = 0;
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
