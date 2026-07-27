@@ -40,6 +40,8 @@ export function openInspector(kind: string, id: string): void {
   const same = prev?.last?.kind === kind && prev?.last?.id === id;
   set({ open: true, target: { kind, id }, tab: same && prev?.tab ? (prev.tab as InspectorTab) : "overview", expanded: same && prev?.expanded ? prev.expanded : state.expanded });
   persist();
+  // First-run: record that the inspector has been used at least once (LIFEOS-032).
+  if (!readPrefs().firstRun?.inspected) writePrefs({ firstRun: { ...readPrefs().firstRun, inspected: true } });
   // Record inspector usage into the active thinking session, if any (LIFEOS-030).
   trackInspect(kind, id);
 }

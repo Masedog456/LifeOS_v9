@@ -7,6 +7,8 @@ import PersistenceBootstrap from "@/components/PersistenceBootstrap";
 import CommandCenter from "@/components/command/CommandCenter";
 import Inspector from "@/components/entity/Inspector";
 import SessionBanner from "@/components/workspace/SessionBanner";
+import ToastProvider from "@/components/ux/ToastProvider";
+import ConfirmHost from "@/components/ux/ConfirmDialog";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -42,6 +44,8 @@ export default function RootLayout({
         <div className="flex flex-1 flex-col">{children}</div>
         <CommandCenter />
         <Inspector />
+        <ToastProvider />
+        <ConfirmHost />
       </body>
     </html>
   );

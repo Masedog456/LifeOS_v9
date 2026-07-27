@@ -470,6 +470,16 @@ export function hydrate() {
   }
 }
 
+/**
+ * Replace the entire store with a validated snapshot (LIFEOS-032 restore). The
+ * caller (BackupRestore) has already validated + previewed + confirmed; this
+ * persists and re-renders. Arrays are defensively guarded via `asArray`-style
+ * normalization on the next hydrate cycle.
+ */
+export function restoreState(next: StoreState): void {
+  setState(next);
+}
+
 /** Wipe all data (local + remote, if configured). */
 export function resetStore() {
   clearState();

@@ -2101,3 +2101,33 @@ scope or order.
   22, orchestration 22, research 21, world 21, formation 26, authoring 23,
   decision, compare, inquiry, threads, reason, retrieval, semantic, sync, graph
   15); `tsc`=0, `lint`=0, `build`=0. Screenshots (goal + project + mobile).
+- 2026-07-27 — Implemented **LIFEOS-032 Daily Use, Reliability & Product Polish**
+  (base: LIFEOS-031 on `main`; branch restarted from `origin/main`). A refinement
+  sprint — NO new domain, NO AI/agents/embeddings/analytics/calendar/
+  notifications. Adds a shared, deterministic UX layer. New `lib/ux/`:
+  `dirty-state` (isDirty + `useUnsavedGuard` beforeunload), `confirmations`
+  (`buildImpact`: name/type/children/linked-survive/reversibility/severity),
+  `feedback` (toast store + windowed dedup + safe actions/undo), `backup`+`restore`
+  (versioned JSON envelope over all StoreState domains + safe prefs; validate →
+  preview merge/overwrite → pure applyRestore; malformed rejected, original
+  preserved), `diagnostics` (sanitized sync snapshot — masks email, strips
+  JWT/bearer/keys, never doc contents), `performance` (budgets), `onboarding`
+  (first-run checklist derived from state), `selftest` (40 assertions). New
+  `components/ux/`: `ToastProvider` (polite live region), `ConfirmDialog` +
+  global `requestConfirm`/`ConfirmHost` (ONE confirmation pattern; focus-trapped
+  alertdialog; safest-action focus; high-impact acknowledgement gate — replaces
+  every window.confirm), `EmptyState`, `ErrorState`, `SaveStatus` (never "Saved"
+  before remote flush), `UnsavedChangesDialog`, `BackupRestore` + `SyncDiagnostics`
+  (reliability center on /health), `FirstRun` (dismissible checklist on Today).
+  Wired: goal/project delete + local-reset now route through the shared confirm
+  with computed impact; toasts on capture/milestone/session/workspace/backup/
+  restore; /health gains reliability center + backup/restore + first-run restart;
+  palette sets `commandOpened`, `openInspector` sets `inspected`. `persistence.ts`
+  tracks `lastSyncAt`. NO migration — all client-side/prefs; chain stays
+  **0001–0023**. New docs: `ACCESSIBILITY.md`, `UX_AUDIT.md` (friction table +
+  mobile 320/390/430 + perf budgets). Verified 27/27 ux E2E + 40/40 self-tests +
+  FULL regression green (execution 25, workspaces 23, entity 18, command 27,
+  reading 30, gen1 41, memory 29, dialogue 19, synthesis 22, orchestration 22,
+  research 21, world 21, formation 26, authoring 23, decision, compare, inquiry,
+  threads, reason, retrieval, semantic, sync, graph 15); `tsc`=0, `lint`=0,
+  `build`=0. Screenshots (health reliability center, confirm dialog, mobile confirm).

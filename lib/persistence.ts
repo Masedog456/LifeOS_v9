@@ -27,6 +27,8 @@ let remote: SupabasePersistenceAdapter | null = null;
 let lastSaved: StoreState | null = null;
 /** The state at the last successful remote flush — for dirty-domain diffing. */
 let lastSyncedState: StoreState | null = null;
+/** ISO time of the last successful remote flush (LIFEOS-032 diagnostics). */
+let lastSyncAt: string | null = null;
 
 /**
  * Which domains changed since the last successful sync. Because the store
@@ -252,6 +254,7 @@ async function flush(): Promise<void> {
   try {
     await remote.saveState(snapshot, dirty, lastSyncedState);
     lastSyncedState = snapshot;
+    lastSyncAt = new Date().toISOString();
     retryAttempt = 0;
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
     setHealth({ state: "synced", error: undefined, retryAttempt: undefined });
@@ -309,6 +312,11 @@ export function getSyncDiagnostics(): { dirtyDomains: string[]; queued: boolean;
     hasBaseline: lastSyncedState !== null,
     mode: remote ? "supabase" : "local",
   };
+}
+
+/** ISO time of the last successful remote flush, or null (LIFEOS-032). */
+export function getLastSyncAt(): string | null {
+  return lastSyncAt;
 }
 
 /** Retry a failed sync by re-pushing the latest local state (manual). */

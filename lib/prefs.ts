@@ -69,6 +69,16 @@ export interface Prefs {
     recentGoals?: string[];
     recentProjects?: string[];
   };
+  /**
+   * First-run checklist state (LIFEOS-032): dismissal + a couple of "did an
+   * action once" flags that can't be derived from domain state (opened the
+   * command center, inspected a relationship). Everything else is derived.
+   */
+  firstRun?: {
+    dismissed?: boolean;
+    commandOpened?: boolean;
+    inspected?: boolean;
+  };
 }
 
 export function readPrefs(): Prefs {

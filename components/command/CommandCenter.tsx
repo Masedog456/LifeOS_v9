@@ -18,6 +18,7 @@ import { useStore, endSession } from "@/lib/mvpStore";
 import { resolveKey, isTypingTarget, isMacPlatform } from "@/lib/command/shortcuts";
 import { OPEN_CAPTURE_EVENT, OPEN_PALETTE_EVENT } from "@/lib/command/events";
 import { recordVisit } from "@/lib/command/recent";
+import { readPrefs, writePrefs } from "@/lib/prefs";
 import { resolveRecord } from "@/lib/command/records";
 import CommandPalette from "@/components/command/CommandPalette";
 import QuickCapture from "@/components/command/QuickCapture";
@@ -58,6 +59,10 @@ export default function CommandCenter() {
     if (overlayRef.current) return; // prevent duplicate dialogs
     restoreFocus.current = (document.activeElement as HTMLElement) ?? null;
     overlayRef.current = o; // keep the ref authoritative immediately (no render lag)
+    // First-run: record that the command center has been opened (LIFEOS-032).
+    if (o === "palette" && !readPrefs().firstRun?.commandOpened) {
+      writePrefs({ firstRun: { ...readPrefs().firstRun, commandOpened: true } });
+    }
     setOverlay(o);
   }, []);
 

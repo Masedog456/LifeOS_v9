@@ -25,6 +25,10 @@ import { buildGraph, graphIntegrity } from "@/lib/graph";
 import { integritySummary, runIntegrityChecks, type IntegritySeverity } from "@/lib/integrity/checks";
 import { isActive } from "@/lib/orchestrator";
 import type { PersistenceHealth } from "@/lib/adapters/types";
+import SyncDiagnostics from "@/components/ux/SyncDiagnostics";
+import BackupRestore from "@/components/ux/BackupRestore";
+import { writePrefs } from "@/lib/prefs";
+import { toast } from "@/lib/ux/feedback";
 
 const MIGRATIONS = [
   "0001_initial_schema", "0002_long_source_analysis", "0003_pdf_ingestion", "0004_retrieval",
@@ -105,6 +109,14 @@ export default function HealthPage() {
         <h1 className="text-2xl font-semibold tracking-tight">System Health</h1>
         <p className="mt-1 text-sm text-zinc-500">Deterministic and observational — viewing this page changes nothing. No secrets are shown.</p>
       </header>
+
+      {/* Sync reliability center + backup/restore (LIFEOS-032) */}
+      <div className="mb-6 space-y-4">
+        <SyncDiagnostics />
+        <BackupRestore />
+        <button type="button" onClick={() => { writePrefs({ firstRun: { dismissed: false, commandOpened: false, inspected: false } }); toast({ kind: "info", message: "First-run checklist reset", detail: "Open Today to see it again." }); }}
+          className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">Restart first-run checklist</button>
+      </div>
 
       {/* Persistence */}
       <Section title="Persistence">

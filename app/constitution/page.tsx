@@ -12,6 +12,9 @@ import {
   useStore,
 } from "@/lib/mvpStore";
 import { buildRecords } from "@/lib/retrieval/records";
+import { requestConfirm } from "@/components/ux/ConfirmDialog";
+import { buildImpact } from "@/lib/ux/confirmations";
+import { toast } from "@/lib/ux/feedback";
 import { relatedTo } from "@/lib/retrieval/search";
 import ThreadLine from "@/components/ThreadLine";
 import RetrievalResults from "@/components/RetrievalResults";
@@ -379,8 +382,8 @@ function ResetLocalData() {
         <button
           type="button"
           onClick={() => {
-            resetStore();
             setConfirming(false);
+            requestConfirm({ impact: buildImpact({} as never, "reset", "reset"), confirmLabel: "Reset everything", onConfirm: () => { resetStore(); toast({ kind: "success", message: "All local data reset" }); } });
           }}
           className="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400"
         >

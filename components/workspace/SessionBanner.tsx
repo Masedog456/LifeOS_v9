@@ -17,6 +17,7 @@ import { activeSession, formatClock, sessionDuration, SESSION_TYPE_ICON, SESSION
 import { findWorkspace, workspaceHref } from "@/lib/workspaces/workspace";
 import { findGoal, goalHref } from "@/lib/execution/goals";
 import { openCommandPalette } from "@/lib/command/events";
+import { toast } from "@/lib/ux/feedback";
 
 export default function SessionBanner() {
   const state = useStore();
@@ -99,7 +100,7 @@ export default function SessionBanner() {
         </button>
         <button
           type="button"
-          onClick={() => endSession(session.id)}
+          onClick={() => { endSession(session.id); toast({ kind: "success", message: "Session ended", detail: ws?.name }); }}
           className="rounded-full bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
         >
           End session

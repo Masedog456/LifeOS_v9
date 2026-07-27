@@ -16,6 +16,7 @@ import { useStore } from "@/lib/mvpStore";
 import { activeWorkspaces, findWorkspace, workspaceHref } from "@/lib/workspaces/workspace";
 import { activeSession } from "@/lib/workspaces/sessions";
 import { setCurrentWorkspace, useWorkspacePointer } from "@/lib/workspaces/current";
+import { toast } from "@/lib/ux/feedback";
 
 export default function WorkspaceSelector() {
   const state = useStore();
@@ -42,6 +43,8 @@ export default function WorkspaceSelector() {
   const go = (id: string) => {
     setCurrentWorkspace(id);
     setOpen(false);
+    const ws = findWorkspace(state, id);
+    toast({ kind: "info", message: "Workspace switched", detail: ws?.name, dedupeKey: "workspace-switch" });
     router.push(workspaceHref(id));
   };
 
