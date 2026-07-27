@@ -75,7 +75,7 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
     });
   };
 
-  for (const c of state.captures) add("capture", c.id, c.text, { body: c.text, updatedAt: c.createdAt, href: "/" });
+  for (const c of state.captures) add("capture", c.id, c.workingText ?? c.text, { body: `${c.text} ${c.workingText ?? ""} ${(c.tags ?? []).join(" ")}`, aliases: c.tags, status: c.processingStatus ?? "inbox", updatedAt: c.createdAt, href: "/" });
   for (const b of state.beliefs) {
     if (b.status === "rejected") continue;
     add("belief", b.id, b.text, { body: `${b.text} ${b.theme ?? ""}`, aliases: b.theme ? [b.theme] : [], status: b.status, updatedAt: b.updatedAt, href: "/constitution" });
@@ -153,7 +153,7 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
  */
 export function resolveRecord(state: StoreState, kind: string, id: string): { title: string; href: string; status?: string } | undefined {
   switch (kind) {
-    case "capture": { const c = state.captures.find((x) => x.id === id); return c && { title: snip(c.text, 60), href: "/" }; }
+    case "capture": { const c = state.captures.find((x) => x.id === id); return c && { title: snip(c.workingText ?? c.text, 60), href: "/", status: c.processingStatus ?? "inbox" }; }
     case "belief": { const b = state.beliefs.find((x) => x.id === id); return b && { title: snip(b.text, 60), href: "/constitution", status: b.status }; }
     case "concept": { const c = state.concepts.find((x) => x.id === id); return c && { title: c.name, href: `/world/concept/${c.id}`, status: c.status }; }
     case "theme": { const c = state.concepts.find((x) => x.id === id); return c && { title: c.name, href: `/themes/${c.id}`, status: c.status }; }

@@ -87,6 +87,7 @@ date, inferring no meaning. Sources:
 | Milestones completed | `projects[].milestones` with `completedDate` on the day |
 | Documents read, highlights, annotations | `documents` (`progress.lastOpenedAt`, highlight/annotation `createdAt`) |
 | Captures created | `captures.createdAt` |
+| Captures processed | `captures.processedAt` on the day (LIFEOS-035) |
 | Decisions created/updated | `decisions.createdAt` / `updatedAt` |
 | Beliefs revised | belief `revisions[].at` or `updatedAt` |
 | Entities inspected, searches performed | session `activity` events |
@@ -124,6 +125,8 @@ which belong in the review. Candidates:
 - active projects
 - unresolved decisions (status not `decided`/`abandoned`)
 - unfinished reading (documents `reading`/`paused`)
+- an unprocessed capture **inbox backlog** — a single aggregate `inbox:backlog`
+  candidate (never one loop per capture), added in LIFEOS-035
 - unresolved sync conflicts and unsynced local changes (live signals)
 - plus manually-added loops
 

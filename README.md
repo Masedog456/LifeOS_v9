@@ -61,6 +61,40 @@ Reading pages shows **Saved / Saving… / Saved locally / Sync error**. Very lar
 imports are warned about (and blocked past a safe size) so browser storage stays
 healthy; your text is never silently truncated.
 
+## Inbox zero & capture processing
+
+Raw captures land in an **inbox**. Process them at **Process** (`/process`) — a
+deterministic workflow that answers "what should happen to this capture?" without
+ever deciding meaning for you. The queue has five views (Inbox · Processing ·
+Deferred · Processed · Archived) with sort, filter, multi-select, and keyboard
+navigation (`J`/`K`/`↑`/`↓` move, `Enter` open, `x` select). Open a capture for a
+focused screen where the **original text is always visible and never edited in
+place**, and:
+
+- **Clarify** a clearer working version (the original stays recoverable; revert is
+  one click; unsaved edits are guarded).
+- **Convert** into a canonical belief, concept, decision, research note,
+  reflection, principle, framework, practice, or project/workspace note — reusing
+  LifeOS's existing creators, with a preview first. The source capture is
+  **preserved** and linked as lineage.
+- **Split** at manual boundaries, **merge** several captures (explicit selection,
+  order, separator, preview), or **link** to a workspace / goal / project /
+  document / entity **without converting**.
+- **Defer** (tomorrow · next week · someday · a specific date — deterministic
+  local dates; deferred captures return to the inbox on their own when the date
+  arrives, with no notifications or background jobs), **archive** (reversible), or
+  **discard** (confirmed, retained, reversible — never destroyed immediately).
+
+Batch actions apply to multiple captures (link, tag, defer, archive, mark
+processed, restore) — **but never batch conversion**; each conversion is reviewed
+individually. A compact, non-judgmental inbox card on **Today** shows the count
+and oldest age with no streaks, scores, or guilt. Everything is durable, per-user,
+and cross-device: processing metadata is additive on the `captures` table
+(migration `0026_capture_processing.sql`, existing captures default to `inbox`,
+the original `text` stays immutable), and two-device edits union links/tags/
+lineage/history and surface genuine conflicts through the Conflict Center. No AI,
+no auto-classification, no scoring. See `CAPTURE_PROCESSING.md`.
+
 ## Unified inspector & context
 
 LifeOS is navigable through ideas, not just menus. Any object — a belief,

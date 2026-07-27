@@ -17,6 +17,36 @@ import type { SourceType } from "@/types/lifeos";
 export type ISO = string;
 
 /** Maps to ontology `Source`/`Quote`: the raw, immutable thing the user captured. */
+/**
+ * Where a capture is in the deterministic processing workflow (LIFEOS-035).
+ * `inbox` is the default for every existing and new capture.
+ */
+export type CaptureProcessingStatus =
+  | "inbox" | "processing" | "processed" | "deferred" | "archived" | "discarded";
+
+/** Context a capture inherited from the active session/workspace at creation. */
+export interface CaptureSourceContext {
+  workspaceId?: string;
+  sessionId?: string;
+  goalId?: string;
+  projectId?: string;
+}
+
+/**
+ * A compact, append-only processing-history entry (LIFEOS-035, Feature 12).
+ * Records WHAT happened and the status transition — never the full capture text
+ * (privacy + size). `targets` are references to records created/linked.
+ */
+export interface CaptureProcessingEvent {
+  id: string;
+  at: ISO;
+  action: string;                 // e.g. "rewrite" | "convert" | "split" | "merge" | "defer" | "archive" | "link" | "mark_processed" | "restore" | "discard"
+  fromStatus?: CaptureProcessingStatus;
+  toStatus?: CaptureProcessingStatus;
+  targets?: RecordRefLite[];      // records created or linked
+  detail?: string;                // short, non-content metadata (e.g. "→ belief", "3 links")
+}
+
 export interface Capture {
   id: string;
   /** Verbatim captured text. Immutable once created — never edited in place. */
@@ -24,6 +54,38 @@ export interface Capture {
   createdAt: ISO;
   /** Optional link back to a Knowledge Library source this capture came from. */
   sourceId?: string;
+
+  // ---- Processing workflow (LIFEOS-035). All optional; existing captures
+  // default to `inbox` with empty links via the normalize/status helpers. The
+  // original `text` above is NEVER edited — clarifications live in `workingText`.
+  processingStatus?: CaptureProcessingStatus;
+  processedAt?: ISO;
+  processedByAction?: string;
+  /** Session the capture was processed in (references, never a copy). */
+  processedInSession?: string;
+  /** Local day key (yyyy-mm-dd) a deferred capture returns to the inbox. */
+  deferredUntil?: string;
+  archivedAt?: ISO;
+  discardedAt?: ISO;
+  /** Context inherited from the active session/workspace at capture time. */
+  sourceContext?: CaptureSourceContext;
+  /** Direct (non-conversion) links to existing records. */
+  linkedWorkspaceIds?: string[];
+  linkedGoalIds?: string[];
+  linkedProjectIds?: string[];
+  linkedEntityRefs?: RecordRefLite[];
+  /** User's processing notes (never auto-written). */
+  processingNotes?: string;
+  /** Free-form tags applied during processing (manual only; no auto-classification). */
+  tags?: string[];
+  /** An editable working/clarified version; the original `text` stays recoverable. */
+  workingText?: string;
+  /** Lineage: the capture this was split from. */
+  splitFromId?: string;
+  /** Lineage: the captures merged into this one. */
+  mergedFromIds?: string[];
+  /** Compact, append-only processing history (no full text duplicated). */
+  history?: CaptureProcessingEvent[];
 }
 
 /** Maps to ontology `Claim` (status `proposed`): an AI/mock-proposed first-person belief. */

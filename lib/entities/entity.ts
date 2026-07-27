@@ -100,7 +100,7 @@ export function describeEntity(ctx: EntityContext, kind: EntityKind, id: string)
   let exists = Boolean(base);
 
   switch (kind) {
-    case "capture": { const c = state.captures.find((x) => x.id === id); if (c) { summary = c.text; createdAt = c.createdAt; } exists ||= !!c; break; }
+    case "capture": { const c = state.captures.find((x) => x.id === id); if (c) { summary = c.workingText ?? c.text; createdAt = c.createdAt; notes = c.processingNotes || undefined; } exists ||= !!c; break; }
     case "belief": { const b = state.beliefs.find((x) => x.id === id); if (b) { summary = b.text; createdAt = b.createdAt; updatedAt = b.updatedAt; if (b.theme) tags = [b.theme]; } exists ||= !!b; break; }
     case "concept": case "theme": { const c = state.concepts.find((x) => x.id === id); if (c) { summary = c.definition || c.description || c.name; createdAt = c.createdAt; updatedAt = c.updatedAt; tags = c.aliases ?? []; } exists ||= !!c; break; }
     case "dialogue": { const d = state.dialogueSessions.find((x) => x.id === id); if (d) { summary = d.purpose || d.topic; createdAt = d.createdAt; updatedAt = d.updatedAt; } exists ||= !!d; break; }

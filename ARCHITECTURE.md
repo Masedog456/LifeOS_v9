@@ -1629,3 +1629,27 @@ make review creation idempotent across timezone travel. The weekly rollup
 inspector, command center, session/execution/reading engines, UX primitives, and
 the LIFEOS-033 sync layer — no new state system, no AI, no scoring. See
 `DAILY_REVIEW.md`.
+
+## Inbox zero & capture processing (LIFEOS-035)
+
+A deterministic capture-processing workflow lives in `lib/inbox/` +
+`components/inbox/`, with routes under `/process`. It answers "what should happen
+to this capture?" — clarify, connect, convert, defer, archive, or discard — while
+**never deciding meaning for the user** (the system may *suggest* from a record's
+shape and context; nothing is auto-rewritten, auto-classified, auto-converted,
+auto-split, or auto-prioritized). Processing metadata is **additive on the
+canonical `captures` table** (migration `0026`): a `processing_status` enum
+(`inbox`/`processing`/`processed`/`deferred`/`archived`/`discarded`, existing
+captures default to `inbox`), a separate `working_text` (the original `text`
+stays immutable via the 0001 trigger, so clarifications never destroy the
+original), `deferred_until` (local day key, reusing `lib/reviews/dates.ts`),
+`jsonb` links/tags/lineage/compact-history/source-context, and status timestamps.
+The queue (`queue.ts`) is a pure projection; deferred captures return to the
+inbox when their date arrives (`defer.ts`, applied by the store on hydrate, no
+workers/notifications). Conversion reuses the existing canonical creators and
+preserves the source capture as lineage. Merge is an explicit user op, never used
+by sync; field-level sync rules (`merge-rules.ts`) union links/tags/lineage/
+history and raise conflicts on divergent status/content, never discarding lineage
+silently. It reuses the entity API, inspector, command center, search, session,
+daily-review, UX primitives, and the LIFEOS-033 sync/tombstone layer — no new
+state system, no AI, no scoring, no gamification. See `CAPTURE_PROCESSING.md`.

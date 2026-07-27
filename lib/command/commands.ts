@@ -16,6 +16,7 @@ import { buildContinueThinking } from "@/lib/memory/continue";
 import { RECORD_LABELS, resolveRecord } from "@/lib/command/records";
 import { todayKey } from "@/lib/reviews/dates";
 import { findReviewByDate, latestCompletedReview, reviewHref } from "@/lib/reviews/review";
+import { readInboxMemory } from "@/lib/inbox/memory";
 
 /** Feature 1 — navigate to any major section. */
 export const NAV_COMMANDS: CommandItem[] = [
@@ -45,6 +46,7 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:goals", title: "Open Goals", group: "Navigate", kind: "navigate", href: "/goals", icon: "◎", keywords: ["goal", "objective", "accomplish", "execution"] },
   { id: "nav:projects", title: "Open Projects", group: "Navigate", kind: "navigate", href: "/projects", icon: "▤", keywords: ["project", "work", "execution", "milestone"] },
   { id: "nav:daily", title: "Open Daily Review", group: "Navigate", kind: "navigate", href: "/daily", icon: "☑", keywords: ["review", "reflect", "plan", "daily", "wins", "lessons"] },
+  { id: "nav:process", title: "Open capture inbox", group: "Navigate", kind: "navigate", href: "/process", icon: "▤", keywords: ["inbox", "process", "capture", "clarify", "convert", "zero"] },
   { id: "nav:daily-history", title: "Open Review History", group: "Navigate", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["review", "history", "past", "weekly"] },
 ];
 
@@ -178,6 +180,35 @@ export function reviewProvider(ctx: CommandContext): CommandItem[] {
   const latest = latestCompletedReview(ctx.state);
   if (latest && latest.tomorrowFocus.length > 0) {
     items.push({ id: "review:resume-focus", title: "Resume tomorrow focus", subtitle: `From ${latest.date}`, group: "Review", kind: "navigate", href: reviewHref(latest.date), icon: "▸", keywords: ["focus", "next", "resume", "plan"] });
+  }
+  return items;
+}
+
+/**
+ * LIFEOS-035, Feature 16 — Capture-processing commands. Inbox + process-next are
+ * always available; per-capture actions appear only when a capture is active
+ * (remembered in queue memory). Each navigates to the inbox/processor — no
+ * processing logic is duplicated here.
+ */
+export function inboxProvider(ctx: CommandContext): CommandItem[] {
+  const items: CommandItem[] = [];
+  const inboxCount = (ctx.state.captures ?? []).filter((c) => (c.processingStatus ?? "inbox") === "inbox").length;
+  if (inboxCount > 0) {
+    items.push({ id: "inbox:next", title: "Process next capture", subtitle: `${inboxCount} in inbox`, group: "Inbox", kind: "navigate", href: "/process?process=next", icon: "▸", keywords: ["capture", "process", "clarify"] });
+    items.push({ id: "inbox:oldest", title: "Process oldest capture", group: "Inbox", kind: "navigate", href: "/process?process=oldest", icon: "▾", keywords: ["capture", "process", "oldest"] });
+  }
+  items.push({ id: "inbox:archived", title: "Restore archived capture", group: "Inbox", kind: "navigate", href: "/process?view=archived", icon: "↺", keywords: ["archive", "restore", "capture"] });
+
+  const activeId = typeof window !== "undefined" ? readInboxMemory().activeCaptureId : undefined;
+  const active = activeId ? (ctx.state.captures ?? []).find((c) => c.id === activeId) : undefined;
+  if (active) {
+    const href = (a: string) => `/process/${active.id}?action=${a}`;
+    items.push(
+      { id: "inbox:defer-current", title: "Defer current capture", group: "Inbox", kind: "navigate", href: href("defer"), icon: "⏳", keywords: ["defer", "later", "capture"] },
+      { id: "inbox:archive-current", title: "Archive current capture", group: "Inbox", kind: "navigate", href: href("archive"), icon: "▦", keywords: ["archive", "capture"] },
+      { id: "inbox:link-current", title: "Link current capture", group: "Inbox", kind: "navigate", href: href("link"), icon: "🔗", keywords: ["link", "connect", "capture"] },
+      { id: "inbox:convert-current", title: "Convert current capture", group: "Inbox", kind: "navigate", href: href("convert"), icon: "⤳", keywords: ["convert", "belief", "concept", "capture"] },
+    );
   }
   return items;
 }

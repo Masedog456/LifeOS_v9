@@ -37,6 +37,19 @@ export interface Prefs {
   /** Pinned/favorite records (LIFEOS-027). Same storage + reconciliation model. */
   pinned?: RecordRef[];
   /**
+   * Capture-processing queue memory (LIFEOS-035, Feature 18): the selected view,
+   * sort, filters, active capture, scroll, and desktop split-pane width — so the
+   * inbox resumes safely after reload. UI preferences only (no record content).
+   */
+  inbox?: {
+    view?: string;
+    sort?: string;
+    filter?: { text?: string; tags?: string[]; sourceId?: string; workspaceId?: string; goalId?: string; projectId?: string; linked?: "linked" | "unlinked"; minAgeDays?: number };
+    activeCaptureId?: string;
+    scroll?: number;
+    paneWidth?: number;
+  };
+  /**
    * Unified inspector navigation memory (LIFEOS-029): the last-viewed entity,
    * the open tab, which sections are expanded, and the panel scroll position —
    * so the workspace resumes where the user left off across sessions.

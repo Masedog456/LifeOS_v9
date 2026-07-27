@@ -665,10 +665,37 @@ function rowToSource(r: any, keyQuotes: string[]): KnowledgeSource {
 }
 
 function captureToRow(c: Capture) {
-  return { id: c.id, text: c.text, source_id: c.sourceId ?? null, created_at: c.createdAt };
+  return {
+    id: c.id, text: c.text, source_id: c.sourceId ?? null, created_at: c.createdAt,
+    // Processing metadata (LIFEOS-035). `text` is never changed here.
+    processing_status: c.processingStatus ?? "inbox",
+    processed_at: c.processedAt ?? null, processed_by_action: c.processedByAction ?? null,
+    processed_in_session: c.processedInSession ?? null, deferred_until: c.deferredUntil ?? null,
+    archived_at: c.archivedAt ?? null, discarded_at: c.discardedAt ?? null,
+    source_context: c.sourceContext ?? {},
+    linked_workspace_ids: c.linkedWorkspaceIds ?? [], linked_goal_ids: c.linkedGoalIds ?? [],
+    linked_project_ids: c.linkedProjectIds ?? [], linked_entity_refs: c.linkedEntityRefs ?? [],
+    processing_notes: c.processingNotes ?? "", tags: c.tags ?? [], working_text: c.workingText ?? null,
+    split_from_id: c.splitFromId ?? null, merged_from_ids: c.mergedFromIds ?? [], processing_history: c.history ?? [],
+  };
 }
 function rowToCapture(r: any): Capture {
-  return { id: r.id, text: r.text, sourceId: r.source_id ?? undefined, createdAt: r.created_at };
+  return {
+    id: r.id, text: r.text, sourceId: r.source_id ?? undefined, createdAt: r.created_at,
+    processingStatus: r.processing_status ?? "inbox",
+    processedAt: r.processed_at ?? undefined, processedByAction: r.processed_by_action ?? undefined,
+    processedInSession: r.processed_in_session ?? undefined, deferredUntil: r.deferred_until ?? undefined,
+    archivedAt: r.archived_at ?? undefined, discardedAt: r.discarded_at ?? undefined,
+    sourceContext: r.source_context && typeof r.source_context === "object" ? r.source_context : undefined,
+    linkedWorkspaceIds: Array.isArray(r.linked_workspace_ids) ? r.linked_workspace_ids : [],
+    linkedGoalIds: Array.isArray(r.linked_goal_ids) ? r.linked_goal_ids : [],
+    linkedProjectIds: Array.isArray(r.linked_project_ids) ? r.linked_project_ids : [],
+    linkedEntityRefs: Array.isArray(r.linked_entity_refs) ? r.linked_entity_refs : [],
+    processingNotes: r.processing_notes ?? "", tags: Array.isArray(r.tags) ? r.tags : [],
+    workingText: r.working_text ?? undefined, splitFromId: r.split_from_id ?? undefined,
+    mergedFromIds: Array.isArray(r.merged_from_ids) ? r.merged_from_ids : [],
+    history: Array.isArray(r.processing_history) ? r.processing_history : [],
+  };
 }
 
 function proposalToRow(p: Proposal) {

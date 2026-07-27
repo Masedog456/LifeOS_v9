@@ -2185,3 +2185,54 @@ scope or order.
   / README / PERSISTENCE_QA / UX_AUDIT / SYNC_INTEGRITY. Constraints: no AI /
   agents / embeddings / scoring / streaks / gamification / auto-prioritization /
   calendar / notifications / analytics.
+
+- **LIFEOS-035 — Inbox Zero & Capture Processing.** New `lib/inbox/` (capture-status,
+  queue, defer, history, conversion, split, merge, merge-rules, relationships,
+  processing, memory, selftest) + `components/inbox/` (InboxPage, InboxQueue,
+  CaptureProcessor, ConversionPreview, SplitCapture, MergeCaptures, DeferCapture,
+  ProcessingHistory, BatchActionBar, TodayInboxCard) + `/process` routes (queue,
+  `[id]`). A deterministic workflow answering "what should happen to this
+  capture?" — clarify / convert / split / merge / link / defer / archive / discard
+  — that **never decides meaning for the user** (suggestedActions are shape/context
+  hints only). Processing metadata is **additive on the canonical `captures`
+  table** (not a new table): `processing_status` enum (inbox/processing/processed/
+  deferred/archived/discarded; existing captures default **inbox**, no duplicate
+  record), separate `working_text` (original `text` stays IMMUTABLE via the 0001
+  trigger, always recoverable + revert), `deferred_until` (local day key reusing
+  `lib/reviews/dates.ts`; deferred returns to inbox on hydrate, no workers/
+  notifications), and jsonb source-context / links / tags / lineage / compact
+  history. **Convert** reuses the existing canonical creators and preserves the
+  source as lineage (belief built inline against the existing capture id to avoid a
+  duplicate; "question→inquiry" intentionally dropped to avoid malformed AI-shaped
+  records). **Merge** is an explicit user op, NEVER used by sync. **Discard** is a
+  soft reversible status (`discarded_at`), never a permanent delete, tombstone-
+  compatible. **No batch conversion** (each conversion reviewed individually).
+  Field-level sync (`merge-rules.ts`) UNIONs links/tags/lineage/history and raises
+  conflicts on divergent status/content — never discards lineage silently.
+  Migration **0026** `0026_capture_processing.sql` (additive columns + 3 indexes:
+  status / deferred / split_from; RLS inherited); chain now **0001–0026**.
+  Integrated into Today (compact non-judgmental inbox card — no streaks/scores/
+  guilt), daily review (`captures_processed` group + single `inbox:backlog`
+  open-loop aggregate), session/workspace (captures inherit `sourceContext`),
+  command center (`nav:process` + contextual capture commands), entity API +
+  backlinks + search (status + tags; summary uses `workingText ?? text`), and
+  queue navigation memory (`prefs.inbox`: view/sort/filter/active, restores on
+  reload). Verified: `inbox.mjs` E2E **35/35** across the 27 scenarios (open inbox,
+  keyboard nav, focused processor with original always visible, rewrite + revert,
+  convert, link-without-convert, split, merge, defer, restore-deferred-on-load,
+  archive/restore, discard-confirm-reversible, batch without batch-convert,
+  history, Today, queue-memory reload, mobile), `runInboxSelfTests` **54/54**
+  (status defaults / queue filter-sort-view / defer local-date / split-merge
+  planners + lineage / conversion preview / backlinks / sync conflict rules /
+  projection purity / perf). Full deterministic regression green across all 10
+  committed self-test suites (command 39, entity 30, execution 33, inbox 54,
+  memory 54, reading 60, review 56, sync 45, ux 40, workspace 35 = **446**).
+  `tsc`=0, `lint`=0, `build`=0 (clean rebuild). Migration 0026 validated on
+  Postgres 16 (full chain idempotent 3×; new columns' defaults; legacy insert
+  defaults to inbox with empty collections; status+working_text update succeeds
+  while `text` change rejected as immutable; RLS enabled). New doc
+  `CAPTURE_PROCESSING.md`; updated ARCHITECTURE / README / PERSISTENCE_QA /
+  UX_AUDIT / SYNC_INTEGRITY / DAILY_REVIEW. Constraints: no AI / LLMs / agents /
+  embeddings / auto-classification / auto-rewriting / auto-conversion / auto-
+  splitting / auto-prioritization / scores / streaks / gamification / calendar /
+  notifications / analytics / collaboration.

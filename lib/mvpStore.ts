@@ -141,6 +141,13 @@ import { mergeResume } from "@/lib/workspaces/resume";
 import { setCurrentWorkspace, forgetWorkspace } from "@/lib/workspaces/current";
 import { toggleMilestoneDone } from "@/lib/execution/progress";
 import { todayKey as reviewTodayKey, currentOffsetMinutes } from "@/lib/reviews/dates";
+import { captureStatus, effectiveText } from "@/lib/inbox/capture-status";
+import { makeEvent, appendHistory } from "@/lib/inbox/history";
+import { deferKeyFor, returnDueDefers, type DeferOption } from "@/lib/inbox/defer";
+import { titleFromText, type ConversionTargetKey } from "@/lib/inbox/conversion";
+import { planSplit } from "@/lib/inbox/split";
+import { planMerge } from "@/lib/inbox/merge";
+import type { CaptureProcessingStatus, RecordRefLite as RefLite } from "@/types/mvp";
 import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
 import { clearRollback, setRecovery } from "@/lib/sync/status-store";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
@@ -499,6 +506,9 @@ export function hydrate() {
           linkedEntities: asArray<RecordRefLite>(r?.linkedEntities),
         })),
       };
+      // Deferred captures whose local date has arrived return to the inbox
+      // (LIFEOS-035, Feature 9) — deterministic, no background workers.
+      { const dd = returnDueDefers(state.captures); if (dd.returnedIds.length) state = { ...state, captures: dd.captures }; }
       // Corruption isolation (LIFEOS-033, Feature 10): drop malformed rows from
       // the in-memory store so a single bad record (null / missing id) can never
       // crash a downstream consumer, while the source in localStorage is left
@@ -612,11 +622,18 @@ export function useStore(): StoreState {
 
 /** Save a capture locally. Always call this before any AI work. Returns the new id. */
 export function addCapture(text: string, sourceId?: string): string {
+  // Inherit the active session/workspace context (LIFEOS-035, Feature 15).
+  const active = state.sessions.find((s) => !s.endedAt);
+  const sourceContext = active
+    ? { sessionId: active.id, workspaceId: active.workspaceId, goalId: active.goalId, projectId: active.projectId }
+    : undefined;
   const capture: Capture = {
     id: id(),
     text: text.trim(),
     createdAt: now(),
+    processingStatus: "inbox",
     ...(sourceId ? { sourceId } : {}),
+    ...(sourceContext ? { sourceContext } : {}),
   };
   setState({ ...state, captures: [capture, ...state.captures] });
   // Feed the active thinking session's activity timeline, if any (LIFEOS-030).
@@ -3698,4 +3715,200 @@ export function removeReviewFocus(reviewId: string, focusId: string): void {
 }
 export function setReviewFocus(reviewId: string, items: ReviewFocusItem[]): void {
   bumpReview(reviewId, (r) => ({ ...r, tomorrowFocus: items.map((f, i) => ({ ...f, order: i })) }));
+}
+
+// ================= Capture processing / Inbox Zero (LIFEOS-035) =================
+//
+// Deterministic processing of raw captures. The original `text` is NEVER edited
+// (a clarified version lives in `workingText`); nothing is auto-classified,
+// auto-converted, or auto-split. Every action records a compact history entry
+// and, where relevant, a status transition. Conversions REUSE the canonical
+// creators; the source capture is never deleted automatically.
+
+function bumpCapture(captureId: string, mutate: (c: Capture) => Capture): void {
+  setState({ ...state, captures: state.captures.map((c) => (c.id === captureId ? mutate(c) : c)) });
+}
+function logAndSet(captureId: string, patch: Partial<Capture>, event: Omit<Parameters<typeof makeEvent>[0], "at">): void {
+  bumpCapture(captureId, (c) => appendHistory({ ...c, ...patch }, makeEvent({ ...event, at: now() })));
+}
+
+/** Save a clarified working version; the original text stays recoverable. */
+export function rewriteCapture(captureId: string, workingText: string): void {
+  const c = state.captures.find((x) => x.id === captureId);
+  if (!c) return;
+  const trimmed = workingText;
+  const substantive = trimmed.trim() !== (c.workingText ?? c.text).trim();
+  bumpCapture(captureId, (x) => {
+    const next = { ...x, workingText: trimmed };
+    return substantive ? appendHistory(next, makeEvent({ action: "rewrite", at: now(), detail: "clarified working text" })) : next;
+  });
+}
+export function revertRewrite(captureId: string): void {
+  logAndSet(captureId, { workingText: undefined }, { action: "revert", detail: "reverted to original" });
+}
+
+/** Direct links (no conversion). */
+export function linkCaptureRef(captureId: string, ref: RefLite): void {
+  bumpCapture(captureId, (c) => {
+    const next = { ...c };
+    if (ref.kind === "workspace") next.linkedWorkspaceIds = Array.from(new Set([...(c.linkedWorkspaceIds ?? []), ref.id]));
+    else if (ref.kind === "goal") next.linkedGoalIds = Array.from(new Set([...(c.linkedGoalIds ?? []), ref.id]));
+    else if (ref.kind === "project") next.linkedProjectIds = Array.from(new Set([...(c.linkedProjectIds ?? []), ref.id]));
+    else if (!(c.linkedEntityRefs ?? []).some((r) => r.kind === ref.kind && r.id === ref.id)) next.linkedEntityRefs = [...(c.linkedEntityRefs ?? []), ref];
+    return appendHistory(next, makeEvent({ action: "link", at: now(), targets: [ref], detail: ref.kind }));
+  });
+}
+export function unlinkCaptureRef(captureId: string, ref: RefLite): void {
+  bumpCapture(captureId, (c) => ({
+    ...c,
+    linkedWorkspaceIds: ref.kind === "workspace" ? (c.linkedWorkspaceIds ?? []).filter((i) => i !== ref.id) : c.linkedWorkspaceIds,
+    linkedGoalIds: ref.kind === "goal" ? (c.linkedGoalIds ?? []).filter((i) => i !== ref.id) : c.linkedGoalIds,
+    linkedProjectIds: ref.kind === "project" ? (c.linkedProjectIds ?? []).filter((i) => i !== ref.id) : c.linkedProjectIds,
+    linkedEntityRefs: (c.linkedEntityRefs ?? []).filter((r) => !(r.kind === ref.kind && r.id === ref.id)),
+  }));
+}
+
+/** Status transitions (each records history). */
+function transition(captureId: string, to: CaptureProcessingStatus, action: string, patch: Partial<Capture> = {}): void {
+  const c = state.captures.find((x) => x.id === captureId);
+  if (!c) return;
+  logAndSet(captureId, { processingStatus: to, ...patch }, { action, fromStatus: captureStatus(c), toStatus: to });
+}
+export function deferCapture(captureId: string, option: DeferOption): void {
+  transition(captureId, "deferred", "defer", { deferredUntil: deferKeyFor(option) });
+}
+export function markCaptureProcessed(captureId: string, byAction = "manual"): void {
+  const active = state.sessions.find((s) => !s.endedAt);
+  transition(captureId, "processed", "mark_processed", { processedAt: now(), processedByAction: byAction, processedInSession: active?.id });
+}
+export function archiveCapture(captureId: string): void { transition(captureId, "archived", "archive", { archivedAt: now() }); }
+export function discardCapture(captureId: string): void { transition(captureId, "discarded", "discard", { discardedAt: now() }); }
+export function restoreCapture(captureId: string): void { transition(captureId, "inbox", "restore", { deferredUntil: undefined, archivedAt: undefined, discardedAt: undefined }); }
+export function setCaptureNotes(captureId: string, notes: string): void { bumpCapture(captureId, (c) => ({ ...c, processingNotes: notes })); }
+export function addCaptureTag(captureId: string, tag: string): void {
+  const t = tag.trim(); if (!t) return;
+  logAndSet(captureId, {}, { action: "tag", detail: t });
+  bumpCapture(captureId, (c) => ({ ...c, tags: Array.from(new Set([...(c.tags ?? []), t])) }));
+}
+export function removeCaptureTag(captureId: string, tag: string): void { bumpCapture(captureId, (c) => ({ ...c, tags: (c.tags ?? []).filter((x) => x !== tag) })); }
+
+/** Append a capture's text as a note on a project / workspace. */
+export function appendProjectNote(projectId: string, text: string): void {
+  setState({ ...state, projects: state.projects.map((p) => (p.id === projectId ? { ...p, notes: (p.notes ? `${p.notes}\n\n${text}` : text), updatedAt: now() } : p)) });
+}
+export function appendWorkspaceNote(workspaceId: string, text: string): void {
+  setState({ ...state, workspaces: state.workspaces.map((w) => (w.id === workspaceId ? { ...w, description: (w.description ? `${w.description}\n\n${text}` : text), updatedAt: now() } : w)) });
+}
+
+/**
+ * Convert a capture into an existing canonical record type, reusing the
+ * canonical creators. Links the new record onto the capture, records history,
+ * and applies the user's post-conversion choice. Returns the new record ref.
+ */
+export function convertCapture(captureId: string, target: ConversionTargetKey, opts: { contextId?: string; after?: "processed" | "archive" | "inbox" } = {}): RefLite | null {
+  const c = state.captures.find((x) => x.id === captureId);
+  if (!c) return null;
+  const text = effectiveText(c).trim();
+  const title = titleFromText(text);
+  let ref: RefLite | null = null;
+
+  switch (target) {
+    case "belief": {
+      // Reference the EXISTING capture (never spawn a duplicate inbox capture).
+      const at = now();
+      const proposalId = id(), beliefId = id();
+      const proposal: Proposal = { id: proposalId, captureId: c.id, claim: text, source: "mock", createdAt: at, resolved: true };
+      const belief: Belief = { id: beliefId, captureId: c.id, proposalId, text, status: "accepted", createdAt: at, updatedAt: at, revisions: [{ text, at, reason: "accepted" }], judgments: [{ decision: "accepted", at }] };
+      setState({ ...state, proposals: [...state.proposals, proposal], beliefs: [belief, ...state.beliefs] });
+      ref = { kind: "belief", id: beliefId }; break;
+    }
+    case "concept": ref = { kind: "concept", id: createConcept({ name: title, definition: text }) }; break;
+    case "decision": ref = { kind: "decision", id: createDecision({ title, question: text }) }; break;
+    case "research": ref = { kind: "research_project", id: createResearchProject({ title, question: text }) }; break;
+    case "dialogue": ref = { kind: "dialogue", id: createDialogue({ title, topic: text }) }; break;
+    case "reflection": ref = { kind: "formation", id: addReflection({ prompt: title, response: text }) }; break;
+    case "principle": ref = { kind: "principle", id: createPrinciple({ statement: text }) }; break;
+    case "framework": ref = { kind: "framework", id: createFramework({ name: title, kind: "framework", description: text }) }; break;
+    case "practice": { const ids = addPractices([{ title, description: text, rationale: "Captured for practice.", derivedFrom: {} }], "mock"); ref = ids[0] ? { kind: "practice", id: ids[0] } : null; break; }
+    case "project_note": { if (!opts.contextId) return null; appendProjectNote(opts.contextId, text); ref = { kind: "project", id: opts.contextId }; break; }
+    case "workspace_note": { if (!opts.contextId) return null; appendWorkspaceNote(opts.contextId, text); ref = { kind: "workspace", id: opts.contextId }; break; }
+  }
+  if (!ref) return null;
+
+  // Link + history + post-conversion status (re-read the capture — creators ran setState).
+  const after = opts.after ?? "inbox";
+  const toStatus: CaptureProcessingStatus = after === "processed" ? "processed" : after === "archive" ? "archived" : captureStatus(c);
+  bumpCapture(captureId, (x) => appendHistory(
+    { ...x, linkedEntityRefs: [...(x.linkedEntityRefs ?? []), ref!], processingStatus: toStatus, processedAt: after === "processed" ? now() : x.processedAt, archivedAt: after === "archive" ? now() : x.archivedAt, processedByAction: after !== "inbox" ? `convert:${target}` : x.processedByAction },
+    makeEvent({ action: "convert", at: now(), fromStatus: captureStatus(c), toStatus, targets: [ref!], detail: `→ ${target}` }),
+  ));
+  return ref;
+}
+
+/**
+ * Split a capture into new captures with the user's manual boundaries. The
+ * original is preserved unless `archiveOriginal`. New captures carry lineage
+ * (`splitFromId`) and inherit the source's context. Returns the new ids.
+ */
+export function splitCapture(captureId: string, segments: string[], opts: { archiveOriginal?: boolean } = {}): string[] {
+  const c = state.captures.find((x) => x.id === captureId);
+  if (!c) return [];
+  const plan = planSplit(c, segments);
+  if (!plan.valid) return [];
+  const at = now();
+  const created: Capture[] = plan.segments.map((s) => ({ id: id(), text: s.text, createdAt: at, processingStatus: "inbox", splitFromId: c.id, sourceContext: c.sourceContext, sourceId: c.sourceId }));
+  const targets: RefLite[] = created.map((x) => ({ kind: "capture", id: x.id }));
+  let sourceNext = appendHistory(c, makeEvent({ action: "split", at, targets, detail: `${created.length} segments` }));
+  if (opts.archiveOriginal) sourceNext = appendHistory({ ...sourceNext, processingStatus: "archived", archivedAt: at }, makeEvent({ action: "archive", at, fromStatus: captureStatus(c), toStatus: "archived", detail: "archived after split" }));
+  setState({ ...state, captures: [...created, ...state.captures.map((x) => (x.id === c.id ? sourceNext : x))] });
+  return created.map((x) => x.id);
+}
+
+/**
+ * Merge captures into ONE new capture in the chosen order with a separator. An
+ * explicit user operation only. Originals are preserved unless `archiveOriginals`.
+ * The new capture carries lineage (`mergedFromIds`). Returns the new id.
+ */
+export function mergeCaptures(orderedIds: string[], separator = "\n\n", opts: { archiveOriginals?: boolean } = {}): string {
+  const plan = planMerge(state.captures, orderedIds, separator);
+  if (!plan.valid) return "";
+  const at = now();
+  const first = state.captures.find((x) => x.id === plan.orderedIds[0]);
+  const merged: Capture = { id: id(), text: plan.text, createdAt: at, processingStatus: "inbox", mergedFromIds: plan.orderedIds, sourceContext: first?.sourceContext, history: [makeEvent({ action: "merge", at, targets: plan.orderedIds.map((i) => ({ kind: "capture", id: i })), detail: `${plan.orderedIds.length} captures` })] };
+  let captures = [merged, ...state.captures];
+  if (opts.archiveOriginals) {
+    const ids = new Set(plan.orderedIds);
+    captures = captures.map((x) => (ids.has(x.id) ? appendHistory({ ...x, processingStatus: "archived", archivedAt: at }, makeEvent({ action: "archive", at, fromStatus: captureStatus(x), toStatus: "archived", detail: "archived after merge" })) : x));
+  }
+  setState({ ...state, captures });
+  return merged.id;
+}
+
+/** Multi-select batch actions (never batch conversion — that stays per-capture). */
+export type BatchCaptureAction = "link_workspace" | "link_project" | "add_tag" | "defer" | "archive" | "mark_processed" | "restore";
+export function batchCaptureAction(ids: string[], action: BatchCaptureAction, payload?: { id?: string; tag?: string; option?: DeferOption }): void {
+  const set = new Set(ids);
+  const at = now();
+  setState({
+    ...state,
+    captures: state.captures.map((c) => {
+      if (!set.has(c.id)) return c;
+      switch (action) {
+        case "link_workspace": return payload?.id ? appendHistory({ ...c, linkedWorkspaceIds: Array.from(new Set([...(c.linkedWorkspaceIds ?? []), payload.id])) }, makeEvent({ action: "link", at, targets: [{ kind: "workspace", id: payload.id }], detail: "batch" })) : c;
+        case "link_project": return payload?.id ? appendHistory({ ...c, linkedProjectIds: Array.from(new Set([...(c.linkedProjectIds ?? []), payload.id])) }, makeEvent({ action: "link", at, targets: [{ kind: "project", id: payload.id }], detail: "batch" })) : c;
+        case "add_tag": return payload?.tag ? { ...c, tags: Array.from(new Set([...(c.tags ?? []), payload.tag.trim()])) } : c;
+        case "defer": return appendHistory({ ...c, processingStatus: "deferred", deferredUntil: deferKeyFor(payload?.option ?? "tomorrow") }, makeEvent({ action: "defer", at, fromStatus: captureStatus(c), toStatus: "deferred", detail: "batch" }));
+        case "archive": return appendHistory({ ...c, processingStatus: "archived", archivedAt: at }, makeEvent({ action: "archive", at, fromStatus: captureStatus(c), toStatus: "archived", detail: "batch" }));
+        case "mark_processed": return appendHistory({ ...c, processingStatus: "processed", processedAt: at }, makeEvent({ action: "mark_processed", at, fromStatus: captureStatus(c), toStatus: "processed", detail: "batch" }));
+        case "restore": return appendHistory({ ...c, processingStatus: "inbox", deferredUntil: undefined, archivedAt: undefined, discardedAt: undefined }, makeEvent({ action: "restore", at, fromStatus: captureStatus(c), toStatus: "inbox", detail: "batch" }));
+        default: return c;
+      }
+    }),
+  });
+}
+
+/** Manually return due deferred captures (also runs on hydrate). */
+export function returnDueCaptures(): void {
+  const dd = returnDueDefers(state.captures);
+  if (dd.returnedIds.length) setState({ ...state, captures: dd.captures });
 }

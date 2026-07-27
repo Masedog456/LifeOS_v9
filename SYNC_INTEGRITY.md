@@ -198,3 +198,19 @@ existing product, not a new surface.
   independently of the records it mentions. Its one-per-local-date identity is
   enforced by a DB `unique(user_id, date)` constraint so timezone travel can
   never fork a duplicate. See `DAILY_REVIEW.md`.
+
+- **Capture processing (LIFEOS-035).** Processing metadata rides on the existing
+  `captures` domain (migration `0026`, additive columns), so the base capture
+  continues to sync via its full-array upsert. `lib/inbox/merge-rules.ts` adds
+  field-level three-way merge for the new fields on top of this layer, under one
+  rule: **never silently discard lineage or history.** Additive, order-independent
+  fields — links, tags, `mergedFromIds` lineage, and the compact processing
+  history — are **unioned** automatically, as is a local rewrite alongside a
+  remote tag/link. Genuine decision divergence raises a **conflict** for the
+  user: local archive vs. remote conversion, local defer vs. remote processed,
+  divergent status transitions, `workingText` edited differently on both devices,
+  split-vs-rewrite of the same source, and merge-originals-archived-remotely while
+  edited locally. Conflicts surface in the existing Conflict Center; nothing is
+  resolved by overwriting a competing decision. The **merge** operation (Feature 7)
+  is explicit and user-driven — it is never invoked during sync. Discard is a soft,
+  reversible status and remains tombstone-compatible. See `CAPTURE_PROCESSING.md`.

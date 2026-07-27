@@ -69,6 +69,11 @@ export function deriveOpenLoops(state: StoreState, live: OpenLoopLive = {}): Ope
     if (doc.status === "reading" || doc.status === "paused") out.push({ id: `reading:${doc.id}`, source: "reading", text: snip(doc.title, 60), ref: { kind: "document", id: doc.id }, at: doc.progress?.lastOpenedAt || doc.updatedAt });
   }
 
+  // Unprocessed capture backlog (LIFEOS-035) — a SINGLE aggregate candidate the
+  // user may choose; we never add every inbox item as its own loop.
+  const inboxCount = (state.captures ?? []).filter((c) => (c.processingStatus ?? "inbox") === "inbox").length;
+  if (inboxCount > 0) out.push({ id: "inbox:backlog", source: "manual", text: `${inboxCount} unprocessed capture${inboxCount === 1 ? "" : "s"} in the inbox` });
+
   // Live sync signals (not derivable from StoreState).
   if (live.unresolvedConflicts && live.unresolvedConflicts > 0) {
     out.push({ id: "conflict:unresolved", source: "conflict", text: `${live.unresolvedConflicts} unresolved sync conflict${live.unresolvedConflicts === 1 ? "" : "s"}`, ref: undefined });
