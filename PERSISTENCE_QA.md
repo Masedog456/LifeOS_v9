@@ -706,3 +706,32 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   (the local store re-pushes on the next flush); local data is never destroyed by
   a sync failure. Per-document import is soft-warned above ~400 KB and
   hard-blocked above ~1.5 MB to keep the localStorage blob under the browser cap.
+
+## Backup, restore & sync diagnostics (LIFEOS-032)
+
+- **Backup export** (`/health` → Backup & restore) writes a versioned JSON
+  envelope: `{ schemaVersion, exportedAt, appVersion?, prefs, data }` where
+  `data` is every canonical `StoreState` domain and `prefs` is the safe,
+  restore-useful subset (onboarding, recent, pinned, workspace/execution
+  pointers — never anything sensitive; prefs hold no secrets). Deterministic
+  given a fixed clock. Client-side only — no cloud provider.
+- **Restore import** validates before touching anything: non-JSON, a missing
+  `schemaVersion`, a missing `data`, or a malformed domain (not a list) is
+  **rejected** with a clear error and the current data + original file are
+  preserved. A newer `schemaVersion` is accepted with a warning; unknown domains
+  are ignored (warned). The user picks **merge** (union by `id`, incoming wins on
+  conflict) or **overwrite** (replace each domain), sees a per-domain preview
+  (now / in file / after), and must confirm through the shared confirmation
+  dialog. Nothing is ever silently overwritten.
+- **Sync Reliability Center** (`/health`) shows a **sanitized** snapshot: adapter,
+  auth (email masked), local + remote status, **last successful sync**, dirty
+  domains, pending local changes, retry state, and recent errors with tokens/JWTs/
+  API keys stripped. It never displays secrets, credentials, or document
+  contents. Actions: **Retry sync** and **Copy diagnostics**. `persistence.ts`
+  records `lastSyncAt` on each successful remote flush.
+- **Manual production checks (credential-pending):** with Supabase configured and
+  signed in — (1) confirm `SaveStatus` shows "Saving…" then "Saved" only after the
+  remote flush; (2) export a backup, sign in on a second device, import with
+  **merge**, confirm no data loss; (3) force a network failure and confirm the
+  reliability center shows `failed` + a sanitized error and **Retry sync**
+  recovers; (4) confirm `lastSyncAt` advances after a successful sync.

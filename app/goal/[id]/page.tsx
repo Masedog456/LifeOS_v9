@@ -26,6 +26,9 @@ import { buildIndex, searchFlat } from "@/lib/command/search";
 import type { GoalStatus, ExecutionPriority } from "@/types/mvp";
 import SyncStatus from "@/components/SyncStatus";
 import { ProgressBar, Panel, Empty } from "@/components/execution/Bits";
+import { requestConfirm } from "@/components/ux/ConfirmDialog";
+import { buildImpact } from "@/lib/ux/confirmations";
+import { toast } from "@/lib/ux/feedback";
 
 const STATUSES: GoalStatus[] = ["active", "paused", "completed", "abandoned", "someday"];
 const PRIORITIES: ExecutionPriority[] = ["high", "medium", "low"];
@@ -163,7 +166,7 @@ function GoalDashboard({ id }: { id: string }) {
       <SessionTimeline groups={dash.sessions} />
 
       <div className="mt-8 border-t border-black/[.06] pt-4 dark:border-white/[.08]">
-        <button type="button" onClick={() => { if (confirm("Delete this goal? Its projects will be kept and unlinked.")) { deleteGoal(goal.id); router.push("/goals"); } }} className="text-xs text-zinc-400 hover:text-red-500">Delete goal</button>
+        <button type="button" onClick={() => requestConfirm({ impact: buildImpact(state, "goal", goal.id), onConfirm: () => { deleteGoal(goal.id); toast({ kind: "success", message: "Goal deleted" }); router.push("/goals"); } })} className="text-xs text-zinc-400 hover:text-red-500">Delete goal</button>
       </div>
     </main>
   );

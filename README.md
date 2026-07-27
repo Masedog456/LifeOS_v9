@@ -136,6 +136,31 @@ switch, and resume them. Goals and projects are durable, per-user, and
 RLS-protected (migration `0023_execution.sql`) and sync across devices. No AI, no
 auto-planning, no auto-prioritization — you decide, LifeOS keeps the structure.
 
+## Reliability, backup & everyday polish
+
+LifeOS is built to be trustworthy day to day. Destructive actions (deleting a
+goal, project, document, or resetting local data) go through **one confirmation
+dialog** that shows exactly what will be affected — the record, its child records,
+whether linked records survive, and whether it can be undone — and high-impact
+actions require an explicit acknowledgement. Actions give quiet, consistent
+**toast feedback** (capture created, milestone completed, session ended, backup
+exported) with a polite screen-reader announcement, and save status is honest —
+it never says "Saved" before a remote sync has actually succeeded.
+
+**System Health** (`/health`) includes a **Sync Reliability Center** (adapter,
+auth, local/remote status, last successful sync, dirty domains, pending changes,
+sanitized recent errors — never secrets or document contents) with **Retry sync**
+and **Copy diagnostics**, plus **Backup & Restore**: export all your data to a
+versioned JSON file, or import one with validation, a per-domain preview, and a
+**merge or overwrite** choice. Malformed files are rejected and your current data
+is never silently overwritten. A dismissible **first-run checklist** on Today
+guides you through real actions (capture → workspace → session → goal → project →
+document → inspect → command center) and can be restarted from Health.
+
+See [UX_AUDIT.md](./UX_AUDIT.md) (friction, mobile, performance) and
+[ACCESSIBILITY.md](./ACCESSIBILITY.md). Everything here is deterministic and
+offline — no AI, no analytics, no telemetry.
+
 ## Local development
 
 ```bash

@@ -1437,6 +1437,46 @@ auto-prioritization, no analytics, no calendar/notifications.
   search, dashboards, determinism, and a performance budget (200 goal dashboards
   under budget).
 
+## Daily use, reliability & product polish (LIFEOS-032 — implemented)
+
+A refinement sprint (no new domain, no AI) that makes the whole product
+dependable and pleasant. A shared, deterministic UX layer replaces ad-hoc
+patterns:
+
+- **`lib/ux/` engine.** `dirty-state` (structural `isDirty` + a registry and
+  `useUnsavedGuard` `beforeunload` hook), `confirmations` (`buildImpact` — record
+  name/type, affected children, whether linked external records survive,
+  reversibility, severity), `feedback` (a `useSyncExternalStore` toast store with
+  windowed dedup + optional safe actions), `backup`/`restore` (versioned JSON
+  envelope `schemaVersion`+`exportedAt`+all `STORE_DOMAINS`+safe prefs; validate →
+  preview (merge vs overwrite) → pure `applyRestore`; malformed files rejected),
+  `diagnostics` (sanitized sync snapshot — masks emails, strips JWT/bearer/api
+  keys; never document contents), `performance` (budget helpers), `onboarding`
+  (first-run checklist derived from state), `selftest` (40 assertions).
+- **`components/ux/` primitives.** `ToastProvider` (polite live region, mounted
+  globally), `ConfirmDialog` + global `requestConfirm`/`ConfirmHost` (one
+  confirmation pattern app-wide — focus-trapped `alertdialog`, safest-action
+  focus, acknowledgement gate for high-impact actions; replaces every
+  `window.confirm`), `EmptyState`, `ErrorState`, `SaveStatus` (honest local vs
+  remote — never "Saved" before a remote flush succeeds), `UnsavedChangesDialog`,
+  `BackupRestore` and `SyncDiagnostics` (the reliability center on `/health`),
+  and `FirstRun` (dismissible checklist on Today).
+- **Wiring.** Destructive actions (delete goal/project, reset local data) route
+  through `requestConfirm` with a computed impact; representative flows emit
+  toasts (capture created, milestone completed, session ended, workspace
+  switched, backup exported, data restored); `/health` gains the reliability
+  center + backup/restore + a first-run restart; the command palette records the
+  `commandOpened` first-run flag; `openInspector` records `inspected`.
+- **Persistence.** `persistence.ts` now tracks `lastSyncAt` (surfaced, sanitized,
+  by diagnostics). NO migration — backup/restore is client-side over the existing
+  store; first-run + diagnostics read existing prefs/health. The migration chain
+  stays **0001–0023**.
+- **Testing.** `lib/ux/selftest.ts` (`/dev/ux-tests`, asserted by `ux.mjs`)
+  covers dirty detection, confirmation impact, toast dedup, backup serialization,
+  restore validation/preview/merge/overwrite/malformed-rejection, diagnostics
+  sanitization, determinism, and performance budgets over a 5k-record fixture.
+  See `UX_AUDIT.md` (friction/mobile/perf) and `ACCESSIBILITY.md`.
+
 ## Future vector search layer
 
 Not implemented. When built, the expected approach is `pgvector` on

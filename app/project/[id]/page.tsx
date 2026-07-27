@@ -29,6 +29,9 @@ import { buildIndex, searchFlat } from "@/lib/command/search";
 import type { ExecProjectStatus, ExecutionPriority, SessionType } from "@/types/mvp";
 import SyncStatus from "@/components/SyncStatus";
 import { ProgressBar, Panel, Empty } from "@/components/execution/Bits";
+import { requestConfirm } from "@/components/ux/ConfirmDialog";
+import { buildImpact } from "@/lib/ux/confirmations";
+import { toast } from "@/lib/ux/feedback";
 
 const STATUSES: ExecProjectStatus[] = ["planned", "active", "paused", "completed", "abandoned"];
 const PRIORITIES: ExecutionPriority[] = ["high", "medium", "low"];
@@ -57,7 +60,11 @@ function ProjectDashboard({ id }: { id: string }) {
     : [];
   const startSession = (type: SessionType) => {
     const sid = startProjectSession(project.id, type, project.title);
-    if (!sid) alert("Assign a workspace to this project first to run sessions in it.");
+    if (!sid) toast({ kind: "warning", message: "Assign a workspace first", detail: "Sessions run inside a workspace — set one on this project." });
+  };
+  const onToggleMilestone = (mid: string, title: string, wasDone: boolean) => {
+    toggleMilestone(project.id, mid);
+    if (!wasDone) toast({ kind: "success", message: "Milestone completed", detail: title, dedupeKey: `milestone:${mid}` });
   };
 
   return (
@@ -112,7 +119,7 @@ function ProjectDashboard({ id }: { id: string }) {
             {project.milestones.length === 0 && <li className="text-xs text-zinc-400">No milestones yet.</li>}
             {sortedMilestones(project).map((m) => (
               <li key={m.id} className="flex items-start gap-2 text-sm">
-                <input type="checkbox" checked={m.status === "done"} onChange={() => toggleMilestone(project.id, m.id)} aria-label={`Milestone: ${m.title}`} className="mt-1" />
+                <input type="checkbox" checked={m.status === "done"} onChange={() => onToggleMilestone(m.id, m.title, m.status === "done")} aria-label={`Milestone: ${m.title}`} className="mt-1" />
                 <span className={m.status === "done" ? "flex-1 text-zinc-400 line-through" : "flex-1"}>{m.title}{m.targetDate && <span className="ml-1 text-[10px] text-zinc-400">· {m.targetDate}</span>}</span>
                 <button type="button" onClick={() => removeMilestone(project.id, m.id)} aria-label="Remove milestone" className="text-xs text-zinc-300 hover:text-red-500">✕</button>
               </li>
@@ -177,7 +184,7 @@ function ProjectDashboard({ id }: { id: string }) {
       <SessionTimeline groups={dash.sessions} />
 
       <div className="mt-8 border-t border-black/[.06] pt-4 dark:border-white/[.08]">
-        <button type="button" onClick={() => { if (confirm("Delete this project?")) { deleteProject(project.id); router.push("/projects"); } }} className="text-xs text-zinc-400 hover:text-red-500">Delete project</button>
+        <button type="button" onClick={() => requestConfirm({ impact: buildImpact(state, "project", project.id), onConfirm: () => { deleteProject(project.id); toast({ kind: "success", message: "Project deleted" }); router.push("/projects"); } })} className="text-xs text-zinc-400 hover:text-red-500">Delete project</button>
       </div>
     </main>
   );

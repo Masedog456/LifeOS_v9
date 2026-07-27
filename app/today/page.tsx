@@ -21,6 +21,7 @@ import { ExplanationSummary } from "@/components/ExplanationDetail";
 import { getPinned } from "@/lib/command/recent";
 import { resolveRecord } from "@/lib/command/records";
 import { openQuickCapture } from "@/lib/command/events";
+import FirstRun from "@/components/ux/FirstRun";
 
 function daysAgo(iso: string): number {
   return Math.floor((Date.now() - Date.parse(iso)) / 86400000);
@@ -90,6 +91,8 @@ export default function TodayPage() {
           {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} — a projection of what deserves attention. Nothing here is a copy; every card links to the record itself. Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> to search or run a command.
         </p>
       </header>
+
+      <FirstRun />
 
       {showOnboardingInvite && (
         <div className="mb-5 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
