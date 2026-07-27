@@ -249,6 +249,9 @@ overwrites your own conclusions.
   release criteria, and rollback procedure
 - [TRIAL_GUIDE.md](./TRIAL_GUIDE.md) — how to use the local prototype for
   the two-week personal trial, and how to judge whether it's valuable
+- [SYNC_INTEGRITY.md](./SYNC_INTEGRITY.md) — cross-device conflict detection,
+  three-way merge, tombstones, corruption recovery, restore safety, and the ten
+  cross-device scenarios (LIFEOS-033)
 
 All of the above are provisional drafts pending final Product Owner
 sign-off (see the notice at the top of each file).

@@ -735,3 +735,22 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   **merge**, confirm no data loss; (3) force a network failure and confirm the
   reliability center shows `failed` + a sanitized error and **Retry sync**
   recovers; (4) confirm `lastSyncAt` advances after a successful sync.
+
+### Sync conflicts, recovery & integrity (LIFEOS-033)
+
+- Cross-device conflicts are detected **three-way** (base / local / remote) and
+  never resolved by silent last-write-wins on user content. Unresolved conflicts
+  surface in the **Conflict Center** on `/health`; `SaveStatus` shows
+  "Conflict — resolution required (n)" until the user resolves them.
+- **Delete integrity:** `sync_tombstones` (migration `0024`) stops a stale
+  device from resurrecting a deleted record. It stores only `user_id / domain /
+  record_id / deleted_at` — never content — and is RLS-isolated per user
+  (validated: idempotent 3×, cross-user isolation confirmed on Postgres 16).
+- **Corruption recovery:** malformed rows are isolated out of the store on
+  hydrate (source in `localStorage` untouched) and reported in the Recovery
+  panel; the app never crashes on a single bad record.
+- **Restore safety:** import runs upgrade → validate → preview → apply and
+  offers a one-click **rollback** until the next mutation.
+- Diagnostics additions (unresolved conflicts, journal depth, oldest pending op,
+  skipped malformed records, recovery mode, local schema version) are all
+  sanitized — no content, tokens, or secrets. See `SYNC_INTEGRITY.md`.

@@ -86,3 +86,17 @@ exportable/restorable.
   `beforeunload` guard is wired via `useUnsavedGuard`; it is applied to the
   longest-form surfaces, not yet every minor inline field.
 - Automated accessibility (axe) and Lighthouse CI are not yet wired.
+
+## Sync conflict resolution (LIFEOS-033)
+
+- The shared `ConflictDialog` never defaults focus to a destructive action:
+  focus lands on **Postpone** (the safest option), and Escape postpones rather
+  than discarding. Keep-local / keep-remote / use-merge / keep-both (duplicate) /
+  postpone are all offered explicitly; a safe auto-merge is labelled when
+  available so the user sees what will merge without action.
+- It renders as a centered dialog on desktop and a bottom sheet on mobile; the
+  `syncintegrity.mjs` E2E confirms it opens and has no horizontal scroll at
+  390px.
+- Recovery, integrity, and conflict panels on `/health` are landmarked regions
+  (`aria-label` "Sync conflicts" / "Recovery" / "Data integrity") for
+  screen-reader navigation.

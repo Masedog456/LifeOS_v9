@@ -2131,3 +2131,28 @@ scope or order.
   research 21, world 21, formation 26, authoring 23, decision, compare, inquiry,
   threads, reason, retrieval, semantic, sync, graph 15); `tsc`=0, `lint`=0,
   `build`=0. Screenshots (health reliability center, confirm dialog, mobile confirm).
+- **LIFEOS-033 — Sync Conflicts, Recovery & Data Integrity.** New `lib/sync/`
+  (schema, merge, conflicts, tombstones, operations, journal, recovery,
+  integrity, restore-safety, status-store, selftest) + `lib/migrations/`
+  (state-version, upgrade-state, upgrade-backup) + `components/sync/`
+  (ConflictCenter, ConflictDialog, RecoveryPanel, IntegrityReport). Deterministic
+  **three-way** merge/conflict detection (base = last-synced snapshot); no
+  last-write-wins on user content, no prose auto-concat, no AI. Delete integrity
+  via tombstones (migration **0024** `sync_tombstones` — the ONLY durable
+  server-side metadata; revision derived from existing `updated_at`, so no
+  columns added to historical tables; chain now **0001–0024**). `mvpStore.hydrate`
+  now **isolates malformed rows out of the in-memory store** (source in
+  localStorage preserved) so a single null/id-less record never crashes a
+  consumer; `lib/graph` `snippet()` hardened against non-string labels. `/health`
+  gains Conflict Center + Recovery + Data-integrity panels; `SaveStatus` and Sync
+  Reliability diagnostics extended (all sanitized). Dev route `/dev/sync-tests`
+  runs 45 self-tests incl. 10 cross-device scenarios + a perf budget. Verified:
+  `syncintegrity.mjs` E2E **22/22**; full regression green (gen1 41, graph 15,
+  entity 18, workspaces 23, execution 25, ux 27, reading 30, command 27,
+  memory 29, orchestration 22, synthesis 22, world 21, dialogue 19, research 21,
+  formation 26, authoring 23, reason/inquiry/retrieval/compare/decision/review/
+  threads pass; `semantic` embedding checks fail only for missing pgvector —
+  environmental, pre-existing). `tsc`=0, `lint`=0, `build`=0. Migration 0024
+  validated on Postgres 16 (idempotent 3×, 4 RLS policies, cross-user isolation).
+  New doc `SYNC_INTEGRITY.md`; updated ARCHITECTURE / README / PERSISTENCE_QA /
+  UX_AUDIT. Screenshots: conflict dialog (desktop + mobile), sync health.

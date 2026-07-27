@@ -27,6 +27,10 @@ export interface KnowledgeGraph {
 }
 
 function snippet(s: string, n = 60): string {
+  // Resilient to partially-malformed records (a record may carry a valid id but
+  // be missing its label field) — the graph is a read-only query layer and must
+  // never crash on imperfect store data (LIFEOS-033, Feature 10).
+  if (typeof s !== "string") return "";
   return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
 }
 

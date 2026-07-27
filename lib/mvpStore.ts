@@ -133,6 +133,8 @@ import { mergeResume } from "@/lib/workspaces/resume";
 import { setCurrentWorkspace, forgetWorkspace } from "@/lib/workspaces/current";
 import { toggleMilestoneDone } from "@/lib/execution/progress";
 import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
+import { clearRollback, setRecovery } from "@/lib/sync/status-store";
+import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
 const EMPTY_STATE: StoreState = {
@@ -185,6 +187,18 @@ function setState(next: StoreState) {
   state = next;
   persist();
   emit();
+  // Any mutation invalidates a pending restore rollback (LIFEOS-033): the
+  // rollback is only valid "until the next successful mutation". The restore
+  // itself sets the buffer AFTER its setState, so it survives that call.
+  clearRollbackOnMutation();
+}
+
+/** Set true only while a restore is applying, so its own setState doesn't
+ * immediately clear the rollback buffer it is about to set. */
+let restoreInProgress = false;
+function clearRollbackOnMutation() {
+  if (restoreInProgress) return;
+  try { clearRollback(); } catch { /* status store optional */ }
 }
 
 function now(): string {
@@ -463,6 +477,25 @@ export function hydrate() {
           relatedEntities: asArray<RecordRefLite>(p?.relatedEntities),
         })),
       };
+      // Corruption isolation (LIFEOS-033, Feature 10): drop malformed rows from
+      // the in-memory store so a single bad record (null / missing id) can never
+      // crash a downstream consumer, while the source in localStorage is left
+      // untouched. Skipped rows are counted per-domain and surfaced in
+      // diagnostics / recovery mode. Domains with no malformed rows keep their
+      // exact array reference (dirty-domain sync depends on reference equality).
+      try {
+        const recoveries: DomainRecovery[] = [];
+        const s = state as unknown as Record<string, unknown>;
+        for (const key of Object.keys(s)) {
+          const val = s[key];
+          if (!Array.isArray(val)) continue;
+          const { valid, recovery } = isolateDomain(key, val);
+          if (recovery.skipped > 0) { s[key] = valid; recoveries.push(recovery); }
+        }
+        const report = buildRecoveryReport(recoveries, now());
+        setRecovery(report.totalSkipped > 0 ? report : null);
+        recordRecoveryEvent(report);
+      } catch { /* isolation is best-effort; never block hydration */ }
       emit();
     }
   } catch {
@@ -477,7 +510,20 @@ export function hydrate() {
  * normalization on the next hydrate cycle.
  */
 export function restoreState(next: StoreState): void {
-  setState(next);
+  restoreInProgress = true;
+  try { setState(next); } finally { restoreInProgress = false; }
+}
+
+/**
+ * Apply a conflict-resolved record into its domain (LIFEOS-033): upsert by id.
+ * Used by the conflict resolver for "keep remote" / "merge" / "duplicate". The
+ * domain is a StoreState array key; the record carries its own id.
+ */
+export function applyResolvedRecord(domain: keyof StoreState, record: { id: string }): void {
+  const arr = (state[domain] as unknown as { id: string }[]) ?? [];
+  const i = arr.findIndex((r) => r.id === record.id);
+  const next = i === -1 ? [record, ...arr] : arr.map((r) => (r.id === record.id ? record : r));
+  setState({ ...state, [domain]: next } as StoreState);
 }
 
 /** Wipe all data (local + remote, if configured). */

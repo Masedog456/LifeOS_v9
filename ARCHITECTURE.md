@@ -1599,3 +1599,17 @@ form. Planned approach:
   substitute for RLS.
 - No secret, credential, or API key is ever invented or fabricated by an
   AI agent working on this repo — see `AI_AGENT_RULES.md`.
+
+## Sync integrity (LIFEOS-033)
+
+Cross-device trust lives in `lib/sync/` + `components/sync/`, deliberately
+isolated so it is unit-testable without a live backend. It is **deterministic**
+— three-way merge and conflict detection compare `base` (last-synced snapshot),
+`local`, and `remote` structurally; there is no AI, no embedding, and no
+last-write-wins on user content. Delete integrity uses a privacy-safe tombstone
+ledger (`sync_tombstones`, migration `0024` — the only durable server-side
+metadata added; revision is derived from existing `updated_at`). Corruption
+isolation runs on hydrate in `lib/mvpStore.ts`: malformed rows are dropped from
+the in-memory store (source in `localStorage` preserved) so a single bad record
+never crashes a consumer, and the graph query layer (`lib/graph`) is hardened to
+tolerate partially-formed records. See `SYNC_INTEGRITY.md` for the full design.
