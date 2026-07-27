@@ -2011,3 +2011,28 @@ scope or order.
   retrieval 11, semantic 19, sync, graph 15); `lint`=0, `build`=0. Local-first
   preserved; sync failures never destroy local data. Manual step for production:
   apply `0021_reading_library.sql` in Supabase (SQL editor / CLI).
+- 2026-07-26 — Implemented **LIFEOS-029 Unified Workspace & Context Engine**
+  (base: LIFEOS-028 on `main`; branch restarted from `origin/main`). Makes the
+  app feel unified — every object reveals relationships; any entity is
+  inspectable in place. NO new reasoning system, LLM, embeddings, or storage
+  (nav memory reuses `user_prefs`; chain stays 0001–0021 — no 0022). New
+  `lib/entities/`: `entity.ts` (unified describe/ref for every kind, reusing
+  `resolveRecord` + graph), `relationships.ts` (grouped navigable relationships
+  from graph edges + domain links + citations, memoized per graph via WeakMap),
+  `backlinks.ts` (who-links-to-me grouped by kind), `activity.ts`/`timeline.ts`
+  (chronological history), `preview.ts` (hover-card data + one-hop neighbors),
+  `inspector.ts` (reactive store + navigation memory in prefs), `selftest.ts`
+  (30 assertions). New `components/entity/`: `Inspector` (ONE impl — desktop
+  right drawer + mobile bottom sheet; Overview/Relationships/Backlinks/Timeline/
+  Graph tabs; tablist ARIA, arrow-key nav, Escape, focus restoration, scroll/tab/
+  section memory), `ContextPanel`, `RelationshipExplorer`, `BacklinksPanel`,
+  `EntityTimeline`, `GraphPreview` (radial mini graph), `HoverCard`, `EntityLink`
+  (click→inspect, hover→card). Mounted `<Inspector/>` in root layout; command
+  palette record rows gain an Inspect (ⓘ) action; reader linked-knowledge panel
+  uses EntityLink; `prefs.ts` gains an `inspector` field. Verified 18/18 entity
+  E2E + 30/30 self-tests + FULL regression green (reading 30, gen1 41, memory 29,
+  command 27, dialogue 19, synthesis 22, orchestration 22, research 21, world 21,
+  formation 26, authoring 23, decision 33, compare 15, inquiry 22, threads 21,
+  reason, retrieval 11, semantic 19, sync, graph 15); `lint`=0, `build`=0.
+  Screenshots (inspector desktop + mobile). Relationships memoized per graph
+  (no O(n²)); everything deterministic and derived — no auto-mutation, no AI.

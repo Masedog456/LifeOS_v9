@@ -1244,6 +1244,73 @@ mirror.
   required) and hard-blocks above ~1.5 MB per document to keep the localStorage
   blob under the browser cap; user text is never silently truncated.
 
+## Unified workspace & context engine (LIFEOS-029 — implemented)
+
+Makes the whole app feel like one connected space instead of disconnected pages:
+every object reveals its relationships, and any entity can be inspected in place
+without navigating away. A pure projection layer over the existing LIFEOS-021
+graph, LIFEOS-027 record catalog, and LIFEOS-028 reading/citation model — no new
+reasoning system, no LLM, no embeddings, no new storage (navigation memory reuses
+`user_prefs`). Everything is deterministic and cached.
+
+- **Unified entity API** (`lib/entities/`). ONE way to describe any object —
+  capture, belief, concept, theme, research, dialogue, decision, synthesis,
+  tension, formation, question, author, document, passage, highlight, and every
+  graph node kind:
+  - `entity.ts` — `describeEntity` / `entityRef`: title, href, existence,
+    summary, timestamps, tags, status, notes for ANY kind, reusing
+    `resolveRecord` and extending it for graph-only + reading kinds. A shared
+    `EntityContext` carries the store + a graph built once.
+  - `relationships.ts` — grouped, navigable relationships (References /
+    Referenced by / Supports / Contradicts / Derived from / Part of / Contains /
+    Mentions / Related themes / documents / authors / decisions / Citations) from
+    graph edges (both directions) + domain links (dialogue/tension/synthesis/
+    reading) + citations. Memoized per graph (`WeakMap`) so repeated inspector
+    opens are O(1).
+  - `backlinks.ts` — deterministic "who links to me?", grouped by source kind,
+    from incoming graph edges + reverse domain links + reading citations.
+  - `activity.ts` / `timeline.ts` — a chronological (newest-first) history per
+    entity: creation, edits, belief revisions/judgments, highlights, annotations,
+    conversions, reading + decision activity, dialogue turns/conclusions.
+  - `preview.ts` — `entityPreview` (hover-card data) and `entityNeighbors` (the
+    one-hop neighborhood for the mini graph).
+  - `inspector.ts` — a tiny reactive store (`useSyncExternalStore`) for the open
+    entity + tab + expanded sections, with **navigation memory** persisted to
+    `prefs` (last entity, tab, expanded sections, scroll) so the workspace
+    resumes across sessions.
+  - `selftest.ts` — 30 fixture-driven assertions.
+- **Unified inspector** (`components/entity/Inspector.tsx`). ONE implementation
+  mounted in the root layout: a right-side drawer on desktop, a bottom sheet on
+  mobile. Opening any entity (`openInspector`) updates it in place. Tabs —
+  **Overview / Relationships / Backlinks / Timeline / Graph** — with `role`
+  tab/tablist/tabpanel semantics, arrow-key tab navigation, Escape to close,
+  focus restoration to the trigger, and scroll/tab/section memory. Tab bodies:
+  `ContextPanel` (Feature 1 — summary, created/updated, tags, status, notes,
+  citations, relationship/backlink counts, pinned state, cross-links),
+  `RelationshipExplorer`, `BacklinksPanel`, `EntityTimeline`, `GraphPreview`
+  (a deterministic radial mini graph of immediate neighbors; nodes clickable +
+  keyboard-focusable).
+- **EntityLink + HoverCard** (`components/entity/`). The universal entity
+  reference: clicking (or Enter) opens the inspector; hovering/focusing shows an
+  instant `HoverCard` (title, type, summary, relationship + backlink counts,
+  pinned state, last edit, Open button). One component, reused everywhere
+  (reader linked-knowledge panel, inspector rows, graph nodes).
+- **Cross-surface entry points.** The command palette's record results gain an
+  **Inspect** (ⓘ) action that opens any record in the inspector — so every
+  searchable object is inspectable from anywhere. The reader's linked-knowledge
+  panel uses `EntityLink`.
+- **Performance.** Relationships + backlinks are memoized per graph snapshot
+  (built once per store change); querying is a map lookup. No O(n²) scans; the
+  self-test builds 400 relationship views over a 300×-scaled store under budget.
+- **Persistence.** NONE added. Every context surface is derived at view time;
+  navigation memory lives in `prefs` (localStorage + the `user_prefs` mirror from
+  migration 0020). The migration chain remains **0001–0021, unmodified** — no
+  `0022` was required.
+- **Testing.** `lib/entities/selftest.ts` (surfaced at `/dev/entity-tests`,
+  asserted by `entity.mjs`) covers relationship generation, backlinks, timeline,
+  context description, previews/hover cards, graph neighbors, navigation-memory
+  shape, determinism, and a performance budget.
+
 ## Future vector search layer
 
 Not implemented. When built, the expected approach is `pgvector` on

@@ -5,6 +5,7 @@ import Nav from "@/components/Nav";
 import StoreHydrator from "@/components/StoreHydrator";
 import PersistenceBootstrap from "@/components/PersistenceBootstrap";
 import CommandCenter from "@/components/command/CommandCenter";
+import Inspector from "@/components/entity/Inspector";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,6 +39,7 @@ export default function RootLayout({
         <Nav />
         <div className="flex flex-1 flex-col">{children}</div>
         <CommandCenter />
+        <Inspector />
       </body>
     </html>
   );
