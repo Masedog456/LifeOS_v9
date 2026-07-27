@@ -354,34 +354,47 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (d.deleteIds.length) await this.throwing(this.client.from("document_citations").delete().in("id", d.deleteIds));
   }
 
+  /**
+   * Record tombstones for deleted independently-synced records (LIFEOS-033) so a
+   * stale device can't resurrect them. Best-effort + guarded: a missing 0024
+   * table is a no-op, never a sync failure. Stores only {domain, record_id}.
+   */
+  private async writeTombstones(domain: string, deleteIds: string[]): Promise<void> {
+    if (!deleteIds.length) return;
+    try {
+      const rows = deleteIds.map((id) => ({ domain, record_id: id, deleted_at: new Date().toISOString() }));
+      await this.client.from("sync_tombstones").upsert(rows, { onConflict: "user_id,domain,record_id" });
+    } catch { /* 0024 table may not exist yet — tombstones are additive */ }
+  }
+
   /** Row-level upsert/delete for workspaces (LIFEOS-030). */
   private async syncWorkspaces(current: Workspace[], base: Workspace[]): Promise<void> {
     const d = diffById<WorkspaceRow>(current.map(workspaceToRow), base.map(workspaceToRow));
     if (d.upsert.length) await this.throwing(this.client.from("workspaces").upsert(d.upsert));
     // Deleting a workspace cascades its sessions in the DB; the client also
     // removes the session rows below, so an explicit delete here is enough.
-    if (d.deleteIds.length) await this.throwing(this.client.from("workspaces").delete().in("id", d.deleteIds));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("workspaces").delete().in("id", d.deleteIds)); await this.writeTombstones("workspaces", d.deleteIds); }
   }
 
   /** Row-level upsert/delete for sessions (LIFEOS-030). */
   private async syncSessions(current: WorkspaceSession[], base: WorkspaceSession[]): Promise<void> {
     const d = diffById<SessionRow>(current.map(sessionToRow), base.map(sessionToRow));
     if (d.upsert.length) await this.throwing(this.client.from("workspace_sessions").upsert(d.upsert));
-    if (d.deleteIds.length) await this.throwing(this.client.from("workspace_sessions").delete().in("id", d.deleteIds));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("workspace_sessions").delete().in("id", d.deleteIds)); await this.writeTombstones("sessions", d.deleteIds); }
   }
 
   /** Row-level upsert/delete for goals (LIFEOS-031). */
   private async syncGoals(current: Goal[], base: Goal[]): Promise<void> {
     const d = diffById<GoalRow>(current.map(goalToRow), base.map(goalToRow));
     if (d.upsert.length) await this.throwing(this.client.from("goals").upsert(d.upsert));
-    if (d.deleteIds.length) await this.throwing(this.client.from("goals").delete().in("id", d.deleteIds));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("goals").delete().in("id", d.deleteIds)); await this.writeTombstones("goals", d.deleteIds); }
   }
 
   /** Row-level upsert/delete for projects (milestones embedded, LIFEOS-031). */
   private async syncProjects(current: Project[], base: Project[]): Promise<void> {
     const d = diffById<ExecProjectRow>(current.map(execProjectToRow), base.map(execProjectToRow));
     if (d.upsert.length) await this.throwing(this.client.from("projects").upsert(d.upsert));
-    if (d.deleteIds.length) await this.throwing(this.client.from("projects").delete().in("id", d.deleteIds));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("projects").delete().in("id", d.deleteIds)); await this.writeTombstones("projects", d.deleteIds); }
   }
 
   /** Load goals + projects, resilient to the 0023 tables being absent. */
@@ -517,6 +530,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // Goals & projects (LIFEOS-031): delete projects first (goal_id FK), guarded.
     try { await this.client.from("projects").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
     try { await this.client.from("goals").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
+    try { await this.client.from("sync_tombstones").delete().eq("user_id", uid); } catch { /* 0024 table may not exist yet */ }
     // Delete beliefs first (cascades revisions/judgments), then the rest.
     // saved_quotes cascade from sources.
     await this.throwing(this.client.from("recommendations").delete().eq("user_id", uid));

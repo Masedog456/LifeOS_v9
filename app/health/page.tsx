@@ -27,6 +27,9 @@ import { isActive } from "@/lib/orchestrator";
 import type { PersistenceHealth } from "@/lib/adapters/types";
 import SyncDiagnostics from "@/components/ux/SyncDiagnostics";
 import BackupRestore from "@/components/ux/BackupRestore";
+import ConflictCenter from "@/components/sync/ConflictCenter";
+import RecoveryPanel from "@/components/sync/RecoveryPanel";
+import IntegrityReport from "@/components/sync/IntegrityReport";
 import { writePrefs } from "@/lib/prefs";
 import { toast } from "@/lib/ux/feedback";
 
@@ -110,9 +113,12 @@ export default function HealthPage() {
         <p className="mt-1 text-sm text-zinc-500">Deterministic and observational — viewing this page changes nothing. No secrets are shown.</p>
       </header>
 
-      {/* Sync reliability center + backup/restore (LIFEOS-032) */}
+      {/* Sync reliability center + backup/restore (LIFEOS-032) + conflicts/recovery/integrity (LIFEOS-033) */}
       <div className="mb-6 space-y-4">
+        <ConflictCenter />
         <SyncDiagnostics />
+        <RecoveryPanel />
+        <IntegrityReport />
         <BackupRestore />
         <button type="button" onClick={() => { writePrefs({ firstRun: { dismissed: false, commandOpened: false, inspected: false } }); toast({ kind: "info", message: "First-run checklist reset", detail: "Open Today to see it again." }); }}
           className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">Restart first-run checklist</button>

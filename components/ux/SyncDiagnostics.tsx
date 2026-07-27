@@ -15,6 +15,10 @@ import { getHealth, subscribeHealth, retrySync } from "@/lib/persistence";
 import { subscribeAuth, getAuth } from "@/lib/authStore";
 import { syncDiagnostics, diagnosticsText } from "@/lib/ux/diagnostics";
 import { toast } from "@/lib/ux/feedback";
+import { loadJournal, journalDepth, oldestPending, clearCompleted, saveJournal } from "@/lib/sync/journal";
+import { getSyncStatus } from "@/lib/sync/status-store";
+import { lastRecoveryEvent } from "@/lib/sync/recovery";
+import { CURRENT_STATE_VERSION } from "@/lib/migrations/state-version";
 
 function useTick(): number {
   return useSyncExternalStore(
@@ -29,6 +33,10 @@ export default function SyncDiagnostics() {
   const [copied, setCopied] = useState(false);
   const d = syncDiagnostics();
 
+  const journal = typeof window !== "undefined" ? loadJournal() : [];
+  const status = getSyncStatus();
+  const recEvent = typeof window !== "undefined" ? lastRecoveryEvent() : null;
+  const oldest = oldestPending(journal);
   const rows: { label: string; value: string }[] = [
     { label: "Adapter", value: d.adapter },
     { label: "Authenticated", value: d.authenticated ? `yes${d.authEmailMasked ? ` (${d.authEmailMasked})` : ""}` : "no" },
@@ -38,6 +46,13 @@ export default function SyncDiagnostics() {
     { label: "Dirty domains", value: d.dirtyDomains.length ? d.dirtyDomains.join(", ") : "none" },
     { label: "Pending local changes", value: d.pendingLocalChanges ? "yes" : "no" },
     { label: "Retrying", value: d.retrying ? `yes (attempt ${d.retryAttempt ?? "?"})` : "no" },
+    // LIFEOS-033 additions.
+    { label: "Unresolved conflicts", value: String(status.conflicts.filter((c) => c.needsResolution).length) },
+    { label: "Journal depth", value: String(journalDepth(journal)) },
+    { label: "Oldest pending op", value: oldest ? `${oldest.domain}/${oldest.type} @ ${new Date(oldest.createdAt).toLocaleTimeString()}` : "none" },
+    { label: "Skipped malformed records", value: recEvent ? String(recEvent.totalSkipped) : "0" },
+    { label: "Recovery mode", value: status.recoveryMode ? "yes" : "no" },
+    { label: "Local schema version", value: `v${CURRENT_STATE_VERSION}` },
   ];
 
   const copy = async () => {
@@ -55,6 +70,7 @@ export default function SyncDiagnostics() {
               className="rounded-full border border-black/10 px-3 py-1 text-xs hover:bg-black/[.04] dark:border-white/12 dark:hover:bg-white/[.06]">Retry sync</button>
           )}
           <button type="button" onClick={copy} className="rounded-full border border-black/10 px-3 py-1 text-xs hover:bg-black/[.04] dark:border-white/12 dark:hover:bg-white/[.06]">{copied ? "Copied ✓" : "Copy diagnostics"}</button>
+          <button type="button" onClick={() => { saveJournal(clearCompleted(loadJournal())); toast({ kind: "info", message: "Cleared completed journal entries" }); }} className="rounded-full border border-black/10 px-3 py-1 text-xs hover:bg-black/[.04] dark:border-white/12 dark:hover:bg-white/[.06]">Clear journal</button>
         </div>
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">

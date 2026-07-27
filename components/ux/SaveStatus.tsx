@@ -12,6 +12,7 @@
 import { useSyncExternalStore } from "react";
 import { getHealth, subscribeHealth } from "@/lib/persistence";
 import type { PersistenceHealth } from "@/lib/adapters/types";
+import { useSyncStatus } from "@/lib/sync/status-store";
 
 const SERVER: PersistenceHealth = { mode: "local", state: "disabled" };
 
@@ -42,6 +43,12 @@ const TONE: Record<string, string> = {
 
 export default function SaveStatus() {
   const h = useHealth();
+  const sync = useSyncStatus();
+  // Conflict/recovery states take precedence and are never labelled "synced"
+  // (LIFEOS-033, Feature 13).
+  if (sync.recoveryMode) return <span role="status" className={`text-[11px] ${TONE.error}`}>Recovery mode</span>;
+  const unresolved = sync.conflicts.filter((c) => c.needsResolution).length;
+  if (unresolved > 0) return <span role="status" className={`text-[11px] ${TONE.error}`}>Conflict — resolution required ({unresolved})</span>;
   const { label, tone } = describeSaveState(h);
   return <span role="status" className={`text-[11px] ${TONE[tone]}`}>{label}</span>;
 }
