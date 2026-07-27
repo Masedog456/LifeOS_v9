@@ -40,6 +40,8 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:themes", title: "Open Themes", group: "Navigate", kind: "navigate", href: "/themes", icon: "☷", keywords: ["recurring"] },
   { id: "nav:health", title: "Open System Health", group: "Navigate", kind: "navigate", href: "/health", icon: "♥", keywords: ["settings", "status", "diagnostics"] },
   { id: "nav:workspaces", title: "Open Workspaces", group: "Navigate", kind: "navigate", href: "/workspaces", icon: "◲", keywords: ["workspace", "project", "session", "switch"] },
+  { id: "nav:goals", title: "Open Goals", group: "Navigate", kind: "navigate", href: "/goals", icon: "◎", keywords: ["goal", "objective", "accomplish", "execution"] },
+  { id: "nav:projects", title: "Open Projects", group: "Navigate", kind: "navigate", href: "/projects", icon: "▤", keywords: ["project", "work", "execution", "milestone"] },
 ];
 
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */
@@ -54,6 +56,8 @@ export const CREATE_COMMANDS: CommandItem[] = [
   { id: "create:question", title: "New question", group: "Create", kind: "create", href: "/inquiry?new=1", icon: "＋", keywords: ["inquiry"] },
   { id: "create:synthesis", title: "New synthesis", group: "Create", kind: "create", href: "/dialogue", icon: "＋", keywords: ["dialectic", "integrate"] },
   { id: "create:workspace", title: "New workspace", group: "Create", kind: "create", href: "/workspaces?new=1", icon: "＋", keywords: ["project", "area", "group"] },
+  { id: "create:goal", title: "New goal", group: "Create", kind: "create", href: "/goals?new=1", icon: "＋", keywords: ["objective", "accomplish", "execution"] },
+  { id: "create:project", title: "New project", group: "Create", kind: "create", href: "/projects?new=1", icon: "＋", keywords: ["work", "execution", "milestone"] },
 ];
 
 /** Feature 1 + 8 — common actions and system entry points. */
@@ -120,6 +124,28 @@ export function pinnedProvider(ctx: CommandContext): CommandItem[] {
 /** Convenience: the current record href for a record command (recent/pinned/continue). */
 export function hrefForRecord(state: StoreState, kind: string, id: string): string | undefined {
   return resolveRecord(state, kind, id)?.href;
+}
+
+/**
+ * Feature 9 — Switch / Resume goals and projects from the command center. Each
+ * navigates to a dashboard where work is resumed. Active goals/projects first
+ * (not completed/abandoned), then most-recently-updated. Deterministic.
+ */
+export function executionProvider(ctx: CommandContext): CommandItem[] {
+  const items: CommandItem[] = [];
+  const goals = [...(ctx.state.goals ?? [])]
+    .filter((g) => g.status !== "completed" && g.status !== "abandoned")
+    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  const projects = [...(ctx.state.projects ?? [])]
+    .filter((p) => p.status !== "completed" && p.status !== "abandoned")
+    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  for (const g of goals.slice(0, 8)) {
+    items.push({ id: `goal:${g.id}`, title: `Switch to goal: ${g.title}`, subtitle: g.description || undefined, group: "Goals", kind: "navigate", href: `/goal/${g.id}`, icon: "◎", keywords: ["goal", "switch", "resume", "execution"] });
+  }
+  for (const p of projects.slice(0, 8)) {
+    items.push({ id: `project:${p.id}`, title: `Resume project: ${p.title}`, subtitle: p.description || undefined, group: "Projects", kind: "navigate", href: `/project/${p.id}`, icon: "▤", keywords: ["project", "resume", "switch", "milestone"] });
+  }
+  return items;
 }
 
 /**

@@ -15,6 +15,7 @@ import Link from "next/link";
 import { endSession, appendSessionNote, useStore } from "@/lib/mvpStore";
 import { activeSession, formatClock, sessionDuration, SESSION_TYPE_ICON, SESSION_TYPE_LABEL } from "@/lib/workspaces/sessions";
 import { findWorkspace, workspaceHref } from "@/lib/workspaces/workspace";
+import { findGoal, goalHref } from "@/lib/execution/goals";
 import { openCommandPalette } from "@/lib/command/events";
 
 export default function SessionBanner() {
@@ -35,6 +36,7 @@ export default function SessionBanner() {
 
   // findWorkspace is a cheap array lookup — no memo needed.
   const ws = workspaceId ? findWorkspace(state, workspaceId) : undefined;
+  const goalRec = session?.goalId ? findGoal(state, session.goalId) : undefined;
   if (!session) return null;
 
   const elapsed = formatClock(sessionDuration(session));
@@ -60,7 +62,9 @@ export default function SessionBanner() {
             {ws?.name ?? "Workspace"}
           </Link>
           <span className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-            {SESSION_TYPE_LABEL[session.type]}{session.goal ? ` · ${session.goal}` : ""}
+            {SESSION_TYPE_LABEL[session.type]}
+            {goalRec && <> · <Link href={goalHref(goalRec.id)} className="hover:underline">◎ {goalRec.title}</Link></>}
+            {!goalRec && session.goal ? ` · ${session.goal}` : ""}
           </span>
         </div>
         <span

@@ -32,11 +32,14 @@ export const RECORD_LABELS: Record<string, string> = {
   highlight: "Highlights",
   annotation: "Reading notes",
   workspace: "Workspaces",
+  goal: "Goals",
+  project: "Projects",
+  milestone: "Milestones",
 };
 
 /** Deterministic group ordering for search output (index = priority). */
 export const RECORD_ORDER: string[] = [
-  "workspace", "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
+  "goal", "project", "milestone", "workspace", "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
   "synthesis", "tension", "decision", "inquiry", "formation", "knowledge_project", "source",
   "passage", "highlight", "annotation",
 ];
@@ -100,6 +103,17 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
     add("workspace", w.id, w.name, { body: `${w.name} ${w.description} ${w.goals.map((g) => g.text).join(" ")}`, status: w.archived ? "archived" : "active", updatedAt: w.updatedAt, href: `/workspace/${w.id}` });
   }
 
+  // Goals, projects & milestones (LIFEOS-031): searchable execution objects.
+  for (const g of state.goals ?? []) {
+    add("goal", g.id, g.title, { body: `${g.title} ${g.description} ${g.notes} ${g.tags.join(" ")}`, aliases: g.tags, status: g.status, updatedAt: g.updatedAt, href: `/goal/${g.id}` });
+  }
+  for (const p of state.projects ?? []) {
+    add("project", p.id, p.title, { body: `${p.title} ${p.description} ${p.notes}`, status: p.status, updatedAt: p.updatedAt, href: `/project/${p.id}` });
+    for (const m of p.milestones) {
+      add("milestone", m.id, m.title, { body: `${m.title} ${m.notes}`, status: m.status, updatedAt: m.updatedAt, href: `/project/${p.id}` });
+    }
+  }
+
   // ---- Reading companion (LIFEOS-028): documents, authors, passages, highlights, notes ----
   const authorSeen = new Set<string>();
   for (const doc of state.documents) {
@@ -147,6 +161,9 @@ export function resolveRecord(state: StoreState, kind: string, id: string): { ti
     case "source": { const s = state.sources.find((x) => x.id === id); return s && { title: s.title, href: `/library/${s.id}`, status: s.status }; }
     case "document": { const d = state.documents.find((x) => x.id === id); return d && { title: d.title, href: `/document/${d.id}`, status: d.status }; }
     case "workspace": { const w = (state.workspaces ?? []).find((x) => x.id === id); return w && { title: w.name, href: `/workspace/${w.id}`, status: w.archived ? "archived" : "active" }; }
+    case "goal": { const g = (state.goals ?? []).find((x) => x.id === id); return g && { title: g.title, href: `/goal/${g.id}`, status: g.status }; }
+    case "project": { const p = (state.projects ?? []).find((x) => x.id === id); return p && { title: p.title, href: `/project/${p.id}`, status: p.status }; }
+    case "milestone": { for (const p of state.projects ?? []) { const m = p.milestones.find((x) => x.id === id); if (m) return { title: m.title, href: `/project/${p.id}`, status: m.status }; } return undefined; }
     default: return undefined;
   }
 }

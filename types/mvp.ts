@@ -2141,6 +2141,10 @@ export interface WorkspaceSession {
   workspaceId: string;
   type: SessionType;
   goal: string;
+  /** Optional execution links (LIFEOS-031): a session can contribute to a Goal
+   * and/or a Project. References only; both are optional and independent. */
+  goalId?: string;
+  projectId?: string;
   /** Rich markdown scratchpad; timestamp-insertable; independent from captures. */
   notes: string;
   startedAt: ISO;
@@ -2165,6 +2169,92 @@ export interface SessionActivityEvent {
   entityId?: string;
   label: string;
   detail?: string;
+}
+
+// ---------- Goals, projects & execution (LIFEOS-031) ----------
+
+/**
+ * A first-class Goal — the highest-level organizational object. It answers
+ * "what am I trying to accomplish?" (Finish Philosophy Thesis, Grow Pool
+ * Business, Read 100 Books). Goals hold Projects; Projects hold Milestones;
+ * Sessions contribute to them. A Goal never copies the work it organizes —
+ * `linkedWorkspaces` and `linkedKnowledge` are typed references, and its
+ * projects are looked up by `Project.goalId`. Progress is DERIVED
+ * deterministically (see the progress engine); `manualProgress` is an optional
+ * user override. No AI, no auto-planning, no auto-prioritization.
+ */
+export type GoalStatus = "active" | "paused" | "completed" | "abandoned" | "someday";
+export type ExecutionPriority = "low" | "medium" | "high";
+
+export interface Goal {
+  id: string;
+  title: string;
+  description: string;
+  status: GoalStatus;
+  priority: ExecutionPriority;
+  /** Target completion date (yyyy-mm-dd) — a plain date, no calendar integration. */
+  targetDate?: string;
+  notes: string;
+  tags: string[];
+  /** Optional manual progress override (0–100). When set, it wins over derived. */
+  manualProgress?: number;
+  /** Workspaces that serve this goal (references, never copies). */
+  linkedWorkspaces: RecordRefLite[];
+  /** Knowledge records that support this goal (references). */
+  linkedKnowledge: RecordRefLite[];
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+/**
+ * A Project — concrete work that belongs to a Goal (optional) and lives in a
+ * Workspace (optional). Projects hold Milestones (embedded). Completion is
+ * derived from milestones/status with an optional manual override; nothing is
+ * ever inferred as complete. `relatedDocuments`/`relatedEntities` are references.
+ */
+export type ExecProjectStatus = "planned" | "active" | "paused" | "completed" | "abandoned";
+
+export interface Project {
+  id: string;
+  title: string;
+  description: string;
+  status: ExecProjectStatus;
+  priority: ExecutionPriority;
+  /** The Goal this project advances (optional). */
+  goalId?: string;
+  /** The Workspace this project's work happens in (optional). */
+  workspaceId?: string;
+  startDate?: string;
+  targetDate?: string;
+  notes: string;
+  milestones: Milestone[];
+  /** Optional manual completion override (0–100). When set, it wins over derived. */
+  manualProgress?: number;
+  relatedDocuments: RecordRefLite[];
+  relatedEntities: RecordRefLite[];
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+/**
+ * A Milestone inside a Project. Completion is MANUAL ONLY — the user marks it
+ * done; the system never infers it. Linked sessions/knowledge are references.
+ */
+export type MilestoneStatus = "open" | "done";
+
+export interface Milestone {
+  id: string;
+  title: string;
+  status: MilestoneStatus;
+  targetDate?: string;
+  completedDate?: ISO;
+  notes: string;
+  /** Sessions that advanced this milestone (references). */
+  linkedSessions: string[];
+  /** Knowledge records tied to this milestone (references). */
+  linkedKnowledge: RecordRefLite[];
+  createdAt: ISO;
+  updatedAt: ISO;
 }
 
 export interface StoreState {
@@ -2197,6 +2287,8 @@ export interface StoreState {
   citations: Citation[];
   workspaces: Workspace[];
   sessions: WorkspaceSession[];
+  goals: Goal[];
+  projects: Project[];
 }
 
 // ---------- Reading companion foundation (LIFEOS-028) ----------

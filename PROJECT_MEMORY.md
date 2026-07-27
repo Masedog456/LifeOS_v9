@@ -2070,3 +2070,34 @@ scope or order.
   22, orchestration 22, research 21, world 21, formation 26, authoring 23,
   decision, compare, inquiry, threads, reason, retrieval, semantic, sync, graph
   15); `tsc`=0, `lint`=0, `build`=0. Screenshots (workspace desktop + mobile).
+- 2026-07-27 — Implemented **LIFEOS-031 Goals, Projects & Execution Engine**
+  (base: LIFEOS-030 on `main`; branch restarted from `origin/main`). Adds
+  intentional execution so LifeOS understands "what am I trying to accomplish?":
+  first-class **Goals** (highest-level object), **Projects** (belong to goals,
+  hold milestones, live in a workspace), and **Milestones** (embedded, MANUAL
+  completion only). Sessions optionally attribute activity to a goal/project.
+  Deterministic and offline: NO AI, agents, embeddings, background workers,
+  analytics, auto-planning, auto-prioritization, calendar, or notifications. New
+  `lib/execution/`: `goals.ts`, `projects.ts`, `milestones.ts`, `progress.ts`
+  (fully DERIVED progress — completed milestones/projects + optional manual
+  override; never infers completion or flips status), `dashboard.ts` (goal +
+  project projections), `relationships.ts` (entity↔goal/project for the
+  inspector), `tracking.ts` (session attribution + contribution, no new
+  tracking), `current.ts` (reactive goal/project pointers in prefs), `selftest.ts`
+  (33 assertions). Store gains goal/project/milestone actions + session
+  goal/project linking + `startProjectSession`. New UI: `/goals` + `/goal/[id]`
+  and `/projects` + `/project/[id]` dashboards (progress bars, milestones,
+  session timelines, related-work + linked-knowledge pickers, status/priority/
+  manual-progress editing, notes), nav "Execute" group, session banner shows the
+  current goal, inspector ContextPanel "Goals & projects" section, command center
+  New/Switch/Resume goal & project commands + goal/project/milestone entity kinds
+  (searchable, reusing the LIFEOS-027 engine). Migration **0023_execution.sql**
+  (two additive, RLS tables — goals + projects; milestones/refs embedded jsonb;
+  `goal_id` FK ON DELETE SET NULL so deleting a goal orphans not deletes its
+  projects; validated idempotent 3× on Postgres 16 incl. FK-orphan). Adapter
+  syncs by dirty domain + loads resiliently. Chain now **0001–0023**. Verified
+  25/25 execution E2E + 33/33 self-tests + FULL regression green (workspaces 23,
+  entity 18, command 27, reading 30, gen1 41, memory 29, dialogue 19, synthesis
+  22, orchestration 22, research 21, world 21, formation 26, authoring 23,
+  decision, compare, inquiry, threads, reason, retrieval, semantic, sync, graph
+  15); `tsc`=0, `lint`=0, `build`=0. Screenshots (goal + project + mobile).
