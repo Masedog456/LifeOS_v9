@@ -47,6 +47,17 @@ export interface Prefs {
     expanded?: Record<string, boolean>;
     scroll?: number;
   };
+  /**
+   * Workspace navigation memory (LIFEOS-030): the current workspace pointer plus
+   * recently-visited and pinned workspace ids. UI memory only (which workspace
+   * am I in), so it lives in prefs and follows the user across devices — the
+   * workspace RECORDS themselves are durable domain data in the store/DB.
+   */
+  workspace?: {
+    current?: string;
+    recent?: string[];
+    pinned?: string[];
+  };
 }
 
 export function readPrefs(): Prefs {

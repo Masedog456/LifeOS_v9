@@ -2068,6 +2068,105 @@ export interface Recommendation {
   snoozedUntil?: ISO;
 }
 
+// ---------- Workspaces, sessions & thinking modes (LIFEOS-030) ----------
+
+/**
+ * A first-class Workspace: a durable, user-owned grouping of EXISTING entities
+ * (beliefs, documents, decisions, dialogues, …) around a project or life area —
+ * "Philosophy Thesis", "Pool Business", "Peace Corps". A workspace never copies
+ * or duplicates the entities it groups; `members` and `pinned` hold typed
+ * references only. Deterministic and offline: no AI, no recommendations, no
+ * background work — a workspace is exactly what the user put in it plus views
+ * derived from it. `resume` is per-workspace navigation memory so the user can
+ * pick up exactly where they left off (Feature 6).
+ */
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string;
+  /** A subtle accent color key for the dashboard/banner (optional, cosmetic). */
+  color?: string;
+  goals: WorkspaceGoal[];
+  /** Entities explicitly grouped into this workspace (references, never copies). */
+  members: RecordRefLite[];
+  /** Entities the user pinned to the top of this workspace (references). */
+  pinned: RecordRefLite[];
+  /** Per-workspace "resume where I left off" navigation memory (Feature 6). */
+  resume: WorkspaceResume;
+  archived: boolean;
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+/** A simple, checkable workspace goal (deterministic; no scoring, no AI). */
+export interface WorkspaceGoal {
+  id: string;
+  text: string;
+  done: boolean;
+  createdAt: ISO;
+}
+
+/**
+ * The last place the user was in a workspace, so "Resume" returns them exactly
+ * there: the last entity inspected, last document read, last inspector target,
+ * last command search, last scroll, and last graph focus. Pure UI memory — all
+ * fields are references or scalars, never copies of records.
+ */
+export interface WorkspaceResume {
+  lastEntity?: RecordRefLite;
+  lastDocumentId?: string;
+  lastInspector?: RecordRefLite;
+  lastSearch?: string;
+  lastScroll?: number;
+  lastGraphFocus?: RecordRefLite;
+  at?: ISO;
+}
+
+/** The kind of active thinking session the user has begun (Feature 2). */
+export type SessionType =
+  | "thinking" | "reading" | "research" | "writing"
+  | "planning" | "decision" | "review" | "reflection";
+
+/**
+ * An active (or completed) thinking session inside a workspace. Only ONE session
+ * is active at a time (endedAt === undefined). A session records its goal, a rich
+ * markdown scratchpad (independent of captures), and a deterministic activity
+ * timeline of what the user opened, searched, captured, read, and edited while it
+ * was open (Feature 5). Outputs (entities opened, documents read, captures
+ * created, decisions made) are DERIVED from `activity` — never a second source of
+ * truth. No analytics, no scoring.
+ */
+export interface WorkspaceSession {
+  id: string;
+  workspaceId: string;
+  type: SessionType;
+  goal: string;
+  /** Rich markdown scratchpad; timestamp-insertable; independent from captures. */
+  notes: string;
+  startedAt: ISO;
+  /** Undefined while the session is active; set once when ended. */
+  endedAt?: ISO;
+  activity: SessionActivityEvent[];
+}
+
+/** What kind of thing happened during a session (timeline only, no analytics). */
+export type SessionActivityKind =
+  | "opened_entity" | "opened_document" | "search" | "capture_created"
+  | "belief_edited" | "reading" | "inspector" | "command"
+  | "decision_edited" | "note";
+
+/** A single deterministic activity event inside a session's timeline. */
+export interface SessionActivityEvent {
+  id: string;
+  at: ISO;
+  type: SessionActivityKind;
+  /** The entity this event concerns, when applicable (a reference, never a copy). */
+  entityKind?: string;
+  entityId?: string;
+  label: string;
+  detail?: string;
+}
+
 export interface StoreState {
   captures: Capture[];
   proposals: Proposal[];
@@ -2096,6 +2195,8 @@ export interface StoreState {
   recommendations: Recommendation[];
   documents: ReadingDocument[];
   citations: Citation[];
+  workspaces: Workspace[];
+  sessions: WorkspaceSession[];
 }
 
 // ---------- Reading companion foundation (LIFEOS-028) ----------

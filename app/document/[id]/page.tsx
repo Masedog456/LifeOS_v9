@@ -29,6 +29,7 @@ import { renderMarkdownInline } from "@/lib/library/annotations";
 import { STATUS_LABEL, READING_STATUSES, estimatedMinutesRemaining } from "@/lib/library/progress";
 import SyncStatus from "@/components/SyncStatus";
 import EntityLink from "@/components/entity/EntityLink";
+import { trackOpenDocument, trackReading } from "@/lib/workspaces/tracking";
 import type { HighlightColor, Passage, ReadingDocument } from "@/types/mvp";
 
 const CONVERSIONS: { target: ConversionTarget; label: string }[] = [
@@ -100,6 +101,14 @@ function Reader() {
     passageRefs.current.get(focusId)?.scrollIntoView({ block: "center", behavior: "smooth" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusId, docId]);
+
+  // Feed the active thinking session's timeline when a document is opened/read.
+  useEffect(() => {
+    if (!doc) return;
+    trackOpenDocument(doc.id, doc.title);
+    trackReading(doc.id, doc.title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId]);
 
   const doHighlight = useCallback(() => {
     if (!doc || !focusId) return;

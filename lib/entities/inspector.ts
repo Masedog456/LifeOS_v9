@@ -10,6 +10,7 @@
 
 import { useSyncExternalStore } from "react";
 import { readPrefs, writePrefs } from "@/lib/prefs";
+import { trackInspect } from "@/lib/workspaces/tracking";
 
 export type InspectorTab = "overview" | "relationships" | "backlinks" | "timeline" | "graph";
 export const INSPECTOR_TABS: InspectorTab[] = ["overview", "relationships", "backlinks", "timeline", "graph"];
@@ -39,6 +40,8 @@ export function openInspector(kind: string, id: string): void {
   const same = prev?.last?.kind === kind && prev?.last?.id === id;
   set({ open: true, target: { kind, id }, tab: same && prev?.tab ? (prev.tab as InspectorTab) : "overview", expanded: same && prev?.expanded ? prev.expanded : state.expanded });
   persist();
+  // Record inspector usage into the active thinking session, if any (LIFEOS-030).
+  trackInspect(kind, id);
 }
 
 export function closeInspector(): void { set({ open: false }); }

@@ -2036,3 +2036,37 @@ scope or order.
   reason, retrieval 11, semantic 19, sync, graph 15); `lint`=0, `build`=0.
   Screenshots (inspector desktop + mobile). Relationships memoized per graph
   (no O(n²)); everything deterministic and derived — no auto-mutation, no AI.
+- 2026-07-27 — Implemented **LIFEOS-030 Workspaces, Sessions & Thinking Modes**
+  (base: LIFEOS-029 on `main`; branch restarted from `origin/main`). Adds the
+  concept of active thinking sessions so LifeOS understands "what am I working on
+  right now?" — first-class **Workspaces** that GROUP existing entities (never
+  copy — `members`/`pinned` are typed references resolved live) and **Sessions**
+  (8 thinking modes; only one active at a time) with a derived activity timeline,
+  resume-where-I-left-off memory, session notes, and a per-workspace dashboard.
+  Deterministic and offline throughout: NO AI, agents, embeddings, background
+  workers, or analytics. New `lib/workspaces/`: `workspace.ts` (model +
+  membership + `entityWorkspaces` + referenced frontier), `sessions.ts`
+  (lifecycle + `sessionOutputs` derived from activity + recency grouping),
+  `activity.ts` (record policy + `resumePatchFor`), `resume.ts`, `dashboard.ts`
+  (Feature-4 projection), `search.ts` (workspace-scoped — REUSES the LIFEOS-027
+  engine), `tracking.ts` (store sink wrappers), `current.ts` (reactive
+  current-workspace pointer in prefs), `selftest.ts` (35 assertions). Store gains
+  workspace/session actions + `recordSessionActivity`; capture creation,
+  `openInspector`, the command palette, and the reader auto-feed the active
+  session's timeline. New UI: global `SessionBanner` (workspace, type, live
+  elapsed clock, quick notes, End/Switch — renders nothing when idle), nav
+  `WorkspaceSelector`, `/workspaces` (index + create), `/workspace/[id]`
+  (dashboard: session controls, resume, scoped search, goals, members, notes,
+  timeline). Inspector `ContextPanel` gains "Belongs to workspace(s)" + add-to;
+  command center gains Switch/Resume/End-session + a `workspace` entity kind
+  (searchable + inspectable). Migration **0022_workspaces.sql** (two additive,
+  RLS-protected tables — `workspaces` + `workspace_sessions`; goals/members/
+  pinned/resume/activity embedded as jsonb; single-active enforced in-app, not by
+  a partial unique index that could reject bulk upserts; validated idempotent 3×
+  on Postgres 16 incl. cascade). Supabase adapter syncs both tables by dirty
+  domain (row-level upsert/delete) and loads resiliently. Chain now **0001–0022**.
+  Verified 23/23 workspaces E2E + 35/35 self-tests + FULL regression green
+  (entity 18, command 27, reading 30, gen1 41, memory 29, dialogue 19, synthesis
+  22, orchestration 22, research 21, world 21, formation 26, authoring 23,
+  decision, compare, inquiry, threads, reason, retrieval, semantic, sync, graph
+  15); `tsc`=0, `lint`=0, `build`=0. Screenshots (workspace desktop + mobile).

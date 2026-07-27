@@ -47,7 +47,7 @@ function emptyState(): StoreState {
     reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [],
     concepts: [], conceptRelationships: [], principles: [], frameworks: [],
     knowledgeProjects: [], researchProjects: [], dialogueSessions: [], tensions: [],
-    syntheses: [], recommendations: [], documents: [], citations: [],
+    syntheses: [], recommendations: [], documents: [], citations: [], workspaces: [], sessions: [],
   };
 }
 

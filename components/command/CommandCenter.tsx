@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useStore } from "@/lib/mvpStore";
+import { useStore, endSession } from "@/lib/mvpStore";
 import { resolveKey, isTypingTarget, isMacPlatform } from "@/lib/command/shortcuts";
 import { OPEN_CAPTURE_EVENT, OPEN_PALETTE_EVENT } from "@/lib/command/events";
 import { recordVisit } from "@/lib/command/recent";
@@ -127,7 +127,7 @@ export default function CommandCenter() {
   // (no reset effects). The onAction handoff runs after the palette has closed.
   return (
     <>
-      {overlay === "palette" && <CommandPalette onClose={close} onAction={(a) => { if (a === "quick-capture") setTimeout(() => open("capture"), 0); else if (a === "shortcut-help") setTimeout(() => open("help"), 0); }} />}
+      {overlay === "palette" && <CommandPalette onClose={close} onAction={(a) => { if (a === "quick-capture") setTimeout(() => open("capture"), 0); else if (a === "shortcut-help") setTimeout(() => open("help"), 0); else if (a === "end-session") endSession(); }} />}
       {overlay === "capture" && <QuickCapture onClose={close} />}
       {overlay === "help" && <ShortcutHelp onClose={close} isMac={isMac} />}
       <MobileCommandTrigger onOpenPalette={() => open("palette")} onOpenCapture={() => open("capture")} />

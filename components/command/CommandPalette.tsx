@@ -21,6 +21,7 @@ import { getPinned, getRecent, recordVisit, togglePin } from "@/lib/command/rece
 import { hrefForRecord } from "@/lib/command/commands";
 import { normalizeQuery } from "@/lib/command/ranking";
 import { openInspector } from "@/lib/entities/inspector";
+import { trackSearch, trackCommand } from "@/lib/workspaces/tracking";
 import type { CommandItem } from "@/lib/command/types";
 import CommandResult, { type CommandRow } from "@/components/command/CommandResult";
 
@@ -119,6 +120,9 @@ export default function CommandPalette({ onClose, onAction }: { onClose: () => v
   }, [sel]);
 
   const activate = useCallback((row: CommandRow) => {
+    // Feed the active thinking session's timeline (LIFEOS-030), if any.
+    if (query.trim()) trackSearch(query);
+    trackCommand(row.title);
     if (row.action) { onClose(); onAction(row.action); return; }
     if (row.href) {
       if (row.recordKind && row.recordId) {
@@ -132,7 +136,7 @@ export default function CommandPalette({ onClose, onAction }: { onClose: () => v
       onClose();
       router.push(row.href);
     }
-  }, [onAction, onClose, router, state]);
+  }, [onAction, onClose, router, state, query]);
 
   const onTogglePin = useCallback((row: CommandRow) => {
     if (!row.recordKind || !row.recordId) return;

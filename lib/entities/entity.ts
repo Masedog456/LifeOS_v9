@@ -54,6 +54,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   document: "Document", author: "Author", passage: "Passage", highlight: "Highlight", annotation: "Note",
   proposal: "Proposal", comparison: "Comparison", megathread: "Thread", reflection: "Reflection",
   practice: "Practice", review: "Review", reasoning: "Reasoning", principle: "Principle", framework: "Framework",
+  workspace: "Workspace",
 };
 
 const snip = (s: string | undefined, n = 80): string => {
@@ -139,6 +140,7 @@ export function describeEntity(ctx: EntityContext, kind: EntityKind, id: string)
     case "reflection": { const r = state.reflections.find((x) => x.id === id); if (r) { summary = r.response; createdAt = r.createdAt; href = href ?? "/formation"; title = title ?? snip(r.response, 60); exists = true; } break; }
     case "practice": { const p = state.practices.find((x) => x.id === id); if (p) { summary = p.userWording || p.title; createdAt = p.createdAt; href = href ?? "/formation"; title = title ?? snip(p.userWording || p.title, 60); exists = true; } break; }
     case "review": { const r = state.reviews.find((x) => x.id === id); if (r) { summary = `${r.type} review`; href = href ?? "/review"; title = title ?? `${r.type} review`; exists = true; } break; }
+    case "workspace": { const w = (state.workspaces ?? []).find((x) => x.id === id); if (w) { summary = w.description || `${w.members.length} entities · ${w.goals.filter((g) => !g.done).length} open goals`; createdAt = w.createdAt; updatedAt = w.updatedAt; href = href ?? `/workspace/${w.id}`; title = title ?? w.name; exists = true; } break; }
     default: break;
   }
 

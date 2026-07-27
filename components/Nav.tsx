@@ -6,6 +6,7 @@ import { pendingProposals, useStore } from "@/lib/mvpStore";
 import { openCommandPalette } from "@/lib/command/events";
 import SyncStatus from "@/components/SyncStatus";
 import AuthControl from "@/components/AuthControl";
+import WorkspaceSelector from "@/components/workspace/WorkspaceSelector";
 
 /**
  * Information architecture (LIFEOS-027 cleanup of LIFEOS-025): one destination
@@ -111,6 +112,8 @@ export default function Nav() {
             <span className="hidden md:inline">Search</span>
             <kbd className="hidden rounded border border-black/[.12] px-1 text-[10px] lg:inline dark:border-white/[.15]">⌘K</kbd>
           </button>
+          {/* Workspace selector (LIFEOS-030): current workspace + switch. */}
+          <WorkspaceSelector />
         </div>
         <div className="hidden sm:block">
           <SyncStatus />

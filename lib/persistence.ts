@@ -89,6 +89,8 @@ function normalize(partial: Partial<StoreState> | null): StoreState {
     recommendations: partial?.recommendations ?? [],
     documents: partial?.documents ?? [],
     citations: partial?.citations ?? [],
+    workspaces: partial?.workspaces ?? [],
+    sessions: partial?.sessions ?? [],
   };
 }
 

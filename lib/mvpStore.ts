@@ -102,6 +102,12 @@ import type {
   Annotation,
   RecordRefLite,
   Citation,
+  Workspace,
+  WorkspaceGoal,
+  WorkspaceSession,
+  SessionActivityEvent,
+  SessionType,
+  SessionActivityKind,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
 import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
@@ -118,6 +124,9 @@ import { unknownConfidence } from "@/lib/dialectic/confidence";
 import { runScanners, mergeRecommendations } from "@/lib/orchestrator";
 import { structuralMapping, slotField } from "@/lib/world/relationships";
 import { emptyAssembly } from "@/lib/authoring/assembly";
+import { shouldRecord, appendActivity, resumePatchFor } from "@/lib/workspaces/activity";
+import { mergeResume } from "@/lib/workspaces/resume";
+import { setCurrentWorkspace, forgetWorkspace } from "@/lib/workspaces/current";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
 const EMPTY_STATE: StoreState = {
@@ -148,6 +157,8 @@ const EMPTY_STATE: StoreState = {
   recommendations: [],
   documents: [],
   citations: [],
+  workspaces: [],
+  sessions: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -414,6 +425,19 @@ export function hydrate() {
           sourceMetadata: d?.sourceMetadata ?? { importFormat: "plain" },
         })),
         citations: asArray<Citation>(parsed.citations),
+        workspaces: asArray<Workspace>(parsed.workspaces).map((w) => ({
+          ...w,
+          goals: asArray<WorkspaceGoal>(w?.goals),
+          members: asArray<RecordRefLite>(w?.members),
+          pinned: asArray<RecordRefLite>(w?.pinned),
+          resume: (w?.resume && typeof w.resume === "object" ? w.resume : {}) as Workspace["resume"],
+          archived: Boolean(w?.archived),
+        })),
+        sessions: asArray<WorkspaceSession>(parsed.sessions).map((s) => ({
+          ...s,
+          notes: typeof s?.notes === "string" ? s.notes : "",
+          activity: asArray<SessionActivityEvent>(s?.activity),
+        })),
       };
       emit();
     }
@@ -430,6 +454,7 @@ export function resetStore() {
     comparisons: [], inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [],
     concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
+    workspaces: [], sessions: [],
   });
 }
 
@@ -491,6 +516,8 @@ export function addCapture(text: string, sourceId?: string): string {
     ...(sourceId ? { sourceId } : {}),
   };
   setState({ ...state, captures: [capture, ...state.captures] });
+  // Feed the active thinking session's activity timeline, if any (LIFEOS-030).
+  recordSessionActivity({ type: "capture_created", entityKind: "capture", entityId: capture.id, label: "Captured a thought", detail: capture.text });
   return capture.id;
 }
 
@@ -3048,4 +3075,197 @@ export function convertPassage(
     })),
   });
   return { kind: recordKind, id: recordId };
+}
+
+// ================= Workspaces, sessions & thinking modes (LIFEOS-030) =================
+//
+// Workspaces group EXISTING entities (references only, never copies); sessions
+// are active thinking modes with a derived activity timeline. All deterministic:
+// no AI, no analytics, no background work. Only one session is active at a time —
+// starting a new session ends the current one first.
+
+function bumpWorkspace(wsId: string, mutate: (w: Workspace) => Workspace): void {
+  setState({
+    ...state,
+    workspaces: state.workspaces.map((w) => (w.id === wsId ? { ...mutate(w), updatedAt: now() } : w)),
+  });
+}
+
+/** Create a first-class workspace. Returns the new id. */
+export function createWorkspace(input: { name: string; description?: string; color?: string }): string {
+  const ws: Workspace = {
+    id: id(),
+    name: input.name.trim() || "Untitled workspace",
+    description: (input.description ?? "").trim(),
+    color: input.color,
+    goals: [],
+    members: [],
+    pinned: [],
+    resume: {},
+    archived: false,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  setState({ ...state, workspaces: [ws, ...state.workspaces] });
+  setCurrentWorkspace(ws.id);
+  return ws.id;
+}
+
+export function updateWorkspace(wsId: string, patch: { name?: string; description?: string; color?: string }): void {
+  bumpWorkspace(wsId, (w) => ({
+    ...w,
+    name: patch.name !== undefined ? patch.name.trim() || w.name : w.name,
+    description: patch.description !== undefined ? patch.description : w.description,
+    color: patch.color !== undefined ? patch.color : w.color,
+  }));
+}
+
+export function archiveWorkspace(wsId: string, archived = true): void {
+  bumpWorkspace(wsId, (w) => ({ ...w, archived }));
+}
+
+/** Permanently delete a workspace and its sessions (never touches the grouped entities). */
+export function deleteWorkspace(wsId: string): void {
+  setState({
+    ...state,
+    workspaces: state.workspaces.filter((w) => w.id !== wsId),
+    sessions: state.sessions.filter((s) => s.workspaceId !== wsId),
+  });
+  forgetWorkspace(wsId);
+}
+
+/** Add an existing entity to a workspace (a reference — the entity is not copied). */
+export function addToWorkspace(wsId: string, kind: string, entityId: string): void {
+  bumpWorkspace(wsId, (w) =>
+    w.members.some((m) => m.kind === kind && m.id === entityId)
+      ? w
+      : { ...w, members: [...w.members, { kind, id: entityId }] },
+  );
+}
+
+export function removeFromWorkspace(wsId: string, kind: string, entityId: string): void {
+  bumpWorkspace(wsId, (w) => ({
+    ...w,
+    members: w.members.filter((m) => !(m.kind === kind && m.id === entityId)),
+    pinned: w.pinned.filter((m) => !(m.kind === kind && m.id === entityId)),
+  }));
+}
+
+/** Pin/unpin an entity within a workspace (must also be a member to pin). */
+export function toggleWorkspacePin(wsId: string, kind: string, entityId: string): void {
+  bumpWorkspace(wsId, (w) => {
+    const pinned = w.pinned.some((m) => m.kind === kind && m.id === entityId);
+    if (pinned) return { ...w, pinned: w.pinned.filter((m) => !(m.kind === kind && m.id === entityId)) };
+    const members = w.members.some((m) => m.kind === kind && m.id === entityId)
+      ? w.members
+      : [...w.members, { kind, id: entityId }];
+    return { ...w, members, pinned: [...w.pinned, { kind, id: entityId }] };
+  });
+}
+
+export function addWorkspaceGoal(wsId: string, text: string): string {
+  const goalId = id();
+  bumpWorkspace(wsId, (w) => ({
+    ...w,
+    goals: [...w.goals, { id: goalId, text: text.trim(), done: false, createdAt: now() }],
+  }));
+  return goalId;
+}
+
+export function toggleWorkspaceGoal(wsId: string, goalId: string): void {
+  bumpWorkspace(wsId, (w) => ({
+    ...w,
+    goals: w.goals.map((g) => (g.id === goalId ? { ...g, done: !g.done } : g)),
+  }));
+}
+
+export function removeWorkspaceGoal(wsId: string, goalId: string): void {
+  bumpWorkspace(wsId, (w) => ({ ...w, goals: w.goals.filter((g) => g.id !== goalId) }));
+}
+
+/** Persist a resume-memory patch on a workspace (Feature 6). */
+export function setWorkspaceResume(wsId: string, patch: Partial<Workspace["resume"]>): void {
+  bumpWorkspace(wsId, (w) => ({ ...w, resume: mergeResume(w.resume ?? {}, patch) }));
+}
+
+/**
+ * Begin a thinking session in a workspace. Ends any currently-active session
+ * first — only one session is ever active. Sets the current-workspace pointer.
+ * Returns the new session id.
+ */
+export function startSession(wsId: string, type: SessionType, goal = ""): string {
+  const sessionId = id();
+  const stamp = now();
+  const sessions = state.sessions.map((s) => (s.endedAt ? s : { ...s, endedAt: stamp }));
+  const session: WorkspaceSession = {
+    id: sessionId,
+    workspaceId: wsId,
+    type,
+    goal: goal.trim(),
+    notes: "",
+    startedAt: stamp,
+    activity: [],
+  };
+  setState({ ...state, sessions: [session, ...sessions] });
+  setCurrentWorkspace(wsId);
+  return sessionId;
+}
+
+/** End the given session (or the active one if omitted). */
+export function endSession(sessionId?: string): void {
+  const stamp = now();
+  setState({
+    ...state,
+    sessions: state.sessions.map((s) => {
+      const target = sessionId ? s.id === sessionId : !s.endedAt;
+      return target && !s.endedAt ? { ...s, endedAt: stamp } : s;
+    }),
+  });
+}
+
+export function updateSessionNotes(sessionId: string, notes: string): void {
+  setState({
+    ...state,
+    sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, notes } : s)),
+  });
+}
+
+/** Insert a timestamped scratch line into a session's notes (Feature 8). */
+export function appendSessionNote(sessionId: string, text: string): void {
+  const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const line = `\n\n**${time}** — ${text.trim()}`;
+  setState({
+    ...state,
+    sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, notes: (s.notes + line).trimStart() } : s)),
+  });
+}
+
+/**
+ * Record an activity event into the ACTIVE session (Feature 5) and keep the
+ * session's workspace resume memory current (Feature 6). No-ops when no session
+ * is active. Deduped via `shouldRecord` so the timeline stays meaningful. This is
+ * the single sink all `tracking.ts` helpers call.
+ */
+export function recordSessionActivity(candidate: {
+  type: SessionActivityKind;
+  entityKind?: string;
+  entityId?: string;
+  label: string;
+  detail?: string;
+}): void {
+  const active = state.sessions.find((s) => !s.endedAt);
+  if (!active) return;
+  if (!shouldRecord(active, candidate)) return;
+  const stamp = now();
+  const event: SessionActivityEvent = { id: id(), at: stamp, ...candidate };
+  const resumePatch = resumePatchFor(candidate, stamp);
+  setState({
+    ...state,
+    sessions: state.sessions.map((s) => (s.id === active.id ? appendActivity(s, event) : s)),
+    workspaces: state.workspaces.map((w) =>
+      w.id === active.workspaceId
+        ? { ...w, resume: mergeResume(w.resume ?? {}, resumePatch), updatedAt: stamp }
+        : w,
+    ),
+  });
 }

@@ -20,7 +20,7 @@ import type { PersistenceAdapter, PersistenceHealth } from "@/lib/adapters/types
 const STORAGE_KEY = "lifeos.mvp.v1";
 
 function read(): StoreState {
-  const empty: StoreState = { captures: [], proposals: [], beliefs: [], sources: [], feedback: [], comparisons: [], inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [], concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [], tensions: [], syntheses: [], recommendations: [], documents: [], citations: [] };
+  const empty: StoreState = { captures: [], proposals: [], beliefs: [], sources: [], feedback: [], comparisons: [], inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [], concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [], tensions: [], syntheses: [], recommendations: [], documents: [], citations: [], workspaces: [], sessions: [] };
   if (typeof window === "undefined") return empty;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -54,6 +54,8 @@ function read(): StoreState {
       recommendations: parsed.recommendations ?? [],
       documents: parsed.documents ?? [],
       citations: parsed.citations ?? [],
+      workspaces: parsed.workspaces ?? [],
+      sessions: parsed.sessions ?? [],
     };
   } catch {
     return empty;
