@@ -20,6 +20,13 @@ import WorkspaceSelector from "@/components/workspace/WorkspaceSelector";
  */
 const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
   {
+    label: "Execute",
+    links: [
+      { href: "/goals", label: "Goals" },
+      { href: "/projects", label: "Projects" },
+    ],
+  },
+  {
     label: "Capture",
     links: [
       { href: "/", label: "Capture" },

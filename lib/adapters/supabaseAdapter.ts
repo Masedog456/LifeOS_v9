@@ -47,6 +47,8 @@ import type {
   ReadingDocument,
   Workspace,
   WorkspaceSession,
+  Goal,
+  Project,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -146,6 +148,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // Workspaces & sessions (LIFEOS-030): resilient to the 0022 tables being
     // absent on an older deployment — degrades to empty rather than failing load.
     const workspaces = await this.loadWorkspaces();
+    // Goals & projects (LIFEOS-031): resilient to the 0023 tables being absent.
+    const execution = await this.loadExecution();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -186,6 +190,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       citations: reading.citations,
       workspaces: workspaces.workspaces,
       sessions: workspaces.sessions,
+      goals: execution.goals,
+      projects: execution.projects,
     };
   }
 
@@ -291,6 +297,9 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // ---- Workspaces & sessions (LIFEOS-030): row-level upsert/delete ----
     if (w("workspaces")) await this.syncWorkspaces(state.workspaces ?? [], base?.workspaces ?? []);
     if (w("sessions")) await this.syncSessions(state.sessions ?? [], base?.sessions ?? []);
+    // ---- Goals & projects (LIFEOS-031): row-level upsert/delete ----
+    if (w("goals")) await this.syncGoals(state.goals ?? [], base?.goals ?? []);
+    if (w("projects")) await this.syncProjects(state.projects ?? [], base?.projects ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -359,6 +368,37 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const d = diffById<SessionRow>(current.map(sessionToRow), base.map(sessionToRow));
     if (d.upsert.length) await this.throwing(this.client.from("workspace_sessions").upsert(d.upsert));
     if (d.deleteIds.length) await this.throwing(this.client.from("workspace_sessions").delete().in("id", d.deleteIds));
+  }
+
+  /** Row-level upsert/delete for goals (LIFEOS-031). */
+  private async syncGoals(current: Goal[], base: Goal[]): Promise<void> {
+    const d = diffById<GoalRow>(current.map(goalToRow), base.map(goalToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("goals").upsert(d.upsert));
+    if (d.deleteIds.length) await this.throwing(this.client.from("goals").delete().in("id", d.deleteIds));
+  }
+
+  /** Row-level upsert/delete for projects (milestones embedded, LIFEOS-031). */
+  private async syncProjects(current: Project[], base: Project[]): Promise<void> {
+    const d = diffById<ExecProjectRow>(current.map(execProjectToRow), base.map(execProjectToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("projects").upsert(d.upsert));
+    if (d.deleteIds.length) await this.throwing(this.client.from("projects").delete().in("id", d.deleteIds));
+  }
+
+  /** Load goals + projects, resilient to the 0023 tables being absent. */
+  private async loadExecution(): Promise<{ goals: Goal[]; projects: Project[] }> {
+    try {
+      const [goals, projects] = await Promise.all([
+        this.client.from("goals").select("*").order("updated_at", { ascending: false }),
+        this.client.from("projects").select("*").order("updated_at", { ascending: false }),
+      ]);
+      if (goals.error || projects.error) return { goals: [], projects: [] };
+      return {
+        goals: (goals.data ?? []).map(rowToGoal),
+        projects: (projects.data ?? []).map(rowToExecProject),
+      };
+    } catch {
+      return { goals: [], projects: [] };
+    }
   }
 
   /** Load workspaces + sessions, resilient to the 0022 tables being absent. */
@@ -474,6 +514,9 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // sessions; guarded so a missing 0022 table is a no-op rather than an error.
     try { await this.client.from("workspace_sessions").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
     try { await this.client.from("workspaces").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
+    // Goals & projects (LIFEOS-031): delete projects first (goal_id FK), guarded.
+    try { await this.client.from("projects").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
+    try { await this.client.from("goals").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
     // Delete beliefs first (cascades revisions/judgments), then the rest.
     // saved_quotes cascade from sources.
     await this.throwing(this.client.from("recommendations").delete().eq("user_id", uid));
@@ -1567,6 +1610,62 @@ function rowToSession(r: any): WorkspaceSession {
     activity: Array.isArray(r.activity) ? r.activity : [],
     startedAt: r.started_at,
     endedAt: r.ended_at ?? undefined,
+  };
+}
+
+// ---------------------------- Goals & projects (LIFEOS-031) ----------------------------
+
+interface GoalRow {
+  id: string; title: string; description: string; status: string; priority: string;
+  target_date: string | null; notes: string; tags: unknown; manual_progress: number | null;
+  linked_workspaces: unknown; linked_knowledge: unknown; created_at: string; updated_at: string;
+}
+function goalToRow(g: Goal): GoalRow {
+  return {
+    id: g.id, title: g.title, description: g.description, status: g.status, priority: g.priority,
+    target_date: g.targetDate ?? null, notes: g.notes, tags: g.tags,
+    manual_progress: g.manualProgress ?? null, linked_workspaces: g.linkedWorkspaces,
+    linked_knowledge: g.linkedKnowledge, created_at: g.createdAt, updated_at: g.updatedAt,
+  };
+}
+function rowToGoal(r: any): Goal {
+  return {
+    id: r.id, title: r.title ?? "Untitled goal", description: r.description ?? "",
+    status: (r.status ?? "active") as Goal["status"], priority: (r.priority ?? "medium") as Goal["priority"],
+    targetDate: r.target_date ?? undefined, notes: r.notes ?? "", tags: Array.isArray(r.tags) ? r.tags : [],
+    manualProgress: r.manual_progress ?? undefined,
+    linkedWorkspaces: Array.isArray(r.linked_workspaces) ? r.linked_workspaces : [],
+    linkedKnowledge: Array.isArray(r.linked_knowledge) ? r.linked_knowledge : [],
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+interface ExecProjectRow {
+  id: string; title: string; description: string; status: string; priority: string;
+  goal_id: string | null; workspace_id: string | null; start_date: string | null; target_date: string | null;
+  notes: string; milestones: unknown; manual_progress: number | null;
+  related_documents: unknown; related_entities: unknown; created_at: string; updated_at: string;
+}
+function execProjectToRow(p: Project): ExecProjectRow {
+  return {
+    id: p.id, title: p.title, description: p.description, status: p.status, priority: p.priority,
+    goal_id: p.goalId ?? null, workspace_id: p.workspaceId ?? null,
+    start_date: p.startDate ?? null, target_date: p.targetDate ?? null, notes: p.notes,
+    milestones: p.milestones, manual_progress: p.manualProgress ?? null,
+    related_documents: p.relatedDocuments, related_entities: p.relatedEntities,
+    created_at: p.createdAt, updated_at: p.updatedAt,
+  };
+}
+function rowToExecProject(r: any): Project {
+  return {
+    id: r.id, title: r.title ?? "Untitled project", description: r.description ?? "",
+    status: (r.status ?? "active") as Project["status"], priority: (r.priority ?? "medium") as Project["priority"],
+    goalId: r.goal_id ?? undefined, workspaceId: r.workspace_id ?? undefined,
+    startDate: r.start_date ?? undefined, targetDate: r.target_date ?? undefined, notes: r.notes ?? "",
+    milestones: Array.isArray(r.milestones) ? r.milestones : [], manualProgress: r.manual_progress ?? undefined,
+    relatedDocuments: Array.isArray(r.related_documents) ? r.related_documents : [],
+    relatedEntities: Array.isArray(r.related_entities) ? r.related_entities : [],
+    createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 

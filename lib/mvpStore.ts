@@ -108,6 +108,10 @@ import type {
   SessionActivityEvent,
   SessionType,
   SessionActivityKind,
+  Goal,
+  Project,
+  Milestone,
+  ExecutionPriority,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
 import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
@@ -127,6 +131,8 @@ import { emptyAssembly } from "@/lib/authoring/assembly";
 import { shouldRecord, appendActivity, resumePatchFor } from "@/lib/workspaces/activity";
 import { mergeResume } from "@/lib/workspaces/resume";
 import { setCurrentWorkspace, forgetWorkspace } from "@/lib/workspaces/current";
+import { toggleMilestoneDone } from "@/lib/execution/progress";
+import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
 const EMPTY_STATE: StoreState = {
@@ -159,6 +165,8 @@ const EMPTY_STATE: StoreState = {
   citations: [],
   workspaces: [],
   sessions: [],
+  goals: [],
+  projects: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -438,6 +446,22 @@ export function hydrate() {
           notes: typeof s?.notes === "string" ? s.notes : "",
           activity: asArray<SessionActivityEvent>(s?.activity),
         })),
+        goals: asArray<Goal>(parsed.goals).map((g) => ({
+          ...g,
+          tags: asArray<string>(g?.tags),
+          linkedWorkspaces: asArray<RecordRefLite>(g?.linkedWorkspaces),
+          linkedKnowledge: asArray<RecordRefLite>(g?.linkedKnowledge),
+        })),
+        projects: asArray<Project>(parsed.projects).map((p) => ({
+          ...p,
+          milestones: asArray<Milestone>(p?.milestones).map((m) => ({
+            ...m,
+            linkedSessions: asArray<string>(m?.linkedSessions),
+            linkedKnowledge: asArray<RecordRefLite>(m?.linkedKnowledge),
+          })),
+          relatedDocuments: asArray<RecordRefLite>(p?.relatedDocuments),
+          relatedEntities: asArray<RecordRefLite>(p?.relatedEntities),
+        })),
       };
       emit();
     }
@@ -454,7 +478,7 @@ export function resetStore() {
     comparisons: [], inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [],
     concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
-    workspaces: [], sessions: [],
+    workspaces: [], sessions: [], goals: [], projects: [],
   });
 }
 
@@ -3268,4 +3292,190 @@ export function recordSessionActivity(candidate: {
         : w,
     ),
   });
+}
+
+// ================= Goals, projects & execution (LIFEOS-031) =================
+//
+// Goals are the highest-level object; Projects belong to Goals; Milestones are
+// embedded in Projects (manual completion only); Sessions optionally link to a
+// Goal/Project. All deterministic — no AI, no auto-planning, no auto-progress.
+// Progress is derived at view time (see lib/execution/progress.ts).
+
+function bumpGoal(goalId: string, mutate: (g: Goal) => Goal): void {
+  setState({ ...state, goals: state.goals.map((g) => (g.id === goalId ? { ...mutate(g), updatedAt: now() } : g)) });
+}
+function bumpProject(projectId: string, mutate: (p: Project) => Project): void {
+  setState({ ...state, projects: state.projects.map((p) => (p.id === projectId ? { ...mutate(p), updatedAt: now() } : p)) });
+}
+
+export function createGoal(input: { title: string; description?: string; priority?: ExecutionPriority; targetDate?: string }): string {
+  const goal: Goal = {
+    id: id(),
+    title: input.title.trim() || "Untitled goal",
+    description: (input.description ?? "").trim(),
+    status: "active",
+    priority: input.priority ?? "medium",
+    targetDate: input.targetDate,
+    notes: "",
+    tags: [],
+    linkedWorkspaces: [],
+    linkedKnowledge: [],
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  setState({ ...state, goals: [goal, ...state.goals] });
+  setCurrentGoal(goal.id);
+  return goal.id;
+}
+
+export function updateGoal(goalId: string, patch: Partial<Pick<Goal, "title" | "description" | "status" | "priority" | "targetDate" | "notes" | "tags">>): void {
+  bumpGoal(goalId, (g) => ({
+    ...g,
+    ...("title" in patch ? { title: (patch.title ?? "").trim() || g.title } : {}),
+    ...("description" in patch ? { description: patch.description ?? g.description } : {}),
+    ...("status" in patch ? { status: patch.status ?? g.status } : {}),
+    ...("priority" in patch ? { priority: patch.priority ?? g.priority } : {}),
+    ...("targetDate" in patch ? { targetDate: patch.targetDate } : {}),
+    ...("notes" in patch ? { notes: patch.notes ?? g.notes } : {}),
+    ...("tags" in patch ? { tags: patch.tags ?? g.tags } : {}),
+  }));
+}
+
+/** Set (or clear, with undefined) a goal's manual progress override (0–100). */
+export function setGoalProgress(goalId: string, value: number | undefined): void {
+  bumpGoal(goalId, (g) => ({ ...g, manualProgress: value === undefined ? undefined : Math.max(0, Math.min(100, Math.round(value))) }));
+}
+
+export function deleteGoal(goalId: string): void {
+  setState({
+    ...state,
+    goals: state.goals.filter((g) => g.id !== goalId),
+    // Orphan (don't delete) the goal's projects — they remain valid work.
+    projects: state.projects.map((p) => (p.goalId === goalId ? { ...p, goalId: undefined, updatedAt: now() } : p)),
+  });
+  forgetGoal(goalId);
+}
+
+export function linkGoalKnowledge(goalId: string, kind: string, entityId: string): void {
+  bumpGoal(goalId, (g) => (g.linkedKnowledge.some((r) => r.kind === kind && r.id === entityId) ? g : { ...g, linkedKnowledge: [...g.linkedKnowledge, { kind, id: entityId }] }));
+}
+export function unlinkGoalKnowledge(goalId: string, kind: string, entityId: string): void {
+  bumpGoal(goalId, (g) => ({ ...g, linkedKnowledge: g.linkedKnowledge.filter((r) => !(r.kind === kind && r.id === entityId)) }));
+}
+export function toggleGoalWorkspace(goalId: string, workspaceId: string): void {
+  bumpGoal(goalId, (g) => {
+    const has = g.linkedWorkspaces.some((r) => r.id === workspaceId);
+    return { ...g, linkedWorkspaces: has ? g.linkedWorkspaces.filter((r) => r.id !== workspaceId) : [...g.linkedWorkspaces, { kind: "workspace", id: workspaceId }] };
+  });
+}
+
+export function createProject(input: { title: string; description?: string; goalId?: string; workspaceId?: string; priority?: ExecutionPriority; targetDate?: string; startDate?: string }): string {
+  const project: Project = {
+    id: id(),
+    title: input.title.trim() || "Untitled project",
+    description: (input.description ?? "").trim(),
+    status: "active",
+    priority: input.priority ?? "medium",
+    goalId: input.goalId,
+    workspaceId: input.workspaceId,
+    startDate: input.startDate,
+    targetDate: input.targetDate,
+    notes: "",
+    milestones: [],
+    relatedDocuments: [],
+    relatedEntities: [],
+    createdAt: now(),
+    updatedAt: now(),
+  };
+  setState({ ...state, projects: [project, ...state.projects] });
+  setCurrentProject(project.id);
+  return project.id;
+}
+
+export function updateProject(projectId: string, patch: Partial<Pick<Project, "title" | "description" | "status" | "priority" | "goalId" | "workspaceId" | "startDate" | "targetDate" | "notes">>): void {
+  bumpProject(projectId, (p) => ({
+    ...p,
+    ...("title" in patch ? { title: (patch.title ?? "").trim() || p.title } : {}),
+    ...("description" in patch ? { description: patch.description ?? p.description } : {}),
+    ...("status" in patch ? { status: patch.status ?? p.status } : {}),
+    ...("priority" in patch ? { priority: patch.priority ?? p.priority } : {}),
+    ...("goalId" in patch ? { goalId: patch.goalId } : {}),
+    ...("workspaceId" in patch ? { workspaceId: patch.workspaceId } : {}),
+    ...("startDate" in patch ? { startDate: patch.startDate } : {}),
+    ...("targetDate" in patch ? { targetDate: patch.targetDate } : {}),
+    ...("notes" in patch ? { notes: patch.notes ?? p.notes } : {}),
+  }));
+}
+
+export function setProjectProgress(projectId: string, value: number | undefined): void {
+  bumpProject(projectId, (p) => ({ ...p, manualProgress: value === undefined ? undefined : Math.max(0, Math.min(100, Math.round(value))) }));
+}
+
+export function deleteProject(projectId: string): void {
+  setState({
+    ...state,
+    projects: state.projects.filter((p) => p.id !== projectId),
+    // Detach sessions from the deleted project (they remain valid history).
+    sessions: state.sessions.map((s) => (s.projectId === projectId ? { ...s, projectId: undefined } : s)),
+  });
+  forgetProject(projectId);
+}
+
+export function addProjectRelated(projectId: string, kind: string, entityId: string): void {
+  bumpProject(projectId, (p) => {
+    const bucket = kind === "document" ? "relatedDocuments" : "relatedEntities";
+    const arr = p[bucket];
+    if (arr.some((r) => r.kind === kind && r.id === entityId)) return p;
+    return { ...p, [bucket]: [...arr, { kind, id: entityId }] };
+  });
+}
+export function removeProjectRelated(projectId: string, kind: string, entityId: string): void {
+  bumpProject(projectId, (p) => ({
+    ...p,
+    relatedEntities: p.relatedEntities.filter((r) => !(r.kind === kind && r.id === entityId)),
+    relatedDocuments: p.relatedDocuments.filter((r) => !(r.kind === kind && r.id === entityId)),
+  }));
+}
+
+export function addMilestone(projectId: string, title: string, targetDate?: string): string {
+  const milestoneId = id();
+  bumpProject(projectId, (p) => ({
+    ...p,
+    milestones: [...p.milestones, { id: milestoneId, title: title.trim() || "Untitled milestone", status: "open", targetDate, notes: "", linkedSessions: [], linkedKnowledge: [], createdAt: now(), updatedAt: now() }],
+  }));
+  return milestoneId;
+}
+
+/** Manually toggle a milestone done/open (stamps or clears completedDate). */
+export function toggleMilestone(projectId: string, milestoneId: string): void {
+  bumpProject(projectId, (p) => ({ ...p, milestones: p.milestones.map((m) => (m.id === milestoneId ? toggleMilestoneDone(m, now()) : m)) }));
+}
+
+export function updateMilestone(projectId: string, milestoneId: string, patch: Partial<Pick<Milestone, "title" | "targetDate" | "notes">>): void {
+  bumpProject(projectId, (p) => ({ ...p, milestones: p.milestones.map((m) => (m.id === milestoneId ? { ...m, ...patch, updatedAt: now() } : m)) }));
+}
+
+export function removeMilestone(projectId: string, milestoneId: string): void {
+  bumpProject(projectId, (p) => ({ ...p, milestones: p.milestones.filter((m) => m.id !== milestoneId) }));
+}
+
+/** Link (or clear) the active/other session's goal + project (Feature 6). */
+export function setSessionExecution(sessionId: string, links: { goalId?: string; projectId?: string }): void {
+  setState({
+    ...state,
+    sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, ...("goalId" in links ? { goalId: links.goalId } : {}), ...("projectId" in links ? { projectId: links.projectId } : {}) } : s)),
+  });
+}
+
+/**
+ * Start a thinking session attributed to a project (Feature 6): reuses the
+ * workspace-session lifecycle, in the project's workspace, linking goal+project.
+ * Returns the session id, or "" when the project has no workspace to run in.
+ */
+export function startProjectSession(projectId: string, type: SessionType, goal = ""): string {
+  const project = state.projects.find((p) => p.id === projectId);
+  if (!project?.workspaceId) return "";
+  const sessionId = startSession(project.workspaceId, type, goal);
+  setSessionExecution(sessionId, { goalId: project.goalId, projectId: project.id });
+  return sessionId;
 }

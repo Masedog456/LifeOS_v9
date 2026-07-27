@@ -23,6 +23,7 @@ import EntityLink from "@/components/entity/EntityLink";
 import { addToWorkspace } from "@/lib/mvpStore";
 import { entityWorkspaces, findWorkspace, isMember, workspaceHref } from "@/lib/workspaces/workspace";
 import { currentWorkspaceId, useWorkspacePointer } from "@/lib/workspaces/current";
+import { entityExecutionLinks } from "@/lib/execution/relationships";
 
 function fmt(iso?: string): string {
   if (!iso || Number.isNaN(Date.parse(iso))) return "—";
@@ -39,6 +40,8 @@ export default function ContextPanel({ kind, id, onClose }: { kind: string; id: 
   const citations = useMemo(() => citationsForRecord(state, kind, id), [state, kind, id]);
   useWorkspacePointer(); // re-render when the current-workspace pointer changes
   const belongsTo = useMemo(() => (kind === "workspace" ? [] : entityWorkspaces(state, kind, id)), [state, kind, id]);
+  const exec = useMemo(() => entityExecutionLinks(ctx, kind, id), [ctx, kind, id]);
+  const hasExec = exec.contributesToGoals.length > 0 || exec.relatedProjects.length > 0 || Boolean(exec.parentGoal) || exec.childProjects.length > 0;
   const currentWs = kind === "workspace" ? undefined : findWorkspace(state, currentWorkspaceId());
   const [, bumpPin] = useState(0);
   const pinned = isPinned(kind, id); // re-read each render; bumpPin forces refresh after toggle
@@ -114,6 +117,22 @@ export default function ContextPanel({ kind, id, onClose }: { kind: string; id: 
               ＋ Add to {currentWs.name}
             </button>
           )}
+        </section>
+      )}
+
+      {hasExec && (
+        <section>
+          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Goals &amp; projects</h3>
+          {exec.parentGoal && <p className="text-sm"><EntityLink kind={exec.parentGoal.kind} id={exec.parentGoal.id} className="hover:underline">◎ {exec.parentGoal.title}</EntityLink></p>}
+          {exec.contributesToGoals.map((r) => (
+            <p key={`g:${r.id}`} className="text-sm"><EntityLink kind={r.kind} id={r.id} className="hover:underline">Contributes to ◎ {r.title}</EntityLink></p>
+          ))}
+          {exec.relatedProjects.map((r) => (
+            <p key={`p:${r.id}`} className="text-sm"><EntityLink kind={r.kind} id={r.id} className="hover:underline">Related to ▤ {r.title}</EntityLink></p>
+          ))}
+          {exec.childProjects.map((r) => (
+            <p key={`c:${r.id}`} className="text-sm"><EntityLink kind={r.kind} id={r.id} className="hover:underline">▤ {r.title}</EntityLink></p>
+          ))}
         </section>
       )}
 

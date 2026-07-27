@@ -112,6 +112,30 @@ Workspaces and sessions are durable, per-user, and RLS-protected (migration
 `0022_workspaces.sql`) and sync across devices. Everything is deterministic and
 offline — no AI, no background work.
 
+## Goals, projects & execution
+
+LifeOS understands **what you're trying to accomplish**, not just what you know.
+A **Goal** (`/goals`) is the highest-level object — Finish Philosophy Thesis,
+Grow Pool Business, Read 100 Books. Goals hold **Projects** (`/projects`) —
+concrete work that lives in a workspace — and projects hold **milestones**.
+Sessions can be attributed to a goal/project, so the work you do rolls up into
+what you're pursuing.
+
+Progress is **derived and deterministic**: a project's progress comes from its
+completed milestones (which you check off manually — nothing is ever inferred as
+done), and a goal's progress is the average of its projects'. You can always set
+a manual progress override, which wins. Each goal and project has a dashboard
+showing progress, milestones, the sessions that contributed, related documents
+and knowledge, and a timeline. Start a thinking session directly from a project
+and the session banner shows the goal you're advancing.
+
+Everything gains execution relationships in its inspector — *contributes to*
+which goal, *related to* which project — and goals, projects, and milestones are
+searchable from the command palette (`Ctrl`/`Cmd`+`K`), which can also create,
+switch, and resume them. Goals and projects are durable, per-user, and
+RLS-protected (migration `0023_execution.sql`) and sync across devices. No AI, no
+auto-planning, no auto-prioritization — you decide, LifeOS keeps the structure.
+
 ## Local development
 
 ```bash

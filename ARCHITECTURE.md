@@ -1380,6 +1380,63 @@ time from a small amount of new durable state.
   relationships, the session timeline, the dashboard projection, determinism, and
   a performance budget (200 workspace dashboards under budget).
 
+## Goals, projects & execution (LIFEOS-031 — implemented)
+
+Turns LifeOS from "what do I know?" into "what am I trying to accomplish?".
+**Goals** are the highest-level object; **Projects** belong to Goals; **Milestones**
+belong to Projects; **Sessions** (0030) optionally attribute their activity to a
+Goal/Project. Deterministic and offline throughout: no AI, no auto-planning, no
+auto-prioritization, no analytics, no calendar/notifications.
+
+- **Models (`lib/execution/goals.ts`, `projects.ts`, `milestones.ts`).** A Goal
+  never copies the work it organizes — its projects are found by
+  `Project.goalId`, and `linkedWorkspaces`/`linkedKnowledge` are typed references
+  resolved live via the LIFEOS-029 entity API. Projects reference (not copy)
+  their related documents/entities and embed their Milestones. Milestone
+  completion is **manual only** — a helper toggles `status`/`completedDate`;
+  nothing infers it.
+- **Progress engine (`lib/execution/progress.ts`, Feature 7).** Fully derived and
+  deterministic: a project's progress = completed milestones ÷ total (or its
+  explicit status when it has none); a goal's = the average of its live projects'
+  progress. An optional `manualProgress` (0–100) always wins. **No function ever
+  changes a status to "completed"** — completion is always a human act.
+- **Session attribution (`lib/execution/tracking.ts`, Feature 6).** Sessions gain
+  optional `goalId`/`projectId`. This module attributes a session's
+  already-tracked activity (LIFEOS-030) to its goal/project and derives a
+  contribution summary — it introduces no new tracking and never scores.
+  `startProjectSession` reuses the workspace-session lifecycle in the project's
+  workspace, linking goal + project.
+- **Relationships (`lib/execution/relationships.ts`, Feature 8).** For any
+  entity: the Goals it contributes to (via linked knowledge) and Projects it is
+  related to; for a goal/project entity: its children / parent. Surfaced in the
+  inspector's ContextPanel ("Goals & projects").
+- **Dashboards (`lib/execution/dashboard.ts`, Features 4 & 5).** One deterministic
+  projection each — a Goal dashboard (progress, projects, next milestones,
+  reading/captures/decisions, a graph frontier, session timeline) and a Project
+  dashboard (progress, workspace, goal, milestones, related work, reading,
+  activity timeline, notes).
+- **Search (Feature 11).** Goals, projects, and milestones are added to the
+  LIFEOS-027 index (`buildSearchEntries` + `resolveRecord`) — one engine, one
+  ranking; milestones resolve into their project's page.
+- **UI.** `/goals` + `/goal/[id]` and `/projects` + `/project/[id]`; nav
+  "Execute" group (Goals, Projects); the session banner shows the current goal;
+  the command center gains New/Switch/Resume goal & project commands and
+  goal/project/milestone entity kinds. Progress bars are deterministic.
+- **Persistence & migration (`0023_execution.sql`).** Two additive,
+  RLS-protected tables — `goals` and `projects` (goals/tags/refs and the
+  milestone list embedded as jsonb, matching how 0022 embeds session activity).
+  `projects.goal_id` FKs to goals `ON DELETE SET NULL` (deleting a goal orphans,
+  never deletes, its projects); `workspace_id` is a soft reference. The adapter
+  syncs both tables by dirty domain (row-level upsert/delete) and loads them
+  resiliently (a missing 0023 table degrades to empty). Current goal/project
+  pointers are UI memory in `prefs` (mirrored to `user_prefs`). The migration
+  chain is now **0001–0023**.
+- **Testing.** `lib/execution/selftest.ts` (surfaced at `/dev/execution-tests`,
+  asserted by `execution.mjs`) covers models, milestones, the progress engine
+  (including "never infers completion"), relationships, session attribution,
+  search, dashboards, determinism, and a performance budget (200 goal dashboards
+  under budget).
+
 ## Future vector search layer
 
 Not implemented. When built, the expected approach is `pgvector` on

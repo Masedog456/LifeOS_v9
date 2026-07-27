@@ -58,6 +58,17 @@ export interface Prefs {
     recent?: string[];
     pinned?: string[];
   };
+  /**
+   * Execution navigation memory (LIFEOS-031): the current goal/project pointers
+   * plus recently-visited ids for the selector and command center. UI memory
+   * only — goals/projects themselves are durable domain data in the store/DB.
+   */
+  execution?: {
+    currentGoal?: string;
+    currentProject?: string;
+    recentGoals?: string[];
+    recentProjects?: string[];
+  };
 }
 
 export function readPrefs(): Prefs {
