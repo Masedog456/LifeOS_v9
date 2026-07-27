@@ -49,6 +49,7 @@ import type {
   WorkspaceSession,
   Goal,
   Project,
+  DailyReview,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -150,6 +151,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const workspaces = await this.loadWorkspaces();
     // Goals & projects (LIFEOS-031): resilient to the 0023 tables being absent.
     const execution = await this.loadExecution();
+    // Daily reviews (LIFEOS-034): resilient to the 0025 table being absent.
+    const dailyReviews = await this.loadDailyReviews();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -192,6 +195,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       sessions: workspaces.sessions,
       goals: execution.goals,
       projects: execution.projects,
+      dailyReviews,
     };
   }
 
@@ -300,6 +304,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // ---- Goals & projects (LIFEOS-031): row-level upsert/delete ----
     if (w("goals")) await this.syncGoals(state.goals ?? [], base?.goals ?? []);
     if (w("projects")) await this.syncProjects(state.projects ?? [], base?.projects ?? []);
+    // ---- Daily reviews (LIFEOS-034): row-level upsert/delete ----
+    if (w("dailyReviews")) await this.syncDailyReviews(state.dailyReviews ?? [], base?.dailyReviews ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -411,6 +417,24 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       };
     } catch {
       return { goals: [], projects: [] };
+    }
+  }
+
+  /** Row-level upsert/delete for daily reviews (LIFEOS-034). */
+  private async syncDailyReviews(current: DailyReview[], base: DailyReview[]): Promise<void> {
+    const d = diffById<DailyReviewRow>(current.map(dailyReviewToRow), base.map(dailyReviewToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("daily_reviews").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("daily_reviews").delete().in("id", d.deleteIds)); await this.writeTombstones("dailyReviews", d.deleteIds); }
+  }
+
+  /** Load daily reviews, resilient to the 0025 table being absent. */
+  private async loadDailyReviews(): Promise<DailyReview[]> {
+    try {
+      const res = await this.client.from("daily_reviews").select("*").order("date", { ascending: false });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToDailyReview);
+    } catch {
+      return [];
     }
   }
 
@@ -530,6 +554,9 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // Goals & projects (LIFEOS-031): delete projects first (goal_id FK), guarded.
     try { await this.client.from("projects").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
     try { await this.client.from("goals").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
+    // Daily reviews (LIFEOS-034), guarded.
+    try { await this.client.from("daily_reviews").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
+    try { await this.client.from("sync_tombstones").delete().eq("domain", "dailyReviews"); } catch { /* table may not exist yet */ }
     try { await this.client.from("sync_tombstones").delete().eq("user_id", uid); } catch { /* 0024 table may not exist yet */ }
     // Delete beliefs first (cascades revisions/judgments), then the rest.
     // saved_quotes cascade from sources.
@@ -1679,6 +1706,43 @@ function rowToExecProject(r: any): Project {
     milestones: Array.isArray(r.milestones) ? r.milestones : [], manualProgress: r.manual_progress ?? undefined,
     relatedDocuments: Array.isArray(r.related_documents) ? r.related_documents : [],
     relatedEntities: Array.isArray(r.related_entities) ? r.related_entities : [],
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+// ---------------------------- Daily reviews (LIFEOS-034) ----------------------------
+
+interface DailyReviewRow {
+  id: string; user_id?: string; date: string; status: string;
+  started_at: string | null; completed_at: string | null;
+  summary: string; notes: string;
+  wins: unknown; lessons: unknown; friction: unknown; open_loops: unknown; tomorrow_focus: unknown;
+  linked_goals: unknown; linked_projects: unknown; linked_workspaces: unknown; linked_entities: unknown;
+  tz_offset_minutes: number | null; created_at: string; updated_at: string;
+}
+function dailyReviewToRow(r: DailyReview): DailyReviewRow {
+  return {
+    id: r.id, date: r.date, status: r.status,
+    started_at: r.startedAt ?? null, completed_at: r.completedAt ?? null,
+    summary: r.summary, notes: r.notes,
+    wins: r.wins, lessons: r.lessons, friction: r.friction, open_loops: r.openLoops, tomorrow_focus: r.tomorrowFocus,
+    linked_goals: r.linkedGoals, linked_projects: r.linkedProjects, linked_workspaces: r.linkedWorkspaces, linked_entities: r.linkedEntities,
+    tz_offset_minutes: r.tzOffsetMinutes ?? null, created_at: r.createdAt, updated_at: r.updatedAt,
+  };
+}
+function rowToDailyReview(r: any): DailyReview {
+  return {
+    id: r.id, date: r.date, status: (r.status ?? "not_started") as DailyReview["status"],
+    startedAt: r.started_at ?? undefined, completedAt: r.completed_at ?? undefined,
+    summary: r.summary ?? "", notes: r.notes ?? "",
+    wins: Array.isArray(r.wins) ? r.wins : [], lessons: Array.isArray(r.lessons) ? r.lessons : [],
+    friction: Array.isArray(r.friction) ? r.friction : [], openLoops: Array.isArray(r.open_loops) ? r.open_loops : [],
+    tomorrowFocus: Array.isArray(r.tomorrow_focus) ? r.tomorrow_focus : [],
+    linkedGoals: Array.isArray(r.linked_goals) ? r.linked_goals : [],
+    linkedProjects: Array.isArray(r.linked_projects) ? r.linked_projects : [],
+    linkedWorkspaces: Array.isArray(r.linked_workspaces) ? r.linked_workspaces : [],
+    linkedEntities: Array.isArray(r.linked_entities) ? r.linked_entities : [],
+    tzOffsetMinutes: r.tz_offset_minutes ?? undefined,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }

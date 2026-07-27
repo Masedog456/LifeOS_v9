@@ -10,6 +10,7 @@
 import type { KnowledgeGraph } from "@/lib/graph";
 import { RECORD_LABELS } from "@/lib/command/records";
 import { entityRef, entityKindLabel, type EntityContext, type EntityRef } from "@/lib/entities/entity";
+import { reviewReferences } from "@/lib/reviews/relationships";
 
 export interface BacklinkGroup { kind: string; label: string; items: EntityRef[] }
 
@@ -47,6 +48,8 @@ export function entityBacklinks(ctx: EntityContext, kind: string, id: string): B
   for (const doc of state.documents) for (const sec of doc.sections) for (const p of sec.passages) {
     if (p.linked.some((l) => l.id === id)) push("passage", p.id);
   }
+  // Daily reviews (LIFEOS-034): a review that references this record.
+  for (const r of state.dailyReviews ?? []) if (reviewReferences(r).some((ref) => ref.id === id)) push("daily_review", r.id);
 
   const out: BacklinkGroup[] = [...byKind.entries()]
     .map(([k, m]) => ({ kind: k, label: RECORD_LABELS[k] ?? entityKindLabel(k), items: [...m.values()] }))

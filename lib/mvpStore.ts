@@ -112,6 +112,14 @@ import type {
   Project,
   Milestone,
   ExecutionPriority,
+  DailyReview,
+  ReviewWin,
+  ReviewLesson,
+  ReviewFriction,
+  ReviewOpenLoop,
+  ReviewFocusItem,
+  FrictionArea,
+  FrictionSeverity,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
 import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
@@ -132,6 +140,7 @@ import { shouldRecord, appendActivity, resumePatchFor } from "@/lib/workspaces/a
 import { mergeResume } from "@/lib/workspaces/resume";
 import { setCurrentWorkspace, forgetWorkspace } from "@/lib/workspaces/current";
 import { toggleMilestoneDone } from "@/lib/execution/progress";
+import { todayKey as reviewTodayKey, currentOffsetMinutes } from "@/lib/reviews/dates";
 import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
 import { clearRollback, setRecovery } from "@/lib/sync/status-store";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
@@ -169,6 +178,7 @@ const EMPTY_STATE: StoreState = {
   sessions: [],
   goals: [],
   projects: [],
+  dailyReviews: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -476,6 +486,18 @@ export function hydrate() {
           relatedDocuments: asArray<RecordRefLite>(p?.relatedDocuments),
           relatedEntities: asArray<RecordRefLite>(p?.relatedEntities),
         })),
+        dailyReviews: asArray<DailyReview>(parsed.dailyReviews).map((r) => ({
+          ...r,
+          wins: asArray<ReviewWin>(r?.wins).map((w) => ({ ...w, links: asArray<RecordRefLite>(w?.links) })),
+          lessons: asArray<ReviewLesson>(r?.lessons).map((l) => ({ ...l, links: asArray<RecordRefLite>(l?.links) })),
+          friction: asArray<ReviewFriction>(r?.friction),
+          openLoops: asArray<ReviewOpenLoop>(r?.openLoops),
+          tomorrowFocus: asArray<ReviewFocusItem>(r?.tomorrowFocus),
+          linkedGoals: asArray<string>(r?.linkedGoals),
+          linkedProjects: asArray<string>(r?.linkedProjects),
+          linkedWorkspaces: asArray<string>(r?.linkedWorkspaces),
+          linkedEntities: asArray<RecordRefLite>(r?.linkedEntities),
+        })),
       };
       // Corruption isolation (LIFEOS-033, Feature 10): drop malformed rows from
       // the in-memory store so a single bad record (null / missing id) can never
@@ -531,6 +553,7 @@ export function resetStore() {
   clearState();
   setState({
     captures: [], proposals: [], beliefs: [], sources: [], feedback: [],
+    dailyReviews: [],
     comparisons: [], inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [],
     concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
@@ -3534,4 +3557,145 @@ export function startProjectSession(projectId: string, type: SessionType, goal =
   const sessionId = startSession(project.workspaceId, type, goal);
   setSessionExecution(sessionId, { goalId: project.goalId, projectId: project.id });
   return sessionId;
+}
+
+// ================= Daily review & planning loop (LIFEOS-034) =================
+//
+// Exactly one canonical review per user per LOCAL calendar date. The `date` key
+// is the identity — creation is idempotent on it, so a timezone change or clock
+// skew can never fork a second review for a day that already has one. All
+// sub-lists are the user's chosen entries; nothing here writes to or completes
+// any other record. Deterministic — no AI, no scoring, no streaks.
+
+function bumpReview(reviewId: string, mutate: (r: DailyReview) => DailyReview): void {
+  setState({ ...state, dailyReviews: state.dailyReviews.map((r) => (r.id === reviewId ? { ...mutate(r), updatedAt: now() } : r)) });
+}
+
+/** Find the review for a local date, creating a not_started one if absent. */
+function ensureReviewFor(date: string): DailyReview {
+  const existing = state.dailyReviews.find((r) => r.date === date);
+  if (existing) return existing;
+  const review: DailyReview = {
+    id: id(), date, status: "not_started",
+    summary: "", wins: [], lessons: [], friction: [], openLoops: [], tomorrowFocus: [],
+    notes: "", linkedGoals: [], linkedProjects: [], linkedWorkspaces: [], linkedEntities: [],
+    tzOffsetMinutes: currentOffsetMinutes(),
+    createdAt: now(), updatedAt: now(),
+  };
+  setState({ ...state, dailyReviews: [review, ...state.dailyReviews] });
+  return review;
+}
+
+/** Get or create today's review; returns its id (idempotent per local date). */
+export function getOrCreateTodayReview(): string {
+  return ensureReviewFor(reviewTodayKey()).id;
+}
+
+/** Get or create the review for a specific local date; returns its id. */
+export function getOrCreateReviewForDate(date: string): string {
+  return ensureReviewFor(date).id;
+}
+
+/** Begin (or resume) a review — moves not_started/reopened into in_progress. */
+export function startDailyReview(date: string): string {
+  const r = ensureReviewFor(date);
+  if (r.status === "not_started") bumpReview(r.id, (x) => ({ ...x, status: "in_progress", startedAt: x.startedAt ?? now() }));
+  return r.id;
+}
+
+export function updateDailyReview(reviewId: string, patch: Partial<Pick<DailyReview, "summary" | "notes" | "linkedGoals" | "linkedProjects" | "linkedWorkspaces" | "linkedEntities">>): void {
+  bumpReview(reviewId, (r) => ({
+    ...r,
+    status: r.status === "not_started" ? "in_progress" : r.status,
+    startedAt: r.startedAt ?? now(),
+    ...("summary" in patch ? { summary: patch.summary ?? r.summary } : {}),
+    ...("notes" in patch ? { notes: patch.notes ?? r.notes } : {}),
+    ...("linkedGoals" in patch ? { linkedGoals: patch.linkedGoals ?? r.linkedGoals } : {}),
+    ...("linkedProjects" in patch ? { linkedProjects: patch.linkedProjects ?? r.linkedProjects } : {}),
+    ...("linkedWorkspaces" in patch ? { linkedWorkspaces: patch.linkedWorkspaces ?? r.linkedWorkspaces } : {}),
+    ...("linkedEntities" in patch ? { linkedEntities: patch.linkedEntities ?? r.linkedEntities } : {}),
+  }));
+}
+
+export function completeDailyReview(reviewId: string): void {
+  bumpReview(reviewId, (r) => ({ ...r, status: "completed", startedAt: r.startedAt ?? now(), completedAt: now() }));
+}
+
+export function reopenDailyReview(reviewId: string): void {
+  bumpReview(reviewId, (r) => ({ ...r, status: "reopened", completedAt: undefined }));
+}
+
+export function deleteDailyReview(reviewId: string): void {
+  setState({ ...state, dailyReviews: state.dailyReviews.filter((r) => r.id !== reviewId) });
+}
+
+// ---- Wins ----
+export function addReviewWin(reviewId: string, text: string, links: RecordRefLite[] = []): void {
+  if (!text.trim()) return;
+  const win: ReviewWin = { id: id(), text: text.trim(), links, createdAt: now() };
+  bumpReview(reviewId, (r) => ({ ...r, status: r.status === "not_started" ? "in_progress" : r.status, wins: [...r.wins, win] }));
+}
+export function updateReviewWin(reviewId: string, winId: string, patch: Partial<Pick<ReviewWin, "text" | "links">>): void {
+  bumpReview(reviewId, (r) => ({ ...r, wins: r.wins.map((w) => (w.id === winId ? { ...w, ...patch } : w)) }));
+}
+export function removeReviewWin(reviewId: string, winId: string): void {
+  bumpReview(reviewId, (r) => ({ ...r, wins: r.wins.filter((w) => w.id !== winId) }));
+}
+
+// ---- Lessons ----
+export function addReviewLesson(reviewId: string, text: string, links: RecordRefLite[] = []): void {
+  if (!text.trim()) return;
+  const lesson: ReviewLesson = { id: id(), text: text.trim(), links, createdAt: now() };
+  bumpReview(reviewId, (r) => ({ ...r, status: r.status === "not_started" ? "in_progress" : r.status, lessons: [...r.lessons, lesson] }));
+}
+export function updateReviewLesson(reviewId: string, lessonId: string, patch: Partial<Pick<ReviewLesson, "text" | "links">>): void {
+  bumpReview(reviewId, (r) => ({ ...r, lessons: r.lessons.map((l) => (l.id === lessonId ? { ...l, ...patch } : l)) }));
+}
+export function removeReviewLesson(reviewId: string, lessonId: string): void {
+  bumpReview(reviewId, (r) => ({ ...r, lessons: r.lessons.filter((l) => l.id !== lessonId) }));
+}
+/** Convert a lesson into a Capture (an existing canonical creator) and link it. */
+export function convertLessonToCapture(reviewId: string, lessonId: string): string {
+  const review = state.dailyReviews.find((r) => r.id === reviewId);
+  const lesson = review?.lessons.find((l) => l.id === lessonId);
+  if (!lesson || lesson.convertedTo) return "";
+  const capId = addCapture(`Lesson (${review!.date}): ${lesson.text}`);
+  bumpReview(reviewId, (r) => ({ ...r, lessons: r.lessons.map((l) => (l.id === lessonId ? { ...l, convertedTo: { kind: "capture", id: capId } } : l)) }));
+  return capId;
+}
+
+// ---- Friction ----
+export function addReviewFriction(reviewId: string, input: { description: string; severity?: FrictionSeverity; area?: FrictionArea; linkedEntity?: RecordRefLite }): void {
+  if (!input.description.trim()) return;
+  const f: ReviewFriction = { id: id(), description: input.description.trim(), severity: input.severity ?? "medium", area: input.area ?? "other", linkedEntity: input.linkedEntity, resolved: false, resolutionNotes: "", createdAt: now() };
+  bumpReview(reviewId, (r) => ({ ...r, status: r.status === "not_started" ? "in_progress" : r.status, friction: [...r.friction, f] }));
+}
+export function updateReviewFriction(reviewId: string, frictionId: string, patch: Partial<Pick<ReviewFriction, "description" | "severity" | "area" | "resolved" | "resolutionNotes" | "linkedEntity">>): void {
+  bumpReview(reviewId, (r) => ({ ...r, friction: r.friction.map((f) => (f.id === frictionId ? { ...f, ...patch } : f)) }));
+}
+export function removeReviewFriction(reviewId: string, frictionId: string): void {
+  bumpReview(reviewId, (r) => ({ ...r, friction: r.friction.filter((f) => f.id !== frictionId) }));
+}
+
+// ---- Open loops (the user's chosen set) ----
+export function setReviewOpenLoops(reviewId: string, loops: ReviewOpenLoop[]): void {
+  bumpReview(reviewId, (r) => ({ ...r, openLoops: loops }));
+}
+export function addReviewOpenLoop(reviewId: string, loop: Omit<ReviewOpenLoop, "createdAt">): void {
+  bumpReview(reviewId, (r) => (r.openLoops.some((l) => l.id === loop.id) ? r : { ...r, openLoops: [...r.openLoops, { ...loop, createdAt: now() }] }));
+}
+export function removeReviewOpenLoop(reviewId: string, loopId: string): void {
+  bumpReview(reviewId, (r) => ({ ...r, openLoops: r.openLoops.filter((l) => l.id !== loopId) }));
+}
+
+// ---- Tomorrow focus (ordered) ----
+export function addReviewFocus(reviewId: string, text: string, ref?: RecordRefLite): void {
+  if (!text.trim() && !ref) return;
+  bumpReview(reviewId, (r) => ({ ...r, tomorrowFocus: [...r.tomorrowFocus, { id: id(), text: text.trim(), ref, order: r.tomorrowFocus.length, createdAt: now() }] }));
+}
+export function removeReviewFocus(reviewId: string, focusId: string): void {
+  bumpReview(reviewId, (r) => ({ ...r, tomorrowFocus: r.tomorrowFocus.filter((f) => f.id !== focusId).map((f, i) => ({ ...f, order: i })) }));
+}
+export function setReviewFocus(reviewId: string, items: ReviewFocusItem[]): void {
+  bumpReview(reviewId, (r) => ({ ...r, tomorrowFocus: items.map((f, i) => ({ ...f, order: i })) }));
 }
