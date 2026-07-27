@@ -39,6 +39,7 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:timeline", title: "Open Insight Timeline", group: "Navigate", kind: "navigate", href: "/timeline", icon: "⇋", keywords: ["evolution", "history"] },
   { id: "nav:themes", title: "Open Themes", group: "Navigate", kind: "navigate", href: "/themes", icon: "☷", keywords: ["recurring"] },
   { id: "nav:health", title: "Open System Health", group: "Navigate", kind: "navigate", href: "/health", icon: "♥", keywords: ["settings", "status", "diagnostics"] },
+  { id: "nav:workspaces", title: "Open Workspaces", group: "Navigate", kind: "navigate", href: "/workspaces", icon: "◲", keywords: ["workspace", "project", "session", "switch"] },
 ];
 
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */
@@ -52,6 +53,7 @@ export const CREATE_COMMANDS: CommandItem[] = [
   { id: "create:decision", title: "New decision", group: "Create", kind: "create", href: "/decisions?new=1", icon: "＋", keywords: ["decide", "choice"] },
   { id: "create:question", title: "New question", group: "Create", kind: "create", href: "/inquiry?new=1", icon: "＋", keywords: ["inquiry"] },
   { id: "create:synthesis", title: "New synthesis", group: "Create", kind: "create", href: "/dialogue", icon: "＋", keywords: ["dialectic", "integrate"] },
+  { id: "create:workspace", title: "New workspace", group: "Create", kind: "create", href: "/workspaces?new=1", icon: "＋", keywords: ["project", "area", "group"] },
 ];
 
 /** Feature 1 + 8 — common actions and system entry points. */
@@ -59,6 +61,7 @@ export const ACTION_COMMANDS: CommandItem[] = [
   { id: "action:quick-capture", title: "Quick capture", group: "Actions", kind: "action", action: "quick-capture", icon: "✎", shortcut: "⇧⌘K", keywords: ["new capture", "note"] },
   { id: "action:shortcuts", title: "Keyboard shortcuts", group: "Actions", kind: "action", action: "shortcut-help", icon: "⌨", shortcut: "?", keywords: ["help", "keys", "hotkeys"] },
   { id: "action:health", title: "System health & settings", group: "Actions", kind: "navigate", href: "/health", icon: "♥", keywords: ["settings", "status"] },
+  { id: "action:end-session", title: "End current session", group: "Actions", kind: "action", action: "end-session", icon: "◼", keywords: ["stop", "finish", "session", "workspace"] },
 ];
 
 /** All static commands, in display priority. */
@@ -117,4 +120,29 @@ export function pinnedProvider(ctx: CommandContext): CommandItem[] {
 /** Convenience: the current record href for a record command (recent/pinned/continue). */
 export function hrefForRecord(state: StoreState, kind: string, id: string): string | undefined {
   return resolveRecord(state, kind, id)?.href;
+}
+
+/**
+ * Feature 11 — Context switching: switch to / resume any workspace from the
+ * command center. Each item navigates to a workspace dashboard, where sessions
+ * are started/resumed. Active-first, then most-recently-updated; deterministic.
+ */
+export function workspacesProvider(ctx: CommandContext): CommandItem[] {
+  const active = ctx.state.sessions?.find((s) => !s.endedAt);
+  const workspaces = [...(ctx.state.workspaces ?? [])]
+    .filter((w) => !w.archived)
+    .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  return workspaces.slice(0, 12).map((w) => {
+    const isActive = active?.workspaceId === w.id;
+    return {
+      id: `workspace:${w.id}`,
+      title: `${isActive ? "Resume" : "Switch to"} workspace: ${w.name}`,
+      subtitle: isActive ? "Active session" : (w.description || undefined),
+      group: "Workspaces",
+      kind: "navigate" as const,
+      href: `/workspace/${w.id}`,
+      icon: isActive ? "●" : "◲",
+      keywords: ["workspace", "switch", "resume", "session", "project"],
+    };
+  });
 }

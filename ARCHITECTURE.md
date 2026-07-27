@@ -1311,6 +1311,75 @@ reasoning system, no LLM, no embeddings, no new storage (navigation memory reuse
   context description, previews/hover cards, graph neighbors, navigation-memory
   shape, determinism, and a performance budget.
 
+## Workspaces, sessions & thinking modes (LIFEOS-030 — implemented)
+
+Turns LifeOS from "what information do I own?" into "what am I working on right
+now?" by adding first-class **Workspaces** and active thinking **Sessions**.
+Deterministic and offline throughout: no AI, no agents, no embeddings, no
+analytics, no background workers. Everything the product shows is derived at view
+time from a small amount of new durable state.
+
+- **Workspace model (`lib/workspaces/workspace.ts`).** A `Workspace` GROUPS
+  existing entities around a project or life area (Philosophy Thesis, Pool
+  Business, Peace Corps). It never copies what it groups — `members` and `pinned`
+  hold typed references (`{kind,id}`) resolved live against the store through the
+  LIFEOS-029 entity API, so renames and deletions are handled for free. Goals are
+  a simple checklist; membership derivations (`workspaceEntities`,
+  `entityWorkspaces`, `workspaceReferenced`) power the dashboard and the
+  inspector's "Belongs to workspace(s)" surface (Feature 10).
+- **Session model (`lib/workspaces/sessions.ts`).** A `WorkspaceSession` is an
+  active (or completed) thinking mode — thinking / reading / research / writing /
+  planning / decision / review / reflection. **Only one session is active at a
+  time** (`endedAt === undefined`); starting one ends the current one. Outputs
+  (entities opened, documents read, captures created, decisions made) are DERIVED
+  from the session's activity timeline via `sessionOutputs` — never a second
+  source of truth. `groupSessionsByRecency` buckets a workspace's sessions into
+  Today / Yesterday / This Week / Past (Feature 7).
+- **Automatic activity (`lib/workspaces/activity.ts` + `tracking.ts`).** During a
+  session, opening entities/documents, searching, capturing, editing beliefs and
+  decisions, reading, and inspector/command usage feed a deterministic activity
+  timeline (Feature 5). `tracking.ts` wrappers call the single store sink
+  `recordSessionActivity`, which no-ops when no session is active and dedupes
+  immediate repeats (`shouldRecord`). Tracking is wired at the source — capture
+  creation in the store, `openInspector`, the command palette, and the reader —
+  so it captures activity everywhere without per-page plumbing. Timeline only; no
+  scoring.
+- **Resume (`lib/workspaces/resume.ts`, Feature 6).** Each workspace remembers
+  the last entity inspected, document read, inspector target, command search, and
+  scroll — persisted ON the workspace record. Activity events map to a resume
+  patch (`resumePatchFor`) so "Resume" returns the user to exactly where they
+  left off; `resumeTarget` picks the freshest, still-existing destination.
+- **Dashboard (`lib/workspaces/dashboard.ts`, Feature 4).** One deterministic
+  projection: overview, goals, pinned, recent work / documents / decisions /
+  captures, themes, reading progress, session timeline, and a one-hop
+  graph-neighbor frontier.
+- **Workspace search (`lib/workspaces/search.ts`, Feature 9).** REUSES the
+  LIFEOS-027 index + ranking; it only restricts the shared index to a workspace's
+  scope (members, a member document's passages/highlights/notes/authors, and the
+  referenced frontier) before the identical ranked query — no second engine.
+- **UI.** A global `SessionBanner` (current workspace, session type, a live
+  elapsed clock, quick notes, End / Switch — renders nothing when idle), a nav
+  `WorkspaceSelector` (current + recent + pinned + switch), `/workspaces` (index
+  + create), and `/workspace/[id]` (the full dashboard with session controls,
+  resume, workspace-scoped search, goals, members, notes, and timeline). The
+  command center gains Switch / Resume / End-session commands and a `workspace`
+  entity kind (searchable + inspectable).
+- **Persistence & migration (`0022_workspaces.sql`).** Two additive,
+  RLS-protected tables: `workspaces` and `workspace_sessions` (goals / members /
+  pinned / resume and the activity timeline embedded as jsonb, matching how the
+  rest of the schema embeds owned sub-structures). Single-active is enforced in
+  the app layer, not by a partial unique index (which could transiently reject
+  the whole-array bulk upsert). The Supabase adapter syncs both tables with
+  row-level upsert/delete keyed on the dirty-domain set, and loads them
+  resiliently (a missing 0022 table degrades to empty). The current-workspace
+  pointer + recent/pinned workspace ids are UI memory in `prefs` (mirrored to
+  `user_prefs`). The migration chain is now **0001–0022**.
+- **Testing.** `lib/workspaces/selftest.ts` (surfaced at `/dev/workspace-tests`,
+  asserted by `workspaces.mjs`) covers membership, session lifecycle & outputs,
+  activity policy & resume memory, workspace-scoped search, entity↔workspace
+  relationships, the session timeline, the dashboard projection, determinism, and
+  a performance budget (200 workspace dashboards under budget).
+
 ## Future vector search layer
 
 Not implemented. When built, the expected approach is `pgvector` on

@@ -31,11 +31,12 @@ export const RECORD_LABELS: Record<string, string> = {
   passage: "Passages",
   highlight: "Highlights",
   annotation: "Reading notes",
+  workspace: "Workspaces",
 };
 
 /** Deterministic group ordering for search output (index = priority). */
 export const RECORD_ORDER: string[] = [
-  "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
+  "workspace", "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
   "synthesis", "tension", "decision", "inquiry", "formation", "knowledge_project", "source",
   "passage", "highlight", "annotation",
 ];
@@ -93,6 +94,12 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
   for (const k of state.knowledgeProjects) add("knowledge_project", k.id, k.title, { body: k.title, status: k.status, updatedAt: k.updatedAt, href: `/author/${k.id}` });
   for (const s of state.sources) add("source", s.id, s.title, { body: `${s.title} ${s.author ?? ""}`, aliases: s.author ? [s.author] : [], status: s.status, updatedAt: s.addedAt, href: `/library/${s.id}` });
 
+  // Workspaces (LIFEOS-030): first-class, searchable groupings of existing work.
+  for (const w of state.workspaces ?? []) {
+    if (w.archived) continue;
+    add("workspace", w.id, w.name, { body: `${w.name} ${w.description} ${w.goals.map((g) => g.text).join(" ")}`, status: w.archived ? "archived" : "active", updatedAt: w.updatedAt, href: `/workspace/${w.id}` });
+  }
+
   // ---- Reading companion (LIFEOS-028): documents, authors, passages, highlights, notes ----
   const authorSeen = new Set<string>();
   for (const doc of state.documents) {
@@ -139,6 +146,7 @@ export function resolveRecord(state: StoreState, kind: string, id: string): { ti
     case "knowledge_project": { const k = state.knowledgeProjects.find((x) => x.id === id); return k && { title: k.title, href: `/author/${k.id}`, status: k.status }; }
     case "source": { const s = state.sources.find((x) => x.id === id); return s && { title: s.title, href: `/library/${s.id}`, status: s.status }; }
     case "document": { const d = state.documents.find((x) => x.id === id); return d && { title: d.title, href: `/document/${d.id}`, status: d.status }; }
+    case "workspace": { const w = (state.workspaces ?? []).find((x) => x.id === id); return w && { title: w.name, href: `/workspace/${w.id}`, status: w.archived ? "archived" : "active" }; }
     default: return undefined;
   }
 }

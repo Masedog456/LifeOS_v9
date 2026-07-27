@@ -33,7 +33,7 @@ function emptyState(): StoreState {
     inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [],
     embeddings: [], decisions: [], formationSessions: [], concepts: [], conceptRelationships: [],
     principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
-    tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
+    tensions: [], syntheses: [], recommendations: [], documents: [], citations: [], workspaces: [], sessions: [],
   };
 }
 const CONF = { factual: "moderate", logical: "moderate", evidential: "moderate", experiential: "moderate" } as const;

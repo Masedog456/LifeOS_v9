@@ -80,6 +80,38 @@ neighbors). Hovering any entity link shows an instant preview card. The inspecto
 remembers your last entity, tab, expanded sections, and scroll position across
 sessions, and is fully keyboard-navigable (arrow keys switch tabs, `Esc` closes).
 
+## Workspaces & thinking sessions
+
+LifeOS understands **what you're working on right now**, not just what you own.
+A **Workspace** (`/workspaces`) groups existing work — beliefs, documents,
+decisions, dialogues, concepts — around a project or life area (Philosophy
+Thesis, Pool Business, Peace Corps). Nothing is duplicated: a workspace only
+references what you already have, so a belief can live in several workspaces and
+still be the same belief.
+
+Inside a workspace you begin a focused **thinking session** in one of eight
+modes — Thinking, Reading, Research, Writing, Planning, Decision, Review,
+Reflection. Only one session is active at a time. While it runs, a slim global
+banner shows the current workspace, a live elapsed clock, and a quick-notes field
+(a markdown scratchpad independent of your captures), with **End session** and
+**Switch** controls. The session quietly records a **timeline** of what you did —
+entities and documents opened, searches, captures, belief/decision edits,
+inspector and command usage — with no analytics or scoring, just a record.
+
+Each workspace has a dashboard with goals, pinned entities, recent work,
+reading progress, themes, a graph-neighbor frontier, and a **session timeline**
+(Today · Yesterday · This Week · Past) with each session's duration and derived
+outputs. **Resume** returns you to exactly where you left off — the last entity
+inspected, document read, or search. Search can be **scoped to the current
+workspace** (it reuses the global search engine — there's no second index), and
+every object shows which workspaces it **belongs to** in its inspector. Switch
+workspaces, start / resume / end sessions from the nav selector or the command
+palette (`Ctrl`/`Cmd`+`K`).
+
+Workspaces and sessions are durable, per-user, and RLS-protected (migration
+`0022_workspaces.sql`) and sync across devices. Everything is deterministic and
+offline — no AI, no background work.
+
 ## Local development
 
 ```bash

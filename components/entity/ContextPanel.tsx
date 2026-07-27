@@ -20,6 +20,9 @@ import { relativeTime } from "@/lib/entities/timeline";
 import { citationsForRecord, citationHref, formatCitation } from "@/lib/library/citations";
 import { isPinned, togglePin } from "@/lib/command/recent";
 import EntityLink from "@/components/entity/EntityLink";
+import { addToWorkspace } from "@/lib/mvpStore";
+import { entityWorkspaces, findWorkspace, isMember, workspaceHref } from "@/lib/workspaces/workspace";
+import { currentWorkspaceId, useWorkspacePointer } from "@/lib/workspaces/current";
 
 function fmt(iso?: string): string {
   if (!iso || Number.isNaN(Date.parse(iso))) return "—";
@@ -34,6 +37,9 @@ export default function ContextPanel({ kind, id, onClose }: { kind: string; id: 
   const backs = backlinkCount(ctx, kind, id);
   const last = lastActivityAt(ctx, kind, id);
   const citations = useMemo(() => citationsForRecord(state, kind, id), [state, kind, id]);
+  useWorkspacePointer(); // re-render when the current-workspace pointer changes
+  const belongsTo = useMemo(() => (kind === "workspace" ? [] : entityWorkspaces(state, kind, id)), [state, kind, id]);
+  const currentWs = kind === "workspace" ? undefined : findWorkspace(state, currentWorkspaceId());
   const [, bumpPin] = useState(0);
   const pinned = isPinned(kind, id); // re-read each render; bumpPin forces refresh after toggle
 
@@ -82,6 +88,32 @@ export default function ContextPanel({ kind, id, onClose }: { kind: string; id: 
               <li key={c.id}><Link href={citationHref(c)} onClick={onClose} className="text-[12px] text-zinc-600 underline-offset-2 hover:underline dark:text-zinc-300">{formatCitation(c)}</Link></li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {kind !== "workspace" && (belongsTo.length > 0 || currentWs) && (
+        <section>
+          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Workspaces</h3>
+          {belongsTo.length > 0 ? (
+            <ul className="flex flex-wrap gap-1.5">
+              {belongsTo.map((w) => (
+                <li key={w.id}>
+                  <Link href={workspaceHref(w.id)} onClick={onClose} className="rounded-full bg-black/[.05] px-2 py-0.5 text-[11px] text-zinc-600 hover:underline dark:bg-white/[.06] dark:text-zinc-300">◲ {w.name}</Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[11px] text-zinc-400">Not in any workspace yet.</p>
+          )}
+          {currentWs && !isMember(currentWs, kind, id) && (
+            <button
+              type="button"
+              onClick={() => addToWorkspace(currentWs.id, kind, id)}
+              className="mt-1.5 rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]"
+            >
+              ＋ Add to {currentWs.name}
+            </button>
+          )}
         </section>
       )}
 

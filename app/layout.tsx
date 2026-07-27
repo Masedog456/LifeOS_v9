@@ -6,6 +6,7 @@ import StoreHydrator from "@/components/StoreHydrator";
 import PersistenceBootstrap from "@/components/PersistenceBootstrap";
 import CommandCenter from "@/components/command/CommandCenter";
 import Inspector from "@/components/entity/Inspector";
+import SessionBanner from "@/components/workspace/SessionBanner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -37,6 +38,7 @@ export default function RootLayout({
         <StoreHydrator />
         <PersistenceBootstrap />
         <Nav />
+        <SessionBanner />
         <div className="flex flex-1 flex-col">{children}</div>
         <CommandCenter />
         <Inspector />

@@ -45,6 +45,8 @@ import type {
   StoreState,
   Citation,
   ReadingDocument,
+  Workspace,
+  WorkspaceSession,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -141,6 +143,9 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // 0021 tables are missing on an older deployment, hydration degrades to an
     // empty reading library rather than failing the whole load.
     const reading = await this.loadReading();
+    // Workspaces & sessions (LIFEOS-030): resilient to the 0022 tables being
+    // absent on an older deployment — degrades to empty rather than failing load.
+    const workspaces = await this.loadWorkspaces();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -179,6 +184,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       recommendations: (recommendations.data ?? []).map(rowToRecommendation),
       documents: reading.documents,
       citations: reading.citations,
+      workspaces: workspaces.workspaces,
+      sessions: workspaces.sessions,
     };
   }
 
@@ -281,6 +288,9 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // ---- Reading library (LIFEOS-028): normalized, row-level incremental sync ----
     if (w("documents")) await this.syncReadingDocuments(state.documents, base?.documents ?? []);
     if (w("citations")) await this.syncCitations(state.citations, base?.citations ?? []);
+    // ---- Workspaces & sessions (LIFEOS-030): row-level upsert/delete ----
+    if (w("workspaces")) await this.syncWorkspaces(state.workspaces ?? [], base?.workspaces ?? []);
+    if (w("sessions")) await this.syncSessions(state.sessions ?? [], base?.sessions ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -333,6 +343,39 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const d = diffById<CitationRow>(cur, prev);
     if (d.upsert.length) await this.throwing(this.client.from("document_citations").upsert(d.upsert));
     if (d.deleteIds.length) await this.throwing(this.client.from("document_citations").delete().in("id", d.deleteIds));
+  }
+
+  /** Row-level upsert/delete for workspaces (LIFEOS-030). */
+  private async syncWorkspaces(current: Workspace[], base: Workspace[]): Promise<void> {
+    const d = diffById<WorkspaceRow>(current.map(workspaceToRow), base.map(workspaceToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("workspaces").upsert(d.upsert));
+    // Deleting a workspace cascades its sessions in the DB; the client also
+    // removes the session rows below, so an explicit delete here is enough.
+    if (d.deleteIds.length) await this.throwing(this.client.from("workspaces").delete().in("id", d.deleteIds));
+  }
+
+  /** Row-level upsert/delete for sessions (LIFEOS-030). */
+  private async syncSessions(current: WorkspaceSession[], base: WorkspaceSession[]): Promise<void> {
+    const d = diffById<SessionRow>(current.map(sessionToRow), base.map(sessionToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("workspace_sessions").upsert(d.upsert));
+    if (d.deleteIds.length) await this.throwing(this.client.from("workspace_sessions").delete().in("id", d.deleteIds));
+  }
+
+  /** Load workspaces + sessions, resilient to the 0022 tables being absent. */
+  private async loadWorkspaces(): Promise<{ workspaces: Workspace[]; sessions: WorkspaceSession[] }> {
+    try {
+      const [workspaces, sessions] = await Promise.all([
+        this.client.from("workspaces").select("*").order("updated_at", { ascending: false }),
+        this.client.from("workspace_sessions").select("*").order("started_at", { ascending: false }),
+      ]);
+      if (workspaces.error || sessions.error) return { workspaces: [], sessions: [] };
+      return {
+        workspaces: (workspaces.data ?? []).map(rowToWorkspace),
+        sessions: (sessions.data ?? []).map(rowToSession),
+      };
+    } catch {
+      return { workspaces: [], sessions: [] };
+    }
   }
 
   async saveSource(source: KnowledgeSource): Promise<void> {
@@ -427,6 +470,10 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // highlights/annotations/citations. Guarded so a missing 0021 table is a
     // no-op rather than an error.
     try { await this.client.from("reading_documents").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
+    // Workspaces & sessions (LIFEOS-030): deleting a workspace cascades its
+    // sessions; guarded so a missing 0022 table is a no-op rather than an error.
+    try { await this.client.from("workspace_sessions").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
+    try { await this.client.from("workspaces").delete().eq("user_id", uid); } catch { /* table may not exist yet */ }
     // Delete beliefs first (cascades revisions/judgments), then the rest.
     // saved_quotes cascade from sources.
     await this.throwing(this.client.from("recommendations").delete().eq("user_id", uid));
@@ -1453,6 +1500,73 @@ function rowToRecommendation(r: any): Recommendation {
     accepted: Boolean(r.accepted),
     completed: Boolean(r.completed),
     snoozedUntil: r.snoozed_until ?? undefined,
+  };
+}
+
+// ---------------------- Workspaces & sessions (LIFEOS-030) ----------------------
+
+interface WorkspaceRow {
+  id: string; name: string; description: string; color: string | null;
+  goals: unknown; members: unknown; pinned: unknown; resume: unknown;
+  archived: boolean; created_at: string; updated_at: string;
+}
+function workspaceToRow(w: Workspace): WorkspaceRow {
+  return {
+    id: w.id,
+    name: w.name,
+    description: w.description,
+    color: w.color ?? null,
+    goals: w.goals,
+    members: w.members,
+    pinned: w.pinned,
+    resume: w.resume,
+    archived: w.archived,
+    created_at: w.createdAt,
+    updated_at: w.updatedAt,
+  };
+}
+function rowToWorkspace(r: any): Workspace {
+  return {
+    id: r.id,
+    name: r.name ?? "Untitled workspace",
+    description: r.description ?? "",
+    color: r.color ?? undefined,
+    goals: Array.isArray(r.goals) ? r.goals : [],
+    members: Array.isArray(r.members) ? r.members : [],
+    pinned: Array.isArray(r.pinned) ? r.pinned : [],
+    resume: r.resume && typeof r.resume === "object" ? r.resume : {},
+    archived: Boolean(r.archived),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+interface SessionRow {
+  id: string; workspace_id: string; type: string; goal: string; notes: string;
+  activity: unknown; started_at: string; ended_at: string | null;
+}
+function sessionToRow(s: WorkspaceSession): SessionRow {
+  return {
+    id: s.id,
+    workspace_id: s.workspaceId,
+    type: s.type,
+    goal: s.goal,
+    notes: s.notes,
+    activity: s.activity,
+    started_at: s.startedAt,
+    ended_at: s.endedAt ?? null,
+  };
+}
+function rowToSession(r: any): WorkspaceSession {
+  return {
+    id: r.id,
+    workspaceId: r.workspace_id,
+    type: (r.type ?? "thinking") as WorkspaceSession["type"],
+    goal: r.goal ?? "",
+    notes: r.notes ?? "",
+    activity: Array.isArray(r.activity) ? r.activity : [],
+    startedAt: r.started_at,
+    endedAt: r.ended_at ?? undefined,
   };
 }
 
