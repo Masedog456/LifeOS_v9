@@ -2257,6 +2257,114 @@ export interface Milestone {
   updatedAt: ISO;
 }
 
+// ---------- Daily review & planning loop (LIFEOS-034) ----------
+
+/**
+ * A DailyReview is a first-class, user-owned record of one calendar day's
+ * reflection. It SUMMARIZES existing activity — it never invents conclusions and
+ * never marks other records complete. Exactly one canonical review exists per
+ * user per LOCAL calendar date (`date`, a yyyy-mm-dd key stored separately from
+ * the wall-clock timestamps so timezone travel / DST never creates duplicates).
+ * All sub-lists (wins/lessons/friction/openLoops/tomorrowFocus) are the user's
+ * chosen entries; the deterministic day summary only SUGGESTS sources. No AI, no
+ * scoring, no streaks.
+ */
+export type ReviewStatus = "not_started" | "in_progress" | "completed" | "reopened";
+
+/** A manually-recorded win, optionally linked to the work it advanced. */
+export interface ReviewWin {
+  id: string;
+  text: string;
+  /** goal / project / milestone / session / workspace / knowledge entity refs. */
+  links: RecordRefLite[];
+  createdAt: ISO;
+}
+
+/**
+ * A manually-recorded lesson. It may link to the records it came from and may be
+ * CONVERTED into an existing canonical record (e.g. a capture) — LifeOS never
+ * creates a new knowledge subtype merely for lessons.
+ */
+export interface ReviewLesson {
+  id: string;
+  text: string;
+  /** document / passage / highlight / annotation / belief / decision / research / session refs. */
+  links: RecordRefLite[];
+  /** Set when the lesson has been promoted into a canonical record. */
+  convertedTo?: RecordRefLite;
+  createdAt: ISO;
+}
+
+export type FrictionSeverity = "low" | "medium" | "high";
+export type FrictionArea =
+  | "navigation" | "clarity" | "workflow" | "sync"
+  | "mobile" | "performance" | "content" | "planning" | "other";
+
+/** A friction point encountered during the day. Feeds the UX audit, not analytics. */
+export interface ReviewFriction {
+  id: string;
+  description: string;
+  severity: FrictionSeverity;
+  area: FrictionArea;
+  linkedEntity?: RecordRefLite;
+  resolved: boolean;
+  resolutionNotes: string;
+  createdAt: ISO;
+}
+
+/** Where an open-loop candidate was derived from (or "manual"). */
+export type OpenLoopSource =
+  | "milestone" | "project" | "session" | "decision"
+  | "reading" | "conflict" | "unsynced" | "manual";
+
+/** An unfinished thread the user chose to carry into the review. */
+export interface ReviewOpenLoop {
+  id: string;
+  text: string;
+  source: OpenLoopSource;
+  /** The underlying record, when the loop came from one (reference, never a copy). */
+  ref?: RecordRefLite;
+  createdAt: ISO;
+}
+
+/** One ordered next-focus intention for tomorrow. No priority, no deadline. */
+export interface ReviewFocusItem {
+  id: string;
+  text: string;
+  /** goal / project / milestone / workspace / document / entity (optional). */
+  ref?: RecordRefLite;
+  order: number;
+  createdAt: ISO;
+}
+
+export interface DailyReview {
+  id: string;
+  /** Canonical LOCAL calendar date (yyyy-mm-dd) — the unique key per user. */
+  date: string;
+  status: ReviewStatus;
+  startedAt?: ISO;
+  completedAt?: ISO;
+  /** Free-text "what happened today" (never auto-written). */
+  summary: string;
+  wins: ReviewWin[];
+  lessons: ReviewLesson[];
+  friction: ReviewFriction[];
+  openLoops: ReviewOpenLoop[];
+  tomorrowFocus: ReviewFocusItem[];
+  notes: string;
+  /** Typed links chosen for this review (ids). */
+  linkedGoals: string[];
+  linkedProjects: string[];
+  linkedWorkspaces: string[];
+  /** Free-form entity references (any kind). */
+  linkedEntities: RecordRefLite[];
+  /** The UTC-offset (minutes east of UTC) in effect when the review was created —
+   * kept for DST/timezone-travel diagnostics; day boundaries use the local date. */
+  tzOffsetMinutes?: number;
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
 export interface StoreState {
   captures: Capture[];
   proposals: Proposal[];
@@ -2289,6 +2397,7 @@ export interface StoreState {
   sessions: WorkspaceSession[];
   goals: Goal[];
   projects: Project[];
+  dailyReviews: DailyReview[];
 }
 
 // ---------- Reading companion foundation (LIFEOS-028) ----------

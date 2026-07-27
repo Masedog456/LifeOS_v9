@@ -100,3 +100,17 @@ exportable/restorable.
 - Recovery, integrity, and conflict panels on `/health` are landmarked regions
   (`aria-label` "Sync conflicts" / "Recovery" / "Data integrity") for
   screen-reader navigation.
+
+## Daily review flow (LIFEOS-034)
+
+- The review at `/daily` is a **full page, never a modal**. The seven steps are
+  real, keyboard-reachable buttons with `aria-current="step"`; the user may jump
+  freely, skip, and reload without losing progress (every edit autosaves; free
+  text commits on blur under the shared unsaved-changes guard).
+- Nothing destructive is implied: completing or reopening a review changes no
+  other record, and choosing an open loop never marks anything done/undone. The
+  friction log feeds this UX audit as structured entries (area + severity) rather
+  than analytics.
+- Landmarked regions ("Day summary", "Daily review" on Today) aid screen-reader
+  navigation. The flow is verified mobile-friendly (no horizontal scroll at
+  390px) and keyboard-activatable by `dailyreview.mjs`.

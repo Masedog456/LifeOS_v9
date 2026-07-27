@@ -14,6 +14,8 @@ import type { CommandContext } from "@/lib/command/registry";
 import type { CommandItem } from "@/lib/command/types";
 import { buildContinueThinking } from "@/lib/memory/continue";
 import { RECORD_LABELS, resolveRecord } from "@/lib/command/records";
+import { todayKey } from "@/lib/reviews/dates";
+import { findReviewByDate, latestCompletedReview, reviewHref } from "@/lib/reviews/review";
 
 /** Feature 1 — navigate to any major section. */
 export const NAV_COMMANDS: CommandItem[] = [
@@ -42,6 +44,8 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:workspaces", title: "Open Workspaces", group: "Navigate", kind: "navigate", href: "/workspaces", icon: "◲", keywords: ["workspace", "project", "session", "switch"] },
   { id: "nav:goals", title: "Open Goals", group: "Navigate", kind: "navigate", href: "/goals", icon: "◎", keywords: ["goal", "objective", "accomplish", "execution"] },
   { id: "nav:projects", title: "Open Projects", group: "Navigate", kind: "navigate", href: "/projects", icon: "▤", keywords: ["project", "work", "execution", "milestone"] },
+  { id: "nav:daily", title: "Open Daily Review", group: "Navigate", kind: "navigate", href: "/daily", icon: "☑", keywords: ["review", "reflect", "plan", "daily", "wins", "lessons"] },
+  { id: "nav:daily-history", title: "Open Review History", group: "Navigate", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["review", "history", "past", "weekly"] },
 ];
 
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */
@@ -144,6 +148,36 @@ export function executionProvider(ctx: CommandContext): CommandItem[] {
   }
   for (const p of projects.slice(0, 8)) {
     items.push({ id: `project:${p.id}`, title: `Resume project: ${p.title}`, subtitle: p.description || undefined, group: "Projects", kind: "navigate", href: `/project/${p.id}`, icon: "▤", keywords: ["project", "resume", "switch", "milestone"] });
+  }
+  return items;
+}
+
+/**
+ * LIFEOS-034, Feature 13 — Daily review commands, contextual to today's review
+ * status. Start/Continue/Complete/Reopen all navigate to the review page (which
+ * owns the buttons — no logic is duplicated here); history and resume-focus are
+ * always available. Deterministic.
+ */
+export function reviewProvider(ctx: CommandContext): CommandItem[] {
+  const today = todayKey();
+  const todays = findReviewByDate(ctx.state, today);
+  const status = todays?.status ?? "not_started";
+  const items: CommandItem[] = [];
+
+  if (status === "not_started" || !todays) {
+    items.push({ id: "review:start", title: "Start daily review", group: "Review", kind: "navigate", href: "/daily", icon: "☑", keywords: ["reflect", "plan", "daily", "review"] });
+  } else if (status === "in_progress" || status === "reopened") {
+    items.push({ id: "review:continue", title: "Continue daily review", group: "Review", kind: "navigate", href: "/daily", icon: "☑", keywords: ["reflect", "resume", "daily", "review"] });
+    items.push({ id: "review:complete", title: "Complete daily review", group: "Review", kind: "navigate", href: `/daily/${today}?step=complete`, icon: "✓", keywords: ["finish", "done", "daily", "review"] });
+  } else if (status === "completed") {
+    items.push({ id: "review:reopen", title: "Reopen daily review", group: "Review", kind: "navigate", href: `/daily/${today}`, icon: "↺", keywords: ["edit", "reopen", "daily", "review"] });
+  }
+
+  items.push({ id: "review:history", title: "Open review history", group: "Review", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["past", "reviews", "weekly", "history"] });
+
+  const latest = latestCompletedReview(ctx.state);
+  if (latest && latest.tomorrowFocus.length > 0) {
+    items.push({ id: "review:resume-focus", title: "Resume tomorrow focus", subtitle: `From ${latest.date}`, group: "Review", kind: "navigate", href: reviewHref(latest.date), icon: "▸", keywords: ["focus", "next", "resume", "plan"] });
   }
   return items;
 }

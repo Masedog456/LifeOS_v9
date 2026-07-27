@@ -185,3 +185,16 @@ No AI, agents, embeddings, analytics, collaboration, realtime presence,
 messaging, calendar integration, notifications, automatic prose merging, or new
 product domains were added. Sync integrity is deterministic plumbing beneath the
 existing product, not a new surface.
+
+---
+
+## 8. Later additions riding this layer
+
+- **Daily reviews (LIFEOS-034).** The `daily_reviews` domain (migration `0025`)
+  is a first-class synced record that uses this layer unchanged: row-level
+  dirty-domain upsert/delete, deletes tombstoned under domain `dailyReviews`, and
+  the same three-way conflict handling as any other record. A review only ever
+  references other records (never owns them), so a review conflict resolves
+  independently of the records it mentions. Its one-per-local-date identity is
+  enforced by a DB `unique(user_id, date)` constraint so timezone travel can
+  never fork a duplicate. See `DAILY_REVIEW.md`.

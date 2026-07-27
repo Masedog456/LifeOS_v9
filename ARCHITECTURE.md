@@ -1613,3 +1613,19 @@ isolation runs on hydrate in `lib/mvpStore.ts`: malformed rows are dropped from
 the in-memory store (source in `localStorage` preserved) so a single bad record
 never crashes a consumer, and the graph query layer (`lib/graph`) is hardened to
 tolerate partially-formed records. See `SYNC_INTEGRITY.md` for the full design.
+
+## Daily review & planning loop (LIFEOS-034)
+
+A deterministic daily review lives in `lib/reviews/` + `components/reviews/`,
+with routes under `/daily`. A first-class `DailyReview` record (migration `0025`,
+`daily_reviews`) captures one local calendar day's reflection — summary, wins,
+lessons, friction, chosen open loops, and ordered tomorrow-focus. Every part is
+the user's own input; the deterministic **day summary** (`day-summary.ts`) only
+*reports* existing activity (counts + linked source records) and infers nothing.
+Local-date semantics (`dates.ts`) keep the canonical `date` separate from
+timestamps, are DST-correct, and — with a DB `unique(user_id, date)` constraint —
+make review creation idempotent across timezone travel. The weekly rollup
+(`weekly-rollup.ts`) is a projection, never persisted. It reuses the entity API,
+inspector, command center, session/execution/reading engines, UX primitives, and
+the LIFEOS-033 sync layer — no new state system, no AI, no scoring. See
+`DAILY_REVIEW.md`.

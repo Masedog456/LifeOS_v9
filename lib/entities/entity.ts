@@ -56,6 +56,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   practice: "Practice", review: "Review", reasoning: "Reasoning", principle: "Principle", framework: "Framework",
   workspace: "Workspace",
   goal: "Goal", project: "Project", milestone: "Milestone",
+  daily_review: "Daily review",
 };
 
 const snip = (s: string | undefined, n = 80): string => {
@@ -145,6 +146,7 @@ export function describeEntity(ctx: EntityContext, kind: EntityKind, id: string)
     case "goal": { const g = (state.goals ?? []).find((x) => x.id === id); if (g) { summary = g.description || g.title; createdAt = g.createdAt; updatedAt = g.updatedAt; tags = g.tags; notes = g.notes || undefined; href = href ?? `/goal/${g.id}`; title = title ?? g.title; exists = true; } break; }
     case "project": { const p = (state.projects ?? []).find((x) => x.id === id); if (p) { summary = p.description || p.title; createdAt = p.createdAt; updatedAt = p.updatedAt; notes = p.notes || undefined; href = href ?? `/project/${p.id}`; title = title ?? p.title; exists = true; } break; }
     case "milestone": { for (const p of state.projects ?? []) { const m = p.milestones.find((x) => x.id === id); if (m) { summary = m.notes || m.title; createdAt = m.createdAt; updatedAt = m.updatedAt; href = href ?? `/project/${p.id}`; title = title ?? m.title; exists = true; break; } } break; }
+    case "daily_review": { const r = (state.dailyReviews ?? []).find((x) => x.id === id); if (r) { summary = r.summary || `${r.wins.length} win(s) · ${r.lessons.length} lesson(s) · ${r.friction.length} friction · ${r.tomorrowFocus.length} focus`; createdAt = r.createdAt; updatedAt = r.updatedAt; notes = r.notes || undefined; href = href ?? `/daily/${r.date}`; title = title ?? `Review · ${r.date}`; exists = true; } break; }
     default: break;
   }
 

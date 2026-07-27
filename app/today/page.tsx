@@ -22,6 +22,7 @@ import { getPinned } from "@/lib/command/recent";
 import { resolveRecord } from "@/lib/command/records";
 import { openQuickCapture } from "@/lib/command/events";
 import FirstRun from "@/components/ux/FirstRun";
+import TodayReviewCard from "@/components/reviews/TodayReviewCard";
 
 function daysAgo(iso: string): number {
   return Math.floor((Date.now() - Date.parse(iso)) / 86400000);
@@ -108,6 +109,9 @@ export default function TodayPage() {
         </div>
       ) : !empty && (
         <div className="flex flex-col gap-4">
+          {/* Daily review entry point (LIFEOS-034, Feature 12). */}
+          <TodayReviewCard />
+
           {/* Pinned — fast access to favourite records (LIFEOS-027, Feature 4). */}
           <Card title="Pinned" href="/today" linkLabel="⌘K to manage" show={pinned.length > 0}>
             {pinned.map((p) => {

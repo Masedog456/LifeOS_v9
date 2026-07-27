@@ -2156,3 +2156,32 @@ scope or order.
   validated on Postgres 16 (idempotent 3×, 4 RLS policies, cross-user isolation).
   New doc `SYNC_INTEGRITY.md`; updated ARCHITECTURE / README / PERSISTENCE_QA /
   UX_AUDIT. Screenshots: conflict dialog (desktop + mobile), sync health.
+- **LIFEOS-034 — Daily Review & Planning Loop.** New `lib/reviews/` (dates,
+  day-summary, open-loops, tomorrow-focus, review, weekly-rollup, relationships,
+  selftest) + `components/reviews/` (DailyReviewFlow + 5 step components,
+  DaySummary, ReviewHistory, WeeklyRollup, TodayReviewCard, EntityPicker) +
+  `/daily` routes (today, `[date]`, history, `week/[start]`). First-class
+  **DailyReview** record — one per user per LOCAL date (canonical `date` stored
+  separately from timestamps; DST-correct; DB `unique(user_id, date)` so timezone
+  travel never forks a duplicate). The **day summary** deterministically REPORTS
+  existing activity (counts + linked sources) and infers nothing; wins/lessons/
+  friction/open-loops/tomorrow-focus are all the user's input (nothing auto-
+  written, nothing marked complete). Lessons convert to a Capture (canonical
+  creator) — no new knowledge subtype. Weekly rollup is a **projection, not
+  persisted**. Migration **0025** `daily_reviews` (normalized metadata + jsonb
+  content, RLS, unique(user,date)); chain now **0001–0025**. Integrated into
+  Today (progressive-disclosure card), command center (start/continue/complete/
+  reopen/history/resume-focus), entity API + backlinks + search (`daily_review`
+  kind), and the LIFEOS-033 sync layer (tombstoned deletes). Verified:
+  `dailyreview.mjs` E2E **27/27**, `runReviewSelfTests` **56/56** (local-date /
+  DST / timezone-travel / day-summary determinism / open-loops / focus ordering /
+  weekly rollup / relationships / search / schema purity / perf). Full regression
+  green (gen1 41, graph 15, entity 18, workspaces 23, execution 25, ux 27,
+  reading 30, command 27, memory 29, orchestration 22, synthesis 22, world 21,
+  dialogue 19, research 21, formation 26, authoring 23; older AI-engine dev-only
+  suites unchanged/orthogonal). `tsc`=0, `lint`=0, `build`=0. Migration 0025
+  validated on Postgres 16 (idempotent 3×, 4 RLS policies, unique(user,date)
+  enforced, cross-user isolation). New doc `DAILY_REVIEW.md`; updated ARCHITECTURE
+  / README / PERSISTENCE_QA / UX_AUDIT / SYNC_INTEGRITY. Constraints: no AI /
+  agents / embeddings / scoring / streaks / gamification / auto-prioritization /
+  calendar / notifications / analytics.

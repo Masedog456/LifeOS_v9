@@ -754,3 +754,21 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
 - Diagnostics additions (unresolved conflicts, journal depth, oldest pending op,
   skipped malformed records, recovery mode, local schema version) are all
   sanitized — no content, tokens, or secrets. See `SYNC_INTEGRITY.md`.
+
+### Daily reviews (LIFEOS-034)
+
+- Daily reviews are first-class synced records (migration `0025`,
+  `daily_reviews`): row-level dirty-domain upsert/delete in the Supabase adapter,
+  deletes tombstoned under domain `dailyReviews`, resilient load if the table is
+  absent. Exactly one review per user per **local date**, enforced by a database
+  `unique (user_id, date)` constraint — validated on Postgres 16 (idempotent 3×,
+  four RLS policies, cross-user isolation, duplicate-date rejection).
+- The canonical `date` (yyyy-mm-dd) is stored separately from timestamps so a
+  timezone change or clock skew never forks a duplicate review; day boundaries
+  are DST-correct and never hardcoded to UTC. See `DAILY_REVIEW.md`.
+- **Manual production check (credential-pending):** with Supabase configured and
+  signed in — (1) complete a review on device A, confirm it appears on device B
+  after sync; (2) edit the same review on both devices offline, reconnect, and
+  confirm the sync-integrity layer surfaces the conflict rather than dropping the
+  newer edit; (3) confirm no duplicate review is created for the same local date
+  after switching timezones.

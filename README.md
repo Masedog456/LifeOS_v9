@@ -253,5 +253,9 @@ overwrites your own conclusions.
   three-way merge, tombstones, corruption recovery, restore safety, and the ten
   cross-device scenarios (LIFEOS-033)
 
+- [DAILY_REVIEW.md](./DAILY_REVIEW.md) — the deterministic daily review &
+  planning loop: review lifecycle, day-summary sources, open-loop rules,
+  tomorrow-focus, weekly rollup, and local-date/timezone semantics (LIFEOS-034)
+
 All of the above are provisional drafts pending final Product Owner
 sign-off (see the notice at the top of each file).
