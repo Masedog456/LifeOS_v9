@@ -1653,3 +1653,30 @@ history and raise conflicts on divergent status/content, never discarding lineag
 silently. It reuses the entity API, inspector, command center, search, session,
 daily-review, UX primitives, and the LIFEOS-033 sync/tombstone layer — no new
 state system, no AI, no scoring, no gamification. See `CAPTURE_PROCESSING.md`.
+
+## Next actions & commitments (LIFEOS-036)
+
+A focused next-action layer lives in `lib/actions/` + `components/actions/`, with
+routes under `/actions`. It answers "what can I concretely do next?" — the leaf
+of Goal → Project → Milestone → **Next Action** → Session — while the system
+**never generates, prioritizes, or schedules** actions. Every field is
+user-selected; there is no importance algorithm, scheduler, calendar,
+notification, or score. Three tables (migration `0027`): `next_actions` (one
+canonical creator; normalized lifecycle/context columns + jsonb links/tags/compact
+history), `action_dependencies` (first-class **cycle-safe** edges — self-loops and
+direct/indirect cycles are rejected at the application layer, missing endpoints
+degrade gracefully), and `action_templates` (reusable shapes, **explicitly**
+instantiated — no recurrence engine). Context references (project/milestone/goal/
+workspace/source) are **soft** (no FKs), so deleting a project/milestone never
+cascades away an action. The **Next** view is deterministic (`queue.ts`): open/
+in-progress, not deferred-future, not waiting, not terminal, not blocked —
+respecting manual order with explicit pins. Defer/waiting reuse the LIFEOS-034
+local-date engine (deferred actions return to Next when due; waiting follow-ups
+are surfaced, never auto-acted). Completion is always manual and never cascades to
+a milestone/project/goal. Starting an action reuses the existing single-session
+engine (Feature 17) — no second tracker. Field-level sync rules (`merge-rules.ts`)
+union tags/links/history/dependency-additions and raise conflicts on divergent
+status/content, never losing completion history or dependencies. It reuses the
+execution engine, sessions, workspaces, daily reviews, capture processing, entity
+API, inspector, command center, UX safeguards, and the LIFEOS-033 sync/tombstone
+layer — no new state manager. See `NEXT_ACTIONS.md`.

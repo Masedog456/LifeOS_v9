@@ -50,6 +50,20 @@ export interface Prefs {
     paneWidth?: number;
   };
   /**
+   * Action-queue navigation memory (LIFEOS-036, Feature 21): the selected view,
+   * sort, filters, active action, scroll, split-pane width, and collapsed groups
+   * — so the action queue resumes safely after reload. UI preferences only.
+   */
+  actions?: {
+    view?: string;
+    sort?: string;
+    filter?: Record<string, unknown>;
+    activeActionId?: string;
+    scroll?: number;
+    paneWidth?: number;
+    collapsed?: Record<string, boolean>;
+  };
+  /**
    * Unified inspector navigation memory (LIFEOS-029): the last-viewed entity,
    * the open tab, which sections are expanded, and the panel scroll position —
    * so the workspace resumes where the user left off across sessions.

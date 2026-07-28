@@ -2207,6 +2207,9 @@ export interface WorkspaceSession {
    * and/or a Project. References only; both are optional and independent. */
   goalId?: string;
   projectId?: string;
+  /** The next action currently being worked in this session (LIFEOS-036,
+   * Feature 17). One at a time; a session may contribute to many over its life. */
+  currentActionId?: string;
   /** Rich markdown scratchpad; timestamp-insertable; independent from captures. */
   notes: string;
   startedAt: ISO;
@@ -2219,7 +2222,7 @@ export interface WorkspaceSession {
 export type SessionActivityKind =
   | "opened_entity" | "opened_document" | "search" | "capture_created"
   | "belief_edited" | "reading" | "inspector" | "command"
-  | "decision_edited" | "note";
+  | "decision_edited" | "note" | "action_activity";
 
 /** A single deterministic activity event inside a session's timeline. */
 export interface SessionActivityEvent {
@@ -2377,7 +2380,7 @@ export interface ReviewFriction {
 /** Where an open-loop candidate was derived from (or "manual"). */
 export type OpenLoopSource =
   | "milestone" | "project" | "session" | "decision"
-  | "reading" | "conflict" | "unsynced" | "manual";
+  | "reading" | "conflict" | "unsynced" | "manual" | "action";
 
 /** An unfinished thread the user chose to carry into the review. */
 export interface ReviewOpenLoop {
@@ -2427,6 +2430,122 @@ export interface DailyReview {
   updatedAt: ISO;
 }
 
+// ---------- Next actions & commitments (LIFEOS-036) ----------
+
+/**
+ * The lifecycle status of a next action. Every field on a NextAction is
+ * user-chosen — the system never generates, classifies, prioritizes, or
+ * schedules actions. `waiting`/`deferred` remove an action from the "Next"
+ * queue without changing its openness; `completed`/`cancelled` are terminal but
+ * reversible (restore/reopen).
+ */
+export type ActionStatus = "open" | "in_progress" | "waiting" | "deferred" | "completed" | "cancelled";
+
+/** User-selected effort estimate. Never calculated. */
+export type ActionSize = "tiny" | "small" | "medium" | "large" | "unspecified";
+
+/** User-selected energy requirement. Never calculated. */
+export type ActionEnergy = "low" | "medium" | "high" | "unspecified";
+
+/**
+ * Compact, append-only action-history event (Feature 20). Stores safe metadata
+ * only — never a copy of the full description/notes on every event.
+ */
+export interface ActionHistoryEvent {
+  id: string;
+  at: ISO;
+  action: string;
+  fromStatus?: ActionStatus;
+  toStatus?: ActionStatus;
+  /** Related session or record where relevant (a reference, never a copy). */
+  ref?: RecordRefLite;
+  /** Short, safe descriptor (e.g. a context label, a defer key) — not full text. */
+  detail?: string;
+}
+
+/**
+ * A first-class next action: manually created, specific, independently
+ * completable, connected to meaningful context, small enough to begin in a
+ * session. It is the leaf of Goal → Project → Milestone → Next Action → Session.
+ */
+export interface NextAction {
+  id: string;
+  title: string;
+  description: string;
+  status: ActionStatus;
+  createdAt: ISO;
+  updatedAt: ISO;
+  completedAt?: ISO;
+  cancelledAt?: ISO;
+  /** Local day key (yyyy-mm-dd) an action returns to "Next" on. */
+  deferredUntil?: string;
+  /** Free text: what/who this action is waiting on. */
+  waitingOn?: string;
+  /** ISO timestamp the action entered `waiting`. */
+  waitingSince?: ISO;
+  /** Local day key (yyyy-mm-dd) to surface a waiting follow-up on. */
+  followUpDate?: string;
+  notes: string;
+  // ---- Context (all user-selected; none inferred) ----
+  workspaceId?: string;
+  goalId?: string;
+  projectId?: string;
+  milestoneId?: string;
+  /** Source records the action was created from (preserved, never mutated). */
+  sourceCaptureId?: string;
+  sourceReviewId?: string;
+  /** Free-form references to any records this action connects to. */
+  linkedEntityRefs: RecordRefLite[];
+  tags: string[];
+  estimatedSize: ActionSize;
+  energy: ActionEnergy;
+  /** Context label (computer/phone/errand/…/custom) — user-selected free text. */
+  context?: string;
+  /** Manual ordering weight within the queue (lower = earlier). */
+  order: number;
+  /** Explicit user pin to the top of "Next". */
+  pinned?: boolean;
+  /** Compact append-only history (Feature 20). */
+  history: ActionHistoryEvent[];
+}
+
+/**
+ * An explicit, manually-created dependency: `blockedId` is blocked by
+ * `blockerId`. Cycles (direct or indirect) are rejected at the application
+ * layer. Stored as a first-class edge so a dependency addition merges as a union
+ * across devices and a missing endpoint degrades gracefully (never crashes a
+ * projection).
+ */
+export interface ActionDependency {
+  id: string;
+  /** The action that must complete first. */
+  blockerId: string;
+  /** The action that waits on the blocker. */
+  blockedId: string;
+  createdAt: ISO;
+}
+
+/**
+ * A reusable action template (Feature 11). Templates are NOT recurring actions —
+ * the user explicitly instantiates each one. `suggestedRecurrence` is a plain
+ * human description, never a schedule the system acts on.
+ */
+export interface ActionTemplate {
+  id: string;
+  title: string;
+  description: string;
+  context?: string;
+  energy: ActionEnergy;
+  estimatedSize: ActionSize;
+  tags: string[];
+  defaultWorkspaceId?: string;
+  defaultProjectId?: string;
+  /** Human-readable recurrence hint (e.g. "weekly") — never auto-generated. */
+  suggestedRecurrence?: string;
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
 export interface StoreState {
   captures: Capture[];
   proposals: Proposal[];
@@ -2460,6 +2579,9 @@ export interface StoreState {
   goals: Goal[];
   projects: Project[];
   dailyReviews: DailyReview[];
+  nextActions: NextAction[];
+  actionDependencies: ActionDependency[];
+  actionTemplates: ActionTemplate[];
 }
 
 // ---------- Reading companion foundation (LIFEOS-028) ----------

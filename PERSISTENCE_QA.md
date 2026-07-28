@@ -804,3 +804,33 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   conflict surfaces (lineage/history not silently discarded); (3) defer a capture
   to tomorrow and confirm it returns to the inbox on the next local day without
   any notification. See `CAPTURE_PROCESSING.md`.
+
+## Next actions & commitments (LIFEOS-036)
+
+- Three additive tables (migration `0027_next_actions.sql`): `next_actions`,
+  `action_dependencies` (first-class edges), `action_templates`. Bounded links /
+  tags / compact history are jsonb; lifecycle/context are normalized columns.
+- **Soft references, no destructive cascade:** `project_id` / `milestone_id` /
+  `goal_id` / `workspace_id` / `source_capture_id` / `source_review_id` are plain
+  uuids **without foreign keys**, so deleting a project/milestone/goal never
+  cascades away an action, and an orphaned reference degrades gracefully (the
+  projections are orphan-safe). Cancel/complete are reversible statuses, not
+  deletes; deletes are tombstone-compatible with the LIFEOS-033 layer.
+- **Dependency safety:** a DB `check (blocker_id <> blocked_id)` plus a
+  `unique(user_id, blocker_id, blocked_id)`; direct and indirect cycles are
+  rejected at the application layer before an edge is ever written.
+- Validated on Postgres 16: full chain `0001–0027` applies **idempotently 3×**;
+  a bare insert defaults to `open` / `unspecified` with empty jsonb collections;
+  the self-dependency check is enforced; a soft `project_id` reference to a
+  non-existent project is accepted (orphan-safe); **RLS isolates users** — a
+  non-superuser role with `auth.uid()` = user1 sees only user1's actions, and
+  user2 only user2's (4 policies per table).
+- Performance (20,000 actions + ~3,000 dependencies): Next-queue derivation
+  **~19 ms**; a 3,000-deep cycle check **~2 ms** (indexed maps, deterministic
+  projections; no global deep comparison on edit).
+- **Manual production check (credential-pending):** signed in — (1) create + start
+  an action on device A, confirm status/history appear on device B after sync;
+  (2) offline on both, complete on A and cancel on B, reconnect, confirm the
+  conflict surfaces (completion history not lost); (3) add different dependency
+  edges on each device and confirm they union without a cycle. See
+  `NEXT_ACTIONS.md`.

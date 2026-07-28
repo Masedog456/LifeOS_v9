@@ -18,6 +18,7 @@ import {
   setProjectProgress, startProjectSession, toggleMilestone, updateProject, useStore,
 } from "@/lib/mvpStore";
 import { makeEntityContext, ENTITY_LABEL, type Entity, type EntityRef } from "@/lib/entities/entity";
+import ProjectActions from "@/components/actions/ProjectActions";
 import EntityLink from "@/components/entity/EntityLink";
 import { findProject, PROJECT_STATUS_LABEL } from "@/lib/execution/projects";
 import { projectDashboard } from "@/lib/execution/dashboard";
@@ -180,6 +181,8 @@ function ProjectDashboard({ id }: { id: string }) {
         <textarea id="project-notes" value={project.notes} onChange={(e) => updateProject(project.id, { notes: e.target.value })} rows={3} placeholder="Working notes for this project…"
           className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-white/12 dark:bg-black/20" />
       </section>
+
+      <ProjectActions projectId={project.id} />
 
       <SessionTimeline groups={dash.sessions} />
 

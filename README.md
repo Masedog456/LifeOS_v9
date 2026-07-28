@@ -95,6 +95,43 @@ the original `text` stays immutable), and two-device edits union links/tags/
 lineage/history and surface genuine conflicts through the Conflict Center. No AI,
 no auto-classification, no scoring. See `CAPTURE_PROCESSING.md`.
 
+## Next actions & commitments
+
+Answer "what can I concretely do next?" at **Actions** (`/actions`). A next
+action is **manually created**, specific, independently completable, and small
+enough to begin in a session — the leaf of Goal → Project → Milestone → Next
+Action → Session. Nothing is generated, prioritized, or scheduled for you.
+
+- The **Next** view is deterministic: open/in-progress actions that aren't
+  deferred into the future, waiting, completed, or **blocked** by an unfinished
+  dependency — in your **manual order**, with explicit **pins** on top. No
+  importance score, no behavioral reordering.
+- **Start** an action (optionally starting/reusing a session and showing it in
+  the session banner), **complete** it (always manual — it never completes the
+  milestone, project, goal, or other actions), **defer** (tomorrow · next week ·
+  a date · someday — deferred actions return to Next when due), or mark it
+  **waiting on** someone with an optional follow-up date (surfaced, never
+  auto-changed).
+- Add explicit **dependencies** ("B is blocked by A") — direct and indirect
+  cycles are rejected; completing A makes B eligible but never starts it.
+- Save reusable **templates** (weekly review, monthly backup check…) and
+  **explicitly** create each instance — there is no background recurrence.
+- **Batch** actions (link, tag, set context/energy/size, defer, wait, complete,
+  cancel, restore) with an impact confirmation — but **never** batch title/notes
+  edits and **never** batch conversion.
+- Create an action from a **processed capture** (the capture is preserved), from
+  a **project/milestone** (context pre-filled), or from the command center.
+
+Views: Next · In progress · Waiting · Deferred · Completed · Cancelled · All,
+with filters (context, energy, size, source, linked/unlinked, text) and keyboard
+navigation (`J`/`K`/`↑`/`↓` move, `Enter` open, `x` select, `p` pin). A compact,
+calm **Actions** card on Today shows pinned + in-progress + due follow-ups with no
+streaks or scores. Everything is durable, per-user, and cross-device (migration
+`0027_next_actions.sql`; deleting a project never cascades away its actions);
+two-device edits union tags/links/history/dependencies and surface real conflicts
+through the Conflict Center. No AI, no scheduler, no notifications. See
+`NEXT_ACTIONS.md`.
+
 ## Unified inspector & context
 
 LifeOS is navigable through ideas, not just menus. Any object — a belief,

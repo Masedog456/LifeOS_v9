@@ -88,6 +88,7 @@ date, inferring no meaning. Sources:
 | Documents read, highlights, annotations | `documents` (`progress.lastOpenedAt`, highlight/annotation `createdAt`) |
 | Captures created | `captures.createdAt` |
 | Captures processed | `captures.processedAt` on the day (LIFEOS-035) |
+| Actions created / started / completed / deferred | `nextActions` createdAt / history events / `completedAt` on the day (LIFEOS-036) |
 | Decisions created/updated | `decisions.createdAt` / `updatedAt` |
 | Beliefs revised | belief `revisions[].at` or `updatedAt` |
 | Entities inspected, searches performed | session `activity` events |
@@ -127,6 +128,9 @@ which belong in the review. Candidates:
 - unfinished reading (documents `reading`/`paused`)
 - an unprocessed capture **inbox backlog** — a single aggregate `inbox:backlog`
   candidate (never one loop per capture), added in LIFEOS-035
+- **in-progress next actions**, **waiting follow-ups whose date has arrived**, and
+  **overdue deferred-returns** (LIFEOS-036) — each a candidate the user may carry
+  forward; choosing one never changes the action's status
 - unresolved sync conflicts and unsynced local changes (live signals)
 - plus manually-added loops
 

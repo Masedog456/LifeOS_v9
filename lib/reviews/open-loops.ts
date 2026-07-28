@@ -74,6 +74,15 @@ export function deriveOpenLoops(state: StoreState, live: OpenLoopLive = {}): Ope
   const inboxCount = (state.captures ?? []).filter((c) => (c.processingStatus ?? "inbox") === "inbox").length;
   if (inboxCount > 0) out.push({ id: "inbox:backlog", source: "manual", text: `${inboxCount} unprocessed capture${inboxCount === 1 ? "" : "s"} in the inbox` });
 
+  // Next actions (LIFEOS-036): in-progress actions and waiting follow-ups whose
+  // date has arrived — each a candidate the user may carry into the review.
+  const today = new Date().toISOString().slice(0, 10);
+  for (const a of state.nextActions ?? []) {
+    if (a.status === "in_progress") out.push({ id: `action:${a.id}`, source: "action", text: `In progress: ${snip(a.title, 55)}`, ref: { kind: "action", id: a.id }, at: a.updatedAt });
+    else if (a.status === "waiting" && typeof a.followUpDate === "string" && a.followUpDate <= today) out.push({ id: `action:${a.id}`, source: "action", text: `Follow up: ${snip(a.title, 50)}${a.waitingOn ? ` (waiting on ${snip(a.waitingOn, 24)})` : ""}`, ref: { kind: "action", id: a.id }, at: a.updatedAt });
+    else if (a.status === "deferred" && typeof a.deferredUntil === "string" && a.deferredUntil <= today) out.push({ id: `action:${a.id}`, source: "action", text: `Deferred return due: ${snip(a.title, 45)}`, ref: { kind: "action", id: a.id }, at: a.updatedAt });
+  }
+
   // Live sync signals (not derivable from StoreState).
   if (live.unresolvedConflicts && live.unresolvedConflicts > 0) {
     out.push({ id: "conflict:unresolved", source: "conflict", text: `${live.unresolvedConflicts} unresolved sync conflict${live.unresolvedConflicts === 1 ? "" : "s"}`, ref: undefined });

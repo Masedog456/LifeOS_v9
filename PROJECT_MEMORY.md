@@ -2236,3 +2236,63 @@ scope or order.
   embeddings / auto-classification / auto-rewriting / auto-conversion / auto-
   splitting / auto-prioritization / scores / streaks / gamification / calendar /
   notifications / analytics / collaboration.
+
+- **LIFEOS-036 — Next Actions & Commitments.** New `lib/actions/` (action,
+  status, queue, dependencies, defer, waiting, history, templates, relationships,
+  tracking, merge-rules, memory, selftest) + `components/actions/` (ActionQueue,
+  ActionList, ActionDetail, ActionCreator, ActionFilters, ActionHistory,
+  ActionDependencies, ActionTemplatePicker, BatchActionBar, TodayActions,
+  ProjectActions) + `/actions` routes (queue, `[id]`). A focused next-action layer
+  answering "what can I concretely do next?" — the leaf of Goal → Project →
+  Milestone → **Next Action** → Session. The system **never generates,
+  prioritizes, or schedules** actions; every field is user-selected. Three
+  first-class records: **NextAction** (open/in_progress/waiting/deferred/completed/
+  cancelled; size/energy/context user-chosen, never calculated; manual `order` +
+  explicit `pinned`; compact append-only history), **ActionDependency** (explicit
+  cycle-safe edge, `blockedId` blocked by `blockerId`), **ActionTemplate**
+  (reusable shape, explicitly instantiated — no recurrence engine). The **Next**
+  view is deterministic (`isNextEligible`): open/in-progress, not deferred-future,
+  not waiting, not terminal, not **blocked** — respecting manual order with pins.
+  Dependencies reject self-loops + direct/indirect **cycles** at the app layer;
+  missing endpoints degrade gracefully (orphan-safe); completing a blocker makes
+  the blocked eligible but **never starts it**. Defer/waiting reuse LIFEOS-034
+  local-dates (deferred returns to Next when due; waiting follow-ups surfaced,
+  never auto-acted). **Completion is always manual and never cascades** to a
+  milestone/project/goal/other action. **Start** reuses the existing single-session
+  engine (session banner shows the current action; `action_activity` events) — no
+  second tracker. **Batch** ops require impact confirmation; **NO** batch
+  title/notes, **NO** batch conversion. Migration **0027** `0027_next_actions.sql`
+  (three tables; **soft references, no FK cascade** so deleting a project/milestone/
+  goal never removes an action; dep `check(blocker≠blocked)` + `unique`; RLS 4
+  policies/table); chain now **0001–0027**. Integrated into Today (compact calm
+  card — no streaks/scores), daily review (created/started/completed/deferred
+  groups + in-progress/waiting-due/overdue open-loop candidates), session banner +
+  attribution, command center (`nav:actions` + contextual start/complete/defer/
+  wait/resume/from-capture/from-milestone), entity API + backlinks + search
+  (`action`/`action_template` kinds), capture processing (`→ Next action` preserves
+  the capture), project dashboard (`ProjectActions`), and queue navigation memory
+  (`prefs.actions`). Field-level sync (`merge-rules.ts`) UNIONs tags/links/history/
+  dependency-additions and raises conflicts on completed-vs-cancelled, deferred-vs-
+  started, divergent title/description, project reassignment, and different
+  completion notes — never losing completion history or dependencies. Verified:
+  `actions.mjs` E2E **39/39** across the required scenarios (create/from-project/
+  from-capture, start, complete, reopen, defer+return, someday, waiting, dependency
+  blocking, cycle rejection, template instantiation, batch defer/complete, milestone
+  + Today + daily-review integration, command center, queue-memory restore, mobile,
+  keyboard), `runActionSelfTests` **62/62** (lifecycle / Next eligibility / manual
+  ordering / inheritance / defer-wait-someday / dependency cycles+unblock+missing /
+  templates / projections / sync conflict rules / history dedup / projection purity /
+  perf). Full deterministic regression green across all 11 committed self-test
+  suites (command 39, entity 30, execution 33, inbox 54, memory 54, reading 60,
+  review 56, sync 45, ux 40, workspace 35, action 62 = **508**). `tsc`=0, `lint`=0,
+  `build`=0 (clean rebuild). Performance: Next-queue derivation over **20,000
+  actions + ~3,000 dependencies ~19 ms**; a 3,000-deep cycle check **~2 ms**.
+  Migration 0027 validated on Postgres 16 (full chain idempotent 3×; column
+  defaults; self-dependency check enforced; soft project_id ref to a missing
+  project accepted/orphan-safe; **RLS cross-user isolation** via a non-superuser
+  role — user1 sees only user1's actions, user2 only user2's). New doc
+  `NEXT_ACTIONS.md`; updated ARCHITECTURE / README / PERSISTENCE_QA / UX_AUDIT /
+  SYNC_INTEGRITY / DAILY_REVIEW / CAPTURE_PROCESSING. Constraints: no AI / LLMs /
+  agents / embeddings / automatic task generation / automatic prioritization /
+  scheduling / calendar / notifications / reminders / scores / streaks /
+  gamification / analytics / collaboration / realtime presence.

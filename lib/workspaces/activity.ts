@@ -24,6 +24,7 @@ export const ACTIVITY_LABEL: Record<SessionActivityKind, string> = {
   command: "Ran command",
   decision_edited: "Worked on decision",
   note: "Note",
+  action_activity: "Action",
 };
 
 /** How long (ms) an identical event is treated as a duplicate and skipped. */

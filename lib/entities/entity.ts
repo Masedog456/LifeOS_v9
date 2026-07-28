@@ -57,6 +57,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   workspace: "Workspace",
   goal: "Goal", project: "Project", milestone: "Milestone",
   daily_review: "Daily review",
+  action: "Action", action_template: "Action template",
 };
 
 const snip = (s: string | undefined, n = 80): string => {
@@ -96,7 +97,7 @@ export function describeEntity(ctx: EntityContext, kind: EntityKind, id: string)
   let notes: string | undefined;
   let title = base?.title;
   let href = base?.href;
-  const status = base?.status;
+  let status = base?.status;
   let exists = Boolean(base);
 
   switch (kind) {
@@ -147,6 +148,8 @@ export function describeEntity(ctx: EntityContext, kind: EntityKind, id: string)
     case "project": { const p = (state.projects ?? []).find((x) => x.id === id); if (p) { summary = p.description || p.title; createdAt = p.createdAt; updatedAt = p.updatedAt; notes = p.notes || undefined; href = href ?? `/project/${p.id}`; title = title ?? p.title; exists = true; } break; }
     case "milestone": { for (const p of state.projects ?? []) { const m = p.milestones.find((x) => x.id === id); if (m) { summary = m.notes || m.title; createdAt = m.createdAt; updatedAt = m.updatedAt; href = href ?? `/project/${p.id}`; title = title ?? m.title; exists = true; break; } } break; }
     case "daily_review": { const r = (state.dailyReviews ?? []).find((x) => x.id === id); if (r) { summary = r.summary || `${r.wins.length} win(s) · ${r.lessons.length} lesson(s) · ${r.friction.length} friction · ${r.tomorrowFocus.length} focus`; createdAt = r.createdAt; updatedAt = r.updatedAt; notes = r.notes || undefined; href = href ?? `/daily/${r.date}`; title = title ?? `Review · ${r.date}`; exists = true; } break; }
+    case "action": { const a = (state.nextActions ?? []).find((x) => x.id === id); if (a) { summary = a.description || a.title; createdAt = a.createdAt; updatedAt = a.updatedAt; tags = a.tags; notes = a.notes || undefined; status = a.status; href = href ?? `/actions/${a.id}`; title = title ?? a.title; exists = true; } break; }
+    case "action_template": { const t = (state.actionTemplates ?? []).find((x) => x.id === id); if (t) { summary = t.description || t.title; createdAt = t.createdAt; updatedAt = t.updatedAt; tags = t.tags; href = href ?? `/actions?template=${t.id}`; title = title ?? t.title; exists = true; } break; }
     default: break;
   }
 

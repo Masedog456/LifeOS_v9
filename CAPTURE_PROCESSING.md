@@ -221,3 +221,15 @@ individually). Discard never permanently destroys a capture immediately.
   batch conversion, history, Today integration, queue-memory reload, mobile).
 - Migration 0026 validated on Postgres 16 (idempotent 3×, defaults, immutability,
   RLS).
+
+---
+
+## Addendum — capture → next action (LIFEOS-036)
+
+A processed capture can become a **next action** (`→ Next action` on the
+processor, or the command center). This opens the action creator pre-filled with
+the capture's working/original text as an editable title and its inherited
+workspace/goal/project links and `sourceCaptureId`. The **capture is preserved**
+— creating the action changes nothing about it; the user separately decides
+whether it becomes processed, archived, or stays in the inbox. Captures are never
+auto-classified as actions. See `NEXT_ACTIONS.md`.

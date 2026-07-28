@@ -120,6 +120,11 @@ import type {
   ReviewFocusItem,
   FrictionArea,
   FrictionSeverity,
+  NextAction,
+  ActionDependency,
+  ActionTemplate,
+  ActionHistoryEvent,
+  ActionStatus,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
 import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
@@ -150,6 +155,12 @@ import { planMerge } from "@/lib/inbox/merge";
 import type { CaptureProcessingStatus, RecordRefLite as RefLite } from "@/types/mvp";
 import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
 import { clearRollback, setRecovery } from "@/lib/sync/status-store";
+// Next actions & commitments (LIFEOS-036).
+import { makeAction, inheritFromMilestone, inheritFromProject, inheritFromCapture, type NewActionInput } from "@/lib/actions/action";
+import { makeEvent as makeActionEvent, appendHistory as appendActionHistory, type ActionEventKind } from "@/lib/actions/history";
+import { deferKeyFor as actionDeferKeyFor, returnDueActions, type DeferOption as ActionDeferOption } from "@/lib/actions/defer";
+import { planDependency, pruneDependencies } from "@/lib/actions/dependencies";
+import { makeTemplate, instantiateTemplate, type NewTemplateInput } from "@/lib/actions/templates";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
@@ -186,6 +197,9 @@ const EMPTY_STATE: StoreState = {
   goals: [],
   projects: [],
   dailyReviews: [],
+  nextActions: [],
+  actionDependencies: [],
+  actionTemplates: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -505,10 +519,24 @@ export function hydrate() {
           linkedWorkspaces: asArray<string>(r?.linkedWorkspaces),
           linkedEntities: asArray<RecordRefLite>(r?.linkedEntities),
         })),
+        nextActions: asArray<NextAction>(parsed.nextActions).map((a) => ({
+          ...a,
+          linkedEntityRefs: asArray<RecordRefLite>(a?.linkedEntityRefs),
+          tags: asArray<string>(a?.tags),
+          history: asArray<ActionHistoryEvent>(a?.history),
+        })),
+        actionDependencies: asArray<ActionDependency>(parsed.actionDependencies),
+        actionTemplates: asArray<ActionTemplate>(parsed.actionTemplates).map((t) => ({
+          ...t,
+          tags: asArray<string>(t?.tags),
+        })),
       };
       // Deferred captures whose local date has arrived return to the inbox
       // (LIFEOS-035, Feature 9) — deterministic, no background workers.
       { const dd = returnDueDefers(state.captures); if (dd.returnedIds.length) state = { ...state, captures: dd.captures }; }
+      // Deferred actions whose local date has arrived become eligible for Next
+      // again (LIFEOS-036, Feature 9) — deterministic, no background workers.
+      { const da = returnDueActions(state.nextActions); if (da.returnedIds.length) state = { ...state, nextActions: da.actions }; }
       // Corruption isolation (LIFEOS-033, Feature 10): drop malformed rows from
       // the in-memory store so a single bad record (null / missing id) can never
       // crash a downstream consumer, while the source in localStorage is left
@@ -568,6 +596,7 @@ export function resetStore() {
     concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
     workspaces: [], sessions: [], goals: [], projects: [],
+    nextActions: [], actionDependencies: [], actionTemplates: [],
   });
 }
 
@@ -3911,4 +3940,305 @@ export function batchCaptureAction(ids: string[], action: BatchCaptureAction, pa
 export function returnDueCaptures(): void {
   const dd = returnDueDefers(state.captures);
   if (dd.returnedIds.length) setState({ ...state, captures: dd.captures });
+}
+
+// ================= Next actions & commitments (LIFEOS-036) =================
+//
+// Actions are the leaf of Goal → Project → Milestone → Next Action → Session.
+// Everything here is a response to an explicit user action — nothing generates,
+// classifies, prioritizes, or schedules. Deterministic; derivations live in
+// lib/actions/*. Dependencies + templates are first-class arrays so the
+// dirty-domain sync (reference-equality) picks up each independently.
+
+function nextOrder(): number {
+  const arr = state.nextActions ?? [];
+  return arr.length ? Math.max(...arr.map((a) => a.order)) + 1 : 0;
+}
+
+/** Mutate one action by id, stamping updatedAt and re-persisting. */
+function bumpAction(actionId: string, mutate: (a: NextAction) => NextAction): void {
+  setState({ ...state, nextActions: (state.nextActions ?? []).map((a) => (a.id === actionId ? { ...mutate(a), updatedAt: now() } : a)) });
+}
+
+/** Apply a status transition + append a history event in one shot. */
+function transitionAction(actionId: string, to: ActionStatus, kind: ActionEventKind, patch: Partial<NextAction> = {}): void {
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: to, ...patch }, makeActionEvent({ action: kind, at: now(), fromStatus: a.status, toStatus: to })));
+}
+
+/**
+ * The single canonical action creator (Feature 2). Every entry point routes
+ * here. The caller has already resolved/confirmed the fields (context pre-fill
+ * happens in the creator UI via lib/actions/action inheritance helpers).
+ */
+export function createAction(input: NewActionInput): string {
+  const a = makeAction(input, { order: nextOrder(), at: now() });
+  setState({ ...state, nextActions: [a, ...(state.nextActions ?? [])] });
+  return a.id;
+}
+
+/** Create an action pre-filled from a milestone's project hierarchy (Feature 2). */
+export function createActionFromMilestone(projectId: string, milestoneId: string, input: Partial<NewActionInput> & { title: string }): string {
+  return createAction({ ...inheritFromMilestone(state, projectId, milestoneId), ...input });
+}
+
+/** Create an action pre-filled from a project (Feature 2). */
+export function createActionFromProject(projectId: string, input: Partial<NewActionInput> & { title: string }): string {
+  return createAction({ ...inheritFromProject(state, projectId), ...input });
+}
+
+/**
+ * Create an action from a processed capture (Feature 15). The capture is
+ * PRESERVED. `disposition` optionally moves the capture to processed/archived;
+ * "inbox" leaves it untouched. Returns the new action id.
+ */
+export function createActionFromCapture(captureId: string, input: Partial<NewActionInput> & { title: string }, disposition: "processed" | "archived" | "inbox" = "inbox"): string {
+  const actionId = createAction({ ...inheritFromCapture(state, captureId), ...input, sourceCaptureId: captureId });
+  if (disposition !== "inbox") {
+    const at = now();
+    setState({ ...state, captures: state.captures.map((c) => c.id === captureId
+      ? appendHistory({ ...c, processingStatus: disposition, processedAt: disposition === "processed" ? at : c.processedAt, archivedAt: disposition === "archived" ? at : c.archivedAt },
+          makeEvent({ action: disposition === "processed" ? "mark_processed" : "archive", at, fromStatus: captureStatus(c), toStatus: disposition, detail: "→ action" }))
+      : c) });
+  }
+  return actionId;
+}
+
+/** Edit user-set fields on an action (Feature 5). Logs an `edited` event. */
+export function updateAction(actionId: string, patch: Partial<Pick<NextAction, "title" | "description" | "notes" | "workspaceId" | "goalId" | "projectId" | "milestoneId" | "tags" | "estimatedSize" | "energy" | "context">>): void {
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, ...patch }, makeActionEvent({ action: "edited", at: now() })));
+}
+
+/**
+ * Start an action (Feature 6): status → in_progress and, when requested, start
+ * (or reuse) a session and designate this action as its current one. Reuses the
+ * existing single-session engine — never a second one.
+ */
+export function startAction(actionId: string, opts: { startSession?: boolean } = {}): void {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  if (!a) return;
+  transitionAction(actionId, "in_progress", a.status === "waiting" || a.status === "deferred" ? "resumed" : "started");
+  if (opts.startSession) {
+    const wsId = a.workspaceId ?? state.workspaces[0]?.id;
+    if (wsId) {
+      // Reuse the active session if it is already in this workspace; else start one.
+      const active = state.sessions.find((s) => !s.endedAt);
+      const sessionId = active && active.workspaceId === wsId ? active.id : startSession(wsId, "planning", a.title);
+      setSessionCurrentAction(sessionId, actionId);
+    }
+  }
+  recordActionSessionActivity(actionId, "started", a.title);
+}
+
+/** Pause an in-progress action back to open (Feature 5). */
+export function pauseAction(actionId: string): void {
+  transitionAction(actionId, "open", "paused");
+}
+
+/** Resume a paused/waiting/deferred action to in_progress (Feature 5). */
+export function resumeAction(actionId: string): void {
+  transitionAction(actionId, "in_progress", "resumed");
+}
+
+/**
+ * Complete an action (Feature 7). Completion is ALWAYS manual and never
+ * cascades to a milestone/project/goal or other actions. Optional completion
+ * evidence (note + linked records) and an optional follow-up action.
+ */
+export function completeAction(actionId: string, evidence: { note?: string; links?: RefLite[] } = {}): void {
+  const at = now();
+  bumpAction(actionId, (a) => {
+    const next: NextAction = { ...a, status: "completed", completedAt: at };
+    if (evidence.note && evidence.note.trim()) next.notes = a.notes ? `${a.notes}\n\n${evidence.note.trim()}` : evidence.note.trim();
+    if (evidence.links?.length) next.linkedEntityRefs = uniqueRefs([...(a.linkedEntityRefs ?? []), ...evidence.links]);
+    return appendActionHistory(next, makeActionEvent({ action: "completed", at, fromStatus: a.status, toStatus: "completed", detail: evidence.note ? "with note" : undefined }));
+  });
+  // Detach from any session currently pointing at it (does not end the session).
+  setState({ ...state, sessions: state.sessions.map((s) => (s.currentActionId === actionId ? { ...s, currentActionId: undefined } : s)) });
+  recordActionSessionActivity(actionId, "completed", (state.nextActions ?? []).find((a) => a.id === actionId)?.title ?? "");
+}
+
+/** Reopen a completed/cancelled action back to open (Feature 5). */
+export function reopenAction(actionId: string): void {
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "open", completedAt: undefined, cancelledAt: undefined }, makeActionEvent({ action: "reopened", at: now(), fromStatus: a.status, toStatus: "open" })));
+}
+
+/** Defer an action (Feature 9). Leaves the Next queue; returns when the date arrives. */
+export function deferAction(actionId: string, option: ActionDeferOption): void {
+  const key = actionDeferKeyFor(option);
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "deferred", deferredUntil: key }, makeActionEvent({ action: "deferred", at: now(), fromStatus: a.status, toStatus: "deferred", detail: key ?? "someday" })));
+}
+
+/** Mark an action waiting (Feature 8). Optional follow-up date; no notifications. */
+export function markActionWaiting(actionId: string, waitingOn: string, followUpDate?: string): void {
+  const at = now();
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "waiting", waitingOn: waitingOn.trim() || undefined, waitingSince: at, followUpDate }, makeActionEvent({ action: "waiting", at, fromStatus: a.status, toStatus: "waiting", detail: waitingOn.trim() || undefined })));
+}
+
+/** Cancel an action (Feature 5) — reversible via restore/reopen. */
+export function cancelAction(actionId: string): void {
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "cancelled", cancelledAt: now() }, makeActionEvent({ action: "cancelled", at: now(), fromStatus: a.status, toStatus: "cancelled" })));
+}
+
+/** Restore a cancelled/completed action to open (Feature 5). */
+export function restoreAction(actionId: string): void {
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "open", completedAt: undefined, cancelledAt: undefined, deferredUntil: undefined }, makeActionEvent({ action: "restored", at: now(), fromStatus: a.status, toStatus: "open" })));
+}
+
+/** Duplicate an action (Feature 5) — a fresh open copy, no history/status carried. */
+export function duplicateAction(actionId: string): string | undefined {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  if (!a) return undefined;
+  return createAction({ title: a.title, description: a.description, notes: a.notes, workspaceId: a.workspaceId, goalId: a.goalId, projectId: a.projectId, milestoneId: a.milestoneId, linkedEntityRefs: [...a.linkedEntityRefs], tags: [...a.tags], estimatedSize: a.estimatedSize, energy: a.energy, context: a.context });
+}
+
+/** Toggle an explicit pin to the top of Next (Feature 4). */
+export function toggleActionPin(actionId: string): void {
+  bumpAction(actionId, (a) => ({ ...a, pinned: !a.pinned }));
+}
+
+/** Set an explicit manual order for an action (Feature 4). */
+export function setActionOrder(actionId: string, order: number): void {
+  bumpAction(actionId, (a) => ({ ...a, order }));
+}
+
+/** Reorder the whole Next list by an ordered id array (drag/reorder). */
+export function reorderActions(orderedIds: string[]): void {
+  const pos = new Map(orderedIds.map((id, i) => [id, i] as const));
+  setState({ ...state, nextActions: (state.nextActions ?? []).map((a) => (pos.has(a.id) ? { ...a, order: pos.get(a.id)!, updatedAt: now() } : a)) });
+}
+
+/** Add/remove a link on an action without converting it (Feature 5). */
+export function linkActionRef(actionId: string, ref: RefLite): void {
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, linkedEntityRefs: uniqueRefs([...(a.linkedEntityRefs ?? []), ref]) }, makeActionEvent({ action: "linked", at: now(), ref, detail: ref.kind })));
+}
+export function unlinkActionRef(actionId: string, ref: RefLite): void {
+  bumpAction(actionId, (a) => appendActionHistory({ ...a, linkedEntityRefs: (a.linkedEntityRefs ?? []).filter((r) => !(r.kind === ref.kind && r.id === ref.id)) }, makeActionEvent({ action: "unlinked", at: now(), ref, detail: ref.kind })));
+}
+export function addActionTag(actionId: string, tag: string): void {
+  const t = tag.trim(); if (!t) return;
+  bumpAction(actionId, (a) => ({ ...a, tags: Array.from(new Set([...(a.tags ?? []), t])) }));
+}
+export function removeActionTag(actionId: string, tag: string): void {
+  bumpAction(actionId, (a) => ({ ...a, tags: (a.tags ?? []).filter((x) => x !== tag) }));
+}
+
+/**
+ * Delete an action outright (rare — cancel is the soft default). Prunes its
+ * dependency edges so nothing dangles; the caller has confirmed the impact.
+ */
+export function deleteAction(actionId: string): void {
+  setState({
+    ...state,
+    nextActions: (state.nextActions ?? []).filter((a) => a.id !== actionId),
+    actionDependencies: pruneDependencies(state.actionDependencies ?? [], actionId),
+    sessions: state.sessions.map((s) => (s.currentActionId === actionId ? { ...s, currentActionId: undefined } : s)),
+  });
+}
+
+// ---- Dependencies (Feature 10) ----
+
+export type AddDependencyOutcome = "ok" | "self" | "cycle" | "duplicate";
+
+/** Add an explicit dependency (blockedId is blocked by blockerId). Cycle-safe. */
+export function addActionDependency(blockerId: string, blockedId: string): AddDependencyOutcome {
+  const plan = planDependency(state.actionDependencies ?? [], blockerId, blockedId, now());
+  if (!plan.ok) return plan.reason;
+  const at = now();
+  setState({
+    ...state,
+    actionDependencies: [...(state.actionDependencies ?? []), plan.dependency],
+    // Log an `unblocked`-inverse (a "linked" dependency) event on the blocked action.
+    nextActions: (state.nextActions ?? []).map((a) => (a.id === blockedId ? appendActionHistory(a, makeActionEvent({ action: "linked", at, ref: { kind: "action", id: blockerId }, detail: "blocked-by" })) : a)),
+  });
+  return "ok";
+}
+
+/** Remove a dependency edge. If it was the blocked action's last open blocker, log `unblocked`. */
+export function removeActionDependency(blockerId: string, blockedId: string): void {
+  const deps = (state.actionDependencies ?? []).filter((d) => !(d.blockerId === blockerId && d.blockedId === blockedId));
+  const at = now();
+  setState({
+    ...state,
+    actionDependencies: deps,
+    nextActions: (state.nextActions ?? []).map((a) => (a.id === blockedId ? appendActionHistory(a, makeActionEvent({ action: "unblocked", at, ref: { kind: "action", id: blockerId } })) : a)),
+  });
+}
+
+// ---- Templates (Feature 11) ----
+
+export function createActionTemplate(input: NewTemplateInput): string {
+  const t = makeTemplate(input, now());
+  setState({ ...state, actionTemplates: [t, ...(state.actionTemplates ?? [])] });
+  return t.id;
+}
+export function updateActionTemplate(templateId: string, patch: Partial<NewTemplateInput>): void {
+  setState({ ...state, actionTemplates: (state.actionTemplates ?? []).map((t) => (t.id === templateId ? { ...t, ...patch, updatedAt: now() } : t)) });
+}
+export function deleteActionTemplate(templateId: string): void {
+  setState({ ...state, actionTemplates: (state.actionTemplates ?? []).filter((t) => t.id !== templateId) });
+}
+/** Explicitly instantiate an action from a template (Feature 11). User confirms fields upstream. */
+export function createActionFromTemplate(templateId: string, overrides: Partial<NewActionInput> = {}): string | undefined {
+  const t = (state.actionTemplates ?? []).find((x) => x.id === templateId);
+  if (!t) return undefined;
+  return createAction({ ...instantiateTemplate(t), ...overrides });
+}
+
+// ---- Batch (Feature 12) — NEVER batch title/notes edits, NEVER batch conversion ----
+
+export type BatchActionOp = "link_project" | "link_workspace" | "add_tag" | "set_context" | "set_energy" | "set_size" | "defer" | "mark_waiting" | "complete" | "cancel" | "restore";
+
+export function batchAction(ids: string[], op: BatchActionOp, payload?: { id?: string; tag?: string; context?: string; energy?: NextAction["energy"]; size?: NextAction["estimatedSize"]; option?: ActionDeferOption; waitingOn?: string }): void {
+  const set = new Set(ids);
+  const at = now();
+  setState({
+    ...state,
+    nextActions: (state.nextActions ?? []).map((a) => {
+      if (!set.has(a.id)) return a;
+      const stamp = (x: NextAction): NextAction => ({ ...x, updatedAt: at });
+      switch (op) {
+        case "link_project": return payload?.id ? stamp(appendActionHistory({ ...a, projectId: payload.id }, makeActionEvent({ action: "linked", at, ref: { kind: "project", id: payload.id }, detail: "batch" }))) : a;
+        case "link_workspace": return payload?.id ? stamp(appendActionHistory({ ...a, workspaceId: payload.id }, makeActionEvent({ action: "linked", at, ref: { kind: "workspace", id: payload.id }, detail: "batch" }))) : a;
+        case "add_tag": return payload?.tag ? stamp({ ...a, tags: Array.from(new Set([...(a.tags ?? []), payload.tag.trim()])) }) : a;
+        case "set_context": return stamp({ ...a, context: payload?.context?.trim() || undefined });
+        case "set_energy": return stamp({ ...a, energy: payload?.energy ?? a.energy });
+        case "set_size": return stamp({ ...a, estimatedSize: payload?.size ?? a.estimatedSize });
+        case "defer": return stamp(appendActionHistory({ ...a, status: "deferred", deferredUntil: actionDeferKeyFor(payload?.option ?? "tomorrow") }, makeActionEvent({ action: "deferred", at, fromStatus: a.status, toStatus: "deferred", detail: "batch" })));
+        case "mark_waiting": return stamp(appendActionHistory({ ...a, status: "waiting", waitingOn: payload?.waitingOn?.trim() || a.waitingOn, waitingSince: at }, makeActionEvent({ action: "waiting", at, fromStatus: a.status, toStatus: "waiting", detail: "batch" })));
+        case "complete": return stamp(appendActionHistory({ ...a, status: "completed", completedAt: at }, makeActionEvent({ action: "completed", at, fromStatus: a.status, toStatus: "completed", detail: "batch" })));
+        case "cancel": return stamp(appendActionHistory({ ...a, status: "cancelled", cancelledAt: at }, makeActionEvent({ action: "cancelled", at, fromStatus: a.status, toStatus: "cancelled", detail: "batch" })));
+        case "restore": return stamp(appendActionHistory({ ...a, status: "open", completedAt: undefined, cancelledAt: undefined, deferredUntil: undefined }, makeActionEvent({ action: "restored", at, fromStatus: a.status, toStatus: "open", detail: "batch" })));
+        default: return a;
+      }
+    }),
+  });
+}
+
+// ---- Session ↔ action (Feature 17) ----
+
+/** Designate the current action on a session (one at a time). */
+export function setSessionCurrentAction(sessionId: string, actionId: string | undefined): void {
+  setState({ ...state, sessions: state.sessions.map((s) => (s.id === sessionId ? { ...s, currentActionId: actionId } : s)) });
+}
+
+/** Record an action lifecycle event into the active session's timeline (Feature 17). */
+function recordActionSessionActivity(actionId: string, kind: string, label: string): void {
+  recordSessionActivity({ type: "action_activity", entityKind: "action", entityId: actionId, label: `${kind}: ${label}`.slice(0, 120), detail: kind });
+}
+
+/** Manually return due deferred actions to Next (also runs on hydrate). */
+export function returnDueActionsNow(): void {
+  const da = returnDueActions(state.nextActions ?? []);
+  if (da.returnedIds.length) {
+    const at = now();
+    const returned = new Set(da.returnedIds);
+    setState({ ...state, nextActions: da.actions.map((a) => (returned.has(a.id) ? appendActionHistory(a, makeActionEvent({ action: "returned", at, toStatus: "open" })) : a)) });
+  }
+}
+
+/** De-dupe a RecordRefLite list by kind+id (shared by link/complete helpers). */
+function uniqueRefs(refs: RefLite[]): RefLite[] {
+  const seen = new Set<string>(); const out: RefLite[] = [];
+  for (const r of refs) { const k = `${r.kind}:${r.id}`; if (!seen.has(k)) { seen.add(k); out.push(r); } }
+  return out;
 }
