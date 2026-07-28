@@ -133,3 +133,24 @@ exportable/restorable.
   or nudges, and it hides itself when the inbox and deferred set are both empty.
 - Verified mobile-friendly (no horizontal scroll at 375px on the processor) and
   keyboard-activatable by `inbox.mjs` (35/35).
+
+## Next actions & commitments (LIFEOS-036)
+
+- The action detail is a **full page, never a modal**. Lifecycle controls (start,
+  complete, defer, wait, resume, cancel, restore, duplicate) are real labelled
+  buttons; the current status carries `data-action-status` and panels are
+  labelled regions. The queue is fully **keyboard-navigable** (`J`/`K`/`↑`/`↓`
+  move, `Enter` open, `x` select, `p` pin) with `aria-current="page"` views.
+- Nothing is destructive by surprise: **cancel is reversible** (restore/reopen);
+  **delete** is a separate, confirmed action that shows a dependency **impact
+  summary** (what it unblocks, how many edges are removed) first; unsaved title/
+  description/notes edits are caught by the shared unsaved-changes guard.
+- **Completion is manual and never cascades** — completing an action never
+  completes its milestone/project/goal, and milestone progress is shown
+  separately (a milestone with open actions can still be completed, with a
+  mention, never a block).
+- **No guilt, no gamification.** The Today actions card is compact — pinned + in
+  progress + due follow-ups + returning-today — with no overdue language, no
+  streaks, and no productivity scores; it hides itself when empty.
+- Verified mobile-friendly (no horizontal scroll at 375px on the queue) and
+  keyboard-activatable by `actions.mjs` (39/39).

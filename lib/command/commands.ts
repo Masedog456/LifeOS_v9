@@ -47,6 +47,8 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:projects", title: "Open Projects", group: "Navigate", kind: "navigate", href: "/projects", icon: "▤", keywords: ["project", "work", "execution", "milestone"] },
   { id: "nav:daily", title: "Open Daily Review", group: "Navigate", kind: "navigate", href: "/daily", icon: "☑", keywords: ["review", "reflect", "plan", "daily", "wins", "lessons"] },
   { id: "nav:process", title: "Open capture inbox", group: "Navigate", kind: "navigate", href: "/process", icon: "▤", keywords: ["inbox", "process", "capture", "clarify", "convert", "zero"] },
+  { id: "nav:actions", title: "Open action queue", group: "Navigate", kind: "navigate", href: "/actions", icon: "☑", keywords: ["next", "actions", "todo", "tasks", "do", "commitments", "queue"] },
+  { id: "action:new", title: "New action", group: "Navigate", kind: "navigate", href: "/actions?new=1", icon: "＋", keywords: ["create", "next action", "task", "todo", "add"] },
   { id: "nav:daily-history", title: "Open Review History", group: "Navigate", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["review", "history", "past", "weekly"] },
 ];
 
@@ -209,6 +211,41 @@ export function inboxProvider(ctx: CommandContext): CommandItem[] {
       { id: "inbox:link-current", title: "Link current capture", group: "Inbox", kind: "navigate", href: href("link"), icon: "🔗", keywords: ["link", "connect", "capture"] },
       { id: "inbox:convert-current", title: "Convert current capture", group: "Inbox", kind: "navigate", href: href("convert"), icon: "⤳", keywords: ["convert", "belief", "concept", "capture"] },
     );
+  }
+  return items;
+}
+
+/**
+ * LIFEOS-036, Feature 18 — Next-action commands. Queue + start-next are always
+ * available; per-context commands (start selected, complete/defer/wait current,
+ * create from current capture/milestone) appear only when their context exists.
+ * Each navigates into the action queue/detail — no lifecycle logic is duplicated.
+ */
+export function actionsProvider(ctx: CommandContext): CommandItem[] {
+  const items: CommandItem[] = [];
+  const actions = ctx.state.nextActions ?? [];
+  const incomplete = actions.filter((a) => a.status !== "completed" && a.status !== "cancelled");
+  items.push({ id: "action:queue", title: "Open action queue", group: "Actions", kind: "navigate", href: "/actions", icon: "☑", keywords: ["next", "todo", "tasks"] });
+  if (incomplete.length > 0) {
+    items.push({ id: "action:start-next", title: "Start next action", subtitle: `${incomplete.length} open`, group: "Actions", kind: "navigate", href: "/actions?start=next", icon: "▸", keywords: ["begin", "do", "next"] });
+  }
+  const inProgress = actions.find((a) => a.status === "in_progress");
+  if (inProgress) {
+    items.push(
+      { id: "action:complete-current", title: "Complete current action", subtitle: inProgress.title, group: "Actions", kind: "navigate", href: `/actions/${inProgress.id}?do=complete`, icon: "✓", keywords: ["done", "finish"] },
+      { id: "action:defer-current", title: "Defer current action", group: "Actions", kind: "navigate", href: `/actions/${inProgress.id}?do=defer`, icon: "⏳", keywords: ["later", "postpone"] },
+      { id: "action:wait-current", title: "Mark current action waiting", group: "Actions", kind: "navigate", href: `/actions/${inProgress.id}?do=wait`, icon: "◷", keywords: ["blocked", "waiting", "on"] },
+    );
+  }
+  // Resume the most-recently-updated incomplete action.
+  const resumeTarget = [...incomplete].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+  if (resumeTarget && resumeTarget.status !== "in_progress") {
+    items.push({ id: "action:resume-recent", title: "Resume recent action", subtitle: resumeTarget.title, group: "Actions", kind: "navigate", href: `/actions/${resumeTarget.id}`, icon: "↻", keywords: ["continue", "recent"] });
+  }
+  // Create from the active capture (queue memory) or milestone context.
+  const activeCaptureId = typeof window !== "undefined" ? readInboxMemory().activeCaptureId : undefined;
+  if (activeCaptureId && (ctx.state.captures ?? []).some((c) => c.id === activeCaptureId)) {
+    items.push({ id: "action:from-capture", title: "Create action from current capture", group: "Actions", kind: "navigate", href: `/actions?fromCapture=${activeCaptureId}`, icon: "⤳", keywords: ["convert", "capture", "action"] });
   }
   return items;
 }

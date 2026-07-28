@@ -121,6 +121,9 @@ export default function CaptureProcessor({ captureId, initialAction }: { capture
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Processing notes</label>
           <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} onBlur={saveNotes} rows={2} aria-label="Processing notes" className="w-full resize-y rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none dark:border-white/12" />
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            {/* Create a next action from this capture (LIFEOS-036, Feature 15). The
+                capture is preserved; the creator opens pre-filled with its context. */}
+            <button type="button" onClick={() => router.push(`/actions?fromCapture=${capture.id}`)} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">→ Next action</button>
             {status !== "processed" && status !== "archived" && status !== "discarded" && <button type="button" onClick={() => { markCaptureProcessed(capture.id); toast({ kind: "success", message: "Marked processed" }); }} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Mark processed</button>}
             {status !== "archived" && <button type="button" onClick={() => { archiveCapture(capture.id); toast({ kind: "info", message: "Archived (reversible)" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Archive</button>}
             {(status === "archived" || status === "processed" || status === "deferred" || status === "discarded") && <button type="button" onClick={() => { restoreCapture(capture.id); toast({ kind: "success", message: "Restored to inbox" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Restore to inbox</button>}

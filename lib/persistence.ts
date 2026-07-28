@@ -96,6 +96,9 @@ function normalize(partial: Partial<StoreState> | null): StoreState {
     goals: partial?.goals ?? [],
     projects: partial?.projects ?? [],
     dailyReviews: partial?.dailyReviews ?? [],
+    nextActions: partial?.nextActions ?? [],
+    actionDependencies: partial?.actionDependencies ?? [],
+    actionTemplates: partial?.actionTemplates ?? [],
   };
 }
 

@@ -135,6 +135,12 @@ export function buildDaySummary(state: StoreState, date: DayKey, opts: DaySummar
   // --- Captures / decisions / beliefs ---
   push("captures_created", "Captures created", (state.captures ?? []).filter((c) => onDay(c.createdAt)).map((c) => ({ kind: "capture", id: c.id, label: snip(c.workingText ?? c.text), at: c.createdAt })));
   push("captures_processed", "Captures processed", (state.captures ?? []).filter((c) => onDay(c.processedAt)).map((c) => ({ kind: "capture", id: c.id, label: snip(c.workingText ?? c.text), at: c.processedAt! })));
+  // Next actions (LIFEOS-036): created / started / completed / deferred today.
+  const actionEventAt = (a: { history: { action: string; at: string }[] }, kind: string) => a.history.filter((e) => e.action === kind && onDay(e.at)).map((e) => e.at)[0];
+  push("actions_created", "Actions created", (state.nextActions ?? []).filter((a) => onDay(a.createdAt)).map((a) => ({ kind: "action", id: a.id, label: snip(a.title), at: a.createdAt })));
+  push("actions_started", "Actions started", (state.nextActions ?? []).filter((a) => !!actionEventAt(a, "started")).map((a) => ({ kind: "action", id: a.id, label: snip(a.title), at: actionEventAt(a, "started")! })));
+  push("actions_completed", "Actions completed", (state.nextActions ?? []).filter((a) => onDay(a.completedAt)).map((a) => ({ kind: "action", id: a.id, label: snip(a.title), at: a.completedAt! })));
+  push("actions_deferred", "Actions deferred", (state.nextActions ?? []).filter((a) => !!actionEventAt(a, "deferred")).map((a) => ({ kind: "action", id: a.id, label: snip(a.title), at: actionEventAt(a, "deferred")! })));
   push("decisions", "Decisions created or updated", (state.decisions ?? []).filter((d) => onDay(d.createdAt) || onDay(d.updatedAt)).map((d) => ({ kind: "decision", id: d.id, label: snip((d as { title?: string; question?: string }).title || (d as { question?: string }).question), at: (onDay(d.updatedAt) ? d.updatedAt : d.createdAt) })));
   const beliefsRevised: DaySummaryItem[] = [];
   for (const b of state.beliefs ?? []) {

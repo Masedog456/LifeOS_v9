@@ -53,6 +53,12 @@ export function entityBacklinks(ctx: EntityContext, kind: string, id: string): B
   for (const r of state.dailyReviews ?? []) if (reviewReferences(r).some((ref) => ref.id === id)) push("daily_review", r.id);
   // Captures (LIFEOS-035): a capture linked to / converted into this record.
   for (const c of capturesReferencing(state, kind, id)) push("capture", c.id);
+  // Next actions (LIFEOS-036): an action linked to / connected to this record.
+  for (const a of state.nextActions ?? []) {
+    if (a.workspaceId === id || a.goalId === id || a.projectId === id || a.milestoneId === id
+      || a.sourceCaptureId === id || a.sourceReviewId === id
+      || (a.linkedEntityRefs ?? []).some((r) => r.id === id)) push("action", a.id);
+  }
 
   const out: BacklinkGroup[] = [...byKind.entries()]
     .map(([k, m]) => ({ kind: k, label: RECORD_LABELS[k] ?? entityKindLabel(k), items: [...m.values()] }))

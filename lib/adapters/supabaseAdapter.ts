@@ -50,6 +50,9 @@ import type {
   Goal,
   Project,
   DailyReview,
+  NextAction,
+  ActionDependency,
+  ActionTemplate,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -153,6 +156,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const execution = await this.loadExecution();
     // Daily reviews (LIFEOS-034): resilient to the 0025 table being absent.
     const dailyReviews = await this.loadDailyReviews();
+    const actions = await this.loadActions();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -196,6 +200,9 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       goals: execution.goals,
       projects: execution.projects,
       dailyReviews,
+      nextActions: actions.nextActions,
+      actionDependencies: actions.actionDependencies,
+      actionTemplates: actions.actionTemplates,
     };
   }
 
@@ -306,6 +313,10 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("projects")) await this.syncProjects(state.projects ?? [], base?.projects ?? []);
     // ---- Daily reviews (LIFEOS-034): row-level upsert/delete ----
     if (w("dailyReviews")) await this.syncDailyReviews(state.dailyReviews ?? [], base?.dailyReviews ?? []);
+    // ---- Next actions (LIFEOS-036): row-level upsert/delete ----
+    if (w("nextActions")) await this.syncNextActions(state.nextActions ?? [], base?.nextActions ?? []);
+    if (w("actionDependencies")) await this.syncActionDependencies(state.actionDependencies ?? [], base?.actionDependencies ?? []);
+    if (w("actionTemplates")) await this.syncActionTemplates(state.actionTemplates ?? [], base?.actionTemplates ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -427,6 +438,27 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (d.deleteIds.length) { await this.throwing(this.client.from("daily_reviews").delete().in("id", d.deleteIds)); await this.writeTombstones("dailyReviews", d.deleteIds); }
   }
 
+  /** Row-level upsert/delete for next actions (LIFEOS-036). */
+  private async syncNextActions(current: NextAction[], base: NextAction[]): Promise<void> {
+    const d = diffById<NextActionRow>(current.map(actionToRow), base.map(actionToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("next_actions").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("next_actions").delete().in("id", d.deleteIds)); await this.writeTombstones("nextActions", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for action dependencies (LIFEOS-036). */
+  private async syncActionDependencies(current: ActionDependency[], base: ActionDependency[]): Promise<void> {
+    const d = diffById<ActionDependencyRow>(current.map(dependencyToRow), base.map(dependencyToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("action_dependencies").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("action_dependencies").delete().in("id", d.deleteIds)); await this.writeTombstones("actionDependencies", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for action templates (LIFEOS-036). */
+  private async syncActionTemplates(current: ActionTemplate[], base: ActionTemplate[]): Promise<void> {
+    const d = diffById<ActionTemplateRow>(current.map(templateToRow), base.map(templateToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("action_templates").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("action_templates").delete().in("id", d.deleteIds)); await this.writeTombstones("actionTemplates", d.deleteIds); }
+  }
+
   /** Load daily reviews, resilient to the 0025 table being absent. */
   private async loadDailyReviews(): Promise<DailyReview[]> {
     try {
@@ -435,6 +467,25 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       return (res.data ?? []).map(rowToDailyReview);
     } catch {
       return [];
+    }
+  }
+
+  /** Load next actions + dependencies + templates, resilient to the 0027 tables being absent. */
+  private async loadActions(): Promise<{ nextActions: NextAction[]; actionDependencies: ActionDependency[]; actionTemplates: ActionTemplate[] }> {
+    try {
+      const [actions, deps, templates] = await Promise.all([
+        this.client.from("next_actions").select("*").order("updated_at", { ascending: false }),
+        this.client.from("action_dependencies").select("*"),
+        this.client.from("action_templates").select("*").order("updated_at", { ascending: false }),
+      ]);
+      if (actions.error || deps.error || templates.error) return { nextActions: [], actionDependencies: [], actionTemplates: [] };
+      return {
+        nextActions: (actions.data ?? []).map(rowToAction),
+        actionDependencies: (deps.data ?? []).map(rowToDependency),
+        actionTemplates: (templates.data ?? []).map(rowToTemplate),
+      };
+    } catch {
+      return { nextActions: [], actionDependencies: [], actionTemplates: [] };
     }
   }
 
@@ -1771,6 +1822,75 @@ function rowToDailyReview(r: any): DailyReview {
     linkedEntities: Array.isArray(r.linked_entities) ? r.linked_entities : [],
     tzOffsetMinutes: r.tz_offset_minutes ?? undefined,
     createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+// ---------------------------- Next actions (LIFEOS-036) ----------------------------
+interface NextActionRow {
+  id: string; user_id?: string; title: string; description: string; status: string;
+  completed_at: string | null; cancelled_at: string | null; deferred_until: string | null;
+  waiting_on: string | null; waiting_since: string | null; follow_up_date: string | null; notes: string;
+  workspace_id: string | null; goal_id: string | null; project_id: string | null; milestone_id: string | null;
+  source_capture_id: string | null; source_review_id: string | null;
+  linked_entity_refs: unknown; tags: unknown; estimated_size: string; energy: string; context: string | null;
+  order: number; pinned: boolean; history: unknown; created_at: string; updated_at: string;
+}
+function actionToRow(a: NextAction): NextActionRow {
+  return {
+    id: a.id, title: a.title, description: a.description, status: a.status,
+    completed_at: a.completedAt ?? null, cancelled_at: a.cancelledAt ?? null, deferred_until: a.deferredUntil ?? null,
+    waiting_on: a.waitingOn ?? null, waiting_since: a.waitingSince ?? null, follow_up_date: a.followUpDate ?? null, notes: a.notes,
+    workspace_id: a.workspaceId ?? null, goal_id: a.goalId ?? null, project_id: a.projectId ?? null, milestone_id: a.milestoneId ?? null,
+    source_capture_id: a.sourceCaptureId ?? null, source_review_id: a.sourceReviewId ?? null,
+    linked_entity_refs: a.linkedEntityRefs, tags: a.tags, estimated_size: a.estimatedSize, energy: a.energy, context: a.context ?? null,
+    order: a.order, pinned: !!a.pinned, history: a.history, created_at: a.createdAt, updated_at: a.updatedAt,
+  };
+}
+function rowToAction(r: any): NextAction {
+  return {
+    id: r.id, title: r.title ?? "", description: r.description ?? "", status: (r.status ?? "open") as NextAction["status"],
+    completedAt: r.completed_at ?? undefined, cancelledAt: r.cancelled_at ?? undefined, deferredUntil: r.deferred_until ?? undefined,
+    waitingOn: r.waiting_on ?? undefined, waitingSince: r.waiting_since ?? undefined, followUpDate: r.follow_up_date ?? undefined, notes: r.notes ?? "",
+    workspaceId: r.workspace_id ?? undefined, goalId: r.goal_id ?? undefined, projectId: r.project_id ?? undefined, milestoneId: r.milestone_id ?? undefined,
+    sourceCaptureId: r.source_capture_id ?? undefined, sourceReviewId: r.source_review_id ?? undefined,
+    linkedEntityRefs: Array.isArray(r.linked_entity_refs) ? r.linked_entity_refs : [],
+    tags: Array.isArray(r.tags) ? r.tags : [],
+    estimatedSize: (r.estimated_size ?? "unspecified") as NextAction["estimatedSize"],
+    energy: (r.energy ?? "unspecified") as NextAction["energy"],
+    context: r.context ?? undefined,
+    order: typeof r.order === "number" ? r.order : 0, pinned: !!r.pinned,
+    history: Array.isArray(r.history) ? r.history : [],
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+interface ActionDependencyRow { id: string; user_id?: string; blocker_id: string; blocked_id: string; created_at: string }
+function dependencyToRow(d: ActionDependency): ActionDependencyRow {
+  return { id: d.id, blocker_id: d.blockerId, blocked_id: d.blockedId, created_at: d.createdAt };
+}
+function rowToDependency(r: any): ActionDependency {
+  return { id: r.id, blockerId: r.blocker_id, blockedId: r.blocked_id, createdAt: r.created_at };
+}
+interface ActionTemplateRow {
+  id: string; user_id?: string; title: string; description: string; context: string | null;
+  energy: string; estimated_size: string; tags: unknown; default_workspace_id: string | null;
+  default_project_id: string | null; suggested_recurrence: string | null; created_at: string; updated_at: string;
+}
+function templateToRow(t: ActionTemplate): ActionTemplateRow {
+  return {
+    id: t.id, title: t.title, description: t.description, context: t.context ?? null,
+    energy: t.energy, estimated_size: t.estimatedSize, tags: t.tags,
+    default_workspace_id: t.defaultWorkspaceId ?? null, default_project_id: t.defaultProjectId ?? null,
+    suggested_recurrence: t.suggestedRecurrence ?? null, created_at: t.createdAt, updated_at: t.updatedAt,
+  };
+}
+function rowToTemplate(r: any): ActionTemplate {
+  return {
+    id: r.id, title: r.title ?? "", description: r.description ?? "", context: r.context ?? undefined,
+    energy: (r.energy ?? "unspecified") as ActionTemplate["energy"],
+    estimatedSize: (r.estimated_size ?? "unspecified") as ActionTemplate["estimatedSize"],
+    tags: Array.isArray(r.tags) ? r.tags : [],
+    defaultWorkspaceId: r.default_workspace_id ?? undefined, defaultProjectId: r.default_project_id ?? undefined,
+    suggestedRecurrence: r.suggested_recurrence ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 

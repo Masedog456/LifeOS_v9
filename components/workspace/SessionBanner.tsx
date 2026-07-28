@@ -38,6 +38,8 @@ export default function SessionBanner() {
   // findWorkspace is a cheap array lookup — no memo needed.
   const ws = workspaceId ? findWorkspace(state, workspaceId) : undefined;
   const goalRec = session?.goalId ? findGoal(state, session.goalId) : undefined;
+  // The action currently designated on this session (LIFEOS-036, Feature 17).
+  const currentAction = session?.currentActionId ? state.nextActions.find((a) => a.id === session.currentActionId) : undefined;
   if (!session) return null;
 
   const elapsed = formatClock(sessionDuration(session));
@@ -66,6 +68,7 @@ export default function SessionBanner() {
             {SESSION_TYPE_LABEL[session.type]}
             {goalRec && <> · <Link href={goalHref(goalRec.id)} className="hover:underline">◎ {goalRec.title}</Link></>}
             {!goalRec && session.goal ? ` · ${session.goal}` : ""}
+            {currentAction && <> · <Link href={`/actions/${currentAction.id}`} className="hover:underline">☑ {currentAction.title}</Link></>}
           </span>
         </div>
         <span

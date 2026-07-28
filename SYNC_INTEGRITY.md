@@ -214,3 +214,15 @@ existing product, not a new surface.
   resolved by overwriting a competing decision. The **merge** operation (Feature 7)
   is explicit and user-driven — it is never invoked during sync. Discard is a soft,
   reversible status and remains tombstone-compatible. See `CAPTURE_PROCESSING.md`.
+
+- **Next actions (LIFEOS-036).** Actions, their dependency edges, and templates
+  are first-class synced domains (migration `0027`), each using this layer
+  unchanged: row-level dirty-domain upsert/delete, deletes tombstoned under
+  `nextActions` / `actionDependencies` / `actionTemplates`. `lib/actions/merge-
+  rules.ts` adds field-level three-way merge under one rule: **never lose
+  completion history or dependencies silently.** Tags, links, history, and
+  dependency additions (that don't form a cycle) **union**; genuine decision
+  divergence raises a **conflict** — completed-vs-cancelled, deferred-vs-started,
+  divergent title/description, project reassignment on both devices, and
+  completed-on-both-with-different-notes. Cycles are re-validated on apply. See
+  `NEXT_ACTIONS.md`.
