@@ -133,7 +133,8 @@ export function buildDaySummary(state: StoreState, date: DayKey, opts: DaySummar
   push("annotations_created", "Annotations created", annotations);
 
   // --- Captures / decisions / beliefs ---
-  push("captures_created", "Captures created", (state.captures ?? []).filter((c) => onDay(c.createdAt)).map((c) => ({ kind: "capture", id: c.id, label: snip(c.text), at: c.createdAt })));
+  push("captures_created", "Captures created", (state.captures ?? []).filter((c) => onDay(c.createdAt)).map((c) => ({ kind: "capture", id: c.id, label: snip(c.workingText ?? c.text), at: c.createdAt })));
+  push("captures_processed", "Captures processed", (state.captures ?? []).filter((c) => onDay(c.processedAt)).map((c) => ({ kind: "capture", id: c.id, label: snip(c.workingText ?? c.text), at: c.processedAt! })));
   push("decisions", "Decisions created or updated", (state.decisions ?? []).filter((d) => onDay(d.createdAt) || onDay(d.updatedAt)).map((d) => ({ kind: "decision", id: d.id, label: snip((d as { title?: string; question?: string }).title || (d as { question?: string }).question), at: (onDay(d.updatedAt) ? d.updatedAt : d.createdAt) })));
   const beliefsRevised: DaySummaryItem[] = [];
   for (const b of state.beliefs ?? []) {

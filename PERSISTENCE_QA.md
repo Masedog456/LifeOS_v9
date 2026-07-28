@@ -772,3 +772,35 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   confirm the sync-integrity layer surfaces the conflict rather than dropping the
   newer edit; (3) confirm no duplicate review is created for the same local date
   after switching timezones.
+
+## Capture processing (LIFEOS-035)
+
+- Processing metadata is **additive on the existing `captures` table** (migration
+  `0026_capture_processing.sql`), not a new table — captures already sync there.
+  New columns: `processing_status` (`not null default 'inbox'`), `working_text`,
+  `deferred_until`, `archived_at`, `discarded_at`, and `jsonb` source-context /
+  links / tags / lineage / compact-history / notes.
+- **Existing captures are preserved and default to `inbox`** — the column default
+  plus a defensive `update … where processing_status is null` backfill; no
+  capture's meaning is rewritten and no duplicate inbox record is created.
+- The verbatim `text` column stays **immutable** (the 0001 `captures_immutable_text`
+  trigger is untouched). Clarifications live in `working_text`, so the original is
+  always recoverable; **discard is soft and reversible** (`discarded` status +
+  `discarded_at`), never a permanent delete, and stays tombstone-compatible with
+  the LIFEOS-033 sync layer.
+- Validated on Postgres 16: full chain `0001–0026` applies **idempotently 3×**;
+  new columns carry correct types/defaults; a legacy-shaped insert (no processing
+  columns) defaults to `inbox` with empty jsonb collections; a status +
+  `working_text` update succeeds while an attempt to change `text` is rejected as
+  immutable; RLS remains enabled and is inherited from the table's per-user
+  policies (no new policy needed).
+- Indexes: `captures_status_idx (user_id, processing_status)`,
+  `captures_deferred_idx (user_id, deferred_until)`,
+  `captures_split_from_idx (split_from_id)`.
+- **Manual production check (credential-pending):** signed in — (1) process a
+  capture on device A (rewrite + link), confirm the working version and links
+  appear on device B after sync while the original text is unchanged; (2) offline
+  on both devices, archive on A and convert on B, reconnect, and confirm the
+  conflict surfaces (lineage/history not silently discarded); (3) defer a capture
+  to tomorrow and confirm it returns to the inbox on the next local day without
+  any notification. See `CAPTURE_PROCESSING.md`.

@@ -30,6 +30,7 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
     label: "Capture",
     links: [
       { href: "/", label: "Capture" },
+      { href: "/process", label: "Process" },
       { href: "/inbox", label: "Inbox" },
     ],
   },

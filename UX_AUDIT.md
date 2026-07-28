@@ -114,3 +114,22 @@ exportable/restorable.
 - Landmarked regions ("Day summary", "Daily review" on Today) aid screen-reader
   navigation. The flow is verified mobile-friendly (no horizontal scroll at
   390px) and keyboard-activatable by `dailyreview.mjs`.
+
+## Inbox zero & capture processing (LIFEOS-035)
+
+- The processor is a **full page, never a modal**. The **original captured text
+  is always visible and never hidden**, so clarifying, converting, or discarding
+  is always done with the source in view — the system suggests, the user decides.
+- The queue is fully **keyboard-navigable** (`J`/`K`/`↑`/`↓` move, `Enter` open,
+  `x` select); views, sort, and filter are labelled controls with
+  `aria-current="page"` on the active view; action panels are labelled regions
+  (`aria-label="… panel"`) and the current status carries `data-capture-status`.
+- Nothing is destructive by surprise: **discard requires an inline confirmation**
+  and is reversible (restore from the Discarded view); archive is reversible;
+  clarifying writes a separate working version and never overwrites the original;
+  unsaved rewrites/notes are caught by the shared unsaved-changes guard.
+- **No guilt, no gamification.** The Today inbox card is compact and
+  non-judgmental (count + oldest age + returning-today), with no streaks, scores,
+  or nudges, and it hides itself when the inbox and deferred set are both empty.
+- Verified mobile-friendly (no horizontal scroll at 375px on the processor) and
+  keyboard-activatable by `inbox.mjs` (35/35).
