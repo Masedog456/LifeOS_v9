@@ -24,6 +24,7 @@ import { addToWorkspace } from "@/lib/mvpStore";
 import { entityWorkspaces, findWorkspace, isMember, workspaceHref } from "@/lib/workspaces/workspace";
 import { currentWorkspaceId, useWorkspacePointer } from "@/lib/workspaces/current";
 import { entityExecutionLinks } from "@/lib/execution/relationships";
+import InspectorPlanning from "@/components/planning/InspectorPlanning";
 
 function fmt(iso?: string): string {
   if (!iso || Number.isNaN(Date.parse(iso))) return "—";
@@ -135,6 +136,8 @@ export default function ContextPanel({ kind, id, onClose }: { kind: string; id: 
           ))}
         </section>
       )}
+
+      <InspectorPlanning kind={kind} id={id} />
 
       <section className="flex flex-wrap gap-2 border-t border-black/[.06] pt-3 dark:border-white/[.08]">
         <Link href={e.ref.href} onClick={onClose} className="rounded-full border border-black/[.12] px-3 py-1.5 text-[11px] hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Open page →</Link>

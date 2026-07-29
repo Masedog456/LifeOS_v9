@@ -132,6 +132,29 @@ two-device edits union tags/links/history/dependencies and surface real conflict
 through the Conflict Center. No AI, no scheduler, no notifications. See
 `NEXT_ACTIONS.md`.
 
+## Planning views & focus modes
+
+Decide what to focus on, and when — then protect the space to do it. A
+**planning board** organizes plannable records (actions, milestones, projects,
+documents, captures) into five manual horizons — **Today · This Week · Later ·
+Someday · Unscheduled** — with drag-drop, keyboard 1–5, multi-select, manual
+ordering, filters, and a mobile list. A horizon is a **choice, never a
+deadline**; moving a card changes **only** its horizon and order — never its
+status, deadline, priority, or hierarchy. The **Today plan** is deterministic:
+it shows what you explicitly put in Today plus items you already flagged
+(pinned, in-progress, follow-ups due, deferred returns) — it **never auto-fills
+an empty plan**. A **weekly view** reviews the week (not a calendar grid), a
+**commitments** view groups everything you're committed to, and a **planning
+inbox** surfaces records that may need a decision — including an active project
+with no next action (offering Create/Link/Leave, never auto-creating one).
+**Capacity** shows counts against a soft limit you set, phrased neutrally and
+**never blocking**. **Focus Mode** centers the screen on one target, hides
+nonessential navigation, loads only that target's context, runs an optional
+timer, and lets you log interruptions **by hand**. Everything is durable,
+per-user, and cross-device (migration `0028_planning_focus.sql`; deleting a
+record never cascades away its plan or focus). No AI, no scheduler, no
+auto-prioritization, no notifications, no scores. See `PLANNING_AND_FOCUS.md`.
+
 ## Unified inspector & context
 
 LifeOS is navigable through ideas, not just menus. Any object — a belief,

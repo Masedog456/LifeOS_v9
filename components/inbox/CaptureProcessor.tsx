@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import {
   useStore, rewriteCapture, revertRewrite, linkCaptureRef, unlinkCaptureRef,
   markCaptureProcessed, archiveCapture, discardCapture, restoreCapture, setCaptureNotes,
-  addCaptureTag, removeCaptureTag,
+  addCaptureTag, removeCaptureTag, setPlanningHorizon,
 } from "@/lib/mvpStore";
 import { makeEntityContext, entityRef, entityKindLabel } from "@/lib/entities/entity";
 import { entityBacklinks } from "@/lib/entities/backlinks";
@@ -124,6 +124,14 @@ export default function CaptureProcessor({ captureId, initialAction }: { capture
             {/* Create a next action from this capture (LIFEOS-036, Feature 15). The
                 capture is preserved; the creator opens pre-filled with its context. */}
             <button type="button" onClick={() => router.push(`/actions?fromCapture=${capture.id}`)} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">→ Next action</button>
+            {/* Plan this capture into a horizon (LIFEOS-037, Feature 14) — explicit; the capture is preserved. */}
+            <select defaultValue="" onChange={(e) => { if (e.target.value) { setPlanningHorizon({ kind: "capture", id: capture.id }, e.target.value as "today" | "this_week" | "later" | "someday"); toast({ kind: "success", message: "Planned" }); e.target.value = ""; } }} aria-label="Plan capture" className="rounded-full border border-black/[.12] bg-transparent px-3 py-1.5 text-xs dark:border-white/[.15]">
+              <option value="">Plan…</option>
+              <option value="today">Today</option>
+              <option value="this_week">This Week</option>
+              <option value="later">Later</option>
+              <option value="someday">Someday</option>
+            </select>
             {status !== "processed" && status !== "archived" && status !== "discarded" && <button type="button" onClick={() => { markCaptureProcessed(capture.id); toast({ kind: "success", message: "Marked processed" }); }} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Mark processed</button>}
             {status !== "archived" && <button type="button" onClick={() => { archiveCapture(capture.id); toast({ kind: "info", message: "Archived (reversible)" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Archive</button>}
             {(status === "archived" || status === "processed" || status === "deferred" || status === "discarded") && <button type="button" onClick={() => { restoreCapture(capture.id); toast({ kind: "success", message: "Restored to inbox" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Restore to inbox</button>}

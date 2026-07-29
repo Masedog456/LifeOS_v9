@@ -64,6 +64,24 @@ export interface Prefs {
     collapsed?: Record<string, boolean>;
   };
   /**
+   * Planning & focus preferences (LIFEOS-037, Feature 20): default board
+   * filters, collapsed groups, column widths, mobile view, per-focus-target-kind
+   * visible panels, capacity soft limits, selected planning view, and sort mode.
+   * UI preferences only — no ephemeral dialog/hover state.
+   */
+  planning?: {
+    view?: string;
+    sort?: string;
+    filter?: Record<string, unknown>;
+    collapsed?: Record<string, boolean>;
+    columnWidths?: Record<string, number>;
+    mobileView?: boolean;
+    /** Visible focus panels remembered per focus-target kind. */
+    focusPanels?: Record<string, Record<string, boolean>>;
+    /** Soft capacity limits per category (0/undefined = no limit). */
+    capacityLimits?: Record<string, number>;
+  };
+  /**
    * Unified inspector navigation memory (LIFEOS-029): the last-viewed entity,
    * the open tab, which sections are expanded, and the panel scroll position —
    * so the workspace resumes where the user left off across sessions.

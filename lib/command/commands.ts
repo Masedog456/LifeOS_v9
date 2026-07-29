@@ -49,6 +49,11 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:process", title: "Open capture inbox", group: "Navigate", kind: "navigate", href: "/process", icon: "▤", keywords: ["inbox", "process", "capture", "clarify", "convert", "zero"] },
   { id: "nav:actions", title: "Open action queue", group: "Navigate", kind: "navigate", href: "/actions", icon: "☑", keywords: ["next", "actions", "todo", "tasks", "do", "commitments", "queue"] },
   { id: "action:new", title: "New action", group: "Navigate", kind: "navigate", href: "/actions?new=1", icon: "＋", keywords: ["create", "next action", "task", "todo", "add"] },
+  { id: "nav:plan", title: "Open planning board", group: "Navigate", kind: "navigate", href: "/plan", icon: "▤", keywords: ["plan", "board", "horizon", "today", "week", "later", "someday"] },
+  { id: "nav:today-plan", title: "Open Today Plan", group: "Navigate", kind: "navigate", href: "/plan/today", icon: "◎", keywords: ["today", "plan", "focus"] },
+  { id: "nav:commitments", title: "Open commitment review", group: "Navigate", kind: "navigate", href: "/plan/commitments", icon: "≣", keywords: ["commitments", "review", "overloaded"] },
+  { id: "nav:planning-inbox", title: "Open planning inbox", group: "Navigate", kind: "navigate", href: "/plan/inbox", icon: "▦", keywords: ["planning", "inbox", "unplanned", "decide"] },
+  { id: "nav:focus", title: "Start focus", group: "Navigate", kind: "navigate", href: "/focus", icon: "◉", keywords: ["focus", "concentrate", "deep work", "session"] },
   { id: "nav:daily-history", title: "Open Review History", group: "Navigate", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["review", "history", "past", "weekly"] },
 ];
 
@@ -246,6 +251,27 @@ export function actionsProvider(ctx: CommandContext): CommandItem[] {
   const activeCaptureId = typeof window !== "undefined" ? readInboxMemory().activeCaptureId : undefined;
   if (activeCaptureId && (ctx.state.captures ?? []).some((c) => c.id === activeCaptureId)) {
     items.push({ id: "action:from-capture", title: "Create action from current capture", group: "Actions", kind: "navigate", href: `/actions?fromCapture=${activeCaptureId}`, icon: "⤳", keywords: ["convert", "capture", "action"] });
+  }
+  return items;
+}
+
+/**
+ * LIFEOS-037, Feature 17 — Planning & focus commands. Board/Today/commitment/
+ * inbox navigation is always available; end-focus + move/remove-current-item
+ * appear only when a valid current record/focus exists. Each navigates or ends
+ * focus; no planning logic is duplicated here.
+ */
+export function planningProvider(ctx: CommandContext): CommandItem[] {
+  const items: CommandItem[] = [];
+  const focus = (ctx.state.focusSessions ?? []).find((f) => !f.endedAt);
+  if (focus) {
+    items.push({ id: "focus:end", title: "End focus", subtitle: focus.title, group: "Focus", kind: "navigate", href: "/focus?end=1", icon: "◌", keywords: ["stop", "exit", "focus"] });
+    items.push({ id: "focus:open", title: "Open current focus", group: "Focus", kind: "navigate", href: "/focus", icon: "◉", keywords: ["focus", "resume"] });
+  }
+  // Focus the current in-progress action, if any.
+  const inProgress = (ctx.state.nextActions ?? []).find((a) => a.status === "in_progress");
+  if (inProgress && !focus) {
+    items.push({ id: "focus:action", title: "Focus current action", subtitle: inProgress.title, group: "Focus", kind: "navigate", href: `/focus?kind=action&id=${inProgress.id}`, icon: "◉", keywords: ["focus", "action", "current"] });
   }
   return items;
 }

@@ -154,3 +154,27 @@ exportable/restorable.
   streaks, and no productivity scores; it hides itself when empty.
 - Verified mobile-friendly (no horizontal scroll at 375px on the queue) and
   keyboard-activatable by `actions.mjs` (39/39).
+
+## Planning views & focus modes (LIFEOS-037)
+
+- The planning board is a **full page, never a modal**, with five labelled
+  horizon columns. A card moves by **drag-drop, per-card move buttons, or the
+  keyboard** (`1`–`5` for the five horizons) so nothing depends on a pointer;
+  columns carry `data-column`, cards their record ref, and the mobile layout
+  switches to a **single-column list** (no horizontal scroll at 390px, verified
+  on board and focus).
+- **Framing is neutral, never coercive.** The board reads "a horizon is a
+  choice — never a deadline"; capacity says "7 selected, preferred limit 5" and
+  **never blocks a move, colors it red, or scores it**; the active-project
+  safeguard says "No next action selected" and offers Create / Link / Leave —
+  it never calls a project stalled or unhealthy.
+- **Nothing is decided for the user.** The Today plan never auto-fills when
+  empty (an empty plan shows an empty state, not invented items); viewing the
+  commitments or weekly views mutates nothing; every per-item control (change
+  horizon, remove from planning, focus on this) is an explicit action with a
+  confirming toast.
+- **Focus Mode** hides nonessential navigation and centers one target, but does
+  **not** force browser fullscreen; the exit control is always a visible,
+  labelled button (`data-focus-exit`), the timer is opt-in, and interruptions
+  are logged by hand — never auto-detected.
+- Verified mobile-friendly and keyboard-activatable by `planning.mjs` (27/27).

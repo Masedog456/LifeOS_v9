@@ -226,3 +226,21 @@ existing product, not a new surface.
   divergent title/description, project reassignment on both devices, and
   completed-on-both-with-different-notes. Cycles are re-validated on apply. See
   `NEXT_ACTIONS.md`.
+
+- **Planning & focus (LIFEOS-037).** Planning assignments and focus sessions are
+  first-class synced domains (migration `0028`), each using this layer unchanged:
+  row-level dirty-domain upsert/delete, deletes tombstoned under
+  `planningAssignments` / `focusSessions`. `lib/planning/merge-rules.ts` adds
+  three-way merge under two overriding rules: **never silently duplicate a
+  planning assignment, and never silently lose focus history.** Assignment-set
+  merges are keyed by the **record reference** (`kind:id`), not the assignment
+  id, so a record planned on two devices resolves to exactly **one** assignment.
+  Different records moved independently, interruptions logged on separate
+  devices, focus panels toggled independently, unrelated capacity limits, and
+  history from both sides all **union** (a key absent on one side means "no
+  opinion", never a change). Genuine divergence raises a **conflict** — the same
+  record moved to different horizons, an incompatible order change, an assignment
+  removed on one device but moved on the other (the move is kept — a plan is
+  never silently dropped), a focus session ended on one device but extended on
+  the other (the ended state's history is kept), and the same capacity soft limit
+  changed differently. See `PLANNING_AND_FOCUS.md`.

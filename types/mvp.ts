@@ -2546,6 +2546,84 @@ export interface ActionTemplate {
   updatedAt: ISO;
 }
 
+// ---------- Planning views & focus modes (LIFEOS-037) ----------
+
+/**
+ * A user-chosen planning horizon. This expresses *when the user has decided to
+ * work on something* — it is NOT a deadline, due date, or priority, and nothing
+ * ever moves a record between horizons automatically.
+ */
+export type PlanningHorizon = "today" | "this_week" | "later" | "someday" | "unscheduled";
+
+/** Compact, append-only planning-history event (Feature 19). Safe metadata only. */
+export interface PlanningHistoryEvent {
+  id: string;
+  at: ISO;
+  action: string;
+  /** The planned record, where relevant (a reference, never a copy). */
+  ref?: RecordRefLite;
+  fromHorizon?: PlanningHorizon;
+  toHorizon?: PlanningHorizon;
+  /** Short, safe descriptor (e.g. a category, a focus target label) — not full text. */
+  detail?: string;
+}
+
+/**
+ * A planning assignment: the user placed a record into a horizon. A generic
+ * typed record reference (matching the entity architecture) — at most ONE
+ * assignment per record (its current horizon), with a manual `order` within the
+ * horizon. Orphan-safe: a dangling `ref` degrades gracefully in projections.
+ */
+export interface PlanningAssignment {
+  id: string;
+  ref: RecordRefLite;
+  horizon: PlanningHorizon;
+  /** Manual ordering weight within the horizon column (lower = earlier). */
+  order: number;
+  createdAt: ISO;
+  updatedAt: ISO;
+  /** Compact append-only history for this assignment. */
+  history: PlanningHistoryEvent[];
+}
+
+/** A manually-logged focus interruption (Feature 8). No automatic detection. */
+export type InterruptionCategory = "external" | "internal" | "question" | "dependency" | "technical" | "communication" | "other";
+export interface FocusInterruption {
+  id: string;
+  at: ISO;
+  description: string;
+  category: InterruptionCategory;
+  /** Optional link to a record the interruption concerned. */
+  linkedRef?: RecordRefLite;
+  resolved: boolean;
+}
+
+/** What a focus session is centered on (Feature 5). `custom` is a free intention. */
+export type FocusTargetKind = "action" | "milestone" | "project" | "document" | "workspace" | "entity" | "custom";
+
+/**
+ * A focus session: one primary target, an optional linked working session
+ * (reusing the LIFEOS-030 engine), manually-logged interruptions, per-session
+ * panel visibility, and compact history. Only one focus session is active
+ * (no `endedAt`) at a time.
+ */
+export interface FocusSession {
+  id: string;
+  /** The primary target. For `custom`, `ref.id` is a generated id and `title` the intention. */
+  targetKind: FocusTargetKind;
+  ref: RecordRefLite;
+  /** Display title (target title or the custom intention). */
+  title: string;
+  /** The working session this focus is attached to (references, never a copy). */
+  sessionId?: string;
+  startedAt: ISO;
+  endedAt?: ISO;
+  /** Which optional panels are visible (Feature 7); remembered per target kind in prefs. */
+  panels: Record<string, boolean>;
+  interruptions: FocusInterruption[];
+  history: PlanningHistoryEvent[];
+}
+
 export interface StoreState {
   captures: Capture[];
   proposals: Proposal[];
@@ -2582,6 +2660,8 @@ export interface StoreState {
   nextActions: NextAction[];
   actionDependencies: ActionDependency[];
   actionTemplates: ActionTemplate[];
+  planningAssignments: PlanningAssignment[];
+  focusSessions: FocusSession[];
 }
 
 // ---------- Reading companion foundation (LIFEOS-028) ----------

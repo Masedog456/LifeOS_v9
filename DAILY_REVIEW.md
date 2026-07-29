@@ -89,6 +89,7 @@ date, inferring no meaning. Sources:
 | Captures created | `captures.createdAt` |
 | Captures processed | `captures.processedAt` on the day (LIFEOS-035) |
 | Actions created / started / completed / deferred | `nextActions` createdAt / history events / `completedAt` on the day (LIFEOS-036) |
+| Focus sessions + logged interruptions | `focusSessions` (`startedAt`/`endedAt`, embedded `interruptions`) on the day (LIFEOS-037) |
 | Decisions created/updated | `decisions.createdAt` / `updatedAt` |
 | Beliefs revised | belief `revisions[].at` or `updatedAt` |
 | Entities inspected, searches performed | session `activity` events |
@@ -131,6 +132,9 @@ which belong in the review. Candidates:
 - **in-progress next actions**, **waiting follow-ups whose date has arrived**, and
   **overdue deferred-returns** (LIFEOS-036) — each a candidate the user may carry
   forward; choosing one never changes the action's status
+- **unresolved focus interruptions** (LIFEOS-037) — manually logged during a
+  focus session and not yet marked resolved, offered as friction the user may
+  carry forward; nothing is auto-detected or scored
 - unresolved sync conflicts and unsynced local changes (live signals)
 - plus manually-added loops
 
