@@ -141,6 +141,9 @@ export function buildDaySummary(state: StoreState, date: DayKey, opts: DaySummar
   push("actions_started", "Actions started", (state.nextActions ?? []).filter((a) => !!actionEventAt(a, "started")).map((a) => ({ kind: "action", id: a.id, label: snip(a.title), at: actionEventAt(a, "started")! })));
   push("actions_completed", "Actions completed", (state.nextActions ?? []).filter((a) => onDay(a.completedAt)).map((a) => ({ kind: "action", id: a.id, label: snip(a.title), at: a.completedAt! })));
   push("actions_deferred", "Actions deferred", (state.nextActions ?? []).filter((a) => !!actionEventAt(a, "deferred")).map((a) => ({ kind: "action", id: a.id, label: snip(a.title), at: actionEventAt(a, "deferred")! })));
+  // Planning & focus (LIFEOS-037): focus sessions + interruptions logged today.
+  push("focus_sessions", "Focus sessions", (state.focusSessions ?? []).filter((f) => onDay(f.startedAt)).map((f) => ({ kind: f.ref.kind, id: f.ref.id, label: snip(f.title), at: f.startedAt, detail: f.targetKind })));
+  push("interruptions", "Interruptions logged", (state.focusSessions ?? []).flatMap((f) => (f.interruptions ?? []).filter((i) => onDay(i.at)).map((i) => ({ kind: "note" as const, id: i.id, label: snip(i.description), at: i.at, detail: i.category }))));
   push("decisions", "Decisions created or updated", (state.decisions ?? []).filter((d) => onDay(d.createdAt) || onDay(d.updatedAt)).map((d) => ({ kind: "decision", id: d.id, label: snip((d as { title?: string; question?: string }).title || (d as { question?: string }).question), at: (onDay(d.updatedAt) ? d.updatedAt : d.createdAt) })));
   const beliefsRevised: DaySummaryItem[] = [];
   for (const b of state.beliefs ?? []) {

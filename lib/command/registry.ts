@@ -11,7 +11,7 @@
 import type { StoreState } from "@/types/mvp";
 import type { CommandItem, PinnedItem, RecentItem } from "@/lib/command/types";
 import {
-  continueProvider, pinnedProvider, recentProvider, staticCommands, workspacesProvider, executionProvider, reviewProvider, inboxProvider, actionsProvider,
+  continueProvider, pinnedProvider, recentProvider, staticCommands, workspacesProvider, executionProvider, reviewProvider, inboxProvider, actionsProvider, planningProvider,
 } from "@/lib/command/commands";
 
 /** Everything a provider may read to produce commands. Read-only. */
@@ -67,6 +67,7 @@ export function defaultRegistry(): CommandRegistry {
     .register(reviewProvider)
     .register(inboxProvider)
     .register(actionsProvider)
+    .register(planningProvider)
     .register(continueProvider)
     .registerStatic(staticCommands());
 }

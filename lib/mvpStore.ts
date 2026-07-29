@@ -125,6 +125,12 @@ import type {
   ActionTemplate,
   ActionHistoryEvent,
   ActionStatus,
+  PlanningAssignment,
+  PlanningHistoryEvent,
+  PlanningHorizon,
+  FocusSession,
+  FocusInterruption,
+  InterruptionCategory,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
 import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
@@ -161,6 +167,12 @@ import { makeEvent as makeActionEvent, appendHistory as appendActionHistory, typ
 import { deferKeyFor as actionDeferKeyFor, returnDueActions, type DeferOption as ActionDeferOption } from "@/lib/actions/defer";
 import { planDependency, pruneDependencies } from "@/lib/actions/dependencies";
 import { makeTemplate, instantiateTemplate, type NewTemplateInput } from "@/lib/actions/templates";
+// Planning views & focus modes (LIFEOS-037).
+import { assignmentFor as planAssignmentFor } from "@/lib/planning/horizon";
+import { nextOrderIn as nextOrderInHorizon } from "@/lib/planning/board";
+import { makeEvent as makePlanEvent, appendHistory as appendPlanHistory } from "@/lib/planning/history";
+import { makeFocusSession, type NewFocusInput } from "@/lib/planning/focus";
+import { rememberPanels } from "@/lib/planning/memory";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
@@ -200,6 +212,8 @@ const EMPTY_STATE: StoreState = {
   nextActions: [],
   actionDependencies: [],
   actionTemplates: [],
+  planningAssignments: [],
+  focusSessions: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -530,6 +544,16 @@ export function hydrate() {
           ...t,
           tags: asArray<string>(t?.tags),
         })),
+        planningAssignments: asArray<PlanningAssignment>(parsed.planningAssignments).map((p) => ({
+          ...p,
+          history: asArray<PlanningHistoryEvent>(p?.history),
+        })),
+        focusSessions: asArray<FocusSession>(parsed.focusSessions).map((f) => ({
+          ...f,
+          panels: (f?.panels && typeof f.panels === "object") ? f.panels : {},
+          interruptions: asArray<FocusInterruption>(f?.interruptions),
+          history: asArray<PlanningHistoryEvent>(f?.history),
+        })),
       };
       // Deferred captures whose local date has arrived return to the inbox
       // (LIFEOS-035, Feature 9) — deterministic, no background workers.
@@ -596,7 +620,7 @@ export function resetStore() {
     concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
     workspaces: [], sessions: [], goals: [], projects: [],
-    nextActions: [], actionDependencies: [], actionTemplates: [],
+    nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [],
   });
 }
 
@@ -4241,4 +4265,128 @@ function uniqueRefs(refs: RefLite[]): RefLite[] {
   const seen = new Set<string>(); const out: RefLite[] = [];
   for (const r of refs) { const k = `${r.kind}:${r.id}`; if (!seen.has(k)) { seen.add(k); out.push(r); } }
   return out;
+}
+
+// ================= Planning views & focus modes (LIFEOS-037) =================
+//
+// Planning expresses the user's CHOICES: which horizon a record sits in and its
+// manual order. A move changes ONLY the horizon + order — never status,
+// deadline, priority, or hierarchy. Focus protects the space to carry choices
+// out, reusing the single-session engine. Deterministic; derivations live in
+// lib/planning/*. Nothing auto-assigns a horizon or auto-schedules.
+
+function planRefKey(ref: RefLite): string { return `${ref.kind}:${ref.id}`; }
+
+/**
+ * Set a record's planning horizon (Feature 1/2). `unscheduled` REMOVES the
+ * assignment. A move changes only horizon + order and logs a compact history
+ * event. Never touches the underlying record's status/priority/hierarchy.
+ */
+export function setPlanningHorizon(ref: RefLite, horizon: PlanningHorizon): void {
+  const at = now();
+  const assignments = state.planningAssignments ?? [];
+  const existing = planAssignmentFor(assignments, ref);
+
+  if (horizon === "unscheduled") {
+    if (!existing) return;
+    setState({ ...state, planningAssignments: assignments.filter((a) => a.id !== existing.id) });
+    return;
+  }
+  if (existing) {
+    if (existing.horizon === horizon) return;
+    const order = nextOrderInHorizon(assignments, horizon);
+    setState({ ...state, planningAssignments: assignments.map((a) => a.id === existing.id
+      ? appendPlanHistory({ ...a, horizon, order, updatedAt: at }, makePlanEvent({ action: "moved", at, ref, fromHorizon: existing.horizon, toHorizon: horizon }))
+      : a) });
+    return;
+  }
+  const assignment: PlanningAssignment = {
+    id: id(), ref, horizon, order: nextOrderInHorizon(assignments, horizon), createdAt: at, updatedAt: at,
+    history: [makePlanEvent({ action: "planned", at, ref, toHorizon: horizon })],
+  };
+  setState({ ...state, planningAssignments: [...assignments, assignment] });
+}
+
+/** Remove a record from planning entirely (Feature 10/18). */
+export function removeFromPlanning(ref: RefLite): void {
+  const assignments = state.planningAssignments ?? [];
+  const existing = planAssignmentFor(assignments, ref);
+  if (!existing) return;
+  setState({ ...state, planningAssignments: assignments.filter((a) => a.id !== existing.id) });
+}
+
+/** Move several records to a horizon at once (Feature 2 multi-select). */
+export function batchPlanningHorizon(refs: RefLite[], horizon: PlanningHorizon): void {
+  for (const ref of refs) setPlanningHorizon(ref, horizon);
+}
+
+/** Reorder a horizon column by an ordered list of ref keys (drag/keyboard). */
+export function reorderPlanningHorizon(horizon: PlanningHorizon, orderedRefKeys: string[]): void {
+  const at = now();
+  const pos = new Map(orderedRefKeys.map((k, i) => [k, i] as const));
+  setState({ ...state, planningAssignments: (state.planningAssignments ?? []).map((a) => {
+    if (a.horizon !== horizon) return a;
+    const p = pos.get(planRefKey(a.ref));
+    return p === undefined ? a : appendPlanHistory({ ...a, order: p, updatedAt: at }, makePlanEvent({ action: "reordered", at, ref: a.ref, toHorizon: horizon }));
+  }) });
+}
+
+// ---- Focus mode (Features 5–8) ----
+
+/**
+ * Start a focus session on a target (Feature 5/6). Ends any active focus first
+ * (only one primary target at a time). Optionally starts or attaches to a
+ * session (reusing the single-session engine — never a second one). Remembers
+ * panel visibility per target kind.
+ */
+export function startFocus(input: NewFocusInput, opts: { startSession?: boolean; workspaceId?: string } = {}): string {
+  const at = now();
+  // End any active focus session cleanly.
+  const focusSessions = (state.focusSessions ?? []).map((f) => (!f.endedAt ? appendPlanHistory({ ...f, endedAt: at }, makePlanEvent({ action: "focus_ended", at, ref: f.ref })) : f));
+
+  let sessionId = input.sessionId;
+  if (opts.startSession) {
+    const wsResolved = input.ref.kind === "workspace" ? input.ref.id : (opts.workspaceId ?? state.workspaces[0]?.id);
+    const active = state.sessions.find((s) => !s.endedAt);
+    if (wsResolved) sessionId = active && active.workspaceId === wsResolved ? active.id : startSession(wsResolved, "planning", input.title);
+  }
+
+  const fs = makeFocusSession({ ...input, sessionId }, at);
+  fs.history = [makePlanEvent({ action: "focus_started", at, ref: input.ref, detail: input.targetKind })];
+  // If we started/attached a session, designate the action as its current one when applicable.
+  if (sessionId && input.targetKind === "action") setSessionCurrentAction(sessionId, input.ref.id);
+  setState({ ...state, focusSessions: [fs, ...focusSessions] });
+  return fs.id;
+}
+
+/** End a focus session (Feature 6). Ends the active one when no id is given. */
+export function endFocus(focusId?: string): void {
+  const at = now();
+  setState({ ...state, focusSessions: (state.focusSessions ?? []).map((f) => {
+    const target = focusId ? f.id === focusId : !f.endedAt;
+    return target && !f.endedAt ? appendPlanHistory({ ...f, endedAt: at }, makePlanEvent({ action: "focus_ended", at, ref: f.ref })) : f;
+  }) });
+}
+
+/** Set which panels are visible for a focus session (Feature 7) + remember per kind. */
+export function setFocusPanels(focusId: string, panels: Record<string, boolean>): void {
+  const target = (state.focusSessions ?? []).find((f) => f.id === focusId);
+  setState({ ...state, focusSessions: (state.focusSessions ?? []).map((f) => (f.id === focusId ? { ...f, panels } : f)) });
+  if (target) { try { rememberPanels(target.targetKind, panels); } catch { /* prefs optional */ } }
+}
+
+/** Manually log an interruption on a focus session (Feature 8). No auto-detection. */
+export function logInterruption(focusId: string, input: { description: string; category: InterruptionCategory; linkedRef?: RefLite }): void {
+  const at = now();
+  const interruption: FocusInterruption = { id: id(), at, description: input.description.trim(), category: input.category, linkedRef: input.linkedRef, resolved: false };
+  setState({ ...state, focusSessions: (state.focusSessions ?? []).map((f) => (f.id === focusId
+    ? appendPlanHistory({ ...f, interruptions: [...f.interruptions, interruption] }, makePlanEvent({ action: "interrupted", at, ref: f.ref, detail: input.category }))
+    : f)) });
+}
+
+/** Toggle an interruption's resolved flag. */
+export function resolveInterruption(focusId: string, interruptionId: string, resolved = true): void {
+  setState({ ...state, focusSessions: (state.focusSessions ?? []).map((f) => (f.id === focusId
+    ? { ...f, interruptions: f.interruptions.map((i) => (i.id === interruptionId ? { ...i, resolved } : i)) }
+    : f)) });
 }

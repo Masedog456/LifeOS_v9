@@ -53,6 +53,8 @@ import type {
   NextAction,
   ActionDependency,
   ActionTemplate,
+  PlanningAssignment,
+  FocusSession,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -157,6 +159,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // Daily reviews (LIFEOS-034): resilient to the 0025 table being absent.
     const dailyReviews = await this.loadDailyReviews();
     const actions = await this.loadActions();
+    const planning = await this.loadPlanning();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -203,6 +206,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       nextActions: actions.nextActions,
       actionDependencies: actions.actionDependencies,
       actionTemplates: actions.actionTemplates,
+      planningAssignments: planning.planningAssignments,
+      focusSessions: planning.focusSessions,
     };
   }
 
@@ -317,6 +322,9 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("nextActions")) await this.syncNextActions(state.nextActions ?? [], base?.nextActions ?? []);
     if (w("actionDependencies")) await this.syncActionDependencies(state.actionDependencies ?? [], base?.actionDependencies ?? []);
     if (w("actionTemplates")) await this.syncActionTemplates(state.actionTemplates ?? [], base?.actionTemplates ?? []);
+    // ---- Planning & focus (LIFEOS-037): row-level upsert/delete ----
+    if (w("planningAssignments")) await this.syncPlanningAssignments(state.planningAssignments ?? [], base?.planningAssignments ?? []);
+    if (w("focusSessions")) await this.syncFocusSessions(state.focusSessions ?? [], base?.focusSessions ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -459,6 +467,20 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (d.deleteIds.length) { await this.throwing(this.client.from("action_templates").delete().in("id", d.deleteIds)); await this.writeTombstones("actionTemplates", d.deleteIds); }
   }
 
+  /** Row-level upsert/delete for planning assignments (LIFEOS-037). */
+  private async syncPlanningAssignments(current: PlanningAssignment[], base: PlanningAssignment[]): Promise<void> {
+    const d = diffById<PlanningAssignmentRow>(current.map(planningToRow), base.map(planningToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("planning_assignments").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("planning_assignments").delete().in("id", d.deleteIds)); await this.writeTombstones("planningAssignments", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for focus sessions (LIFEOS-037). */
+  private async syncFocusSessions(current: FocusSession[], base: FocusSession[]): Promise<void> {
+    const d = diffById<FocusSessionRow>(current.map(focusToRow), base.map(focusToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("focus_sessions").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("focus_sessions").delete().in("id", d.deleteIds)); await this.writeTombstones("focusSessions", d.deleteIds); }
+  }
+
   /** Load daily reviews, resilient to the 0025 table being absent. */
   private async loadDailyReviews(): Promise<DailyReview[]> {
     try {
@@ -486,6 +508,23 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       };
     } catch {
       return { nextActions: [], actionDependencies: [], actionTemplates: [] };
+    }
+  }
+
+  /** Load planning assignments + focus sessions, resilient to the 0028 tables being absent. */
+  private async loadPlanning(): Promise<{ planningAssignments: PlanningAssignment[]; focusSessions: FocusSession[] }> {
+    try {
+      const [assignments, focus] = await Promise.all([
+        this.client.from("planning_assignments").select("*").order("updated_at", { ascending: false }),
+        this.client.from("focus_sessions").select("*").order("started_at", { ascending: false }),
+      ]);
+      if (assignments.error || focus.error) return { planningAssignments: [], focusSessions: [] };
+      return {
+        planningAssignments: (assignments.data ?? []).map(rowToPlanning),
+        focusSessions: (focus.data ?? []).map(rowToFocus),
+      };
+    } catch {
+      return { planningAssignments: [], focusSessions: [] };
     }
   }
 
@@ -1891,6 +1930,43 @@ function rowToTemplate(r: any): ActionTemplate {
     tags: Array.isArray(r.tags) ? r.tags : [],
     defaultWorkspaceId: r.default_workspace_id ?? undefined, defaultProjectId: r.default_project_id ?? undefined,
     suggestedRecurrence: r.suggested_recurrence ?? undefined, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+// ---------------------------- Planning & focus (LIFEOS-037) ----------------------------
+interface PlanningAssignmentRow {
+  id: string; user_id?: string; ref_kind: string; ref_id: string; horizon: string;
+  order: number; history: unknown; created_at: string; updated_at: string;
+}
+function planningToRow(a: PlanningAssignment): PlanningAssignmentRow {
+  return { id: a.id, ref_kind: a.ref.kind, ref_id: a.ref.id, horizon: a.horizon, order: a.order, history: a.history, created_at: a.createdAt, updated_at: a.updatedAt };
+}
+function rowToPlanning(r: any): PlanningAssignment {
+  return {
+    id: r.id, ref: { kind: r.ref_kind, id: r.ref_id }, horizon: (r.horizon ?? "unscheduled") as PlanningAssignment["horizon"],
+    order: typeof r.order === "number" ? r.order : 0, history: Array.isArray(r.history) ? r.history : [],
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+interface FocusSessionRow {
+  id: string; user_id?: string; target_kind: string; ref_kind: string; ref_id: string; title: string;
+  session_id: string | null; started_at: string; ended_at: string | null;
+  panels: unknown; interruptions: unknown; history: unknown; created_at: string; updated_at: string;
+}
+function focusToRow(f: FocusSession): FocusSessionRow {
+  return {
+    id: f.id, target_kind: f.targetKind, ref_kind: f.ref.kind, ref_id: f.ref.id, title: f.title,
+    session_id: f.sessionId ?? null, started_at: f.startedAt, ended_at: f.endedAt ?? null,
+    panels: f.panels, interruptions: f.interruptions, history: f.history, created_at: f.startedAt, updated_at: f.endedAt ?? f.startedAt,
+  };
+}
+function rowToFocus(r: any): FocusSession {
+  return {
+    id: r.id, targetKind: (r.target_kind ?? "custom") as FocusSession["targetKind"], ref: { kind: r.ref_kind, id: r.ref_id },
+    title: r.title ?? "", sessionId: r.session_id ?? undefined, startedAt: r.started_at, endedAt: r.ended_at ?? undefined,
+    panels: (r.panels && typeof r.panels === "object") ? r.panels : {},
+    interruptions: Array.isArray(r.interruptions) ? r.interruptions : [],
+    history: Array.isArray(r.history) ? r.history : [],
   };
 }
 

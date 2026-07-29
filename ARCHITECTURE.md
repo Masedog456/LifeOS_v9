@@ -1680,3 +1680,37 @@ status/content, never losing completion history or dependencies. It reuses the
 execution engine, sessions, workspaces, daily reviews, capture processing, entity
 API, inspector, command center, UX safeguards, and the LIFEOS-033 sync/tombstone
 layer — no new state manager. See `NEXT_ACTIONS.md`.
+
+## Planning views & focus modes (LIFEOS-037)
+
+A deterministic planning and focus layer lives in `lib/planning/` +
+`components/planning/`, with routes under `/plan` and `/focus`. It answers
+"what have I chosen to focus on, and when?" and "what am I working on right
+now?" — **displaying and organizing the user's choices, never deciding what
+matters.** A *planning horizon* (`today`/`this_week`/`later`/`someday`/
+`unscheduled`) is a manual label expressing intent, **not a deadline**; the
+core invariant is that **a move changes only a record's horizon and manual
+order — never its status, deadline, priority, or hierarchy.** Two tables
+(migration `0028`): `planning_assignments` (a **generic typed record
+reference** `ref_kind`+`ref_id`, so any plannable record carries a horizon
+without a per-type table; `UNIQUE(user_id, ref_kind, ref_id)` guarantees one
+assignment per record, so sync never duplicates it) and `focus_sessions` (one
+target, optional attached working session, panel visibility, and manually
+logged interruptions + compact history as bounded jsonb). All references are
+**soft** (no FKs) so deleting a project/action never cascades away a plan or
+focus, and orphaned references degrade gracefully. Every view is a **pure
+function of `(state, today)`**: the Today plan surfaces explicit `today`
+assignments then user-flagged derived candidates and **never auto-fills an
+empty plan**; capacity reports **counts only** against a user soft limit
+(neutral, never blocks, never scores); the active-project safeguard offers
+Create/Link/Leave and **never auto-creates or labels a project unhealthy**.
+Focus Mode centers one target, hides nonessential nav (no auto-fullscreen),
+loads only **bounded** target-related data (never the whole graph), reuses the
+LIFEOS-030 session engine, and remembers panels per target type in
+`prefs.planning` (where capacity soft limits also live — preferences, not
+records). Merge rules (`merge-rules.ts`) key assignments by **record
+reference** (never the assignment id) so a record planned on two devices
+resolves to one assignment; they never duplicate an assignment or lose focus
+history. It reuses the Today page, daily review, capture, reading, entity API,
+inspector, command center, and the LIFEOS-033 sync/tombstone layer — no new
+state manager. See `PLANNING_AND_FOCUS.md`.

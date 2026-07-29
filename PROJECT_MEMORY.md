@@ -2296,3 +2296,75 @@ scope or order.
   agents / embeddings / automatic task generation / automatic prioritization /
   scheduling / calendar / notifications / reminders / scores / streaks /
   gamification / analytics / collaboration / realtime presence.
+- **LIFEOS-037 — Planning Views & Focus Modes.** New `lib/planning/` (horizon,
+  history, board, today-plan, weekly-plan, focus, capacity, commitments,
+  planning-inbox, relationships, card-meta, merge-rules, memory, selftest) +
+  `components/planning/` (PlanningBoard, PlanningColumn, PlanningCard, TodayPlan,
+  WeeklyPlan, CapacityView, CommitmentReview, PlanningInbox, FocusMode,
+  FocusPanels, InterruptionLog, TodayPlanCard, InspectorPlanning) + `/plan`
+  routes (board, `today`, `week`, `commitments`, `inbox`) and `/focus`.
+  A deterministic planning + focus layer that **displays and organizes the
+  user's choices; it never decides what matters.** A *planning horizon*
+  (today/this_week/later/someday/unscheduled) is a manual label expressing
+  intent, **NOT a deadline**; the core invariant is **a move changes only a
+  record's horizon and manual order — never status, deadline, priority, or
+  hierarchy.** Two first-class records: **PlanningAssignment** (a **generic
+  typed record reference** ref.kind+ref.id, one per record; manual `order`;
+  compact append-only history) and **FocusSession** (one target of
+  action/milestone/project/document/workspace/entity/custom; optional attached
+  session; panel visibility; manually logged interruptions + history). Every
+  view is a **pure function of `(state, today)`**: the **Today plan** surfaces
+  explicit `today` assignments then user-flagged derived candidates
+  (pinned/in-progress/waiting-due/deferred-returns/tomorrow-focus) and **never
+  auto-fills an empty plan**; the **weekly view** is a review (this-week +
+  active milestones + projects touched + follow-ups + completed-this-week),
+  **NOT a 7-day calendar grid**; **capacity** reports **counts only** against a
+  user soft limit, phrased neutrally ("7 selected, preferred limit 5") —
+  **never blocks, never scores**; the **active-project safeguard** notes an
+  active project with no open action and offers **Create/Link/Leave**, **never
+  auto-creating or labeling it unhealthy**. **Focus Mode** centers one target,
+  hides nonessential nav (**no auto-fullscreen**), loads only **bounded**
+  target-related data (never the whole graph), reuses the LIFEOS-030 session
+  engine, logs interruptions **manually** (no auto-detection/scoring), and
+  remembers panels **per target type** in `prefs.planning` (where capacity soft
+  limits also live — preferences, not records). Board supports drag-drop,
+  keyboard 1–5, multi-select, manual ordering, filters (workspace/goal/project/
+  type/context/tag), collapsed groups, and a mobile list. Migration **0028**
+  `0028_planning_focus.sql` (two tables; **soft references, no FK cascade** so
+  deleting a project/action never removes a plan/focus; `UNIQUE(user_id,
+  ref_kind, ref_id)` so sync never duplicates an assignment; RLS 4
+  policies/table); chain now **0001–0028**. Integrated into Today (compact
+  `TodayPlanCard`), daily review (focus sessions + interruptions/friction),
+  capture (explicit "Plan…" horizon — no auto-scheduling), reading (a document
+  is a focus target; planning never touches progress), command center
+  (nav:plan/today-plan/commitments/planning-inbox/focus + focus:end/focus:action),
+  inspector (`InspectorPlanning`), and entity API/search. Merge rules
+  (`merge-rules.ts`) key assignments by **record reference** (not assignment id)
+  so a record planned on two devices resolves to **one** assignment; conflicts
+  on same-record-different-horizon, incompatible order, removed-vs-moved,
+  focus-ended-vs-extended, and same-capacity-limit-changed-differently; union
+  interruptions + history by id — **never duplicating an assignment or losing
+  focus history**. Verified: `planning.mjs` E2E **27/27** (board columns +
+  orphan, inbox flags + assign, board move buttons, keyboard move, multi-select,
+  Today plan, focus on action + timer, interruption log, panel toggle, end
+  focus, focus on project, commitment review + capacity message, active-project
+  safeguard, capture→plan, preference persistence, mobile board, mobile focus,
+  weekly view), `runPlanningSelfTests` **68/68** (horizon / history / board /
+  today / weekly / focus / capacity / commitments / inbox / safeguard / merge
+  rules / memory / local-date / projection purity / perf). Full deterministic
+  regression green across all 12 committed self-test suites (command 39, entity
+  30, execution 33, inbox 54, memory 54, reading 60, review 56, sync 45, ux 40,
+  workspace 35, action 62, planning 68 = **576**). `tsc`=0, `lint`=0, `build`=0
+  (clean rebuild). Performance (self-test §18, realistic fixture): board
+  `<250ms`, today+weekly `<300ms`, planning inbox `<400ms` (O(1) existence sets +
+  assignment index — orphan detection never rescans the record arrays).
+  Migration 0028 validated on Postgres 16 (full chain `0001–0028` idempotent 3×;
+  column defaults `unscheduled`/`0`; `(user_id, ref_kind, ref_id)` uniqueness
+  enforced; soft ref to a missing record accepted/orphan-safe; **RLS cross-user
+  isolation** via a non-superuser role — user1 sees only user1's rows, and
+  cannot update user2's). New doc `PLANNING_AND_FOCUS.md`; updated ARCHITECTURE /
+  README / PERSISTENCE_QA / UX_AUDIT / SYNC_INTEGRITY / DAILY_REVIEW /
+  CAPTURE_PROCESSING. Constraints: no AI / LLMs / agents / embeddings /
+  automatic prioritization / scheduling / calendar integration / notifications /
+  reminders / productivity scores / streaks / gamification / analytics /
+  collaboration / realtime presence / automatic time estimation.

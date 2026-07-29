@@ -233,3 +233,13 @@ workspace/goal/project links and `sourceCaptureId`. The **capture is preserved**
 — creating the action changes nothing about it; the user separately decides
 whether it becomes processed, archived, or stays in the inbox. Captures are never
 auto-classified as actions. See `NEXT_ACTIONS.md`.
+
+## Addendum — capture → planning horizon (LIFEOS-037)
+
+The capture processor also offers an explicit **"Plan…"** control that assigns
+the capture a **planning horizon** (Today / This Week / Later / Someday). This
+is a manual choice that records where the user *intends* to consider the
+capture; it is **not scheduling** — no date, deadline, reminder, or automatic
+movement is created, and the capture's processing status is unchanged. A
+capture is only ever planned because the user picked a horizon. See
+`PLANNING_AND_FOCUS.md`.

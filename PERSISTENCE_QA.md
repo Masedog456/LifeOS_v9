@@ -834,3 +834,41 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   conflict surfaces (completion history not lost); (3) add different dependency
   edges on each device and confirm they union without a cycle. See
   `NEXT_ACTIONS.md`.
+
+## Planning views & focus modes (LIFEOS-037)
+
+- Two additive tables (migration `0028_planning_focus.sql`): `planning_assignments`
+  (a **generic typed record reference** `ref_kind`+`ref_id`, one per record;
+  `horizon`, manual `"order"`, compact jsonb history) and `focus_sessions` (one
+  target, optional `session_id`, `panels`/`interruptions`/`history` as bounded
+  jsonb). Capacity soft limits + board/focus UI prefs live in `user_prefs`, not
+  here — they are preferences, not records.
+- **One assignment per record:** `UNIQUE(user_id, ref_kind, ref_id)` — a move
+  updates the row in place; sync (keyed by record ref, not assignment id) can
+  never create a duplicate assignment for the same record.
+- **Soft references, no destructive cascade:** `ref_kind`/`ref_id`, `session_id`,
+  and the focus target are plain values **without foreign keys**, so deleting a
+  project/action/document never cascades away a planning assignment or focus
+  session, and an orphaned reference degrades gracefully (projections are
+  orphan-safe; the planning inbox surfaces orphans for a manual decision).
+  Deletes are tombstone-compatible with the LIFEOS-033 layer.
+- **A move changes only horizon + order** — nothing in this migration mutates
+  another table (no status/deadline/priority/hierarchy side effects).
+- Validated on Postgres 16: full chain `0001–0028` applies **idempotently 3×**;
+  a bare insert defaults to `unscheduled` / `order 0` with empty jsonb
+  collections; the `(user_id, ref_kind, ref_id)` unique constraint is enforced;
+  a soft ref to a non-existent record is accepted (orphan-safe); **RLS isolates
+  users** — a non-superuser role with `auth.uid()` = user1 sees only user1's
+  rows and cannot update user2's (4 policies per table); structure confirms
+  `planning_assignments` 9 cols / 6 indexes, `focus_sessions` 14 cols / 5
+  indexes.
+- Performance (self-test §18, realistic fixture: 20k actions / 1k projects /
+  3k milestones / 5k assignments / one year of history / hundreds of focus
+  sessions): board `<250ms`, today+weekly `<300ms`, planning inbox `<400ms`
+  (O(1) existence sets + assignment index; no rescans of the record arrays).
+- **Manual production check (credential-pending):** signed in — (1) move a record
+  to Today on device A, confirm the horizon + history appear on B after sync;
+  (2) offline on both, move the same record to different horizons, reconnect,
+  confirm the conflict surfaces (no duplicate assignment); (3) start focus + log
+  an interruption on A and a different interruption on B, confirm both survive
+  the union. See `PLANNING_AND_FOCUS.md`.
