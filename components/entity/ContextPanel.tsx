@@ -26,6 +26,7 @@ import { currentWorkspaceId, useWorkspacePointer } from "@/lib/workspaces/curren
 import { entityExecutionLinks } from "@/lib/execution/relationships";
 import InspectorPlanning from "@/components/planning/InspectorPlanning";
 import HealthInspector from "@/components/maintenance/HealthInspector";
+import InspectorActivity from "@/components/insights/InspectorActivity";
 
 function fmt(iso?: string): string {
   if (!iso || Number.isNaN(Date.parse(iso))) return "—";
@@ -141,6 +142,8 @@ export default function ContextPanel({ kind, id, onClose }: { kind: string; id: 
       <InspectorPlanning kind={kind} id={id} />
 
       <HealthInspector kind={kind} id={id} />
+
+      <InspectorActivity kind={kind} id={id} />
 
       <section className="flex flex-wrap gap-2 border-t border-black/[.06] pt-3 dark:border-white/[.08]">
         <Link href={e.ref.href} onClick={onClose} className="rounded-full border border-black/[.12] px-3 py-1.5 text-[11px] hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Open page →</Link>

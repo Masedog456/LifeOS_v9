@@ -178,3 +178,33 @@ exportable/restorable.
   labelled button (`data-focus-exit`), the timer is opt-in, and interruptions
   are logged by hand — never auto-detected.
 - Verified mobile-friendly and keyboard-activatable by `planning.mjs` (27/27).
+
+## Deterministic system insights (LIFEOS-039)
+
+- **Descriptive, never evaluative.** Every insights surface shows counts,
+  durations, and arithmetic differences only — there is no composite score, no
+  "performance" rating, and no ranking the system asserts. Home reads "counts and
+  durations, nothing rated or ranked"; a busy record is "referenced N times,"
+  never "important."
+- **Comparison language is strictly neutral.** Compare Periods reads "Raw values
+  and their differences only — no judgment about direction" and renders
+  "12 sessions, previously 9" / "3 fewer" — it **never** says improved, declined,
+  better, worse, ahead, or behind. This is enforced by a self-test that fails if a
+  banned word appears.
+- **Dormancy is stated as fact, never blame.** The Dormancy View reads "No
+  recorded activity in 90 days" against a **user-chosen** threshold; it never
+  calls a record abandoned, stale, neglected, or unhealthy unless that is an
+  explicit stored status.
+- **Coverage is always disclosed.** Every view carries a `CoverageNotice` — when
+  history began, that open sessions are excluded from completed-duration totals,
+  that the view is local-only, and that deleted records may appear only through
+  retained history. Partial data is never presented as complete.
+- **Nothing is decided for the user.** Insights on Today stay a small card (Today
+  is not turned into an analytics dashboard); the planning integration shows
+  factual context but never reorders the board, alters horizons, or recommends
+  what to plan; the daily-review snapshot adds no praise or criticism.
+- **Every metric is defined.** A definitions drawer (`MetricDefinitions`) gives
+  each metric a plain-language definition; no metric exists only as undocumented
+  behavior.
+- Verified keyboard-reachable and mobile-friendly (single column, no horizontal
+  scroll at 390px) by `insights.mjs` (33/33).

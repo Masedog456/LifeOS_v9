@@ -2735,6 +2735,42 @@ export interface StoreState {
   focusSessions: FocusSession[];
   maintenanceEvents: MaintenanceEvent[];
   duplicateCandidates: DuplicateCandidate[];
+  savedInsightViews: SavedInsightView[];
+}
+
+// ---------- Deterministic System Insights (LIFEOS-039) ----------
+
+/** The named time-range presets an insight view can use. */
+export type InsightRangeKind =
+  | "today"
+  | "last_7_days"
+  | "last_30_days"
+  | "this_month"
+  | "last_month"
+  | "this_year"
+  | "custom";
+
+/**
+ * A user-saved insight view (Feature 28). Stores ONLY display intent — which
+ * insight, the range, filters, grouping, and display preferences. It NEVER
+ * stores calculated results (results are always re-derived deterministically),
+ * so a saved view can never present stale numbers as current. Synced + RLS-owned.
+ */
+export interface SavedInsightView {
+  id: string;
+  name: string;
+  /** Which insight surface this view opens (e.g. "home" | "attention" | "change-log"). */
+  insight: string;
+  /** The range preset; for "custom" the explicit keys below apply. */
+  rangeKind: InsightRangeKind;
+  customStart?: string; // yyyy-mm-dd (custom only)
+  customEnd?: string;   // yyyy-mm-dd (custom only)
+  /** Attention/change-log grouping (e.g. "project" | "goal" | "workspace"). */
+  grouping?: string;
+  /** Opaque per-insight display filters (record type, event type, workspace/goal/project). */
+  filters?: Record<string, unknown>;
+  createdAt: ISO;
+  updatedAt: ISO;
 }
 
 // ---------- Reading companion foundation (LIFEOS-028) ----------

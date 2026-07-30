@@ -258,3 +258,16 @@ linking into `/maintenance`. It is display-only — it **never moves a card, nev
 changes a horizon, and never archives anything automatically**. Inactive
 projects and archive candidates are surfaced for a conscious decision, not acted
 on. See `KNOWLEDGE_MAINTENANCE.md`.
+
+## Addendum — planning & focus insights (LIFEOS-039)
+
+The LIFEOS-039 insights layer adds read-only context without touching the board.
+`PlanningInsightsContext` shows factual context (last-touched date, sessions and
+completed actions in the selected range, current number of planned items);
+insights **never reorder the planning board, never alter horizons, and never
+recommend what to plan**. The **Focus Activity** view (`/insights/focus`)
+reports focus-session counts, total and median recorded duration, targets used,
+logged interruptions, sessions ended normally vs left open, and actions
+completed / documents opened during focus — with **no distraction score, no
+deep-work score, and no comparison to other users**. Both are pure projections
+over existing planning and focus history. See `DETERMINISTIC_INSIGHTS.md`.

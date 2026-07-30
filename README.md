@@ -177,6 +177,31 @@ Records expose **staleness** as a fact ("Last reviewed 9 months ago", never
 maintenance history). No AI, no embeddings, no automatic decisions, no scores —
 the system identifies candidates; you decide. See `KNOWLEDGE_MAINTENANCE.md`.
 
+## Deterministic system insights
+
+LifeOS records a lot of activity — sessions, focus intervals, actions moving
+through their lifecycle, captures flowing out of the inbox, documents opened,
+beliefs reviewed, records maintained, reviews completed. **Insights** turns that
+into calm, descriptive views for a date range you choose (today, last 7/30 days,
+this/last month, this year, or a custom range): an **Insights Home** of counts
+and durations; an **Attention View** of where recorded attention went; **Project**
+and **Goal** activity; **Action Flow** and **Capture Flow**; **Reading**,
+**Knowledge**, **Review**, and **Focus** activity; a filterable **Change Log**; a
+**Period Summary** (Started / Continued / Completed / Changed / Reviewed /
+Learned / Deferred / Waiting / Archived); **Compare Periods**; a **Dormancy View**;
+and a bounded **Contribution Map**. Every number is a count, a duration, or an
+arithmetic difference — **there is no composite score, no ranking the system
+asserts, and no interpretation.** Comparisons read "12 sessions, previously 9"
+(never better/worse); dormancy reads "no recorded activity in 90 days" (never
+neglected/stale). Every metric has a plain-language definition, every view
+discloses its data coverage, and any view exports to CSV or JSON with its range,
+timezone, filters, and timestamp. It all computes locally from existing activity
+— no new event storage, no AI, no predictions, no productivity scores. The only
+persisted addition is **saved views** (migration `0030_deterministic_insights.sql`),
+which store your chosen insight, range, filters, and grouping — never calculated
+results. Insights describe recorded activity; they do not judge the person living
+it. See `DETERMINISTIC_INSIGHTS.md`.
+
 ## Unified inspector & context
 
 LifeOS is navigable through ideas, not just menus. Any object — a belief,

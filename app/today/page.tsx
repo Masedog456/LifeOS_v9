@@ -26,6 +26,7 @@ import TodayReviewCard from "@/components/reviews/TodayReviewCard";
 import TodayInboxCard from "@/components/inbox/TodayInboxCard";
 import TodayActions from "@/components/actions/TodayActions";
 import TodayPlanCard from "@/components/planning/TodayPlanCard";
+import TodayInsightsCard from "@/components/insights/TodayInsightsCard";
 
 function daysAgo(iso: string): number {
   return Math.floor((Date.now() - Date.parse(iso)) / 86400000);
@@ -123,6 +124,9 @@ export default function TodayPage() {
 
           {/* Planning entry point (LIFEOS-037, Feature 16). */}
           <TodayPlanCard />
+
+          {/* Insights snapshot (LIFEOS-039, Feature 18). */}
+          <TodayInsightsCard />
 
           {/* Pinned — fast access to favourite records (LIFEOS-027, Feature 4). */}
           <Card title="Pinned" href="/today" linkLabel="⌘K to manage" show={pinned.length > 0}>

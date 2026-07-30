@@ -266,3 +266,12 @@ active project with no open action as an **inactive project** candidate in the
 review queue — surfaced for a conscious decision, never auto-archived or
 auto-created. Archiving an action is a reversible maintenance event and does not
 change the action's status or delete it. See `KNOWLEDGE_MAINTENANCE.md`.
+
+## Addendum — action flow insights (LIFEOS-039)
+
+The LIFEOS-039 **Action Flow** view (`/insights/actions`) reports, for a
+user-selected range, deterministic counts for created / started / waiting /
+deferred / completed / cancelled / restored, plus the transitions that occurred
+in the period, derived entirely from existing action history. It **does not**
+compute a velocity score and **does not** imply that more completions are always
+better — it reports the flow, nothing more. See `DETERMINISTIC_INSIGHTS.md`.

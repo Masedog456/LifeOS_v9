@@ -30,7 +30,10 @@ export default function DaySummary({ date }: { date: DayKey }) {
     <section aria-label="Day summary" className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-tight">Today at a glance</h2>
-        <span className="text-[11px] text-zinc-400">{summary.sessionCount} session{summary.sessionCount === 1 ? "" : "s"} · {formatDuration(summary.totalSessionMs)} · {total} item{total === 1 ? "" : "s"}</span>
+        <span className="flex items-center gap-2 text-[11px] text-zinc-400">
+          <span>{summary.sessionCount} session{summary.sessionCount === 1 ? "" : "s"} · {formatDuration(summary.totalSessionMs)} · {total} item{total === 1 ? "" : "s"}</span>
+          <Link href="/insights/period" data-period-summary-link className="text-sky-600 hover:underline dark:text-sky-400">Full period →</Link>
+        </span>
       </div>
 
       {(summary.live.unresolvedConflicts > 0 || summary.live.unsyncedPending) && (

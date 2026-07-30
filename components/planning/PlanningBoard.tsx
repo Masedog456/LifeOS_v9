@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore, setPlanningHorizon, removeFromPlanning, batchPlanningHorizon } from "@/lib/mvpStore";
 import PlanningMaintenanceHint from "@/components/maintenance/PlanningMaintenanceHint";
+import PlanningInsightsContext from "@/components/insights/PlanningInsightsContext";
 import { makeEntityContext } from "@/lib/entities/entity";
 import { deriveBoard, boardCounts, type BoardFilter } from "@/lib/planning/board";
 import { resolveCardMeta } from "@/lib/planning/card-meta";
@@ -71,6 +72,7 @@ export default function PlanningBoard() {
       </header>
 
       <PlanningMaintenanceHint />
+      <PlanningInsightsContext />
 
       {/* Filter row. */}
       <div className="mb-3 flex flex-wrap items-center gap-2">

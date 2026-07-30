@@ -2426,3 +2426,50 @@ scope or order.
   PERSISTENCE_QA / SYNC_INTEGRITY / DAILY_REVIEW / PLANNING_AND_FOCUS /
   NEXT_ACTIONS. Constraints: no AI / embeddings / automatic decisions / automatic
   merges / automatic repairs / productivity scores / assistants / semantic search.
+- **LIFEOS-039 — Deterministic System Insights.** New `lib/insights/` (range,
+  activity, coverage, metrics, definitions, memory, attention, projects, goals,
+  actions, captures, reading, knowledge, reviews, focus, change-log,
+  period-summary, comparison, dormancy, contributions, relationships, export,
+  search, merge-rules, selftest) + `components/insights/` (21 components +
+  `useInsights` hook) + `/insights` routes (home + 14 subroutes). **Descriptive
+  views over already-recorded activity — the system reports what happened; it
+  does NOT decide what was good, productive, or important.** Every view is a pure
+  projection over `StoreState` for a user-selected date range: no AI, no
+  embeddings, no semantic interpretation, no recommendations, no predictions, no
+  productivity/health scores, no streaks, no gamification. The architectural core
+  is a single **range-bounded activity index** (`buildActivityIndex`) that
+  flattens every existing compact history (sessions, focus, action/planning/
+  capture histories, reading/citation events, belief/concept/research touches,
+  daily reviews, maintenance events) into one time-sorted `ActivityEvent[]`,
+  memoized once per store snapshot; `eventsInRange` binary-searches a slice so
+  every card reuses the same array (no per-card re-scan). **Time-range model**
+  (`range.ts`): canonical local-date semantics, deterministic
+  `[start, next-day-start)` inclusivity, DST-safe day boundaries, `previousRange`
+  for comparisons, last range persisted in prefs. **Language is constrained and
+  test-enforced:** comparisons say "12 sessions, previously 9" (never improved/
+  declined/better/worse/ahead/behind); dormancy says "no recorded activity in 90
+  days" (never abandoned/stale/neglected); referenced records are "referenced N
+  times" (never important); Home shows counts + durations only, never a composite
+  score. **No new event storage:** migration **0030** `0030_deterministic_insights.sql`
+  adds only `saved_insight_views` (display intent — insight + range + filters +
+  grouping; NEVER calculated results; RLS 4 policies; 3 indexes; idempotent);
+  chain now **0001–0030**. Saved-view merge (`merge-rules.ts`) unions independent
+  views and surfaces edit/delete conflicts without duplicating ids or altering
+  source records. Integrated into Today (compact `TodayInsightsCard`), daily
+  review (factual snapshot + link to period summary), planning (factual context,
+  never reorders/alters), inspector (`InspectorActivity` section), command center
+  (Open Insights / Attention / Project Activity / Capture Flow / Knowledge / Review
+  / Change Log / Compare / Activity for current record), and search (factual
+  activity filters). Verified: `insights.mjs` E2E **33/33**, `runInsightsSelfTests`
+  **97/97**. Full deterministic regression green across all 14 suites (**758**
+  assertions). `tsc`=0, `lint`=0, `build`=0. Performance (self-test §17, 20k
+  actions / 5k sessions / 10k captures → ~35k events): index build `85ms`, home
+  metrics `34ms`, attention `19ms`, change log `11ms`. Migration 0030 validated on
+  Postgres 16 (full chain `0001–0030` idempotent 3×; defaults; RLS cross-user
+  isolation via non-superuser role). New doc `DETERMINISTIC_INSIGHTS.md`; updated
+  ARCHITECTURE / README / PERSISTENCE_QA / UX_AUDIT / SYNC_INTEGRITY / DAILY_REVIEW /
+  CAPTURE_PROCESSING / NEXT_ACTIONS / PLANNING_AND_FOCUS / KNOWLEDGE_MAINTENANCE.
+  Constraints: no AI / LLMs / agents / embeddings / recommendations / prioritization /
+  coaching / predictions / forecasts / productivity or health scores / streaks /
+  gamification / leaderboards / social comparison / notifications / surveillance.
+  "Insights describe recorded activity. They do not judge the person living it."

@@ -63,6 +63,14 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:citations-integrity", title: "Review Citations", group: "Navigate", kind: "navigate", href: "/maintenance/citations", icon: "❞", keywords: ["citation", "integrity", "broken", "repair"] },
   { id: "nav:archive-review", title: "Archive Candidates", group: "Navigate", kind: "navigate", href: "/maintenance/archive", icon: "⊟", keywords: ["archive", "candidates", "finished", "completed"] },
   { id: "nav:merge-workspace", title: "Merge Records", group: "Navigate", kind: "navigate", href: "/maintenance/merge", icon: "⧈", keywords: ["merge", "records", "consolidate", "duplicate"] },
+  { id: "nav:insights", title: "Open Insights", group: "Navigate", kind: "navigate", href: "/insights", icon: "◔", keywords: ["insights", "activity", "stats", "reports", "summary", "attention"] },
+  { id: "nav:insights-attention", title: "Open Attention View", group: "Navigate", kind: "navigate", href: "/insights/attention", icon: "◔", keywords: ["attention", "insights", "where", "activity"] },
+  { id: "nav:insights-projects", title: "Open Project Activity", group: "Navigate", kind: "navigate", href: "/insights/projects", icon: "▤", keywords: ["project", "activity", "insights"] },
+  { id: "nav:insights-captures", title: "Open Capture Flow", group: "Navigate", kind: "navigate", href: "/insights/captures", icon: "✎", keywords: ["capture", "flow", "insights", "inbox"] },
+  { id: "nav:insights-knowledge", title: "Open Knowledge Activity", group: "Navigate", kind: "navigate", href: "/insights/knowledge", icon: "◍", keywords: ["knowledge", "activity", "insights"] },
+  { id: "nav:insights-reviews", title: "Open Review Activity", group: "Navigate", kind: "navigate", href: "/insights/reviews", icon: "☑", keywords: ["review", "activity", "insights", "daily"] },
+  { id: "nav:insights-change-log", title: "Open Change Log", group: "Navigate", kind: "navigate", href: "/insights/change-log", icon: "≣", keywords: ["change", "log", "history", "insights", "events"] },
+  { id: "nav:insights-compare", title: "Compare Periods", group: "Navigate", kind: "navigate", href: "/insights/compare", icon: "⇌", keywords: ["compare", "periods", "insights", "difference"] },
 ];
 
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */
@@ -126,6 +134,27 @@ export function recentProvider(ctx: CommandContext): CommandItem[] {
     recordId: r.id,
     icon: "◷",
   }));
+}
+
+/**
+ * Contextual insights command (LIFEOS-039, Feature 22): "Open Activity for
+ * Current Record" — surfaced only when there IS a valid current record (the most
+ * recently viewed). Opens the change log filtered to nothing but reachable from
+ * the record's page; here it links to the change log as the activity surface.
+ */
+export function insightsProvider(ctx: CommandContext): CommandItem[] {
+  const r = ctx.recent[0];
+  if (!r) return [];
+  return [{
+    id: `insights:activity:${r.kind}:${r.id}`,
+    title: "Open Activity for Current Record",
+    subtitle: r.title,
+    group: "Insights",
+    kind: "navigate" as const,
+    href: "/insights/change-log",
+    icon: "◔",
+    keywords: ["activity", "insights", "history", "current", "record"],
+  }];
 }
 
 /** Pinned/favorite records as commands (Feature 4). */

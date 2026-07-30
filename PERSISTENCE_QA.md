@@ -909,3 +909,43 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   reconnect, confirm the conflict surfaces (no lost history, one row); (3) archive
   on A and restore on B, reconnect, confirm both events survive and latest wins.
   See `KNOWLEDGE_MAINTENANCE.md`.
+
+## Deterministic system insights (LIFEOS-039)
+
+- **One additive table** (migration `0030_deterministic_insights.sql`):
+  `saved_insight_views` — `id` uuid PK, `user_id` (`default auth.uid()`, FK →
+  `auth.users` on delete cascade), `name`, `insight`, `range_kind`
+  (default `'last_7_days'`), `custom_start`/`custom_end` date, `grouping`,
+  `filters` jsonb (default `'{}'`), `created_at`/`updated_at`. Remembered range,
+  dormancy threshold, and definition-drawer visibility are PREFERENCES in
+  `user_prefs` (`prefs.insights`), not here.
+- **No insight is stored — only the intent to compute one.** A saved view holds
+  the selected insight, range, filters, and grouping, and **never a calculated
+  result**, so it can never display stale numbers; every count/duration is
+  recomputed at read time from the existing compact histories. No event
+  warehouse, no second analytics table, no duplicated activity.
+- **Sync- and tombstone-compatible:** rows flow through the LIFEOS-033 layer via
+  `loadInsightViews` / `syncInsightViews` (row-level dirty-domain upsert/delete,
+  deletes tombstoned under `savedInsightViews`). Merge (`merge-rules.ts`) unions
+  independently-created views and surfaces edit/delete conflicts; the same
+  saved-view id is never duplicated and source activity records are never
+  altered.
+- **Orphan-safe, no destructive cascade onto activity:** the only cascade is from
+  the owning `auth.users` row; deleting any goal/project/action never cascades a
+  saved view, and a saved view referencing a since-deleted record simply resolves
+  to an empty view with a coverage note.
+- Validated on Postgres 16: full chain `0001–0030` applies **idempotently 3×**;
+  a bare insert defaults `range_kind`=`last_7_days` and `filters`=`{}`; **RLS
+  isolates users** — a non-superuser role with `auth.uid()`=user1 sees only
+  user1's rows and cannot update user2's (4 policies).
+- Performance (self-test §17, 20k actions / 5k sessions / 10k captures → ~35k
+  events): index build **85 ms**, home metrics **34 ms**, attention **19 ms**,
+  change log **11 ms** — one shared range-bounded index, binary-searched slices,
+  memoized projections.
+- **Manual production check (credential-pending):** signed in — (1) save an
+  insight view (custom range + project filter) on device A, confirm it appears on
+  B after sync and recomputes B's own numbers; (2) offline on both, rename the
+  same saved view differently on A and B, reconnect, confirm the conflict
+  surfaces (no id duplicated, both intents preserved for the user to resolve);
+  (3) delete a saved view on A while editing it on B, reconnect, confirm the edit
+  is kept and flagged. See `DETERMINISTIC_INSIGHTS.md`.
