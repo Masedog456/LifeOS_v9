@@ -256,3 +256,13 @@ decision. History is always unioned by id — never dropped.
   **~19 ms**; a 3,000-deep dependency cycle check **~2 ms**.
 - Migration 0027 validated on Postgres 16 (idempotent 3×, defaults, self-dep
   check, orphan-safe soft refs, RLS cross-user isolation).
+
+---
+
+## Addendum — actions & maintenance (LIFEOS-038)
+
+Knowledge maintenance treats cancelled actions as **archive candidates** and an
+active project with no open action as an **inactive project** candidate in the
+review queue — surfaced for a conscious decision, never auto-archived or
+auto-created. Archiving an action is a reversible maintenance event and does not
+change the action's status or delete it. See `KNOWLEDGE_MAINTENANCE.md`.

@@ -2624,6 +2624,77 @@ export interface FocusSession {
   history: PlanningHistoryEvent[];
 }
 
+// ---------- Knowledge Maintenance & Integrity (LIFEOS-038) ----------
+
+/**
+ * A compact, append-only maintenance event. The durable record of every
+ * conscious maintenance decision — reviewing, archiving, merging, adding or
+ * removing a citation, repairing a relationship, ignoring a duplicate,
+ * resolving an item. Events are NEVER deleted (history is never silently lost)
+ * and always union on sync. No AI, no scores.
+ */
+export type MaintenanceEventKind =
+  | "reviewed"
+  | "review_requested"
+  | "archived"
+  | "unarchived"
+  | "merged"
+  | "citation_added"
+  | "citation_removed"
+  | "relationship_repaired"
+  | "duplicate_ignored"
+  | "maintenance_resolved"
+  | "dismissed";
+
+export interface MaintenanceEvent {
+  id: string;
+  at: ISO;
+  kind: MaintenanceEventKind;
+  /** The primary record this event concerns. */
+  ref: RecordRefLite;
+  /** A secondary record (merge primary, repaired relationship endpoint, citation target). */
+  relatedRef?: RecordRefLite;
+  /** Compact free-form detail (reason label, candidate key, citation id). No record bodies. */
+  detail?: string;
+}
+
+/** Why two-or-more records are a duplicate CANDIDATE — always deterministic, never fuzzy/AI. */
+export type DuplicateReason =
+  | "same_title"
+  | "same_normalized_title"
+  | "same_url"
+  | "same_citation"
+  | "same_isbn"
+  | "same_doi"
+  | "same_identifier"
+  | "alias";
+
+export type DuplicateStatus = "open" | "ignored" | "merged";
+
+/**
+ * A user DECISION on a deterministically-detected duplicate group. The group
+ * itself is derived on demand (never stored redundantly); only a decision
+ * (ignored / merged) is persisted, keyed by a STABLE deterministic id
+ * (hash of reason + sorted member ref keys) so the same group detected on two
+ * devices resolves to exactly one record. `open` decisions are never persisted.
+ */
+export interface DuplicateCandidate {
+  /** Deterministic, stable across runs and devices: `${reason}:${sorted member keys}` hashed. */
+  id: string;
+  reason: DuplicateReason;
+  /** The kind of records grouped (e.g. "document", "belief", "concept"). */
+  kind: string;
+  /** The records in this duplicate group (2+). References, never copies. */
+  members: RecordRefLite[];
+  /** The normalized value they share (title / url / isbn / …) — for display only. */
+  key: string;
+  status: DuplicateStatus;
+  createdAt: ISO;
+  updatedAt: ISO;
+  /** Append-only decision log for this candidate. */
+  history: MaintenanceEvent[];
+}
+
 export interface StoreState {
   captures: Capture[];
   proposals: Proposal[];
@@ -2662,6 +2733,8 @@ export interface StoreState {
   actionTemplates: ActionTemplate[];
   planningAssignments: PlanningAssignment[];
   focusSessions: FocusSession[];
+  maintenanceEvents: MaintenanceEvent[];
+  duplicateCandidates: DuplicateCandidate[];
 }
 
 // ---------- Reading companion foundation (LIFEOS-028) ----------

@@ -153,6 +153,17 @@ export function buildDaySummary(state: StoreState, date: DayKey, opts: DaySummar
   }
   push("beliefs_revised", "Beliefs revised", beliefsRevised);
 
+  // Knowledge maintenance (LIFEOS-038): conscious maintenance decisions made
+  // today. This REPORTS what the user chose to maintain; it never injects
+  // maintenance work into Today.
+  const maint = (state.maintenanceEvents ?? []).filter((e) => onDay(e.at));
+  const maintLabel = (e: { kind: string; ref: { kind: string; id: string }; at: string; detail?: string }): DaySummaryItem => ({ kind: e.ref.kind, id: e.ref.id, label: `${e.ref.kind}`, at: e.at, detail: e.detail });
+  push("maintenance_reviewed", "Records reviewed", maint.filter((e) => e.kind === "reviewed").map(maintLabel));
+  push("maintenance_archived", "Archive decisions", maint.filter((e) => e.kind === "archived" || e.kind === "unarchived").map(maintLabel));
+  push("maintenance_merged", "Records merged", maint.filter((e) => e.kind === "merged").map(maintLabel));
+  push("maintenance_citations", "Citation repairs", maint.filter((e) => e.kind === "citation_added" || e.kind === "citation_removed").map(maintLabel));
+  push("maintenance_resolved", "Maintenance resolved", maint.filter((e) => e.kind === "maintenance_resolved" || e.kind === "relationship_repaired" || e.kind === "duplicate_ignored").map(maintLabel));
+
   // --- Session-activity derived: entities inspected & searches performed ---
   const inspected: DaySummaryItem[] = [];
   const searches: DaySummaryItem[] = [];

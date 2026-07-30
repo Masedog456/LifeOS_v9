@@ -55,6 +55,14 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:planning-inbox", title: "Open planning inbox", group: "Navigate", kind: "navigate", href: "/plan/inbox", icon: "▦", keywords: ["planning", "inbox", "unplanned", "decide"] },
   { id: "nav:focus", title: "Start focus", group: "Navigate", kind: "navigate", href: "/focus", icon: "◉", keywords: ["focus", "concentrate", "deep work", "session"] },
   { id: "nav:daily-history", title: "Open Review History", group: "Navigate", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["review", "history", "past", "weekly"] },
+  { id: "nav:maintenance", title: "Open Knowledge Health", group: "Navigate", kind: "navigate", href: "/maintenance", icon: "❦", keywords: ["maintenance", "health", "integrity", "orphan", "cleanup", "quality"] },
+  { id: "nav:review-queue", title: "Open Review Queue", group: "Navigate", kind: "navigate", href: "/maintenance/review", icon: "▣", keywords: ["maintenance", "review", "queue", "cleanup"] },
+  { id: "nav:duplicates", title: "Review Duplicates", group: "Navigate", kind: "navigate", href: "/maintenance/duplicates", icon: "⧉", keywords: ["duplicate", "merge", "same", "duplicates"] },
+  { id: "nav:evidence", title: "Review Evidence", group: "Navigate", kind: "navigate", href: "/maintenance/evidence", icon: "❡", keywords: ["evidence", "citations", "uncited", "sources"] },
+  { id: "nav:relationships-integrity", title: "Repair Relationships", group: "Navigate", kind: "navigate", href: "/maintenance/relationships", icon: "⌘", keywords: ["relationship", "integrity", "broken", "repair", "dangling"] },
+  { id: "nav:citations-integrity", title: "Review Citations", group: "Navigate", kind: "navigate", href: "/maintenance/citations", icon: "❞", keywords: ["citation", "integrity", "broken", "repair"] },
+  { id: "nav:archive-review", title: "Archive Candidates", group: "Navigate", kind: "navigate", href: "/maintenance/archive", icon: "⊟", keywords: ["archive", "candidates", "finished", "completed"] },
+  { id: "nav:merge-workspace", title: "Merge Records", group: "Navigate", kind: "navigate", href: "/maintenance/merge", icon: "⧈", keywords: ["merge", "records", "consolidate", "duplicate"] },
 ];
 
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */

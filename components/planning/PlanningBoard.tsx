@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore, setPlanningHorizon, removeFromPlanning, batchPlanningHorizon } from "@/lib/mvpStore";
+import PlanningMaintenanceHint from "@/components/maintenance/PlanningMaintenanceHint";
 import { makeEntityContext } from "@/lib/entities/entity";
 import { deriveBoard, boardCounts, type BoardFilter } from "@/lib/planning/board";
 import { resolveCardMeta } from "@/lib/planning/card-meta";
@@ -68,6 +69,8 @@ export default function PlanningBoard() {
           <button type="button" onClick={() => setMobile((v) => !v)} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">{mobile ? "Board" : "List"}</button>
         </div>
       </header>
+
+      <PlanningMaintenanceHint />
 
       {/* Filter row. */}
       <div className="mb-3 flex flex-wrap items-center gap-2">

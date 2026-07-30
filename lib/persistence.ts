@@ -101,6 +101,8 @@ function normalize(partial: Partial<StoreState> | null): StoreState {
     actionTemplates: partial?.actionTemplates ?? [],
     planningAssignments: partial?.planningAssignments ?? [],
     focusSessions: partial?.focusSessions ?? [],
+    maintenanceEvents: partial?.maintenanceEvents ?? [],
+    duplicateCandidates: partial?.duplicateCandidates ?? [],
   };
 }
 

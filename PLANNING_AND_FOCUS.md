@@ -247,3 +247,14 @@ productivity scores, streaks, or gamification. No analytics, collaboration,
 realtime presence. No auto-filling of empty plans, no auto-movement of cards,
 no auto-created actions. A horizon is never a deadline; a move never touches
 status, deadline, priority, or hierarchy.
+
+---
+
+## Addendum — maintenance on the board (LIFEOS-038)
+
+The planning board shows a compact **maintenance hint** (`PlanningMaintenanceHint`):
+the review-queue size, inactive-project count, and archive-candidate count, each
+linking into `/maintenance`. It is display-only — it **never moves a card, never
+changes a horizon, and never archives anything automatically**. Inactive
+projects and archive candidates are surfaced for a conscious decision, not acted
+on. See `KNOWLEDGE_MAINTENANCE.md`.
