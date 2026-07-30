@@ -244,3 +244,19 @@ existing product, not a new surface.
   never silently dropped), a focus session ended on one device but extended on
   the other (the ended state's history is kept), and the same capacity soft limit
   changed differently. See `PLANNING_AND_FOCUS.md`.
+
+- **Knowledge maintenance (LIFEOS-038).** Maintenance events and duplicate
+  decisions are first-class synced domains (migration `0029`), each using this
+  layer unchanged: row-level dirty-domain upsert/delete, deletes tombstoned under
+  `maintenanceEvents` / `duplicateCandidates`. `lib/maintenance/merge-rules.ts`
+  adds three-way merge under one overriding rule: **never silently lose
+  maintenance history.** Append-only maintenance events always **union by id**
+  (time-sorted); dismissed and ignored-duplicate id lists **union** (set union);
+  repair and archive events are additive and always kept. Genuine divergence
+  raises a **conflict** — the same duplicate group decided differently (ignored
+  on one device, merged on the other; local kept until resolved), and archive vs
+  restore of the same record (resolved by latest `at`, flagged when the two
+  devices' latest decisions disagree, with BOTH events retained). Because archive
+  state is derived from the union of events, a merge-vs-delete or repair-vs-remove
+  race never loses the decision — the event survives and the projection reflects
+  it. See `KNOWLEDGE_MAINTENANCE.md`.

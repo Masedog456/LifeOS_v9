@@ -90,6 +90,7 @@ date, inferring no meaning. Sources:
 | Captures processed | `captures.processedAt` on the day (LIFEOS-035) |
 | Actions created / started / completed / deferred | `nextActions` createdAt / history events / `completedAt` on the day (LIFEOS-036) |
 | Focus sessions + logged interruptions | `focusSessions` (`startedAt`/`endedAt`, embedded `interruptions`) on the day (LIFEOS-037) |
+| Maintenance decisions (reviewed / archived / merged / citation repairs / resolved) | `maintenanceEvents` on the day (LIFEOS-038) — reported, never injected into Today |
 | Decisions created/updated | `decisions.createdAt` / `updatedAt` |
 | Beliefs revised | belief `revisions[].at` or `updatedAt` |
 | Entities inspected, searches performed | session `activity` events |

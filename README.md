@@ -155,6 +155,28 @@ per-user, and cross-device (migration `0028_planning_focus.sql`; deleting a
 record never cascades away its plan or focus). No AI, no scheduler, no
 auto-prioritization, no notifications, no scores. See `PLANNING_AND_FOCUS.md`.
 
+## Knowledge maintenance & integrity
+
+Knowledge decays over years — projects end, ideas duplicate, documents go out of
+date, references break. A **Knowledge Health** dashboard summarizes what might
+need maintenance as plain counts (orphan entities/documents/beliefs, uncited
+claims, duplicate candidates, archived items, unresolved items, inactive
+projects, stale research, broken references) — **counts, never a grade or
+score**. **Duplicate detection** finds exact-signal candidates (same title, URL,
+ISBN, DOI, or a shared alias) and lets you **merge** (with a preview that
+preserves history, citations, and backlinks and archives the rest — never
+deletes) or ignore; nothing merges automatically. **Relationship** and
+**citation integrity** report broken backlinks, dangling references, and
+duplicate/broken citations, with a real repair (remove a broken citation).
+**Evidence review** surfaces uncited beliefs and research without sources; an
+**archive review** proposes finished work to archive (reversible); a unified
+**review queue** gathers every candidate with manual dismiss/archive/resolve.
+Records expose **staleness** as a fact ("Last reviewed 9 months ago", never
+"Needs update"). Everything is deterministic, durable, per-user, and cross-device
+(migration `0029_knowledge_maintenance.sql`; deleting a record never loses its
+maintenance history). No AI, no embeddings, no automatic decisions, no scores —
+the system identifies candidates; you decide. See `KNOWLEDGE_MAINTENANCE.md`.
+
 ## Unified inspector & context
 
 LifeOS is navigable through ideas, not just menus. Any object — a belief,

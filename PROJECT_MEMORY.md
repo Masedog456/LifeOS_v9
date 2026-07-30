@@ -2368,3 +2368,61 @@ scope or order.
   automatic prioritization / scheduling / calendar integration / notifications /
   reminders / productivity scores / streaks / gamification / analytics /
   collaboration / realtime presence / automatic time estimation.
+- **LIFEOS-038 — Knowledge Maintenance & Integrity.** New `lib/maintenance/`
+  (integrity, duplicates, relationships, citations, evidence, archive, review,
+  dashboard, staleness, merge, history, merge-rules, preferences, search,
+  record, selftest) + `components/maintenance/` (KnowledgeHealth, DuplicateReview,
+  RelationshipIntegrity, EvidenceReview, MaintenanceQueue, CitationIntegrity,
+  ArchiveReview, MergeWorkspace, HealthInspector, PlanningMaintenanceHint) +
+  `/maintenance` routes (dashboard, review, duplicates, evidence, relationships,
+  citations, archive, merge). Deterministic maintenance tools that **identify
+  candidates; the user decides** — no AI, no embeddings, no automatic
+  classification/rewriting/merging/repair, no semantic search, no scores. Two
+  first-class records: **MaintenanceEvent** (append-only compact log — reviewed/
+  review_requested/archived/unarchived/merged/citation_added/citation_removed/
+  relationship_repaired/duplicate_ignored/maintenance_resolved/dismissed; generic
+  typed ref + optional related ref; NEVER deleted) and **DuplicateCandidate** (a
+  user DECISION on a deterministically-detected group, keyed by a STABLE
+  `hash(reason + sorted member keys)` so the same duplicate on two devices
+  resolves to ONE row). A single **`buildMaintenanceIndex`** pass drives every
+  projection (existence sets, citation/reference indexes, archive + last-reviewed
+  folded from events, decided-duplicate set) — O(records) with O(1) lookups.
+  **Knowledge Health** = 10 deterministic counts (orphan entities/documents/
+  beliefs, uncited claims, duplicate candidates, archived items, unresolved
+  maintenance, inactive projects, stale research, broken references), never a
+  score. **Duplicate detection** is exact-signal only (title / normalized title /
+  URL / ISBN / DOI / identifier / alias). **Relationship** (missing parents/
+  children, broken backlinks, dangling planning/focus/citation, orphan sessions,
+  invalid milestones) and **research** integrity are report-only. **Staleness**
+  states age as fact ("Last reviewed 9 months ago", never "Needs update").
+  **Citation integrity** offers a real repair (remove broken/duplicate citation).
+  **Archive** is reversible and deletes nothing; **merge** previews then preserves
+  history/citations/backlinks, keeps the primary's id, archives losers
+  (reversible), never destroys evidence. Archive state + last-reviewed are DERIVED
+  from the event log — no columns added to existing tables. Migration **0029**
+  `0029_knowledge_maintenance.sql` (two tables; **soft refs, no FK cascade**; RLS
+  4 policies/table); chain now **0001–0029**. Integrated into the inspector
+  (`HealthInspector`), command center (Open Knowledge Health / Review Queue /
+  Duplicates / Evidence / Relationships / Citations / Archive / Merge), daily
+  review (reports the day's maintenance decisions — never injects into Today),
+  search (needs-review/orphan/duplicate/archived/uncited/inactive/resolved filter
+  sets), and the planning board (a hint that only links, never moves a card).
+  Merge rules (`merge-rules.ts`) UNION events + dismissed/ignored ids (history
+  never lost) and raise conflicts on divergent duplicate decisions and
+  archive-vs-restore. Verified: `maintenance.mjs` E2E **27/27** (dashboard, review
+  duplicates, merge, ignore-persists, repair citation, archive+restore, review
+  queue + reason filter + dismiss-persists, merge workspace, evidence,
+  relationships, command center, inspector, daily review, planning hint, offline
+  persistence, mobile), `runMaintenanceSelfTests` **85/85**. Full deterministic
+  regression green across all 13 committed suites (command 39, entity 30,
+  execution 33, inbox 54, memory 54, reading 60, review 56, sync 45, ux 40,
+  workspace 35, action 62, planning 68, maintenance 85 = **661**). `tsc`=0,
+  `lint`=0, `build`=0 (clean rebuild). Performance (self-test §17, 20k beliefs /
+  4k docs / 10k citations / 3k concepts / 2k events): index build `<250ms`,
+  dashboard `<400ms`, duplicates `<300ms`, review queue `<500ms`. Migration 0029
+  validated on Postgres 16 (full chain `0001–0029` idempotent 3×; defaults;
+  orphan-safe soft refs; **RLS cross-user isolation** via a non-superuser role).
+  New doc `KNOWLEDGE_MAINTENANCE.md`; updated ARCHITECTURE / README /
+  PERSISTENCE_QA / SYNC_INTEGRITY / DAILY_REVIEW / PLANNING_AND_FOCUS /
+  NEXT_ACTIONS. Constraints: no AI / embeddings / automatic decisions / automatic
+  merges / automatic repairs / productivity scores / assistants / semantic search.

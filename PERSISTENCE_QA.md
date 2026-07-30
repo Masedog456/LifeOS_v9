@@ -872,3 +872,40 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   confirm the conflict surfaces (no duplicate assignment); (3) start focus + log
   an interruption on A and a different interruption on B, confirm both survive
   the union. See `PLANNING_AND_FOCUS.md`.
+
+## Knowledge maintenance & integrity (LIFEOS-038)
+
+- Two additive tables (migration `0029_knowledge_maintenance.sql`):
+  `maintenance_events` (append-only decision log — generic typed `ref_kind`/
+  `ref_id` + optional `related_kind`/`related_id`, `kind`, `detail`, `at`) and
+  `duplicate_candidates` (one decision per detected group; `members`/`history`
+  jsonb; `status` open|ignored|merged; **stable text `id`** = hash of reason +
+  sorted member keys). Review filters / dashboard layout / dismissed ids /
+  ignored-duplicate mirror are PREFERENCES in `user_prefs`, not here.
+- **Only decisions persist.** The dashboard, review queue, orphan/staleness/
+  citation/relationship reports, archive candidates, and merge previews are all
+  DERIVED at read time. Archive state and last-reviewed are folded from the
+  append-only event log — **no columns are added to any existing table.**
+- **Soft references, no destructive cascade:** every `ref`/`related`/duplicate
+  member is a plain value **without a foreign key**, so deleting any record never
+  cascades away its maintenance history, and an orphaned reference degrades
+  gracefully (projections are orphan-safe; the review queue surfaces the orphan).
+  Deletes are tombstone-compatible with the LIFEOS-033 layer.
+- **The same duplicate never duplicates:** the stable `duplicate_candidates.id`
+  means the same group detected on two devices resolves to exactly one row.
+- Validated on Postgres 16: full chain `0001–0029` applies **idempotently 3×**;
+  a bare insert defaults `duplicate_candidates.status`=`open` / `members`=`[]`
+  and `maintenance_events.at`=`now()`; soft refs to non-existent records are
+  accepted (orphan-safe); **RLS isolates users** — a non-superuser role with
+  `auth.uid()`=user1 sees only user1's rows and cannot update user2's (4 policies
+  per table).
+- Performance (self-test §17, 20k beliefs / 4k docs / 10k citations / 3k
+  concepts / 2k events): index build **< 250 ms**, dashboard **< 400 ms**,
+  duplicate detection **< 300 ms**, review queue **< 500 ms** — one shared index,
+  O(records) with O(1) lookups.
+- **Manual production check (credential-pending):** signed in — (1) review + a
+  archive on device A, confirm the events + archive state appear on B after sync;
+  (2) offline on both, ignore a duplicate on A and merge the same group on B,
+  reconnect, confirm the conflict surfaces (no lost history, one row); (3) archive
+  on A and restore on B, reconnect, confirm both events survive and latest wins.
+  See `KNOWLEDGE_MAINTENANCE.md`.

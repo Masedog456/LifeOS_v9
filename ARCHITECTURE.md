@@ -1714,3 +1714,34 @@ resolves to one assignment; they never duplicate an assignment or lose focus
 history. It reuses the Today page, daily review, capture, reading, entity API,
 inspector, command center, and the LIFEOS-033 sync/tombstone layer — no new
 state manager. See `PLANNING_AND_FOCUS.md`.
+
+## Knowledge maintenance & integrity (LIFEOS-038)
+
+A deterministic maintenance layer lives in `lib/maintenance/` +
+`components/maintenance/`, with routes under `/maintenance`. It answers "what
+needs maintenance, what became stale, what is duplicated, what has lost its
+references, what evidence supports this, what should I archive?" — **the system
+identifies candidates; the user decides.** Everything is a pure projection over
+`StoreState`: no AI, no embeddings, no automatic classification/rewriting/
+merging/repair, no semantic search, no scores. A single indexed pass
+(`buildMaintenanceIndex`) builds existence sets, citation/reference indexes, and
+archive/review state folded from an append-only event log; every projection
+(Knowledge Health dashboard of 10 counts, duplicate candidates, relationship &
+citation integrity, evidence & research review, archive candidates, the unified
+review queue, staleness, merge preview) reuses it, so scans are O(records) with
+O(1) lookups. Only the user's DECISIONS persist — migration `0029` adds
+`maintenance_events` (append-only, generic typed ref + optional related ref;
+kinds: reviewed/archived/merged/citation ±/relationship_repaired/
+duplicate_ignored/resolved…) and `duplicate_candidates` (one decision per
+detected group, keyed by a STABLE hash of reason + sorted member keys, so the
+same duplicate on two devices resolves to one row). Archive state and
+last-reviewed are DERIVED from the event log — no columns added to existing
+tables. All references are **soft** (no FKs), so deleting any record never
+cascades away its maintenance history and orphaned references degrade
+gracefully. Merge preserves history/citations/backlinks, keeps the primary's id,
+archives losers reversibly, and never deletes or destroys evidence. Merge rules
+(`merge-rules.ts`) union events + dismissed/ignored ids (history never lost) and
+report conflicts on divergent duplicate decisions and archive-vs-restore. It
+reuses the entity API, inspector, command center, daily review, search, and the
+planning board, plus the LIFEOS-033 sync/tombstone layer — no new state manager.
+See `KNOWLEDGE_MAINTENANCE.md`.

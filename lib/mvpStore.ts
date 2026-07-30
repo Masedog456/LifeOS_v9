@@ -131,6 +131,9 @@ import type {
   FocusSession,
   FocusInterruption,
   InterruptionCategory,
+  MaintenanceEvent,
+  DuplicateCandidate,
+  DuplicateReason,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
 import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
@@ -173,6 +176,9 @@ import { nextOrderIn as nextOrderInHorizon } from "@/lib/planning/board";
 import { makeEvent as makePlanEvent, appendHistory as appendPlanHistory } from "@/lib/planning/history";
 import { makeFocusSession, type NewFocusInput } from "@/lib/planning/focus";
 import { rememberPanels } from "@/lib/planning/memory";
+// Knowledge maintenance & integrity (LIFEOS-038).
+import { makeMaintenanceEvent, appendMaintenanceHistory } from "@/lib/maintenance/history";
+import { rememberIgnoredDuplicate } from "@/lib/maintenance/preferences";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
@@ -214,6 +220,8 @@ const EMPTY_STATE: StoreState = {
   actionTemplates: [],
   planningAssignments: [],
   focusSessions: [],
+  maintenanceEvents: [],
+  duplicateCandidates: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -554,6 +562,12 @@ export function hydrate() {
           interruptions: asArray<FocusInterruption>(f?.interruptions),
           history: asArray<PlanningHistoryEvent>(f?.history),
         })),
+        maintenanceEvents: asArray<MaintenanceEvent>(parsed.maintenanceEvents),
+        duplicateCandidates: asArray<DuplicateCandidate>(parsed.duplicateCandidates).map((d) => ({
+          ...d,
+          members: asArray<RefLite>(d?.members),
+          history: asArray<MaintenanceEvent>(d?.history),
+        })),
       };
       // Deferred captures whose local date has arrived return to the inbox
       // (LIFEOS-035, Feature 9) — deterministic, no background workers.
@@ -621,6 +635,7 @@ export function resetStore() {
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
     workspaces: [], sessions: [], goals: [], projects: [],
     nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [],
+    maintenanceEvents: [], duplicateCandidates: [],
   });
 }
 
@@ -4389,4 +4404,110 @@ export function resolveInterruption(focusId: string, interruptionId: string, res
   setState({ ...state, focusSessions: (state.focusSessions ?? []).map((f) => (f.id === focusId
     ? { ...f, interruptions: f.interruptions.map((i) => (i.id === interruptionId ? { ...i, resolved } : i)) }
     : f)) });
+}
+
+// ---- Knowledge maintenance & integrity (LIFEOS-038) ----
+
+/**
+ * Append a maintenance event to the durable log (Feature 16). Deduplicated
+ * within one second. This is the single writer for every conscious maintenance
+ * decision; history is append-only and never removed.
+ */
+function pushMaintenanceEvent(kind: MaintenanceEvent["kind"], ref: RefLite, opts: { relatedRef?: RefLite; detail?: string } = {}): MaintenanceEvent {
+  const at = now();
+  const event = makeMaintenanceEvent({ id: id(), at, kind, ref, relatedRef: opts.relatedRef, detail: opts.detail });
+  setState({ ...state, maintenanceEvents: appendMaintenanceHistory(state.maintenanceEvents ?? [], event) });
+  return event;
+}
+
+/** Mark a record reviewed now (Feature 5/6). Records nothing else about it. */
+export function reviewRecord(ref: RefLite, detail?: string): void { pushMaintenanceEvent("reviewed", ref, { detail }); }
+
+/** Flag a record for later review (Feature 5). */
+export function requestReview(ref: RefLite, detail?: string): void { pushMaintenanceEvent("review_requested", ref, { detail }); }
+
+/** Archive a record (Feature 7) — reversible, additive; nothing is deleted. */
+export function archiveRecord(ref: RefLite, detail?: string): void { pushMaintenanceEvent("archived", ref, { detail }); }
+
+/** Un-archive a record (restore). */
+export function unarchiveRecord(ref: RefLite): void { pushMaintenanceEvent("unarchived", ref); }
+
+/** Mark a review item / integrity issue resolved (Feature 5). */
+export function resolveMaintenance(ref: RefLite, detail?: string): void { pushMaintenanceEvent("maintenance_resolved", ref, { detail }); }
+
+/** Record a manual relationship repair (Feature 3/9) — the user chose to fix it. */
+export function repairRelationship(ref: RefLite, relatedRef?: RefLite, detail?: string): void { pushMaintenanceEvent("relationship_repaired", ref, { relatedRef, detail }); }
+
+/**
+ * Ignore a duplicate candidate (Feature 2). Persists the decision as a durable
+ * DuplicateCandidate record (status `ignored`, keyed by its stable id) so sync
+ * never re-surfaces it, plus a mirror in prefs for fast suppression. Never merges.
+ */
+export function ignoreDuplicate(candidate: { id: string; reason: DuplicateReason; kind: string; members: RefLite[]; key: string }): void {
+  const at = now();
+  const event = makeMaintenanceEvent({ id: id(), at, kind: "duplicate_ignored", ref: candidate.members[0], detail: candidate.key });
+  const existing = (state.duplicateCandidates ?? []).find((d) => d.id === candidate.id);
+  const record: DuplicateCandidate = existing
+    ? { ...existing, status: "ignored", updatedAt: at, history: appendMaintenanceHistory(existing.history, event) }
+    : { id: candidate.id, reason: candidate.reason, kind: candidate.kind, members: candidate.members, key: candidate.key, status: "ignored", createdAt: at, updatedAt: at, history: [event] };
+  setState({
+    ...state,
+    duplicateCandidates: existing ? (state.duplicateCandidates ?? []).map((d) => (d.id === candidate.id ? record : d)) : [...(state.duplicateCandidates ?? []), record],
+    maintenanceEvents: appendMaintenanceHistory(state.maintenanceEvents ?? [], event),
+  });
+  try { rememberIgnoredDuplicate(candidate.id); } catch { /* prefs optional */ }
+}
+
+/**
+ * Merge duplicate records into a chosen primary (Feature 8). PRESERVES evidence:
+ * citations owned by losers are re-pointed to the primary (never dropped), each
+ * loser is ARCHIVED (reversible, not deleted), and a `merged` event links each
+ * loser to the primary. Records the duplicate decision as `merged`. Never deletes.
+ */
+export function mergeRecords(primary: RefLite, losers: RefLite[], candidate?: { id: string; reason: DuplicateReason; kind: string; members: RefLite[]; key: string }): void {
+  const at = now();
+  const cleanLosers = losers.filter((l) => `${l.kind}:${l.id}` !== `${primary.kind}:${primary.id}`);
+  if (cleanLosers.length === 0) return;
+
+  // Re-point citations owned by any loser to the primary (preserve evidence).
+  const loserKeys = new Set(cleanLosers.map((l) => `${l.kind}:${l.id}`));
+  const citations = (state.citations ?? []).map((c) =>
+    loserKeys.has(`${c.recordKind}:${c.recordId}`) ? { ...c, recordKind: primary.kind, recordId: primary.id } : c);
+
+  // One merged event per loser + archive each loser (reversible).
+  let events = state.maintenanceEvents ?? [];
+  for (const l of cleanLosers) {
+    events = appendMaintenanceHistory(events, makeMaintenanceEvent({ id: id(), at, kind: "merged", ref: l, relatedRef: primary, detail: candidate?.key }));
+    events = appendMaintenanceHistory(events, makeMaintenanceEvent({ id: id(), at, kind: "archived", ref: l, detail: "merged" }));
+  }
+
+  // Persist the duplicate decision as merged, if a candidate was supplied.
+  let duplicateCandidates = state.duplicateCandidates ?? [];
+  if (candidate) {
+    const decisionEvent = makeMaintenanceEvent({ id: id(), at, kind: "merged", ref: primary, detail: candidate.key });
+    const existing = duplicateCandidates.find((d) => d.id === candidate.id);
+    const record: DuplicateCandidate = existing
+      ? { ...existing, status: "merged", updatedAt: at, history: appendMaintenanceHistory(existing.history, decisionEvent) }
+      : { id: candidate.id, reason: candidate.reason, kind: candidate.kind, members: candidate.members, key: candidate.key, status: "merged", createdAt: at, updatedAt: at, history: [decisionEvent] };
+    duplicateCandidates = existing ? duplicateCandidates.map((d) => (d.id === candidate.id ? record : d)) : [...duplicateCandidates, record];
+  }
+
+  setState({ ...state, citations, maintenanceEvents: events, duplicateCandidates });
+}
+
+/** Remove a broken/duplicate citation (Feature 9 repair). Records `citation_removed`. */
+export function removeCitation(citationId: string): void {
+  const c = (state.citations ?? []).find((x) => x.id === citationId);
+  if (!c) return;
+  const event = makeMaintenanceEvent({ id: id(), at: now(), kind: "citation_removed", ref: { kind: c.recordKind, id: c.recordId }, relatedRef: { kind: "document", id: c.documentId }, detail: citationId });
+  setState({
+    ...state,
+    citations: (state.citations ?? []).filter((x) => x.id !== citationId),
+    maintenanceEvents: appendMaintenanceHistory(state.maintenanceEvents ?? [], event),
+  });
+}
+
+/** Record that a citation was added to a record (the citation itself is created in the reader). */
+export function recordCitationAdded(ref: RefLite, documentId: string, citationId?: string): void {
+  pushMaintenanceEvent("citation_added", ref, { relatedRef: { kind: "document", id: documentId }, detail: citationId });
 }

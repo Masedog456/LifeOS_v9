@@ -55,6 +55,8 @@ import type {
   ActionTemplate,
   PlanningAssignment,
   FocusSession,
+  MaintenanceEvent,
+  DuplicateCandidate,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -160,6 +162,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const dailyReviews = await this.loadDailyReviews();
     const actions = await this.loadActions();
     const planning = await this.loadPlanning();
+    // Knowledge maintenance (LIFEOS-038): resilient to the 0029 tables being absent.
+    const maintenance = await this.loadMaintenance();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -208,6 +212,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       actionTemplates: actions.actionTemplates,
       planningAssignments: planning.planningAssignments,
       focusSessions: planning.focusSessions,
+      maintenanceEvents: maintenance.maintenanceEvents,
+      duplicateCandidates: maintenance.duplicateCandidates,
     };
   }
 
@@ -325,6 +331,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // ---- Planning & focus (LIFEOS-037): row-level upsert/delete ----
     if (w("planningAssignments")) await this.syncPlanningAssignments(state.planningAssignments ?? [], base?.planningAssignments ?? []);
     if (w("focusSessions")) await this.syncFocusSessions(state.focusSessions ?? [], base?.focusSessions ?? []);
+    if (w("maintenanceEvents")) await this.syncMaintenanceEvents(state.maintenanceEvents ?? [], base?.maintenanceEvents ?? []);
+    if (w("duplicateCandidates")) await this.syncDuplicateCandidates(state.duplicateCandidates ?? [], base?.duplicateCandidates ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -479,6 +487,37 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const d = diffById<FocusSessionRow>(current.map(focusToRow), base.map(focusToRow));
     if (d.upsert.length) await this.throwing(this.client.from("focus_sessions").upsert(d.upsert));
     if (d.deleteIds.length) { await this.throwing(this.client.from("focus_sessions").delete().in("id", d.deleteIds)); await this.writeTombstones("focusSessions", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for maintenance events (LIFEOS-038, append-only). */
+  private async syncMaintenanceEvents(current: MaintenanceEvent[], base: MaintenanceEvent[]): Promise<void> {
+    const d = diffById<MaintenanceEventRow>(current.map(maintenanceEventToRow), base.map(maintenanceEventToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("maintenance_events").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("maintenance_events").delete().in("id", d.deleteIds)); await this.writeTombstones("maintenanceEvents", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for duplicate-candidate decisions (LIFEOS-038). */
+  private async syncDuplicateCandidates(current: DuplicateCandidate[], base: DuplicateCandidate[]): Promise<void> {
+    const d = diffById<DuplicateCandidateRow>(current.map(duplicateToRow), base.map(duplicateToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("duplicate_candidates").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("duplicate_candidates").delete().in("id", d.deleteIds)); await this.writeTombstones("duplicateCandidates", d.deleteIds); }
+  }
+
+  /** Load maintenance events + duplicate decisions, resilient to the 0029 tables being absent. */
+  private async loadMaintenance(): Promise<{ maintenanceEvents: MaintenanceEvent[]; duplicateCandidates: DuplicateCandidate[] }> {
+    try {
+      const [events, dups] = await Promise.all([
+        this.client.from("maintenance_events").select("*").order("at", { ascending: true }),
+        this.client.from("duplicate_candidates").select("*").order("updated_at", { ascending: false }),
+      ]);
+      if (events.error || dups.error) return { maintenanceEvents: [], duplicateCandidates: [] };
+      return {
+        maintenanceEvents: (events.data ?? []).map(rowToMaintenanceEvent),
+        duplicateCandidates: (dups.data ?? []).map(rowToDuplicate),
+      };
+    } catch {
+      return { maintenanceEvents: [], duplicateCandidates: [] };
+    }
   }
 
   /** Load daily reviews, resilient to the 0025 table being absent. */
@@ -1967,6 +2006,34 @@ function rowToFocus(r: any): FocusSession {
     panels: (r.panels && typeof r.panels === "object") ? r.panels : {},
     interruptions: Array.isArray(r.interruptions) ? r.interruptions : [],
     history: Array.isArray(r.history) ? r.history : [],
+  };
+}
+
+interface MaintenanceEventRow {
+  id: string; user_id?: string; kind: string; ref_kind: string; ref_id: string;
+  related_kind: string | null; related_id: string | null; detail: string | null; at: string;
+}
+function maintenanceEventToRow(e: MaintenanceEvent): MaintenanceEventRow {
+  return { id: e.id, kind: e.kind, ref_kind: e.ref.kind, ref_id: e.ref.id, related_kind: e.relatedRef?.kind ?? null, related_id: e.relatedRef?.id ?? null, detail: e.detail ?? null, at: e.at };
+}
+function rowToMaintenanceEvent(r: any): MaintenanceEvent {
+  const e: MaintenanceEvent = { id: r.id, at: r.at, kind: r.kind, ref: { kind: r.ref_kind, id: r.ref_id } };
+  if (r.related_kind && r.related_id) e.relatedRef = { kind: r.related_kind, id: r.related_id };
+  if (r.detail) e.detail = r.detail;
+  return e;
+}
+interface DuplicateCandidateRow {
+  id: string; user_id?: string; reason: string; kind: string; members: unknown; dup_key: string;
+  status: string; history: unknown; created_at: string; updated_at: string;
+}
+function duplicateToRow(d: DuplicateCandidate): DuplicateCandidateRow {
+  return { id: d.id, reason: d.reason, kind: d.kind, members: d.members, dup_key: d.key, status: d.status, history: d.history, created_at: d.createdAt, updated_at: d.updatedAt };
+}
+function rowToDuplicate(r: any): DuplicateCandidate {
+  return {
+    id: r.id, reason: r.reason, kind: r.kind, members: Array.isArray(r.members) ? r.members : [],
+    key: r.dup_key ?? "", status: (r.status ?? "open") as DuplicateCandidate["status"],
+    history: Array.isArray(r.history) ? r.history : [], createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 

@@ -82,6 +82,23 @@ export interface Prefs {
     capacityLimits?: Record<string, number>;
   };
   /**
+   * Knowledge-maintenance preferences (LIFEOS-038, Feature 17): review-queue
+   * filters, sort, dashboard layout, dismissed review-item ids, and a fast
+   * mirror of ignored duplicate ids. UI/decision memory only — the durable
+   * maintenance record (events, duplicate decisions) lives in the store.
+   * `dismissed` and `ignoredDuplicateIds` union across devices on sync.
+   */
+  maintenance?: {
+    view?: string;
+    sort?: string;
+    filter?: Record<string, unknown>;
+    layout?: Record<string, boolean>;
+    /** Review-queue item ids the user hid (derived items with no durable record). */
+    dismissed?: string[];
+    /** Fast mirror of duplicate-candidate ids the user chose to ignore. */
+    ignoredDuplicateIds?: string[];
+  };
+  /**
    * Unified inspector navigation memory (LIFEOS-029): the last-viewed entity,
    * the open tab, which sections are expanded, and the panel scroll position —
    * so the workspace resumes where the user left off across sessions.
