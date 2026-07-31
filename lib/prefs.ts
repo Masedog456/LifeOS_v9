@@ -156,6 +156,39 @@ export interface Prefs {
     commandOpened?: boolean;
     inspected?: boolean;
   };
+  /**
+   * Restrained UI preferences (LIFEOS-041, Feature 35). Bounded personalization
+   * that never alters domain content: density, inspector default, collapsed nav,
+   * reduced motion, content width, default insight range, default capture
+   * destination. Scalar fields; latest-write wins per the blob but differences
+   * are surfaced (mergeUiPreferences), never silently overridden.
+   */
+  ui?: {
+    density?: "compact" | "comfortable" | "spacious";
+    inspectorDefault?: "open" | "closed";
+    navCollapsed?: boolean;
+    reducedMotion?: boolean;
+    contentWidth?: "reading" | "standard" | "wide";
+    defaultInsightRange?: string;
+    defaultCaptureDestination?: string;
+  };
+  /**
+   * First-run onboarding v2 (LIFEOS-041, Feature 37). Versioned; completed +
+   * skipped steps UNION across devices unless a later explicit reset exists.
+   * Shape mirrors lib/onboarding/state.ts OnboardingState.
+   */
+  onboardingV2?: {
+    version: number;
+    status: "not-started" | "in-progress" | "completed" | "skipped";
+    completedSteps: string[];
+    skippedSteps: string[];
+    resetCounter: number;
+    currentStep?: string;
+    updatedAt: string;
+    sampleWorkspaceId?: string;
+  };
+  /** Dismissed contextual-education lesson ids (LIFEOS-041, Feature 11). Union across devices. */
+  education?: { dismissed?: string[] };
 }
 
 export function readPrefs(): Prefs {
@@ -203,12 +236,38 @@ export async function adoptRemotePrefs(): Promise<void> {
     if (!s.session) return;
     const { data } = await client.from("user_prefs").select("value").eq("key", "prefs").maybeSingle();
     if (data?.value && typeof data.value === "object") {
-      const merged = { ...(data.value as Prefs), ...readPrefs() };
+      const remote = data.value as Prefs;
+      const local = readPrefs();
+      // Most fields: local wins (this device's live state). But onboarding and
+      // dismissed-education must UNION across devices (LIFEOS-041 sync rules), so
+      // completing a step or dismissing a lesson on one device is never lost.
+      const merged: Prefs = { ...remote, ...local };
+      if (remote.onboardingV2 && local.onboardingV2) merged.onboardingV2 = mergeOnboardingBlocks(local.onboardingV2, remote.onboardingV2);
+      else merged.onboardingV2 = local.onboardingV2 ?? remote.onboardingV2;
+      const dl = local.education?.dismissed ?? [], dr = remote.education?.dismissed ?? [];
+      if (dl.length || dr.length) merged.education = { dismissed: [...new Set([...dl, ...dr])] };
       window.localStorage.setItem(PREFS_KEY, JSON.stringify(merged));
     }
   } catch {
     // Best-effort only.
   }
+}
+
+/**
+ * Union two onboarding blocks across devices (LIFEOS-041 sync rule). A later
+ * explicit reset (higher resetCounter) wins; same generation unions completed +
+ * skipped steps. Inlined here to avoid an import cycle with lib/onboarding.
+ */
+function mergeOnboardingBlocks(a: NonNullable<Prefs["onboardingV2"]>, b: NonNullable<Prefs["onboardingV2"]>): NonNullable<Prefs["onboardingV2"]> {
+  if (a.resetCounter !== b.resetCounter) return a.resetCounter > b.resetCounter ? a : b;
+  const uniq = (x: string[] = [], y: string[] = []) => [...new Set([...x, ...y])];
+  const completedSteps = uniq(a.completedSteps, b.completedSteps);
+  const skippedSteps = uniq(a.skippedSteps, b.skippedSteps).filter((s) => !completedSteps.includes(s));
+  const status = a.status === "completed" || b.status === "completed" ? "completed"
+    : completedSteps.length + skippedSteps.length > 0 ? "in-progress"
+    : a.status === "skipped" || b.status === "skipped" ? "skipped" : "not-started";
+  const latest = (a.updatedAt ?? "") >= (b.updatedAt ?? "") ? a : b;
+  return { ...latest, status, completedSteps, skippedSteps, resetCounter: a.resetCounter };
 }
 
 export function isOnboardingDone(): boolean {

@@ -230,3 +230,30 @@ exportable/restorable.
   scroll at 390px) in `security.mjs`.
 - **Diagnostics are shareable without fear** — the report is sanitized (masked
   email, redacted tokens, no record contents) and the page says so.
+
+## Product cohesion & polish (LIFEOS-041)
+
+- **One coherent product, quieter not louder.** Shared tokens, a restrained
+  semantic color model (no rainbow record-type colors, no red/green performance
+  coding), a typography hierarchy that never relies on weight alone, and canonical
+  shared components (EmptyState, LoadingState, StatusNotice) replace ad-hoc
+  variants. Ten written design principles trace to every major change.
+- **Empty, loading, and error states are canonical.** Every empty state explains
+  what's absent, why, and one next action (no jokes, no shame, no sales pitch).
+  Errors state what couldn't happen, whether data is safe, what to do, whether
+  retry helps, and where diagnostics live — reusing the security-safe reference.
+- **Confirmations are proportional (4 levels).** Reversible actions offer Undo;
+  destructive ones are never pre-focused and Enter doesn't confirm; permanent
+  account actions require a typed phrase. Reuses the LIFEOS-040 deletion registry.
+- **Onboarding & help are calm.** A skippable/resumable first-run that teaches
+  through use, an optional clearly-marked sample workspace removable in one
+  action, dismissible contextual education, and a route-aware Help Center with a
+  shortcut reference and glossary — no chat assistant, no forced tour, no confetti.
+- **Accessibility is enforced, not assumed.** Keyboard model with conflict
+  detection + text-entry suppression, landmarks/headings, safe focus (initial
+  focus never destructive), live-region announcements, and a target-size/naming
+  audit — WCAG 2.2 AA with documented exceptions. Verified keyboard-only
+  onboarding + no overflow at 320/390px.
+- **Restrained personalization only** (density, inspector default, collapsed nav,
+  reduced motion, content width, default insight range/capture destination) — no
+  themes marketplace, custom CSS, behavioral profiling, or engagement optimization.

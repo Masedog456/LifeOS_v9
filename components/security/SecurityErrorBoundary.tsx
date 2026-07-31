@@ -27,7 +27,6 @@ export default class SecurityErrorBoundary extends React.Component<Props, State>
     if (process.env.NODE_ENV !== "production") {
       // Redacted detail only, never the raw stack/payload.
       const safe = toSafeError(err, { isDev: true });
-      // eslint-disable-next-line no-console
       console.warn(`[${this.props.surface}] ${safe.reference} ${safe.category}: ${safe.devDetail ?? ""}`);
     }
   }
