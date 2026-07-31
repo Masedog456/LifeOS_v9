@@ -243,3 +243,14 @@ capture; it is **not scheduling** — no date, deadline, reminder, or automatic
 movement is created, and the capture's processing status is unchanged. A
 capture is only ever planned because the user picked a horizon. See
 `PLANNING_AND_FOCUS.md`.
+
+## Addendum — capture flow insights (LIFEOS-039)
+
+The LIFEOS-039 **Capture Flow** view (`/insights/captures`) reports, for a
+user-selected range, where captures went: the outcome distribution (still in
+inbox, converted to action, linked to project/knowledge, deferred, archived,
+discarded, restored, …) with counts and percentages, the **median processing
+delay**, the **oldest unprocessed capture**, and source distribution where
+explicitly stored. It is derived from existing capture history — no new capture
+fields, no new storage. It makes **no quality judgments** about captures. See
+`DETERMINISTIC_INSIGHTS.md`.

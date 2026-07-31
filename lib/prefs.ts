@@ -99,6 +99,21 @@ export interface Prefs {
     ignoredDuplicateIds?: string[];
   };
   /**
+   * Deterministic-insights preferences (LIFEOS-039, Feature 27): the last
+   * selected range (preset + custom keys), the active grouping, the dormancy
+   * threshold in days, and whether the metric-definitions drawer is open. UI
+   * memory only — saved views are durable records in the store.
+   */
+  insights?: {
+    rangeKind?: string;
+    customStart?: string;
+    customEnd?: string;
+    grouping?: string;
+    dormancyDays?: number;
+    /** Whether the definitions drawer is expanded. */
+    definitionsOpen?: boolean;
+  };
+  /**
    * Unified inspector navigation memory (LIFEOS-029): the last-viewed entity,
    * the open tab, which sections are expanded, and the panel scroll position —
    * so the workspace resumes where the user left off across sessions.

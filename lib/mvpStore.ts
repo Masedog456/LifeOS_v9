@@ -134,6 +134,7 @@ import type {
   MaintenanceEvent,
   DuplicateCandidate,
   DuplicateReason,
+  SavedInsightView,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
 import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
@@ -222,6 +223,7 @@ const EMPTY_STATE: StoreState = {
   focusSessions: [],
   maintenanceEvents: [],
   duplicateCandidates: [],
+  savedInsightViews: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -568,6 +570,7 @@ export function hydrate() {
           members: asArray<RefLite>(d?.members),
           history: asArray<MaintenanceEvent>(d?.history),
         })),
+        savedInsightViews: asArray<SavedInsightView>(parsed.savedInsightViews),
       };
       // Deferred captures whose local date has arrived return to the inbox
       // (LIFEOS-035, Feature 9) — deterministic, no background workers.
@@ -635,7 +638,7 @@ export function resetStore() {
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
     workspaces: [], sessions: [], goals: [], projects: [],
     nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [],
-    maintenanceEvents: [], duplicateCandidates: [],
+    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [],
   });
 }
 
@@ -4510,4 +4513,33 @@ export function removeCitation(citationId: string): void {
 /** Record that a citation was added to a record (the citation itself is created in the reader). */
 export function recordCitationAdded(ref: RefLite, documentId: string, citationId?: string): void {
   pushMaintenanceEvent("citation_added", ref, { relatedRef: { kind: "document", id: documentId }, detail: citationId });
+}
+
+// ---- Deterministic insights: saved views (LIFEOS-039, Feature 28) ----
+
+/**
+ * Save a new insight view (display intent only — insight + range + filters +
+ * grouping). NEVER stores calculated results, so a saved view can never show
+ * stale numbers. Returns the new id.
+ */
+export function saveInsightView(input: { name: string; insight: string; rangeKind: SavedInsightView["rangeKind"]; customStart?: string; customEnd?: string; grouping?: string; filters?: Record<string, unknown> }): string {
+  const at = now();
+  const view: SavedInsightView = {
+    id: id(), name: input.name.trim() || "Untitled view", insight: input.insight, rangeKind: input.rangeKind,
+    customStart: input.customStart, customEnd: input.customEnd, grouping: input.grouping, filters: input.filters ?? {},
+    createdAt: at, updatedAt: at,
+  };
+  setState({ ...state, savedInsightViews: [view, ...(state.savedInsightViews ?? [])] });
+  return view.id;
+}
+
+/** Update a saved view's display intent in place. */
+export function updateInsightView(viewId: string, patch: Partial<Omit<SavedInsightView, "id" | "createdAt">>): void {
+  const at = now();
+  setState({ ...state, savedInsightViews: (state.savedInsightViews ?? []).map((v) => (v.id === viewId ? { ...v, ...patch, updatedAt: at } : v)) });
+}
+
+/** Delete a saved view (tombstoned by the sync layer). */
+export function deleteInsightView(viewId: string): void {
+  setState({ ...state, savedInsightViews: (state.savedInsightViews ?? []).filter((v) => v.id !== viewId) });
 }

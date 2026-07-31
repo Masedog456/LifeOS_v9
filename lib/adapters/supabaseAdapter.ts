@@ -57,6 +57,7 @@ import type {
   FocusSession,
   MaintenanceEvent,
   DuplicateCandidate,
+  SavedInsightView,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -164,6 +165,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const planning = await this.loadPlanning();
     // Knowledge maintenance (LIFEOS-038): resilient to the 0029 tables being absent.
     const maintenance = await this.loadMaintenance();
+    // Insights saved views (LIFEOS-039): resilient to the 0030 table being absent.
+    const savedInsightViews = await this.loadInsightViews();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -214,6 +217,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       focusSessions: planning.focusSessions,
       maintenanceEvents: maintenance.maintenanceEvents,
       duplicateCandidates: maintenance.duplicateCandidates,
+      savedInsightViews,
     };
   }
 
@@ -333,6 +337,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("focusSessions")) await this.syncFocusSessions(state.focusSessions ?? [], base?.focusSessions ?? []);
     if (w("maintenanceEvents")) await this.syncMaintenanceEvents(state.maintenanceEvents ?? [], base?.maintenanceEvents ?? []);
     if (w("duplicateCandidates")) await this.syncDuplicateCandidates(state.duplicateCandidates ?? [], base?.duplicateCandidates ?? []);
+    if (w("savedInsightViews")) await this.syncInsightViews(state.savedInsightViews ?? [], base?.savedInsightViews ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -501,6 +506,24 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const d = diffById<DuplicateCandidateRow>(current.map(duplicateToRow), base.map(duplicateToRow));
     if (d.upsert.length) await this.throwing(this.client.from("duplicate_candidates").upsert(d.upsert));
     if (d.deleteIds.length) { await this.throwing(this.client.from("duplicate_candidates").delete().in("id", d.deleteIds)); await this.writeTombstones("duplicateCandidates", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for saved insight views (LIFEOS-039). */
+  private async syncInsightViews(current: SavedInsightView[], base: SavedInsightView[]): Promise<void> {
+    const d = diffById<SavedInsightViewRow>(current.map(insightViewToRow), base.map(insightViewToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("saved_insight_views").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("saved_insight_views").delete().in("id", d.deleteIds)); await this.writeTombstones("savedInsightViews", d.deleteIds); }
+  }
+
+  /** Load saved insight views, resilient to the 0030 table being absent. */
+  private async loadInsightViews(): Promise<SavedInsightView[]> {
+    try {
+      const res = await this.client.from("saved_insight_views").select("*").order("updated_at", { ascending: false });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToInsightView);
+    } catch {
+      return [];
+    }
   }
 
   /** Load maintenance events + duplicate decisions, resilient to the 0029 tables being absent. */
@@ -2034,6 +2057,21 @@ function rowToDuplicate(r: any): DuplicateCandidate {
     id: r.id, reason: r.reason, kind: r.kind, members: Array.isArray(r.members) ? r.members : [],
     key: r.dup_key ?? "", status: (r.status ?? "open") as DuplicateCandidate["status"],
     history: Array.isArray(r.history) ? r.history : [], createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+interface SavedInsightViewRow {
+  id: string; user_id?: string; name: string; insight: string; range_kind: string;
+  custom_start: string | null; custom_end: string | null; grouping: string | null;
+  filters: unknown; created_at: string; updated_at: string;
+}
+function insightViewToRow(v: SavedInsightView): SavedInsightViewRow {
+  return { id: v.id, name: v.name, insight: v.insight, range_kind: v.rangeKind, custom_start: v.customStart ?? null, custom_end: v.customEnd ?? null, grouping: v.grouping ?? null, filters: v.filters ?? {}, created_at: v.createdAt, updated_at: v.updatedAt };
+}
+function rowToInsightView(r: any): SavedInsightView {
+  return {
+    id: r.id, name: r.name ?? "", insight: r.insight ?? "home", rangeKind: (r.range_kind ?? "last_7_days") as SavedInsightView["rangeKind"],
+    customStart: r.custom_start ?? undefined, customEnd: r.custom_end ?? undefined, grouping: r.grouping ?? undefined,
+    filters: (r.filters && typeof r.filters === "object") ? r.filters : {}, createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 

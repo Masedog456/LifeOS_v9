@@ -239,3 +239,15 @@ Diagnostics never expose review content.
   Today integration, duplicate-date prevention, mobile, keyboard).
 - **Migration:** `0025` validated on Postgres 16 — idempotent 3×, four RLS
   policies, `unique(user_id, date)` enforced, cross-user isolation.
+
+## Addendum — insights day snapshot (LIFEOS-039)
+
+Daily Review may show a compact **factual day snapshot** (sessions, focus
+duration, completed actions, captures processed, records created, documents
+opened, interruptions, maintenance events) derived from the LIFEOS-039 activity
+index for the review's date, and it links to the full **Period Summary**
+(`/insights/period`). The snapshot reports counts and durations only — it
+generates **no praise, no criticism, no score, and no streak**. Missed days are
+never surfaced as failure; they are simply the absence of records. Insights read
+from the review; they never write to it or inject items into Today. See
+`DETERMINISTIC_INSIGHTS.md`.

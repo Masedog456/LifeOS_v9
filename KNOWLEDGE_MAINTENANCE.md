@@ -204,3 +204,17 @@ No AI, LLMs, agents, embeddings, or semantic search. No automatic
 classification, rewriting, merging, or repair. No automatic decisions of any
 kind. No credibility or productivity scores, no grades, no "needs update"
 verdicts. No assistants. Age is a fact, not a judgment; the user always decides.
+
+---
+
+## Addendum — knowledge activity insights (LIFEOS-039)
+
+The LIFEOS-039 **Knowledge Activity** view (`/insights/knowledge`) reports, for a
+user-selected range, entities/beliefs created, beliefs reviewed, citations and
+relationships added, research records touched, maintenance events, merged and
+archived records, and the **most-referenced records by raw backlink count**. The
+backlink count is labeled as a raw count; a frequently-referenced record is
+**never** called "important." Like the maintenance layer it reports facts and
+lets the user decide — it is a pure projection over existing histories (including
+the `maintenanceEvents` this layer records), adds no new storage, and computes no
+score. See `DETERMINISTIC_INSIGHTS.md`.

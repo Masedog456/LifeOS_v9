@@ -1745,3 +1745,38 @@ report conflicts on divergent duplicate decisions and archive-vs-restore. It
 reuses the entity API, inspector, command center, daily review, search, and the
 planning board, plus the LIFEOS-033 sync/tombstone layer — no new state manager.
 See `KNOWLEDGE_MAINTENANCE.md`.
+
+## Deterministic system insights (LIFEOS-039)
+
+A descriptive analytics layer lives in `lib/insights/` + `components/insights/`,
+with routes under `/insights`. It answers "what received attention, what
+changed, what was completed, what remained open, where did captures flow, what
+knowledge was revisited, what has not been touched?" — **the system reports what
+happened; it does not judge whether it was good, productive, or important.**
+Everything is a pure projection over `StoreState` for a user-selected date
+range: no AI, no embeddings, no semantic interpretation, no recommendations, no
+predictions, no productivity/health scores, no streaks, no gamification. The
+architectural core is a single **range-bounded activity index**
+(`buildActivityIndex`) that flattens every existing compact history — sessions,
+focus, action/planning/capture histories, reading/citation events, belief/
+concept/research touches, daily reviews, maintenance events — into one
+time-sorted `ActivityEvent[]`, memoized once per store snapshot in
+`useInsights()`; `eventsInRange` binary-searches a slice so every view
+(Insights Home, Attention, Project/Goal activity, Action/Capture flow, Reading/
+Knowledge/Review/Focus activity, Change Log, Period Summary, Compare Periods,
+Dormancy, Contribution Map) reuses the same array instead of re-scanning domain
+arrays. On ~35k events the index builds in ~85 ms and every card renders in
+tens of ms. The time-range model (`range.ts`) uses canonical local-date
+semantics with deterministic `[start, next-day-start)` inclusivity, DST-safe day
+boundaries, and a `previousRange` for comparisons. Language is constrained and
+test-enforced: comparisons say "12 sessions, previously 9" (never improved/
+declined/better/worse/ahead/behind); dormancy says "no recorded activity in 90
+days" (never abandoned/stale/neglected); frequently-referenced records are
+"referenced N times" (never important). No new event storage: migration `0030`
+adds only `saved_insight_views` (display intent — insight + range + filters +
+grouping; NEVER calculated results), RLS-protected, idempotent, tombstone- and
+sync-compatible, with merge rules that union independent views and surface
+edit/delete conflicts without duplicating ids or touching source records. It
+reuses the entity API, inspector, command center, search, daily review,
+planning board, and the sync/tombstone layer — no new state manager. See
+`DETERMINISTIC_INSIGHTS.md`.

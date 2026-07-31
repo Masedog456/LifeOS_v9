@@ -260,3 +260,17 @@ existing product, not a new surface.
   state is derived from the union of events, a merge-vs-delete or repair-vs-remove
   race never loses the decision — the event survives and the projection reflects
   it. See `KNOWLEDGE_MAINTENANCE.md`.
+- **Deterministic insights (LIFEOS-039).** Saved insight views are a first-class
+  synced domain (migration `0030`), using this layer unchanged: row-level
+  dirty-domain upsert/delete, deletes tombstoned under `savedInsightViews`.
+  `lib/insights/merge-rules.ts` adds three-way merge with two guarantees: **the
+  same saved-view id is never duplicated**, and **an insights merge never alters
+  source activity records.** Views created independently on different devices
+  **union by id**; a one-sided edit (only local or only remote changed from base)
+  auto-merges. Genuine divergence raises a **conflict** — the same view edited
+  differently on both sides (kept local until resolved), a view deleted on one
+  side and edited on the other (the edit is kept and flagged), or custom range /
+  grouping changed differently. An unchanged-vs-deleted view honors the delete.
+  Because a saved view stores only display intent (range + filters + grouping,
+  never a computed result), a merge can never surface stale numbers — the winning
+  intent simply recomputes. See `DETERMINISTIC_INSIGHTS.md`.
