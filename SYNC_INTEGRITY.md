@@ -274,3 +274,16 @@ existing product, not a new surface.
   Because a saved view stores only display intent (range + filters + grouping,
   never a computed result), a merge can never surface stale numbers — the winning
   intent simply recomputes. See `DETERMINISTIC_INSIGHTS.md`.
+- **Security hardening (LIFEOS-040).** Sync safety is gated by
+  `lib/security/schema-compatibility.ts`: it compares local/expected/remote
+  versions and **fails closed** — server ahead → read-only (writes local, sync
+  paused); local older → upgrade before writing; local newer/unknown → read +
+  export only. **Destructive synchronization never proceeds under unknown schema
+  compatibility.** Export discloses pending local mutations; import always
+  previews and a destructive restore requires explicit confirmation; sign-out
+  invalidates protected writes and is broadcast across tabs (`multi-tab.ts`);
+  account deletion **freezes** new mutations; tombstones are never silently
+  resurrected; failed operations remain diagnosable (sanitized) and private
+  payloads never enter logs. The four retention tables (migration `0031`) sync
+  through the existing layer where applicable and cascade only from the owning
+  user. See `SECURITY_AND_PRIVACY.md`.

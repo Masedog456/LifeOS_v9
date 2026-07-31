@@ -218,3 +218,14 @@ backlink count is labeled as a raw count; a frequently-referenced record is
 lets the user decide — it is a pure projection over existing histories (including
 the `maintenanceEvents` this layer records), adds no new storage, and computes no
 score. See `DETERMINISTIC_INSIGHTS.md`.
+
+## Addendum — security & export (LIFEOS-040)
+
+This subsystem's records are covered by the LIFEOS-040 hardening: they sit behind
+Postgres **RLS** (audited so a new table can't ship without it), are included in
+the complete **account export** (deterministic JSON with checksums, no secrets),
+are restorable via the previewed, non-destructive **import/restore** flow, and
+appear in the **Recovery Center** where they support discard/archive. Inputs are
+size-limited and plain-text-first; external links are protocol-allowlisted;
+diagnostics and errors never carry this subsystem's contents. See
+`SECURITY_AND_PRIVACY.md` and `BACKUP_AND_RECOVERY.md`.

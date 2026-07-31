@@ -2473,3 +2473,43 @@ scope or order.
   coaching / predictions / forecasts / productivity or health scores / streaks /
   gamification / leaderboards / social comparison / notifications / surveillance.
   "Insights describe recorded activity. They do not judge the person living it."
+- **LIFEOS-040 — Security, Privacy & Production Hardening.** New `lib/security/`
+  (threat-model, auth-boundaries, authorization-audit, input-limits, safe-url,
+  redaction, errors, headers, schema-compatibility, storage-resilience, multi-tab,
+  health, dev-routes, diagnostics, selftest), `lib/backup/` (versioning, manifest,
+  export, verify, import-preview, restore, recovery, selftest), `lib/privacy/`
+  (data-map, deletion, retention, permissions) + `components/security|backup|privacy`
+  + routes `/security` `/backup` `/recovery` `/privacy` `/privacy/delete` +
+  `middleware.ts` (headers/CSP) + `scripts/` (audit-rls, scan-secrets, audit-routes,
+  audit-deps). **No product features, no new state manager, no AI.** Authorization is
+  Postgres **RLS** (never app filtering); `authorization-audit.ts` + `npm run
+  audit:rls` fail when any user-owned table lacks policies (**54 tables / 31
+  migrations** verified). Input safety: the single `dangerouslySetInnerHTML` sink
+  (`renderMarkdownInline`) now escapes quotes and routes links through `safeHref`
+  (closes an attribute-injection hole); `input-limits.ts` bounds size/JSON depth;
+  `safe-url.ts` protocol-allowlists. `redaction.ts` = allowlist-only diagnostics
+  (no content/secrets); `errors.ts` SafeError (no stacks) behind
+  `SecurityErrorBoundary`. `schema-compatibility.ts` fails **closed** to read/export.
+  `headers.ts` strong CSP (no `unsafe-eval`; documented framework `unsafe-inline`
+  exception) applied by middleware, validated by self-test, **0 CSP console
+  violations** while hydrating. `/dev` production-gated (404 without
+  `LIFEOS_ENABLE_DEV_ROUTES=1`). Backup: deterministic account export (manifest +
+  FNV-1a checksums, no secrets), verification, import preview/dry-run, transactional
+  restore + rollback, Recovery Center. Privacy: data map, deletion-semantics
+  registry, honest account-deletion state machine (`DELETE MY ACCOUNT` phrase +
+  freeze), retention disclosures. Security-patched **next 16.2.10→16.2.12**; 3
+  residual transitive highs (postcss/sharp) are documented, allowlisted exceptions
+  outside the runtime attack surface. Migration **0031** adds 4 RLS retention tables
+  (sanitized_error_events, export_history, import_history, account_deletion_requests)
+  — never record contents; chain now **0001–0031**. Verified: security selftest
+  **94/94**, backup **38/38**, `security.mjs` E2E **34/34**, full regression
+  **890/890** (16 suites — no prior test weakened), `tsc`/`lint`/`build` 0, chain
+  0001–0031 idempotent 3× with non-superuser RLS isolation, all four audit scripts
+  pass. New docs SECURITY_AND_PRIVACY / THREAT_MODEL / BACKUP_AND_RECOVERY /
+  PRODUCTION_OPERATIONS / INCIDENT_RESPONSE; updated ARCHITECTURE / README /
+  PERSISTENCE_QA / UX_AUDIT / SYNC_INTEGRITY / DETERMINISTIC_INSIGHTS /
+  KNOWLEDGE_MAINTENANCE / PLANNING_AND_FOCUS / NEXT_ACTIONS / CAPTURE_PROCESSING /
+  DAILY_REVIEW. Constraints: no AI / content logging / keystroke logging / custom
+  crypto / e2e-encryption claims / silent destructive repair / hidden telemetry.
+  "Security protects the user's life record. It must not become another way to
+  observe the user."

@@ -208,3 +208,25 @@ exportable/restorable.
   behavior.
 - Verified keyboard-reachable and mobile-friendly (single column, no horizontal
   scroll at 390px) by `insights.mjs` (33/33).
+
+## Security, privacy & recovery flows (LIFEOS-040)
+
+- **Honest, non-coercive copy everywhere.** Deletion dialogs use a
+  deletion-semantics registry so "Archive" never means delete, "Discard" exposes
+  restoration, and "Delete permanently" states irreversibility. Account deletion
+  discloses tombstone + backup retention and never implies instant erasure; the
+  flow offers **export first** and has no coercive retention language.
+- **Nothing destructive happens silently.** Restores preview every change and
+  require explicit confirmation to overwrite; the Recovery Center previews impact
+  and never auto-repairs ambiguous state; corrupt content is quarantined, not
+  discarded.
+- **Errors never leak or dead-end.** `SecurityErrorBoundary` shows a concise
+  message, a quotable reference id, a retry, safe navigation, and an export path —
+  never a stack or payload.
+- **Critical flows are accessible (Feature 30).** Export, import, restore, and
+  account deletion are keyboard-operable with visible focus, labelled controls,
+  `role="alert"`/`role="status"` announcements, and no color-only meaning;
+  verified keyboard-activated export and mobile Recovery Center (no horizontal
+  scroll at 390px) in `security.mjs`.
+- **Diagnostics are shareable without fear** — the report is sanitized (masked
+  email, redacted tokens, no record contents) and the page says so.

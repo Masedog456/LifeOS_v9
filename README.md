@@ -400,3 +400,22 @@ overwrites your own conclusions.
 
 All of the above are provisional drafts pending final Product Owner
 sign-off (see the notice at the top of each file).
+
+## Security, privacy & your data
+
+LifeOS is built to be trusted with years of personal knowledge. Access is
+isolated by Postgres **Row Level Security** on every table (audited so a new
+table can't ship without it). You can **export everything** you own as a
+deterministic JSON archive (with checksums, no secrets), **verify** it, and
+**restore** it with a preview and dry-run — destructive restores always ask
+first, and nothing is silently overwritten. A **Recovery Center** surfaces
+discarded, archived, and conflicting items with a preview of impact. A
+**Diagnostics** page shows a fully sanitized status report (no record contents,
+no tokens) you can copy or download. A **Privacy Center** explains, in plain
+language, what's stored and where (local-first, optionally synced to your own
+Supabase), and account **deletion** is staged and honest — it never pretends to
+erase instantly what backups may briefly retain. Inputs are size-limited and
+plain-text-first; external links are protocol-allowlisted; errors never leak
+stacks or secrets; and a strong Content-Security-Policy (no `unsafe-eval`) ships
+on every response. No AI, no content logging, no hidden telemetry. See
+`SECURITY_AND_PRIVACY.md`.

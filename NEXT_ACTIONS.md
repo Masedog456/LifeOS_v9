@@ -275,3 +275,14 @@ deferred / completed / cancelled / restored, plus the transitions that occurred
 in the period, derived entirely from existing action history. It **does not**
 compute a velocity score and **does not** imply that more completions are always
 better — it reports the flow, nothing more. See `DETERMINISTIC_INSIGHTS.md`.
+
+## Addendum — security & export (LIFEOS-040)
+
+This subsystem's records are covered by the LIFEOS-040 hardening: they sit behind
+Postgres **RLS** (audited so a new table can't ship without it), are included in
+the complete **account export** (deterministic JSON with checksums, no secrets),
+are restorable via the previewed, non-destructive **import/restore** flow, and
+appear in the **Recovery Center** where they support discard/archive. Inputs are
+size-limited and plain-text-first; external links are protocol-allowlisted;
+diagnostics and errors never carry this subsystem's contents. See
+`SECURITY_AND_PRIVACY.md` and `BACKUP_AND_RECOVERY.md`.

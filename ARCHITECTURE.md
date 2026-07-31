@@ -1780,3 +1780,32 @@ edit/delete conflicts without duplicating ids or touching source records. It
 reuses the entity API, inspector, command center, search, daily review,
 planning board, and the sync/tombstone layer — no new state manager. See
 `DETERMINISTIC_INSIGHTS.md`.
+
+## Security, privacy & production hardening (LIFEOS-040)
+
+A hardening layer lives in `lib/security/`, `lib/backup/`, `lib/privacy/` +
+`components/security|backup|privacy/`, with routes `/security` (diagnostics),
+`/backup`, `/recovery`, `/privacy`, `/privacy/delete`, and `middleware.ts` for
+headers/CSP. It adds no product features and no new state manager — it protects
+the system and the data. Authorization is Postgres **RLS** (never app
+filtering); a machine-readable registry (`authorization-audit.ts`) + `npm run
+audit:rls` fail when any user-owned table lacks its policies (54 tables across 31
+migrations verified). The single HTML sink is escape-first + URL-allowlisted;
+`safe-url.ts` centralizes a strict protocol allowlist; `input-limits.ts` bounds
+sizes/JSON depth; `redaction.ts` enforces an allowlist for diagnostics (no
+content, no secrets); `errors.ts` shapes SafeErrors (no stacks) behind
+`SecurityErrorBoundary`; `schema-compatibility.ts` fails **closed** to
+read/export when versions are incompatible (destructive sync never runs under
+unknown compatibility); `storage-resilience.ts` quarantines corrupt content
+instead of discarding it; `multi-tab.ts` coordinates sign-out and advisory
+import/export locks; `headers.ts` sets a strong CSP (no `unsafe-eval`;
+documented framework `unsafe-inline` exception) validated by a self-test; `/dev`
+is production-gated (404 without `LIFEOS_ENABLE_DEV_ROUTES=1`). Backup adds a
+deterministic account export (manifest + checksums, no secrets), verification,
+import-preview/dry-run, transactional restore with rollback, and a Recovery
+Center. Privacy adds a data map, a deletion-semantics registry, an honest
+account-deletion state machine, and retention disclosures. Migration **0031**
+adds only four RLS-protected retention tables (error events, export/import
+history, deletion requests) — never record contents; chain now **0001–0031**.
+See `SECURITY_AND_PRIVACY.md`, `THREAT_MODEL.md`, `BACKUP_AND_RECOVERY.md`,
+`PRODUCTION_OPERATIONS.md`, `INCIDENT_RESPONSE.md`.

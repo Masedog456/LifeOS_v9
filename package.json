@@ -9,11 +9,16 @@
     "prebuild": "npm run copy-pdf-worker",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "audit:rls": "node scripts/audit-rls.mjs",
+    "audit:routes": "node scripts/audit-routes.mjs",
+    "audit:secrets": "node scripts/scan-secrets.mjs",
+    "audit:deps": "node scripts/audit-deps.mjs",
+    "audit:security": "npm run audit:rls && npm run audit:secrets && npm run audit:routes && npm run audit:deps"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",
-    "next": "16.2.10",
+    "next": "16.2.12",
     "pdfjs-dist": "^6.1.200",
     "react": "19.2.4",
     "react-dom": "19.2.4"
