@@ -71,6 +71,10 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:insights-reviews", title: "Open Review Activity", group: "Navigate", kind: "navigate", href: "/insights/reviews", icon: "☑", keywords: ["review", "activity", "insights", "daily"] },
   { id: "nav:insights-change-log", title: "Open Change Log", group: "Navigate", kind: "navigate", href: "/insights/change-log", icon: "≣", keywords: ["change", "log", "history", "insights", "events"] },
   { id: "nav:insights-compare", title: "Compare Periods", group: "Navigate", kind: "navigate", href: "/insights/compare", icon: "⇌", keywords: ["compare", "periods", "insights", "difference"] },
+  { id: "nav:diagnostics", title: "Open Diagnostics", group: "Navigate", kind: "navigate", href: "/security", icon: "◈", keywords: ["diagnostics", "security", "status", "version", "sync", "health"] },
+  { id: "nav:backup", title: "Open Export & Backup", group: "Navigate", kind: "navigate", href: "/backup", icon: "⭳", keywords: ["export", "backup", "import", "restore", "download", "archive"] },
+  { id: "nav:recovery", title: "Open Recovery", group: "Navigate", kind: "navigate", href: "/recovery", icon: "↺", keywords: ["recovery", "recover", "restore", "discarded", "archived", "undo"] },
+  { id: "nav:privacy", title: "Open Privacy", group: "Navigate", kind: "navigate", href: "/privacy", icon: "🔒", keywords: ["privacy", "data", "delete", "account", "retention", "permissions"] },
 ];
 
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */

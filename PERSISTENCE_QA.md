@@ -949,3 +949,30 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   surfaces (no id duplicated, both intents preserved for the user to resolve);
   (3) delete a saved view on A while editing it on B, reconnect, confirm the edit
   is kept and flagged. See `DETERMINISTIC_INSIGHTS.md`.
+
+## Security production hardening (LIFEOS-040)
+
+- **Four additive retention tables** (migration `0031_security_production_hardening.sql`):
+  `sanitized_error_events` (append-only sanitized diagnostics — no stacks/content;
+  ~30-day retention), `export_history` and `import_history` (metadata only —
+  counts/checksum/mode, never archive contents; ~1 year), and
+  `account_deletion_requests` (minimal deletion audit). **None stores record
+  contents, tokens, or raw payloads.**
+- **RLS on all four** (user_id `default auth.uid()`, FK → `auth.users` on delete
+  cascade). Append-only tables expose select/insert/delete (no update);
+  `account_deletion_requests` exposes select/insert/update (status transitions),
+  no delete. Cascade is only from the owning user — no destructive cascade onto
+  activity data.
+- Validated on Postgres 16: full chain **0001–0031 idempotent 3×**; defaults
+  apply (`export_history.archive_version`=1, `account_deletion_requests.status`=
+  `requested`); **RLS cross-user isolation** with a non-superuser `app_user`
+  role — user1 sees only its rows and cannot delete user2's.
+- **Local-storage resilience:** all localStorage access routes through
+  `lib/security/storage-resilience.ts`, which classifies unavailable / quota-
+  exceeded / corrupt / empty and **quarantines** a corrupt user-content blob
+  (timestamped key) instead of overwriting it. Preferences may reset safely;
+  user content never silently discarded.
+- **Manual production check (credential-pending):** (1) export on A, import-
+  preview on B → counts reconcile; (2) offline edits both, sign out on A mid-
+  sync → B shows no loss, pending state visible; (3) start deletion on A → new
+  mutations freeze, tombstones reach B on next sign-in. See `BACKUP_AND_RECOVERY.md`.

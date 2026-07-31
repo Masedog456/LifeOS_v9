@@ -101,7 +101,12 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
   },
   {
     label: "System",
-    links: [{ href: "/health", label: "Health" }],
+    links: [
+      { href: "/health", label: "Health" },
+      { href: "/security", label: "Diagnostics" },
+      { href: "/backup", label: "Backup" },
+      { href: "/privacy", label: "Privacy" },
+    ],
   },
 ];
 

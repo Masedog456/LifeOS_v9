@@ -254,3 +254,14 @@ delay**, the **oldest unprocessed capture**, and source distribution where
 explicitly stored. It is derived from existing capture history — no new capture
 fields, no new storage. It makes **no quality judgments** about captures. See
 `DETERMINISTIC_INSIGHTS.md`.
+
+## Addendum — security & export (LIFEOS-040)
+
+This subsystem's records are covered by the LIFEOS-040 hardening: they sit behind
+Postgres **RLS** (audited so a new table can't ship without it), are included in
+the complete **account export** (deterministic JSON with checksums, no secrets),
+are restorable via the previewed, non-destructive **import/restore** flow, and
+appear in the **Recovery Center** where they support discard/archive. Inputs are
+size-limited and plain-text-first; external links are protocol-allowlisted;
+diagnostics and errors never carry this subsystem's contents. See
+`SECURITY_AND_PRIVACY.md` and `BACKUP_AND_RECOVERY.md`.
