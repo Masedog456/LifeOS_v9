@@ -24,3 +24,181 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
+
+/* ===== LIFEOS-041 design tokens (generated from lib/design/tokens.ts + color.ts) ===== */
+:root {
+  --space-0: 0rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+  --radius-none: 0rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1rem;
+  --radius-full: 9999px;
+  --duration-instant: 0ms;
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 240ms;
+  --content-reading: 42rem;
+  --content-standard: 48rem;
+  --content-wide: 64rem;
+  --content-full: 80rem;
+  --panel-nav: 15rem;
+  --panel-navCollapsed: 3.5rem;
+  --panel-inspector: 22rem;
+  --panel-inspectorWide: 26rem;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --min-touch-target: 44px;
+  --text-productTitle-size: 1.125rem;
+  --text-productTitle-line: 1.3;
+  --text-productTitle-weight: 600;
+  --text-routeTitle-size: 1.5rem;
+  --text-routeTitle-line: 1.25;
+  --text-routeTitle-weight: 600;
+  --text-sectionTitle-size: 1rem;
+  --text-sectionTitle-line: 1.35;
+  --text-sectionTitle-weight: 600;
+  --text-cardTitle-size: 0.9375rem;
+  --text-cardTitle-line: 1.4;
+  --text-cardTitle-weight: 600;
+  --text-body-size: 0.9375rem;
+  --text-body-line: 1.6;
+  --text-body-weight: 400;
+  --text-compactBody-size: 0.875rem;
+  --text-compactBody-line: 1.5;
+  --text-compactBody-weight: 400;
+  --text-metadata-size: 0.8125rem;
+  --text-metadata-line: 1.4;
+  --text-metadata-weight: 400;
+  --text-label-size: 0.6875rem;
+  --text-label-line: 1.3;
+  --text-label-weight: 500;
+  --text-button-size: 0.8125rem;
+  --text-button-line: 1;
+  --text-button-weight: 500;
+  --text-input-size: 0.875rem;
+  --text-input-line: 1.4;
+  --text-input-weight: 400;
+  --text-code-size: 0.8125rem;
+  --text-code-line: 1.5;
+  --text-code-weight: 400;
+  --text-metric-size: 1.5rem;
+  --text-metric-line: 1.1;
+  --text-metric-weight: 600;
+  --color-canvas: #ffffff;
+  --color-surface: #ffffff;
+  --color-surfaceRaised: #fafafa;
+  --color-surfaceSunken: #f4f4f5;
+  --color-textPrimary: #18181b;
+  --color-textSecondary: #52525b;
+  --color-textMuted: #71717a;
+  --color-borderSubtle: #e4e4e7;
+  --color-borderStrong: #d4d4d8;
+  --color-accent: #3f3f46;
+  --color-focus: #2563eb;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-danger: #b91c1c;
+  --color-info: #1d4ed8;
+  --color-selected: #eef2ff;
+  --color-archived: #a1a1aa;
+  --color-disabled: #d4d4d8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+  --color-canvas: #0a0a0a;
+  --color-surface: #111111;
+  --color-surfaceRaised: #1a1a1a;
+  --color-surfaceSunken: #161616;
+  --color-textPrimary: #f4f4f5;
+  --color-textSecondary: #a1a1aa;
+  --color-textMuted: #8b8b93;
+  --color-borderSubtle: #27272a;
+  --color-borderStrong: #3f3f46;
+  --color-accent: #e4e4e7;
+  --color-focus: #60a5fa;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-info: #93c5fd;
+  --color-selected: #1e293b;
+  --color-archived: #71717a;
+  --color-disabled: #3f3f46;
+  }
+}
+:root[data-theme="dark"] {
+  --color-canvas: #0a0a0a;
+  --color-surface: #111111;
+  --color-surfaceRaised: #1a1a1a;
+  --color-surfaceSunken: #161616;
+  --color-textPrimary: #f4f4f5;
+  --color-textSecondary: #a1a1aa;
+  --color-textMuted: #8b8b93;
+  --color-borderSubtle: #27272a;
+  --color-borderStrong: #3f3f46;
+  --color-accent: #e4e4e7;
+  --color-focus: #60a5fa;
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+  --color-info: #93c5fd;
+  --color-selected: #1e293b;
+  --color-archived: #71717a;
+  --color-disabled: #3f3f46;
+}
+:root[data-theme="light"] {
+  --color-canvas: #ffffff;
+  --color-surface: #ffffff;
+  --color-surfaceRaised: #fafafa;
+  --color-surfaceSunken: #f4f4f5;
+  --color-textPrimary: #18181b;
+  --color-textSecondary: #52525b;
+  --color-textMuted: #71717a;
+  --color-borderSubtle: #e4e4e7;
+  --color-borderStrong: #d4d4d8;
+  --color-accent: #3f3f46;
+  --color-focus: #2563eb;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-danger: #b91c1c;
+  --color-info: #1d4ed8;
+  --color-selected: #eef2ff;
+  --color-archived: #a1a1aa;
+  --color-disabled: #d4d4d8;
+}
+
+/* Always-visible focus ring (Feature 22/29) — never removed without replacement. */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: var(--focus-ring-width, 2px) solid var(--color-focus, #2563eb);
+  outline-offset: var(--focus-ring-offset, 2px);
+}
+
+/* Reduced motion (Feature 31): remove nonessential transitions + animations. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+:root[data-reduced-motion="true"] *, :root[data-reduced-motion="true"] *::before, :root[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* Minimum touch target helper (Feature 28/29). */
+.lo-touch-target { min-width: var(--min-touch-target, 44px); min-height: var(--min-touch-target, 44px); }

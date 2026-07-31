@@ -1809,3 +1809,28 @@ adds only four RLS-protected retention tables (error events, export/import
 history, deletion requests) — never record contents; chain now **0001–0031**.
 See `SECURITY_AND_PRIVACY.md`, `THREAT_MODEL.md`, `BACKUP_AND_RECOVERY.md`,
 `PRODUCTION_OPERATIONS.md`, `INCIDENT_RESPONSE.md`.
+
+## Product cohesion, onboarding & accessibility (LIFEOS-041)
+
+A design/experience layer lives in `lib/design/`, `lib/onboarding/`,
+`lib/accessibility/` + `components/design/` and `components/onboarding/`, with
+routes `/onboarding` and `/help`. It adds **no product capability and no new
+state manager** — it makes the completed systems feel like one coherent product.
+`lib/design/` centralizes tokens (emitted to `app/globals.css`), a restrained
+semantic color model (WCAG-checked, no rainbow taxonomy), typography, principles
+(10, traceable), terminology (canonical vocabulary + deprecated-term detector),
+microcopy (forbidden-phrase scan + empty-state + error-language models), density,
+motion (reduced-motion aware), responsive decisions, a confirmation model
+(reusing LIFEOS-040 deletion semantics), and a machine-readable route inventory.
+`lib/accessibility/` is a keyboard model (conflict-free, text-entry-suppressed),
+landmark/heading + focus (safe initial focus, trapping) + live-region + audit
+helpers, all pure and tested. `lib/onboarding/` is a calm, skippable/resumable
+first-run flow (teaches through use, links to real surfaces), an optional
+clearly-marked sample workspace (create/remove in one action), contextual
+education + Help mapping, and sync merge-rules (steps union unless a later
+versioned reset; dismissed education unions; UI-pref conflicts surfaced).
+Onboarding v2 + UI preferences + dismissed education extend the existing
+RLS-protected `user_prefs` (migration 0020) — **no new migration required**. All
+of it is deterministic and self-tested (design 63, accessibility 35, onboarding
+29) plus a `cohesion.mjs` E2E (26). See `DESIGN_SYSTEM.md`, `PRODUCT_LANGUAGE.md`,
+`ONBOARDING.md`, `ACCESSIBILITY.md`, `RESPONSIVE_BEHAVIOR.md`, `HELP_SYSTEM.md`.

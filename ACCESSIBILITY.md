@@ -62,3 +62,30 @@
   shown alongside to compensate.
 
 These are tracked for a future dedicated accessibility hardening pass.
+
+## LIFEOS-041 — Product-cohesion accessibility
+
+The accessibility model is now code + test-enforced (`lib/accessibility/*`,
+`accessibility` self-tests, 35 assertions), targeting **WCAG 2.2 AA**.
+
+- **Keyboard system** (`keyboard.ts`, Feature 30): a documented shortcut model
+  (capture, search, command center, go-to-Today, process next, new action, start/
+  end focus, inspector, close, move-horizon 1–5, save, cancel, help). A conflict
+  detector guarantees no two GLOBAL chords collide and none overrides a reserved
+  browser/AT chord; global shortcuts suppress while typing (`isTextEntry` /
+  `shouldFire`); every shortcut lists its equivalent visible affordance (nothing
+  is shortcut-only). Reference rendered in Help.
+- **Landmarks & headings** (`landmarks.ts`): every route exposes banner /
+  navigation / main; exactly one h1 (the route title); no skipped heading levels.
+- **Focus** (`focus.ts`): computed tab order (positive tabindex first, disabled
+  skipped), dialog trapping cycles both directions, and **initial focus never
+  lands on a destructive control** (Feature 26).
+- **Live regions** (`announcements.ts`): polite + assertive announcements for
+  status/toasts/errors, redacted so no content or secret enters the a11y tree.
+- **Audit** (`audit.ts`): icon-only controls need accessible names; form controls
+  need labels; focus outline never removed without a replacement; status never
+  color-only; interactive targets ≥44×44px (documented exceptions listed). Focus
+  ring + reduced-motion baselines are in `app/globals.css`.
+- **Documented exceptions rather than hidden ones:** the target-size exception
+  list (`TARGET_SIZE_EXCEPTIONS`) and the CSP inline-script framework exception
+  (see `SECURITY_AND_PRIVACY.md`) are written down, not concealed.

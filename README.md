@@ -302,6 +302,37 @@ See [UX_AUDIT.md](./UX_AUDIT.md) (friction, mobile, performance) and
 [ACCESSIBILITY.md](./ACCESSIBILITY.md). Everything here is deterministic and
 offline — no AI, no analytics, no telemetry.
 
+## Product cohesion, onboarding & accessibility
+
+LifeOS is meant to feel like one quiet, coherent product rather than a stack of
+separate systems. A shared **design foundation** — spacing, radii, borders,
+type scale, a restrained low-saturation palette, one motion vocabulary, and a
+density preference (compact / comfortable / spacious) — is expressed as tokens
+in `lib/design/` and mirrored into CSS, so every surface speaks the same visual
+language. Colour is never the only signal: status always carries text as well.
+Motion honours `prefers-reduced-motion`, and every interactive control meets a
+44px touch target and a visible focus ring.
+
+New here since first launch, everything is opt-in and calm — never forced, never
+gamified, no streaks, confetti, or engagement tracking:
+
+- A gentle 10-step **onboarding** (`/onboarding`) you can skip or resume at any
+  point; progress is stored in your own preferences and merges cleanly across
+  devices. It links to the real surfaces rather than replaying a canned tour.
+- An in-product **Help Center** (`/help`) that is route-aware, indexes the real
+  documentation, and includes a **glossary** of canonical terms and the full
+  **keyboard-shortcut reference** — no chat assistant, nothing sent anywhere.
+- An optional, clearly-labelled **sample workspace** you create (and remove) in
+  one action — ordinary data, tagged as sample, never mistaken for your own and
+  never auto-created.
+
+Language is consistent everywhere: a single canonical vocabulary
+([PRODUCT_LANGUAGE.md](./PRODUCT_LANGUAGE.md)) and calm, blame-free empty-state
+and error copy. See [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md),
+[ONBOARDING.md](./ONBOARDING.md), [HELP_SYSTEM.md](./HELP_SYSTEM.md), and
+[RESPONSIVE_BEHAVIOR.md](./RESPONSIVE_BEHAVIOR.md). All of it is deterministic,
+local-first, and self-tested — no AI, no analytics, no telemetry (LIFEOS-041).
+
 ## Local development
 
 ```bash
@@ -397,6 +428,18 @@ overwrites your own conclusions.
 - [DAILY_REVIEW.md](./DAILY_REVIEW.md) — the deterministic daily review &
   planning loop: review lifecycle, day-summary sources, open-loop rules,
   tomorrow-focus, weekly rollup, and local-date/timezone semantics (LIFEOS-034)
+- [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) — the shared design foundation:
+  tokens, palette and contrast, type scale, density, motion, and the ten
+  design principles (LIFEOS-041)
+- [PRODUCT_LANGUAGE.md](./PRODUCT_LANGUAGE.md) — the canonical vocabulary:
+  every first-class term, its plural and verb form, and deprecated synonyms to
+  avoid (LIFEOS-041)
+- [ONBOARDING.md](./ONBOARDING.md) — the opt-in onboarding flow, state model,
+  cross-device merge rules, and the sample workspace (LIFEOS-041)
+- [HELP_SYSTEM.md](./HELP_SYSTEM.md) — the in-product Help Center, contextual
+  education, glossary, and shortcut reference (LIFEOS-041)
+- [RESPONSIVE_BEHAVIOR.md](./RESPONSIVE_BEHAVIOR.md) — breakpoints, navigation
+  and inspector forms, and table strategies across device classes (LIFEOS-041)
 
 All of the above are provisional drafts pending final Product Owner
 sign-off (see the notice at the top of each file).

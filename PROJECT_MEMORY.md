@@ -2513,3 +2513,47 @@ scope or order.
   crypto / e2e-encryption claims / silent destructive repair / hidden telemetry.
   "Security protects the user's life record. It must not become another way to
   observe the user."
+- **LIFEOS-041 — Product Cohesion, Onboarding, Accessibility & Visual Polish.**
+  New `lib/design/` (tokens, color, typography-in-tokens, principles, terminology,
+  microcopy, density, motion, responsive, confirmation, route-inventory, selftest),
+  `lib/onboarding/` (steps, state, sample-workspace, education, merge-rules,
+  selftest), `lib/accessibility/` (keyboard, landmarks, focus, announcements,
+  audit, selftest) + `components/design/` (EmptyState, LoadingState, StatusNotice,
+  ShortcutReference, HelpDrawer) + `components/onboarding/` (OnboardingShell,
+  SampleWorkspacePreview) + routes `/onboarding` `/help` + `/dev/cohesion-tests`.
+  **No product capability, no domain redesign, no new state manager, no AI.**
+  Makes the completed systems feel like ONE coherent product: quiet, precise,
+  serious, personal. Design tokens emitted to `app/globals.css` (light+dark,
+  focus ring, reduced-motion); a **restrained semantic color model** (WCAG-AA
+  checked, no rainbow record-type taxonomy, no red/green performance coding); a
+  typography scale (no <11px text, hierarchy without weight-only); 10 traceable
+  **principles**; canonical **terminology** (+ deprecated-term detector) and
+  **microcopy** (forbidden-phrase scan, canonical empty-state + error-language
+  models); **confirmation model** (4 proportional levels reusing LIFEOS-040
+  deletion semantics — destructive never pre-focused, permanent needs a typed
+  phrase); **responsive** decisions (mobile bottom-bar not a shrunk sidebar,
+  inspector→drawer below lg, tables stack→scroll→full; no 320/390px overflow);
+  **motion** (short, reduced-motion aware). **Accessibility** (WCAG 2.2 AA):
+  conflict-free keyboard model with text-entry suppression + visible affordances,
+  landmarks/headings, safe focus (initial focus never destructive) + trapping,
+  live-region announcements (redacted), target-size/naming audit with documented
+  exceptions. **Onboarding**: calm skippable/resumable first-run teaching through
+  use (links to real surfaces, no demo sandbox, no confetti); optional
+  clearly-marked **sample workspace** (create/remove in ONE action); route-aware
+  **Help Center** + shortcut reference + glossary + dismissible contextual
+  education. **No new migration** — onboarding v2 + UI prefs + dismissed education
+  extend the existing RLS-protected `user_prefs` (0020); sync rules applied
+  client-side (steps union unless a later versioned reset; dismissed education
+  union; UI-pref conflicts surfaced). Verified: design selftest **63/63**,
+  accessibility **35/35**, onboarding **29/29**, `cohesion.mjs` E2E **26/26**;
+  full regression **1017/1017** across 19 suites (no prior test weakened);
+  `tsc`/`lint`/`build` 0; migration chain **0001–0031** idempotent 3× with
+  `user_prefs` RLS cross-user isolation; no model-id leak; no forbidden phrases in
+  new UI copy. New docs DESIGN_SYSTEM / PRODUCT_LANGUAGE / ONBOARDING /
+  RESPONSIVE_BEHAVIOR / HELP_SYSTEM (+ ACCESSIBILITY updated); updated ARCHITECTURE,
+  README, UX_AUDIT, PERSISTENCE_QA, SYNC_INTEGRITY, SECURITY_AND_PRIVACY,
+  BACKUP_AND_RECOVERY, PRODUCTION_OPERATIONS, DETERMINISTIC_INSIGHTS,
+  KNOWLEDGE_MAINTENANCE, PLANNING_AND_FOCUS, NEXT_ACTIONS, CAPTURE_PROCESSING,
+  DAILY_REVIEW. Constraints honored: no gamification, streaks, engagement
+  analytics, dark patterns, forced onboarding, autoplay tutorials, or confetti.
+  "Polish makes LifeOS quieter, clearer, and easier to trust — not louder."

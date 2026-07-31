@@ -9,10 +9,10 @@
  * `'unsafe-eval'`) rather than silently breaking the framework.
  */
 
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { securityHeaders } from "@/lib/security/headers";
 
-export function middleware(_request: NextRequest) {
+export function middleware() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   let supabaseOrigin: string | undefined;
   try { if (supabaseUrl) supabaseOrigin = new URL(supabaseUrl).origin; } catch { /* ignore */ }
