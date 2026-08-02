@@ -1834,3 +1834,34 @@ RLS-protected `user_prefs` (migration 0020) — **no new migration required**. A
 of it is deterministic and self-tested (design 63, accessibility 35, onboarding
 29) plus a `cohesion.mjs` E2E (26). See `DESIGN_SYSTEM.md`, `PRODUCT_LANGUAGE.md`,
 `ONBOARDING.md`, `ACCESSIBILITY.md`, `RESPONSIVE_BEHAVIOR.md`, `HELP_SYSTEM.md`.
+
+---
+
+## Release layer (LIFEOS-042)
+
+The Version 1 release candidate adds a thin, deterministic **release layer** that
+introduces no new product state and no new state manager:
+
+- `lib/release/` — `versions.ts` (single source of truth for the release tag, app
+  version, migration/state/export versions, and supported ranges; re-imports the
+  existing constants so alignment is *checked*, not duplicated), `inventory.ts`
+  (machine-readable V1 inventory), `routes.ts` (release route audit over the
+  design route inventory + help coverage), `migrations.ts` (checkpoint model +
+  dense-numbering validators), `limitations.ts`, `checklist.ts`, `acceptance.ts`
+  (the honest gate matrix — a credentialed gate can never be an automated pass),
+  `fixtures.ts` (the deterministic release fixture), `evidence.ts` (aggregate
+  readiness), and `selftest.ts`.
+- `components/release/` + `/release` — a read-only, production-safe status surface
+  (ReleaseStatus, AcceptanceMatrix, KnownLimitations, ReleaseEvidence,
+  SmokeTestGuide) and an optional, clearly-marked DemoWorkspace built from the
+  fixture. `/dev/release-tests` renders the self-test summary.
+- `scripts/` — `release-audit.mjs`, `migration-rehearsal.mjs` (real Postgres:
+  clean apply, idempotency, checkpoint upgrades, RLS, live two-user isolation),
+  `route-smoke.mjs`, `export-verify.mjs`, `release-checklist.mjs`,
+  `visual-regression.mjs`, `browser-matrix.mjs`.
+
+The release layer reuses existing infrastructure (security audits, RLS registry,
+export verifier, sync/conflict logic, design route inventory, accessibility
+audits, responsive rules, help system, production diagnostics). Version
+identifiers now default from `lib/release/versions.ts` in Diagnostics and export
+metadata, so the UI, exports, and the tag stay aligned.

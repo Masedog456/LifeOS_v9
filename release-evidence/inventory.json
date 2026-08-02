@@ -1,0 +1,282 @@
+{
+  "release": {
+    "releaseTag": "v1.0.0-rc1",
+    "appVersion": "1.0.0-rc1",
+    "migrationVersion": 31,
+    "migrationCount": 31,
+    "stateVersion": 1,
+    "exportArchiveVersion": 1,
+    "backupSchemaVersion": 1,
+    "supportedMigrationRange": [
+      20,
+      31
+    ],
+    "supportedArchiveRange": [
+      1,
+      1
+    ]
+  },
+  "routeCount": 22,
+  "productionRoutes": [
+    "/today",
+    "/",
+    "/process",
+    "/workspaces",
+    "/goals",
+    "/projects",
+    "/actions",
+    "/plan",
+    "/focus",
+    "/daily",
+    "/reading",
+    "/document",
+    "/world",
+    "/constitution",
+    "/research",
+    "/maintenance",
+    "/insights",
+    "/search",
+    "/backup",
+    "/recovery",
+    "/privacy",
+    "/security"
+  ],
+  "dataDomainCount": 40,
+  "dataDomains": [
+    "captures",
+    "proposals",
+    "beliefs",
+    "sources",
+    "feedback",
+    "comparisons",
+    "inquiries",
+    "megathreads",
+    "reflections",
+    "practices",
+    "reviews",
+    "reasonings",
+    "embeddings",
+    "decisions",
+    "formationSessions",
+    "concepts",
+    "conceptRelationships",
+    "principles",
+    "frameworks",
+    "knowledgeProjects",
+    "researchProjects",
+    "dialogueSessions",
+    "tensions",
+    "syntheses",
+    "recommendations",
+    "documents",
+    "citations",
+    "workspaces",
+    "sessions",
+    "goals",
+    "projects",
+    "dailyReviews",
+    "nextActions",
+    "actionDependencies",
+    "actionTemplates",
+    "planningAssignments",
+    "focusSessions",
+    "maintenanceEvents",
+    "duplicateCandidates",
+    "savedInsightViews"
+  ],
+  "migrationCount": 31,
+  "tableCountNote": "54 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
+  "preferenceBlocks": [
+    "onboarding",
+    "onboardingV2",
+    "education",
+    "ui",
+    "recent",
+    "pinned",
+    "workspace",
+    "execution",
+    "insights"
+  ],
+  "envVars": [
+    {
+      "name": "NEXT_PUBLIC_SUPABASE_URL",
+      "scope": "public",
+      "required": false,
+      "purpose": "Supabase project URL for optional cloud sync."
+    },
+    {
+      "name": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "scope": "public",
+      "required": false,
+      "purpose": "Supabase anon key (RLS-protected; never the service role)."
+    },
+    {
+      "name": "NEXT_PUBLIC_APP_VERSION",
+      "scope": "public",
+      "required": false,
+      "purpose": "App version shown in diagnostics/exports (defaults to release version)."
+    },
+    {
+      "name": "NEXT_PUBLIC_BUILD_ID",
+      "scope": "public",
+      "required": false,
+      "purpose": "Build identifier shown in diagnostics."
+    },
+    {
+      "name": "LIFEOS_ENABLE_DEV_ROUTES",
+      "scope": "server",
+      "required": false,
+      "purpose": "Opt-in flag that exposes /dev test routes in non-production only."
+    },
+    {
+      "name": "ANTHROPIC_API_KEY",
+      "scope": "server",
+      "required": false,
+      "purpose": "Optional; unused by the shipped deterministic feature set."
+    },
+    {
+      "name": "ANTHROPIC_MODEL",
+      "scope": "server",
+      "required": false,
+      "purpose": "Optional model id for legacy AI-assist scaffolding (not in V1 scope)."
+    },
+    {
+      "name": "EMBEDDING_PROVIDER_URL",
+      "scope": "server",
+      "required": false,
+      "purpose": "Optional semantic-retrieval provider (not in V1 scope)."
+    },
+    {
+      "name": "EMBEDDING_API_KEY",
+      "scope": "server",
+      "required": false,
+      "purpose": "Optional semantic-retrieval credential (not in V1 scope)."
+    },
+    {
+      "name": "EMBEDDING_MODEL",
+      "scope": "server",
+      "required": false,
+      "purpose": "Optional embedding model id (not in V1 scope)."
+    },
+    {
+      "name": "EMBEDDING_DIMENSIONS",
+      "scope": "server",
+      "required": false,
+      "purpose": "Optional embedding dimensionality (not in V1 scope)."
+    }
+  ],
+  "securityControls": [
+    {
+      "id": "rls",
+      "control": "Row Level Security on every user-owned table",
+      "enforcedAt": "database (Postgres policies)"
+    },
+    {
+      "id": "rls-audit",
+      "control": "Static RLS audit blocks shipping a table without policies",
+      "enforcedAt": "scripts/audit-rls.mjs"
+    },
+    {
+      "id": "csp",
+      "control": "Content-Security-Policy (no unsafe-eval)",
+      "enforcedAt": "middleware + lib/security/headers"
+    },
+    {
+      "id": "headers",
+      "control": "HSTS, Referrer-Policy, Permissions-Policy, X-Content-Type-Options, frame protection",
+      "enforcedAt": "middleware"
+    },
+    {
+      "id": "dev-gate",
+      "control": "/dev routes 404 in production",
+      "enforcedAt": "app/dev/layout.tsx"
+    },
+    {
+      "id": "input-limits",
+      "control": "Size limits, JSON depth caps, plain-text-first input",
+      "enforcedAt": "lib/security/input-limits"
+    },
+    {
+      "id": "safe-url",
+      "control": "Protocol-allowlisted external links",
+      "enforcedAt": "lib/security/safe-url"
+    },
+    {
+      "id": "redaction",
+      "control": "Sanitized errors & diagnostics (no record contents/secrets)",
+      "enforcedAt": "lib/security/redaction + diagnostics"
+    },
+    {
+      "id": "secret-scan",
+      "control": "Committed-secret & client-bundle key-leak scan",
+      "enforcedAt": "scripts/scan-secrets.mjs"
+    },
+    {
+      "id": "no-service-role",
+      "control": "Service-role key never present in client bundle",
+      "enforcedAt": "scripts/scan-secrets.mjs"
+    }
+  ],
+  "dataFormats": [
+    {
+      "id": "account-archive-json",
+      "direction": "export+import",
+      "notes": "Deterministic JSON archive with manifest + per-collection checksums."
+    },
+    {
+      "id": "account-archive-ndjson",
+      "direction": "export",
+      "notes": "Streaming NDJSON variant for large accounts."
+    },
+    {
+      "id": "insights-csv",
+      "direction": "export",
+      "notes": "Per-view CSV that reconciles with the JSON figures."
+    }
+  ],
+  "externalServices": [
+    {
+      "id": "supabase",
+      "required": false,
+      "purpose": "Optional cloud sync/persistence; the app is fully usable local-only."
+    }
+  ],
+  "devSurfaces": [
+    "cohesion-tests",
+    "release-tests"
+  ],
+  "migrationFiles": [
+    "0001_initial_schema.sql",
+    "0002_long_source_analysis.sql",
+    "0003_pdf_ingestion.sql",
+    "0004_retrieval.sql",
+    "0005_comparative_intelligence.sql",
+    "0006_dialectical_intelligence.sql",
+    "0007_megathreads.sql",
+    "0008_formation_engine.sql",
+    "0009_reasoning_engine.sql",
+    "0010_semantic_retrieval.sql",
+    "0011_decision_intelligence.sql",
+    "0012_reflective_practice.sql",
+    "0013_world_model.sql",
+    "0014_authoring_engine.sql",
+    "0015_research_workspace.sql",
+    "0016_graph_and_incremental_sync.sql",
+    "0017_dialogue_engine.sql",
+    "0018_dialectical_synthesis.sql",
+    "0019_cognitive_orchestrator.sql",
+    "0020_generation_one_hardening.sql",
+    "0021_reading_library.sql",
+    "0022_workspaces.sql",
+    "0023_execution.sql",
+    "0024_sync_integrity.sql",
+    "0025_daily_reviews.sql",
+    "0026_capture_processing.sql",
+    "0027_next_actions.sql",
+    "0028_planning_focus.sql",
+    "0029_knowledge_maintenance.sql",
+    "0030_deterministic_insights.sql",
+    "0031_security_production_hardening.sql"
+  ],
+  "tableCount": 54
+}

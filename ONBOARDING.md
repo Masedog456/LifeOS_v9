@@ -47,3 +47,13 @@ backup) — never twenty empty dashboards, never populated without consent.
 create/remove, merge rules, and education/help mapping; `cohesion.mjs` E2E (26)
 covers first-run, skip, resume, complete, privacy step, help, sample workspace,
 responsive, and keyboard-only onboarding.
+
+---
+
+## Version 1 Release Candidate (LIFEOS-042)
+
+This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release
+scope, evidence, and gates live in `V1_RELEASE_NOTES.md`, `V1_ACCEPTANCE_REPORT.md`,
+`V1_KNOWN_LIMITATIONS.md`, and `V1_RELEASE_CHECKLIST.md`; the `/release` surface
+shows live readiness. No new features were added in this sprint — only release
+packaging and demonstrated fixes.

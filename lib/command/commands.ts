@@ -77,6 +77,7 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:privacy", title: "Open Privacy", group: "Navigate", kind: "navigate", href: "/privacy", icon: "🔒", keywords: ["privacy", "data", "delete", "account", "retention", "permissions"] },
   { id: "nav:help", title: "Open Help", group: "Navigate", kind: "navigate", href: "/help", icon: "?", keywords: ["help", "guide", "shortcuts", "glossary", "onboarding", "docs", "how to"] },
   { id: "nav:onboarding", title: "Open Onboarding", group: "Navigate", kind: "navigate", href: "/onboarding", icon: "◐", keywords: ["onboarding", "tour", "get started", "welcome", "restart onboarding", "setup"] },
+  { id: "nav:release", title: "Open Release status", group: "Navigate", kind: "navigate", href: "/release", icon: "◆", keywords: ["release", "version", "candidate", "readiness", "acceptance", "limitations", "demo"] },
 ];
 
 /** Feature 6 — Create Anything: each opens the existing canonical creation flow. */

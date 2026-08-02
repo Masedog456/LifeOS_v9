@@ -1,0 +1,62 @@
+[
+  {
+    "name": "app-shell/today",
+    "median": 58,
+    "p95": 68
+  },
+  {
+    "name": "capture",
+    "median": 71,
+    "p95": 80
+  },
+  {
+    "name": "actions",
+    "median": 60,
+    "p95": 96
+  },
+  {
+    "name": "planning",
+    "median": 53,
+    "p95": 77
+  },
+  {
+    "name": "focus",
+    "median": 60,
+    "p95": 66
+  },
+  {
+    "name": "reading",
+    "median": 65,
+    "p95": 74
+  },
+  {
+    "name": "maintenance",
+    "median": 59,
+    "p95": 63
+  },
+  {
+    "name": "insights",
+    "median": 64,
+    "p95": 75
+  },
+  {
+    "name": "diagnostics",
+    "median": 64,
+    "p95": 66
+  },
+  {
+    "name": "onboarding",
+    "median": 56,
+    "p95": 69
+  },
+  {
+    "name": "release",
+    "median": 74,
+    "p95": 100
+  },
+  {
+    "name": "help",
+    "median": 68,
+    "p95": 73
+  }
+]

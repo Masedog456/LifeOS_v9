@@ -30,3 +30,13 @@ E2E and the `design` self-test assert them deterministically.
 prior sprints verified mobile insights, planning, focus, reading, maintenance,
 backup/recovery, and command center. The responsive decision functions are
 covered by the `design` self-test (`9.1–9.4`).
+
+---
+
+## Version 1 Release Candidate (LIFEOS-042)
+
+This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release
+scope, evidence, and gates live in `V1_RELEASE_NOTES.md`, `V1_ACCEPTANCE_REPORT.md`,
+`V1_KNOWN_LIMITATIONS.md`, and `V1_RELEASE_CHECKLIST.md`; the `/release` surface
+shows live readiness. No new features were added in this sprint — only release
+packaging and demonstrated fixes.

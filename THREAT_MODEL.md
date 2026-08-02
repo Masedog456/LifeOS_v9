@@ -39,3 +39,14 @@ through the escape-first + URL-allowlist policy in `lib/library/annotations.ts`.
 **Insights and security describe and protect recorded activity. They do not
 observe the person living it** — no keystroke logging, no content logging, no
 hidden telemetry.
+
+---
+
+## Version 1 Release Candidate (LIFEOS-042)
+
+This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release
+scope, evidence, and gates live in `V1_RELEASE_NOTES.md`, `V1_ACCEPTANCE_REPORT.md`,
+`V1_KNOWN_LIMITATIONS.md`, `V1_DEPLOYMENT_RUNBOOK.md`, and `V1_ROLLBACK_REPORT.md`;
+the `/release` surface shows live readiness. Migration rehearsal, RLS, two-user
+isolation, export/restore, and security-header evidence are recorded in
+`V1_ACCEPTANCE_REPORT.md`.

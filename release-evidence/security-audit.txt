@@ -1,0 +1,95 @@
+
+> lifeos@0.1.0 audit:security
+> npm run audit:rls && npm run audit:secrets && npm run audit:routes && npm run audit:deps
+
+
+> lifeos@0.1.0 audit:rls
+> node scripts/audit-rls.mjs
+
+RLS audit: 54 user-owned tables across 31 migrations
+  ✓ sources
+  ✓ captures
+  ✓ proposals
+  ✓ beliefs
+  ✓ belief_revisions
+  ✓ user_judgments
+  ✓ saved_quotes
+  ✓ retrieval_feedback
+  ✓ comparisons
+  ✓ inquiries
+  ✓ megathreads
+  ✓ reflections
+  ✓ practices
+  ✓ review_sessions
+  ✓ reasonings
+  ✓ embeddings
+  ✓ decisions
+  ✓ formation_sessions
+  ✓ concepts
+  ✓ concept_relationships
+  ✓ principles
+  ✓ frameworks
+  ✓ knowledge_projects
+  ✓ research_projects
+  ✓ sync_meta
+  ✓ dialogue_sessions
+  ✓ tensions
+  ✓ syntheses
+  ✓ recommendations
+  ✓ user_prefs
+  ✓ reading_documents
+  ✓ document_sections
+  ✓ document_passages
+  ✓ document_highlights
+  ✓ document_annotations
+  ✓ document_citations
+  ✓ workspaces
+  ✓ workspace_sessions
+  ✓ goals
+  ✓ projects
+  ✓ sync_tombstones
+  ✓ daily_reviews
+  ✓ next_actions
+  ✓ action_dependencies
+  ✓ action_templates
+  ✓ planning_assignments
+  ✓ focus_sessions
+  ✓ maintenance_events
+  ✓ duplicate_candidates
+  ✓ saved_insight_views
+  ✓ sanitized_error_events
+  ✓ export_history
+  ✓ import_history
+  ✓ account_deletion_requests
+
+PASS — every user-owned table enables RLS with the required policies.
+
+> lifeos@0.1.0 audit:secrets
+> node scripts/scan-secrets.mjs
+
+Secret scan PASS — no committed secrets or client-bundle key leaks found.
+
+> lifeos@0.1.0 audit:routes
+> node scripts/audit-routes.mjs
+
+Route audit: 17 /dev route(s) present in build, gated by production notFound().
+Route audit PASS — /dev surfaces are production-gated.
+
+> lifeos@0.1.0 audit:deps
+> node scripts/audit-deps.mjs
+
+Dependency audit (production deps):
+  critical: 0
+  high: 3
+  moderate: 0
+  low: 0
+  info: 0
+
+Production dependency footprint: 5 direct (@supabase/supabase-js, next, pdfjs-dist, react, react-dom)
+
+Accepted exceptions (documented in PRODUCTION_OPERATIONS.md):
+  • next: On the latest patch (16.2.12). Residual high is inherited from transitive postcss/sharp (below); the Next-specific advisories (Server Actions SSRF/DoS, image-opt, rewrites) do not apply — LifeOS uses no Server Actions, no custom server, no next/image rewrites.
+  • postcss: Transitive build-time CSS tool under `next`; processes our own source at build, never untrusted runtime CSS. Resolves when Next bumps its pin.
+  • sharp: Next image-optimizer dep (libvips); LifeOS is local-first and does not optimize untrusted remote images. Not in runtime attack surface.
+
+PASS — no un-allowlisted high/critical production advisories.

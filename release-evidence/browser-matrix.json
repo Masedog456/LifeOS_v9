@@ -1,0 +1,64 @@
+{
+  "testedAt": "2026-08-02",
+  "automated": [
+    {
+      "engine": "Chromium (Playwright)",
+      "version": "141.0.7390.37",
+      "platform": "linux-headless",
+      "flows": [
+        {
+          "flow": "app-shell",
+          "ok": true,
+          "errs": []
+        },
+        {
+          "flow": "capture",
+          "ok": true,
+          "errs": []
+        },
+        {
+          "flow": "help",
+          "ok": true,
+          "errs": []
+        },
+        {
+          "flow": "onboarding",
+          "ok": true,
+          "errs": []
+        },
+        {
+          "flow": "diagnostics",
+          "ok": true,
+          "errs": []
+        }
+      ]
+    }
+  ],
+  "manualRequired": [
+    {
+      "browser": "Chrome (stable)",
+      "platform": "desktop"
+    },
+    {
+      "browser": "Edge (stable)",
+      "platform": "desktop"
+    },
+    {
+      "browser": "Firefox (stable)",
+      "platform": "desktop"
+    },
+    {
+      "browser": "Safari (stable)",
+      "platform": "macOS"
+    },
+    {
+      "browser": "iOS Safari",
+      "platform": "iOS"
+    },
+    {
+      "browser": "Android Chrome",
+      "platform": "Android"
+    }
+  ],
+  "note": "Only headless Chromium was automated here. Real-browser rows must be executed manually before GA; do not claim support for untested browsers."
+}

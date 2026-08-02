@@ -1,0 +1,282 @@
+{
+  "items": [
+    {
+      "section": "repository",
+      "item": "Feature freeze declared; only release-allowed changes on the RC branch",
+      "owner": "release",
+      "evidence": "V1_RELEASE_CHECKLIST + RELEASE_POLICY (this PR)",
+      "status": "done",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "migrations",
+      "item": "Chain 0001→0031 applies clean; idempotent x3; checkpoints upgrade",
+      "owner": "persistence",
+      "evidence": "scripts/migration-rehearsal.mjs",
+      "status": "done",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "migrations",
+      "item": "No new migration beyond an allowed 0032 release fix",
+      "owner": "persistence",
+      "evidence": "lib/release/migrations isAllowedReleaseFixMigration + audit",
+      "status": "done",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "database",
+      "item": "Expected table/migration counts; no duplicate numbers; schema version",
+      "owner": "persistence",
+      "evidence": "scripts/release-audit.mjs",
+      "status": "done",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "rls",
+      "item": "Every user-owned table has RLS + required policies",
+      "owner": "security",
+      "evidence": "npm run audit:rls (54 tables PASS)",
+      "status": "done",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "authentication",
+      "item": "Sign-up/in/out/refresh/expiry/reset/multi-tab matrix",
+      "owner": "release/manual",
+      "evidence": "auth-boundaries logic tests + manual step documented",
+      "status": "manual-required",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "synchronization",
+      "item": "15-scenario cross-device matrix",
+      "owner": "release/manual",
+      "evidence": "lib/sync selftest + sync.mjs (local) + manual credentialed step",
+      "status": "manual-required",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "export/restore",
+      "item": "Export verifies; restore clean/merge/dry-run; no silent overwrite",
+      "owner": "persistence",
+      "evidence": "scripts/export-verify.mjs + restore selftest",
+      "status": "done",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "deletion",
+      "item": "Deletion workflow: export offered, confirm, freeze, retention honest",
+      "owner": "release/manual",
+      "evidence": "lib/privacy deletion logic + manual live-account step",
+      "status": "manual-required",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "security",
+      "item": "Secret scan, dep audit, RLS, routes, CSP, XSS/URL/depth/redaction",
+      "owner": "security",
+      "evidence": "npm run audit:security + security selftest",
+      "status": "done",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "privacy",
+      "item": "Privacy Center accurate; provider retention disclosed",
+      "owner": "privacy",
+      "evidence": "app/privacy + SECURITY_AND_PRIVACY.md",
+      "status": "done",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "accessibility",
+      "item": "Keyboard/focus/landmarks/contrast + documented exceptions",
+      "owner": "accessibility",
+      "evidence": "accessibility selftest + cohesion E2E + manual SR step",
+      "status": "manual-required",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "responsiveness",
+      "item": "No horizontal overflow on critical routes 320–1440px",
+      "owner": "ux",
+      "evidence": "cohesion.mjs + scripts/visual-regression.mjs",
+      "status": "done",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "browsers",
+      "item": "Chrome/Edge/Firefox/Safari/iOS/Android smoke matrix",
+      "owner": "release/manual",
+      "evidence": "headless Chromium (local) + manual matrix documented",
+      "status": "manual-required",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "performance",
+      "item": "Fixture-sized render budgets; p95 on target devices",
+      "owner": "performance",
+      "evidence": "V1_PERFORMANCE_REPORT + lib/perf budgets",
+      "status": "manual-required",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "documentation",
+      "item": "8 V1_* docs created; 23 docs updated; links check",
+      "owner": "docs",
+      "evidence": "this PR + terminology/link validators",
+      "status": "done",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "demo/fixture",
+      "item": "Deterministic release fixture + optional demo workspace; removable",
+      "owner": "release",
+      "evidence": "lib/release/fixtures + release-tests E2E",
+      "status": "done",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "deployment",
+      "item": "Deployment runbook precise; env vars documented; no secrets",
+      "owner": "ops",
+      "evidence": "V1_DEPLOYMENT_RUNBOOK.md",
+      "status": "done",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "smoke-testing",
+      "item": "22-step production smoke flow on deployed RC",
+      "owner": "release/manual",
+      "evidence": "SmokeTestGuide + manual step on preview",
+      "status": "manual-required",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "rollback",
+      "item": "Rollback rehearsal documented; forward-only limits stated",
+      "owner": "ops",
+      "evidence": "V1_ROLLBACK_REPORT.md + manual redeploy step",
+      "status": "manual-required",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "tagging",
+      "item": "v1.0.0-rc1 tag PREPARED, not created until gates pass",
+      "owner": "release",
+      "evidence": "lib/release/versions + Feature 34 procedure",
+      "status": "pending",
+      "blocker": "blocker",
+      "date": "2026-08-01"
+    },
+    {
+      "section": "release-publication",
+      "item": "GitHub prerelease with notes + SHA + migration version",
+      "owner": "release",
+      "evidence": "V1_RELEASE_NOTES.md + tag procedure",
+      "status": "pending",
+      "blocker": "non-blocker",
+      "date": "2026-08-01"
+    }
+  ],
+  "report": {
+    "ok": true,
+    "problems": [],
+    "done": 12,
+    "manualRequired": 8,
+    "pending": 2,
+    "openBlockers": [
+      {
+        "section": "tagging",
+        "item": "v1.0.0-rc1 tag PREPARED, not created until gates pass",
+        "owner": "release",
+        "evidence": "lib/release/versions + Feature 34 procedure",
+        "status": "pending",
+        "blocker": "blocker",
+        "date": "2026-08-01"
+      }
+    ]
+  },
+  "manual": [
+    {
+      "id": "route-audit",
+      "title": "Route audit",
+      "step": "Run route-smoke against the deployed preview URL."
+    },
+    {
+      "id": "two-user-isolation",
+      "title": "Two-user isolation matrix",
+      "step": "Repeat on the production Supabase project with two real accounts."
+    },
+    {
+      "id": "auth",
+      "title": "Authentication acceptance",
+      "step": "Run sign-up/in/out/refresh/expiry/reset matrix against live Supabase auth."
+    },
+    {
+      "id": "sync",
+      "title": "Cross-device sync acceptance (15 scenarios)",
+      "step": "Execute the 15-scenario matrix across two real devices on live Supabase."
+    },
+    {
+      "id": "data-preservation",
+      "title": "Data-preservation acceptance",
+      "step": "Second-device and failed-remote-sync legs require live sync."
+    },
+    {
+      "id": "deletion",
+      "title": "Account deletion acceptance",
+      "step": "Run the full deletion workflow with a disposable live account."
+    },
+    {
+      "id": "prod-headers",
+      "title": "Production header validation",
+      "step": "curl the deployed URL and assert CSP/HSTS/Referrer/Permissions/XCTO + HTTPS redirect."
+    },
+    {
+      "id": "accessibility",
+      "title": "Accessibility acceptance",
+      "step": "Screen-reader naming pass (VoiceOver/NVDA) on critical safety flows."
+    },
+    {
+      "id": "browser-matrix",
+      "title": "Browser matrix",
+      "step": "Run smoke flows on real Chrome/Edge/Firefox/Safari/iOS/Android; record versions."
+    },
+    {
+      "id": "performance",
+      "title": "Performance acceptance",
+      "step": "Confirm p95 on target device classes/real browsers."
+    },
+    {
+      "id": "rollback",
+      "title": "Rollback rehearsal",
+      "step": "Redeploy previous Vercel build; run older app against additive schema."
+    },
+    {
+      "id": "smoke",
+      "title": "Production smoke test",
+      "step": "Execute the 22-step smoke flow on the deployed RC with a disposable account."
+    }
+  ]
+}

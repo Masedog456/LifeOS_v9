@@ -333,6 +333,42 @@ and error copy. See [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md),
 [RESPONSIVE_BEHAVIOR.md](./RESPONSIVE_BEHAVIOR.md). All of it is deterministic,
 local-first, and self-tested — no AI, no analytics, no telemetry (LIFEOS-041).
 
+## Version 1 release candidate
+
+LifeOS is feature-complete for **Version 1** (`v1.0.0-rc1`). The read-only
+**Release** surface (`/release`) shows live readiness: version identifiers,
+the acceptance matrix, known limitations, reproducible evidence commands, and
+the production smoke-test guide. It is honest by construction — a check that
+needs live credentials, a real deployment, or real devices is never shown as an
+automated pass.
+
+The release layer lives in `lib/release/` (a canonical version source,
+machine-readable inventory, route/migration/limitation/checklist/acceptance
+models, a deterministic release fixture, and self-tests) with reproducible
+audits under `scripts/`:
+
+```bash
+npm run release:audit         # schema / version / inventory (static)
+npm run release:migrations    # Postgres rehearsal: 0001→0031, idempotent, RLS, 2-user isolation
+npm run release:export        # export + restore verification over the release fixture
+npm run release:checklist     # executable release checklist
+npm run release:routes        # live route smoke (needs a running build)
+npm run release:visual        # deterministic screenshots
+npm run release:browsers      # headless-Chromium browser smoke
+```
+
+Release documentation: [V1_RELEASE_NOTES.md](./V1_RELEASE_NOTES.md),
+[V1_KNOWN_LIMITATIONS.md](./V1_KNOWN_LIMITATIONS.md),
+[V1_RELEASE_CHECKLIST.md](./V1_RELEASE_CHECKLIST.md) (with the feature-freeze
+policy and release-blocker definition),
+[V1_DEPLOYMENT_RUNBOOK.md](./V1_DEPLOYMENT_RUNBOOK.md),
+[V1_ACCEPTANCE_REPORT.md](./V1_ACCEPTANCE_REPORT.md),
+[V1_ROLLBACK_REPORT.md](./V1_ROLLBACK_REPORT.md),
+[V1_BROWSER_SUPPORT.md](./V1_BROWSER_SUPPORT.md), and
+[V1_PERFORMANCE_REPORT.md](./V1_PERFORMANCE_REPORT.md). The `v1.0.0-rc1` tag is
+**prepared but not created** until every gate — including the manual credentialed
+checks — passes.
+
 ## Local development
 
 ```bash

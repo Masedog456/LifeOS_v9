@@ -52,3 +52,13 @@ example, "task/todo/ticket" → **Next action**, "trash/remove" → **Archive**
   `exception`, `stack trace`) in user-facing copy.
 - Errors follow the model in `errorCopy()`: what couldn't happen, whether data is
   safe, what to do, whether retry helps, where diagnostics live.
+
+---
+
+## Version 1 Release Candidate (LIFEOS-042)
+
+This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release
+scope, evidence, and gates live in `V1_RELEASE_NOTES.md`, `V1_ACCEPTANCE_REPORT.md`,
+`V1_KNOWN_LIMITATIONS.md`, and `V1_RELEASE_CHECKLIST.md`; the `/release` surface
+shows live readiness. No new features were added in this sprint — only release
+packaging and demonstrated fixes.
