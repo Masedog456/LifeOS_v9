@@ -1,0 +1,17 @@
+✓ archive parses + verifies
+✓ manifest matches
+✓ counts reconcile
+✓ metadata ok
+✓ every export domain present
+✓ tombstones represented
+✓ conflicts represented
+✓ prefs present
+✓ record counts match manifest totals
+✓ no tokens/secrets in archive
+✓ no auth material key names
+✓ clean restore preview shows additions
+✓ clean restore materializes records
+✓ merge preview computed (no silent overwrite)
+
+archive: 21454 bytes · 27 records
+EXPORT VERIFY PASS — 14/14 checks

@@ -19,8 +19,9 @@ import { probeStorage } from "@/lib/security/storage-resilience";
 import { categorize } from "@/lib/security/auth-boundaries";
 import { CURRENT_STATE_VERSION } from "@/lib/migrations/state-version";
 import { EXPECTED_MIGRATION_VERSION } from "@/lib/security/schema-compatibility";
+import { RELEASE_APP_VERSION } from "@/lib/release/versions";
 
-const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? RELEASE_APP_VERSION;
 const BUILD_ID = process.env.NEXT_PUBLIC_BUILD_ID ?? "dev";
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {

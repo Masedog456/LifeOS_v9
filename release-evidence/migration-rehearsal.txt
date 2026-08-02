@@ -1,0 +1,37 @@
+✓ migration files present
+✓ clean apply 0001->0031 (54 public tables)
+✓ idempotent x3 (stable table count)
+✓ RLS enabled on every public table
+✓ every public table has >=1 policy
+✓ user_id columns default to auth.uid()
+✓ primary keys preserved (>=54)
+✓ indexes preserved (>=54)
+✓ table present: captures
+✓ table present: reading_documents
+✓ table present: document_passages
+✓ table present: document_citations
+✓ table present: workspaces
+✓ table present: goals
+✓ table present: projects
+✓ table present: next_actions
+✓ table present: daily_reviews
+✓ table present: planning_assignments
+✓ table present: focus_sessions
+✓ table present: maintenance_events
+✓ table present: saved_insight_views
+✓ table present: sync_tombstones
+✓ table present: sanitized_error_events
+✓ checkpoint upgrade pre-reading (through 20)
+✓ checkpoint upgrade pre-workspaces (through 21)
+✓ checkpoint upgrade pre-actions (through 26)
+✓ checkpoint upgrade pre-planning (through 27)
+✓ checkpoint upgrade pre-maintenance (through 28)
+✓ checkpoint upgrade pre-security (through 30)
+✓ checkpoint upgrade current (through 31)
+✓ isolation: B cannot SELECT A's rows
+✓ isolation: B cannot UPDATE A's rows
+✓ isolation: B cannot DELETE A's rows
+✓ isolation: A still sees its own row
+✓ every policy scopes to auth.uid()
+
+MIGRATION REHEARSAL PASS — 35/35 checks

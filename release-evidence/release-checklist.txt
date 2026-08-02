@@ -1,0 +1,68 @@
+
+## repository
+  ✓ [non-blocker] Feature freeze declared; only release-allowed changes on the RC branch  (owner: release, 2026-08-01)
+
+## migrations
+  ✓ [blocker] Chain 0001→0031 applies clean; idempotent x3; checkpoints upgrade  (owner: persistence, 2026-08-01)
+  ✓ [blocker] No new migration beyond an allowed 0032 release fix  (owner: persistence, 2026-08-01)
+
+## database
+  ✓ [blocker] Expected table/migration counts; no duplicate numbers; schema version  (owner: persistence, 2026-08-01)
+
+## rls
+  ✓ [blocker] Every user-owned table has RLS + required policies  (owner: security, 2026-08-01)
+
+## authentication
+  ⚑ [blocker] Sign-up/in/out/refresh/expiry/reset/multi-tab matrix  (owner: release/manual, 2026-08-01)
+
+## synchronization
+  ⚑ [non-blocker] 15-scenario cross-device matrix  (owner: release/manual, 2026-08-01)
+
+## export/restore
+  ✓ [blocker] Export verifies; restore clean/merge/dry-run; no silent overwrite  (owner: persistence, 2026-08-01)
+
+## deletion
+  ⚑ [blocker] Deletion workflow: export offered, confirm, freeze, retention honest  (owner: release/manual, 2026-08-01)
+
+## security
+  ✓ [blocker] Secret scan, dep audit, RLS, routes, CSP, XSS/URL/depth/redaction  (owner: security, 2026-08-01)
+
+## privacy
+  ✓ [non-blocker] Privacy Center accurate; provider retention disclosed  (owner: privacy, 2026-08-01)
+
+## accessibility
+  ⚑ [non-blocker] Keyboard/focus/landmarks/contrast + documented exceptions  (owner: accessibility, 2026-08-01)
+
+## responsiveness
+  ✓ [blocker] No horizontal overflow on critical routes 320–1440px  (owner: ux, 2026-08-01)
+
+## browsers
+  ⚑ [non-blocker] Chrome/Edge/Firefox/Safari/iOS/Android smoke matrix  (owner: release/manual, 2026-08-01)
+
+## performance
+  ⚑ [non-blocker] Fixture-sized render budgets; p95 on target devices  (owner: performance, 2026-08-01)
+
+## documentation
+  ✓ [non-blocker] 8 V1_* docs created; 23 docs updated; links check  (owner: docs, 2026-08-01)
+
+## demo/fixture
+  ✓ [non-blocker] Deterministic release fixture + optional demo workspace; removable  (owner: release, 2026-08-01)
+
+## deployment
+  ✓ [non-blocker] Deployment runbook precise; env vars documented; no secrets  (owner: ops, 2026-08-01)
+
+## smoke-testing
+  ⚑ [blocker] 22-step production smoke flow on deployed RC  (owner: release/manual, 2026-08-01)
+
+## rollback
+  ⚑ [non-blocker] Rollback rehearsal documented; forward-only limits stated  (owner: ops, 2026-08-01)
+
+## tagging
+  ○ [blocker] v1.0.0-rc1 tag PREPARED, not created until gates pass  (owner: release, 2026-08-01)
+
+## release-publication
+  ○ [non-blocker] GitHub prerelease with notes + SHA + migration version  (owner: release, 2026-08-01)
+
+done: 12 · manual-required: 8 · pending: 2 · open blockers: 1
+manual production checks still required: 12
+CHECKLIST MODEL VALID

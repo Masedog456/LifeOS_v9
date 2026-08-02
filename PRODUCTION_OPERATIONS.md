@@ -75,3 +75,14 @@ reconcile; (2) offline edits on both, sign out on A mid-sync, confirm B surfaces
 no data loss and the pending state is visible; (3) start account deletion on A,
 confirm new mutations freeze and tombstones reach B on next sign-in; (4) force a
 schema mismatch, confirm read-only mode blocks writes but allows export.
+
+---
+
+## Version 1 Release Candidate (LIFEOS-042)
+
+This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release
+scope, evidence, and gates live in `V1_RELEASE_NOTES.md`, `V1_ACCEPTANCE_REPORT.md`,
+`V1_KNOWN_LIMITATIONS.md`, `V1_DEPLOYMENT_RUNBOOK.md`, and `V1_ROLLBACK_REPORT.md`;
+the `/release` surface shows live readiness. Migration rehearsal, RLS, two-user
+isolation, export/restore, and security-header evidence are recorded in
+`V1_ACCEPTANCE_REPORT.md`.

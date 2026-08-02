@@ -14,7 +14,14 @@
     "audit:routes": "node scripts/audit-routes.mjs",
     "audit:secrets": "node scripts/scan-secrets.mjs",
     "audit:deps": "node scripts/audit-deps.mjs",
-    "audit:security": "npm run audit:rls && npm run audit:secrets && npm run audit:routes && npm run audit:deps"
+    "audit:security": "npm run audit:rls && npm run audit:secrets && npm run audit:routes && npm run audit:deps",
+    "release:audit": "node scripts/release-audit.mjs",
+    "release:migrations": "node scripts/migration-rehearsal.mjs",
+    "release:export": "node scripts/export-verify.mjs",
+    "release:checklist": "node scripts/release-checklist.mjs",
+    "release:routes": "node scripts/route-smoke.mjs",
+    "release:visual": "node scripts/visual-regression.mjs",
+    "release:browsers": "node scripts/browser-matrix.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",

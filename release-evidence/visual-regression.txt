@@ -1,0 +1,29 @@
+✓ desktop/today
+✓ desktop/capture
+✓ desktop/actions
+✓ desktop/planning
+✓ desktop/focus
+✓ desktop/daily
+✓ desktop/reading
+✓ desktop/knowledge
+✓ desktop/maintenance
+✓ desktop/insights
+✓ desktop/help
+✓ desktop/privacy
+✓ desktop/backup
+✓ desktop/recovery
+✓ desktop/diagnostics
+✓ desktop/onboarding
+✓ desktop/release
+✓ mobile/today
+✓ mobile/capture
+✓ mobile/actions
+✓ mobile/planning
+✓ mobile/focus
+✓ mobile/reading
+✓ mobile/maintenance
+✓ mobile/insights
+✓ mobile/recovery
+✓ mobile/onboarding
+
+VISUAL REGRESSION PASS — 27/27 surfaces clean → /home/user/LifeOS/release-evidence/screenshots

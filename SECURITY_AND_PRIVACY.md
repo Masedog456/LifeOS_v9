@@ -226,3 +226,14 @@ self-tests **38/38** · security E2E **34/34** · full regression **890/890** (1
 suites) · migration chain **0001–0031** idempotent 3× with non-superuser RLS
 isolation · `audit:rls` / `audit:secrets` / `audit:routes` / `audit:deps` all
 pass · CSP verified with **zero** console violations while the app hydrates.
+
+---
+
+## Version 1 Release Candidate (LIFEOS-042)
+
+This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release
+scope, evidence, and gates live in `V1_RELEASE_NOTES.md`, `V1_ACCEPTANCE_REPORT.md`,
+`V1_KNOWN_LIMITATIONS.md`, `V1_DEPLOYMENT_RUNBOOK.md`, and `V1_ROLLBACK_REPORT.md`;
+the `/release` surface shows live readiness. Migration rehearsal, RLS, two-user
+isolation, export/restore, and security-header evidence are recorded in
+`V1_ACCEPTANCE_REPORT.md`.

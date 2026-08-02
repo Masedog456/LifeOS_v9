@@ -262,3 +262,13 @@ appear in the **Recovery Center** where they support discard/archive. Inputs are
 size-limited and plain-text-first; external links are protocol-allowlisted;
 diagnostics and errors never carry this subsystem's contents. See
 `SECURITY_AND_PRIVACY.md` and `BACKUP_AND_RECOVERY.md`.
+
+---
+
+## Version 1 Release Candidate (LIFEOS-042)
+
+This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release
+scope, evidence, and gates live in `V1_RELEASE_NOTES.md`, `V1_ACCEPTANCE_REPORT.md`,
+`V1_KNOWN_LIMITATIONS.md`, and `V1_RELEASE_CHECKLIST.md`; the `/release` surface
+shows live readiness. No new features were added in this sprint — only release
+packaging and demonstrated fixes.

@@ -1,0 +1,20 @@
+✓ migration count == 31
+✓ dense numbering 1..N
+✓ no duplicate migration numbers
+✓ no migration beyond 0031 except allowed 0032 fix
+✓ 54 CREATE TABLE IF NOT EXISTS
+✓ user-owned tables default user_id to auth.uid()
+✓ every table uses IF NOT EXISTS (rerunnable)
+✓ policies use DROP POLICY IF EXISTS (rerunnable)
+✓ version alignment ok
+✓ inventory valid
+✓ route audit valid
+✓ limitations complete
+✓ checklist complete
+✓ acceptance matrix integrity
+✓ release fixture valid
+✓ migration model valid
+✓ deterministic gates pass
+
+tag-ready(deterministic): false · open blockers: 1 · manual checks required: 12
+RELEASE AUDIT PASS — 17/17 checks

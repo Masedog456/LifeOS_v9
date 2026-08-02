@@ -15,8 +15,9 @@ import { readPrefs } from "@/lib/prefs";
 import { buildAccountArchive, serializeArchive, archiveFilename, safeExportPrefs, collectionToCsv } from "@/lib/backup/export";
 import { verifyArchive, formatVerifyReport } from "@/lib/backup/verify";
 import { getSyncDiagnostics } from "@/lib/persistence";
+import { RELEASE_APP_VERSION } from "@/lib/release/versions";
 
-const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? RELEASE_APP_VERSION;
 
 function download(name: string, text: string, type = "application/json") {
   const blob = new Blob([text], { type });

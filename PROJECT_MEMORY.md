@@ -2557,3 +2557,35 @@ scope or order.
   DAILY_REVIEW. Constraints honored: no gamification, streaks, engagement
   analytics, dark patterns, forced onboarding, autoplay tutorials, or confetti.
   "Polish makes LifeOS quieter, clearer, and easier to trust — not louder."
+
+- **LIFEOS-042 — Version 1 Release Candidate (`v1.0.0-rc1`).** A release-candidate
+  sprint: **no new features, domains, or workflows** — only release packaging,
+  evidence, and demonstrated fixes. Added `lib/release/` (versions, inventory,
+  routes, migrations, limitations, checklist, acceptance, fixtures, evidence,
+  selftest), `components/release/` (ReleaseStatus, AcceptanceMatrix,
+  KnownLimitations, ReleaseEvidence, SmokeTestGuide, DemoWorkspace), the
+  read-only `/release` surface, `/dev/release-tests`, and `scripts/`
+  (release-audit, migration-rehearsal, route-smoke, export-verify,
+  release-checklist, visual-regression, browser-matrix). Version identifiers are
+  centralized in `lib/release/versions.ts` and surfaced identically in
+  Diagnostics + `/release`: tag `v1.0.0-rc1`, app `1.0.0-rc1`, migration `31`,
+  state `1`, export archive `1`, supported migration range `20–31`.
+  **No new migration** (schema stays at 0031). Evidence (all real, reproducible):
+  migration rehearsal on Postgres 16 **35/35** (clean apply, idempotent ×3, RLS on
+  all 54 tables, every policy scoped to `auth.uid()`, 7 checkpoint upgrades, and
+  a LIVE two-user isolation probe where B cannot SELECT/UPDATE/DELETE A's rows);
+  release audit **17/17**; export/restore verify **14/14**; release self-tests
+  **48/48**; full regression **1065/1065** across 20 suites; cohesion E2E 26/26;
+  release E2E 14/14; route smoke 21/21; visual regression 27/27 clean;
+  browser-matrix Chromium 141 5/5; `audit:security` PASS; `tsc`/`lint`/`build` 0.
+  The acceptance matrix (`lib/release/acceptance.ts`) is HONEST by construction —
+  a credentialed gate can never be marked an automated pass (self-test enforced),
+  so 12 manual credentialed checks (live auth, live cross-device sync, live
+  deletion, production headers, real-browser matrix, production smoke, rollback
+  redeploy) remain and are listed in `V1_ACCEPTANCE_REPORT.md`. New docs:
+  V1_RELEASE_NOTES, V1_KNOWN_LIMITATIONS, V1_RELEASE_CHECKLIST (with the freeze
+  policy + release-blocker definition), V1_DEPLOYMENT_RUNBOOK, V1_ACCEPTANCE_REPORT,
+  V1_ROLLBACK_REPORT, V1_BROWSER_SUPPORT, V1_PERFORMANCE_REPORT. The `v1.0.0-rc1`
+  tag is **prepared but NOT created** — it is held until every gate (including the
+  credentialed manual ones) passes. "This sprint proves readiness; it does not
+  manufacture confidence."

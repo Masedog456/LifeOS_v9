@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-01-15T09:00:00.000Z",
+  "archiveBytes": 21454,
+  "totalRecords": 27,
+  "recordCounts": {
+    "captures": 5,
+    "proposals": 0,
+    "beliefs": 1,
+    "sources": 0,
+    "feedback": 0,
+    "comparisons": 0,
+    "inquiries": 0,
+    "megathreads": 0,
+    "reflections": 0,
+    "practices": 0,
+    "reviews": 0,
+    "reasonings": 0,
+    "embeddings": 0,
+    "decisions": 0,
+    "formationSessions": 0,
+    "concepts": 0,
+    "conceptRelationships": 0,
+    "principles": 0,
+    "frameworks": 0,
+    "knowledgeProjects": 0,
+    "researchProjects": 1,
+    "dialogueSessions": 0,
+    "tensions": 0,
+    "syntheses": 0,
+    "recommendations": 0,
+    "documents": 1,
+    "citations": 1,
+    "workspaces": 1,
+    "sessions": 2,
+    "goals": 1,
+    "projects": 1,
+    "dailyReviews": 1,
+    "nextActions": 3,
+    "actionDependencies": 1,
+    "actionTemplates": 0,
+    "planningAssignments": 2,
+    "focusSessions": 1,
+    "maintenanceEvents": 1,
+    "duplicateCandidates": 1,
+    "savedInsightViews": 1
+  },
+  "verify": {
+    "ok": true,
+    "parsed": true,
+    "versionSupported": true,
+    "manifestOk": true,
+    "countsReconcile": true,
+    "metadataOk": true,
+    "totalRecords": 27,
+    "problems": [],
+    "notes": []
+  },
+  "checks": [
+    {
+      "n": "archive parses + verifies",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "manifest matches",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "counts reconcile",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "metadata ok",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "every export domain present",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "tombstones represented",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "conflicts represented",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "prefs present",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "record counts match manifest totals",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "no tokens/secrets in archive",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "no auth material key names",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "clean restore preview shows additions",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "clean restore materializes records",
+      "pass": true,
+      "d": ""
+    },
+    {
+      "n": "merge preview computed (no silent overwrite)",
+      "pass": true,
+      "d": ""
+    }
+  ]
+}
