@@ -32,8 +32,14 @@ const LABEL: Record<PersistenceHealth["state"], string> = {
 
 export default function SyncStatus() {
   const h = useHealth();
-  const label = h.localError ? "Local save failed" : LABEL[h.state];
-  const dot = h.localError ? "bg-red-500" : DOT[h.state];
+  // When a sync fails before anything has ever synced, that's not an alarming
+  // "error" — nothing was lost and everything is safe locally. Say "Not yet
+  // synced" instead (LIFEOS-042A). A failure AFTER a prior successful sync still
+  // shows as a real error. The tooltip keeps the underlying detail either way.
+  const neverSynced = !h.lastSyncAt;
+  const softFail = !h.localError && h.state === "failed" && neverSynced;
+  const label = h.localError ? "Local save failed" : softFail ? "Not yet synced" : LABEL[h.state];
+  const dot = h.localError ? "bg-red-500" : softFail ? "bg-zinc-400" : DOT[h.state];
   return (
     <span className="flex items-center gap-1.5 text-xs text-zinc-400" title={h.localError ?? h.error ?? undefined}>
       <span className={`h-2 w-2 rounded-full ${dot}`} />

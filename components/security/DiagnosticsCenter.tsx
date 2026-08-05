@@ -71,7 +71,7 @@ export default function DiagnosticsCenter() {
         <Row k="Auth" v={snapshot.auth.category + (snapshot.auth.emailMasked ? ` · ${snapshot.auth.emailMasked}` : "")} />
         <Row k="Adapter" v={snapshot.sync.adapter} />
         <Row k="Remote reachable" v={snapshot.sync.remoteReachable == null ? "local-only" : String(snapshot.sync.remoteReachable)} />
-        <Row k="Last sync" v={snapshot.sync.lastSyncAt ?? "—"} />
+        <Row k="Last sync" v={snapshot.sync.lastSyncAt ?? "Not yet synced"} />
         <Row k="Pending mutations" v={snapshot.sync.pendingMutations} />
         <Row k="Unresolved conflicts" v={snapshot.sync.unresolvedConflicts} />
         <Row k="Storage" v={snapshot.storage.status} />

@@ -34,6 +34,10 @@ export interface PersistenceHealth {
   localError?: string;
   /** Current automatic-retry attempt (LIFEOS-025), when state is "retrying". */
   retryAttempt?: number;
+  /** ISO timestamp of the last successful remote sync, or null if none yet
+   * (LIFEOS-042A). Lets the UI say "Not yet synced" instead of alarming with a
+   * "Sync error" when a first attempt fails before anything has ever synced. */
+  lastSyncAt?: string | null;
 }
 
 export interface PersistenceAdapter {

@@ -18,7 +18,7 @@ import {
 } from "@/lib/mvpStore";
 import { makeEntityContext, entityRef, entityKindLabel } from "@/lib/entities/entity";
 import { entityBacklinks } from "@/lib/entities/backlinks";
-import { STATUS_LABEL, SIZE_LABEL, ENERGY_LABEL } from "@/lib/actions/status";
+import { SIZE_LABEL, ENERGY_LABEL, userFacingStatus, statusTone } from "@/lib/actions/status";
 import { WAITING_SUGGESTIONS } from "@/lib/actions/waiting";
 import { actionSessions, actionContribution } from "@/lib/actions/tracking";
 import { actionSources, dependencyNeighbours } from "@/lib/actions/relationships";
@@ -31,6 +31,10 @@ import ActionHistory from "@/components/actions/ActionHistory";
 import ActionDependencies from "@/components/actions/ActionDependencies";
 
 type Panel = "links" | "dependencies" | "history";
+
+/** Friendly panel labels (LIFEOS-042A) — "Prerequisites" reads more plainly
+ * than "Dependencies" for someone who has never seen LifeOS. */
+const PANEL_LABEL: Record<Panel, string> = { links: "Links", dependencies: "Prerequisites", history: "History" };
 
 export default function ActionDetail({ actionId }: { actionId: string }) {
   const state = useStore();
@@ -70,7 +74,14 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
   const sessions = actionSessions(state, action.id);
   const contrib = actionContribution(sessions);
   const sources = actionSources(action);
-  const { blocked } = dependencyNeighbours(state, action.id);
+  const { blockers } = dependencyNeighbours(state, action.id);
+  // "Blocked" means at least one prerequisite action is still unfinished. An
+  // empty/all-finished prerequisite set is NOT blocked — this is what keeps the
+  // header honest with the Prerequisites panel.
+  const blockedByPrereq = blockers.some((b) => b.status !== "completed" && b.status !== "cancelled");
+  const statusText = userFacingStatus(action, blockedByPrereq);
+  const tone = statusTone(action, blockedByPrereq);
+  const toneClass = tone === "ready" ? "text-emerald-600 dark:text-emerald-400" : tone === "active" ? "text-sky-600 dark:text-sky-400" : tone === "waiting" ? "text-amber-600 dark:text-amber-400" : "text-zinc-400";
   const impact = dependencyImpact(action.id, state.actionDependencies ?? [], new Map(state.nextActions.map((a) => [a.id, a])));
 
   const ctxRow = (kind: string, id?: string) => id ? (() => { const r = entityRef(ctx, kind, id); return <Link key={`${kind}:${id}`} href={r.href} className="rounded-full bg-black/[.05] px-2 py-0.5 text-[11px] text-sky-700 hover:bg-black/[.08] dark:bg-white/[.08] dark:text-sky-300">{entityKindLabel(kind)}: {r.title}</Link>; })() : null;
@@ -81,7 +92,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
         <header className="mb-3 flex items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Action</h1>
-            <p className="mt-0.5 text-xs text-zinc-500">{new Date(action.createdAt).toLocaleString()} · <span data-action-status={action.status}>{STATUS_LABEL[action.status]}</span>{blocked && <span className="ml-1 text-rose-500">· blocked</span>}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">{new Date(action.createdAt).toLocaleString()} · <span data-action-status={action.status} className={`font-medium ${toneClass}`}>{statusText}</span></p>
           </div>
           <Link href="/actions" className="shrink-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">← Queue</Link>
         </header>
@@ -141,7 +152,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
         {/* Panels: links / dependencies / history. */}
         <nav aria-label="Action panels" className="mb-3 -mx-1 flex gap-1 overflow-x-auto pb-1">
           {(["links", "dependencies", "history"] as Panel[]).map((p) => (
-            <button key={p} type="button" onClick={() => setPanel(p)} data-panel={p} aria-current={panel === p ? "true" : undefined} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium capitalize ${panel === p ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-black/[.10] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.12] dark:text-zinc-300 dark:hover:bg-white/[.06]"}`}>{p}</button>
+            <button key={p} type="button" onClick={() => setPanel(p)} data-panel={p} aria-current={panel === p ? "true" : undefined} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium ${panel === p ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-black/[.10] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.12] dark:text-zinc-300 dark:hover:bg-white/[.06]"}`}>{PANEL_LABEL[p]}</button>
           ))}
         </nav>
         <section aria-label={`${panel} panel`} className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">

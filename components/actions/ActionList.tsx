@@ -11,7 +11,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { NextAction, ActionDependency } from "@/types/mvp";
-import { STATUS_LABEL, SIZE_LABEL } from "@/lib/actions/status";
+import { SIZE_LABEL, userFacingStatus, statusTone } from "@/lib/actions/status";
 import { buildBlockedByMap, isBlocked } from "@/lib/actions/dependencies";
 
 const snip = (s: string, n = 90) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -43,7 +43,12 @@ export default function ActionList({ items, deps, selected, activeIndex, onToggl
     return () => window.removeEventListener("keydown", onKey);
   }, [activeIndex, items, onActiveIndex, onToggle, onPin, router]);
 
-  if (items.length === 0) return <p className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm text-zinc-500 dark:border-white/[.12]">No actions here. When you know what to do next, add it — nothing is created for you.</p>;
+  if (items.length === 0) return (
+    <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-center dark:border-white/[.12]">
+      <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Nothing here yet.</p>
+      <p className="mx-auto mt-1 max-w-md text-xs text-zinc-500">A next action is one concrete thing you can actually do — like &ldquo;email Sam the draft.&rdquo; Add one with <span className="font-medium text-zinc-700 dark:text-zinc-200">+ New action</span> above. Nothing is created or prioritized for you.</p>
+    </div>
+  );
 
   return (
     <ul aria-label="Action list" className="flex flex-col gap-1.5">
@@ -56,8 +61,7 @@ export default function ActionList({ items, deps, selected, activeIndex, onToggl
               <Link href={`/actions/${a.id}`} onMouseEnter={() => onActiveIndex(i)} className="min-w-0 flex-1">
                 <p className="text-sm text-zinc-800 dark:text-zinc-100">{a.pinned && <span aria-label="pinned" className="mr-1 text-amber-500">★</span>}{snip(a.title || "(untitled action)")}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-400">
-                  <span className="rounded-full bg-black/[.06] px-1.5 dark:bg-white/[.08]">{STATUS_LABEL[a.status]}</span>
-                  {blocked && <span className="rounded-full bg-rose-500/15 px-1.5 text-rose-600 dark:text-rose-300">blocked</span>}
+                  {(() => { const tone = statusTone(a, blocked); const cls = tone === "ready" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : tone === "active" ? "bg-sky-500/15 text-sky-700 dark:text-sky-300" : tone === "waiting" ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-black/[.06] dark:bg-white/[.08]"; return <span className={`rounded-full px-1.5 ${cls}`}>{userFacingStatus(a, blocked)}</span>; })()}
                   {a.estimatedSize !== "unspecified" && <span>· {SIZE_LABEL[a.estimatedSize]}</span>}
                   {a.context && <span>· {a.context}</span>}
                   {a.status === "deferred" && a.deferredUntil && <span>· until {a.deferredUntil}</span>}

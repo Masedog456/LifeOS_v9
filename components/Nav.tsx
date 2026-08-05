@@ -58,8 +58,8 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
   {
     label: "Think",
     links: [
-      { href: "/world", label: "World" },
-      { href: "/constitution", label: "Constitution" },
+      { href: "/world", label: "Knowledge" },
+      { href: "/constitution", label: "Beliefs" },
       { href: "/compare", label: "Compare" },
       { href: "/inquiry", label: "Inquiry" },
       { href: "/threads", label: "Threads" },
@@ -93,7 +93,7 @@ const GROUPS: { label: string; links: { href: string; label: string }[] }[] = [
   },
   {
     label: "Maintain",
-    links: [{ href: "/maintenance", label: "Health" }],
+    links: [{ href: "/maintenance", label: "Maintenance" }],
   },
   {
     label: "Insights",

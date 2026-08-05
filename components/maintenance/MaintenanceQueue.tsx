@@ -44,7 +44,10 @@ export default function MaintenanceQueue() {
       </div>
 
       {shown.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm text-zinc-500 dark:border-white/[.12]" data-empty>Nothing to review here.</p>
+        <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-center dark:border-white/[.12]" data-empty>
+          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">You&apos;re all caught up.</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-zinc-500">This is where LifeOS gently points out possible duplicates, orphaned links, or records that have gone quiet — always as suggestions, never problems. There&apos;s nothing to look at right now.</p>
+        </div>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {shown.map((i) => {

@@ -40,6 +40,7 @@ export default function PlanningBoard() {
 
   const columns = useMemo(() => deriveBoard(state.planningAssignments ?? [], (ref) => resolveCardMeta(state, ctx, ref), filter), [state, ctx, filter]);
   const counts = useMemo(() => boardCounts(state.planningAssignments ?? []), [state]);
+  const totalPlanned = (state.planningAssignments ?? []).length;
 
   // Keyboard movement: with cards selected, 1–5 move them to a column.
   useEffect(() => {
@@ -74,6 +75,10 @@ export default function PlanningBoard() {
       <PlanningMaintenanceHint />
       <PlanningInsightsContext />
 
+      {totalPlanned === 0 ? (
+        <PlanningEmptyState />
+      ) : (
+      <>
       {/* Filter row. */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input value={filter.text ?? ""} onChange={(e) => setFilter({ ...filter, text: e.target.value })} placeholder="Filter…" aria-label="Filter board" className="min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-3 py-1.5 text-sm outline-none dark:border-white/12" />
@@ -102,6 +107,38 @@ export default function PlanningBoard() {
           })}
         </div>
       )}
+      </>
+      )}
     </main>
+  );
+}
+
+/**
+ * First-run planning experience (LIFEOS-042A, Feature 1). Planning organizes
+ * work you've ALREADY captured as actions — it doesn't create the work itself.
+ * So an empty board teaches that, and offers the two real next steps: make an
+ * action, or pick from ones you already have.
+ */
+function PlanningEmptyState() {
+  return (
+    <section data-planning-empty className="mx-auto max-w-2xl rounded-2xl border border-black/[.08] bg-black/[.01] p-6 text-center dark:border-white/[.10] dark:bg-white/[.02] sm:p-8">
+      <h2 className="text-lg font-semibold tracking-tight">Plan the work you already have</h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+        Planning doesn&apos;t create tasks — it helps you decide <em>when</em>{" "}to do the
+        actions you&apos;ve already written down. Drag an action into a horizon to say
+        when you intend to work on it. A horizon is a choice, never a deadline.
+      </p>
+      <div className="mx-auto mt-5 grid max-w-lg gap-2 text-left text-[13px] sm:grid-cols-2">
+        <div className="rounded-xl border border-black/[.06] px-3 py-2 dark:border-white/[.08]"><span className="font-medium">Today</span> — what you mean to do now.</div>
+        <div className="rounded-xl border border-black/[.06] px-3 py-2 dark:border-white/[.08]"><span className="font-medium">This Week</span> — soon, but not today.</div>
+        <div className="rounded-xl border border-black/[.06] px-3 py-2 dark:border-white/[.08]"><span className="font-medium">Later</span> — on the horizon, no rush.</div>
+        <div className="rounded-xl border border-black/[.06] px-3 py-2 dark:border-white/[.08]"><span className="font-medium">Someday</span> — maybe, when the time is right.</div>
+      </div>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+        <Link href="/actions?new=1" data-planning-create className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Create an action</Link>
+        <Link href="/plan/inbox" data-planning-choose className="rounded-full border border-black/[.15] px-5 py-2 text-sm font-medium dark:border-white/[.20]">Choose from existing actions</Link>
+      </div>
+      <p className="mt-3 text-xs text-zinc-400">Once you have actions, they&apos;ll appear here to organize into horizons.</p>
+    </section>
   );
 }

@@ -42,7 +42,7 @@ export default function SyncDiagnostics() {
     { label: "Authenticated", value: d.authenticated ? `yes${d.authEmailMasked ? ` (${d.authEmailMasked})` : ""}` : "no" },
     { label: "Local save", value: d.localStatus === "ok" ? "ok" : `error — ${d.localError}` },
     { label: "Remote sync", value: d.remoteError ? `${d.remoteStatus} — ${d.remoteError}` : d.remoteStatus },
-    { label: "Last successful sync", value: d.lastSyncAt ? new Date(d.lastSyncAt).toLocaleString() : "never" },
+    { label: "Last successful sync", value: d.lastSyncAt ? new Date(d.lastSyncAt).toLocaleString() : "Not yet synced" },
     { label: "Dirty domains", value: d.dirtyDomains.length ? d.dirtyDomains.join(", ") : "none" },
     { label: "Pending local changes", value: d.pendingLocalChanges ? "yes" : "no" },
     { label: "Retrying", value: d.retrying ? `yes (attempt ${d.retryAttempt ?? "?"})` : "no" },
