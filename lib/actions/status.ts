@@ -53,6 +53,34 @@ export const CONTEXT_SUGGESTIONS = [
   "computer", "phone", "home", "office", "errand", "reading", "writing", "conversation", "anywhere",
 ] as const;
 
+/**
+ * User-facing status phrase (LIFEOS-042A). Presentation only — it combines the
+ * stored status with whether the action is currently waiting on prerequisite
+ * actions, and never changes the stored status or the planning/action engine.
+ * An `open` action with no unfinished prerequisites reads "Ready"; one that is
+ * held up by prerequisites reads "Waiting on prerequisites" — so the header can
+ * never say "blocked" while the prerequisites panel says the action is free.
+ */
+export function userFacingStatus(a: NextAction, blockedByPrerequisites: boolean): string {
+  switch (a.status) {
+    case "completed": return "Completed";
+    case "cancelled": return "Cancelled";
+    case "waiting": return a.waitingOn ? `Waiting on ${a.waitingOn}` : "Waiting on someone";
+    case "deferred": return "Scheduled for later";
+    case "in_progress": return "In progress";
+    case "open": return blockedByPrerequisites ? "Waiting on prerequisites" : "Ready";
+  }
+}
+
+/** Tone for the user-facing status, so the UI can style it without re-deriving. */
+export function statusTone(a: NextAction, blockedByPrerequisites: boolean): "ready" | "active" | "waiting" | "done" | "muted" {
+  if (a.status === "completed") return "done";
+  if (a.status === "cancelled") return "muted";
+  if (a.status === "in_progress") return "active";
+  if (a.status === "waiting" || a.status === "deferred") return "waiting";
+  return blockedByPrerequisites ? "waiting" : "ready";
+}
+
 const OPEN_STATUSES: ActionStatus[] = ["open", "in_progress", "waiting", "deferred"];
 const TERMINAL_STATUSES: ActionStatus[] = ["completed", "cancelled"];
 

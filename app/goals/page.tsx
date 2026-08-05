@@ -68,8 +68,9 @@ function GoalsHome() {
 
       {goals.length === 0 ? (
         <div className="rounded-xl border border-dashed border-black/15 px-6 py-12 text-center dark:border-white/15">
-          <p className="text-sm text-zinc-500">No goals yet.</p>
-          <p className="mt-1 text-xs text-zinc-400">Create one to organize your projects, sessions, and knowledge around what you’re trying to accomplish.</p>
+          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Start with something you want to accomplish.</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-zinc-500">A goal is the highest level of intention. It holds your projects, and progress is measured by what you actually finish — nothing here is scored or nagged.</p>
+          {!showNew && <button type="button" onClick={() => setShowNew(true)} className="mt-4 rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Create your first goal</button>}
         </div>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">

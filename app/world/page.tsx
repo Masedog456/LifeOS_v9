@@ -105,7 +105,7 @@ function WorldWorkspace() {
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-12">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">World model</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Knowledge</h1>
         <p className="mt-1 text-sm text-zinc-500">
           Your evolving map of reality — concepts, the relationships between them, reusable principles,
           and the frameworks that organize them. Deterministic and human-reviewed: nothing is inferred

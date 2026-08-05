@@ -80,8 +80,9 @@ function ProjectsHome() {
 
       {projects.length === 0 ? (
         <div className="rounded-xl border border-dashed border-black/15 px-6 py-12 text-center dark:border-white/15">
-          <p className="text-sm text-zinc-500">No projects yet.</p>
-          <p className="mt-1 text-xs text-zinc-400">Create one to turn a goal into concrete, trackable work.</p>
+          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Turn an intention into real work.</p>
+          <p className="mx-auto mt-1 max-w-md text-xs text-zinc-500">A project is a body of related work — it holds milestones and the next actions that move it forward. Create one, then break it into actions you can actually do.</p>
+          {!showNew && <button type="button" onClick={() => setShowNew(true)} className="mt-4 rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Create your first project</button>}
         </div>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">

@@ -47,6 +47,7 @@ function dirtyDomainsOf(next: StoreState, base: StoreState | null): Set<keyof St
 let health: PersistenceHealth = {
   mode: "local",
   state: isSupabaseConfigured() ? "syncing" : "disabled",
+  lastSyncAt: null,
 };
 const listeners = new Set<() => void>();
 
@@ -58,7 +59,11 @@ export function getHealth(): PersistenceHealth {
   return health;
 }
 function setHealth(next: Partial<PersistenceHealth>): void {
-  health = { ...health, ...next };
+  // Any confirmed successful sync stamps lastSyncAt (LIFEOS-042A) so the header
+  // and diagnostics read one consistent "last synced" value, and a stale
+  // "failed" that later recovers is never left without a timestamp.
+  if (next.state === "synced" && !lastSyncAt) lastSyncAt = new Date().toISOString();
+  health = { ...health, ...next, lastSyncAt };
   listeners.forEach((l) => l());
 }
 
