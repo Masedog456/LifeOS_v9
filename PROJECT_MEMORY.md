@@ -2589,3 +2589,21 @@ scope or order.
   tag is **prepared but NOT created** — it is held until every gate (including the
   credentialed manual ones) passes. "This sprint proves readiness; it does not
   manufacture confidence."
+
+- **LIFEOS-043 — Navigation & Information Architecture redesign (no new features).**
+  Pure IA: `components/Nav.tsx` rewritten from a flat wrapped row of ~35
+  destinations across ~12 groups into **six intention-based primary
+  destinations** — Today, Capture, Work, Learn, Reflect, More — with the deeper
+  tools moved one click away behind grouped dropdown menus (progressive
+  disclosure). No route was added, removed, or renamed as a concept; only
+  regrouped and given consumer-facing labels. The brand mark still returns to
+  Today; the command palette (⌘K) still reaches every destination directly; the
+  belief-inbox pending badge moved onto the Capture menu. Menus are a disclosure
+  pattern (button + `aria-expanded` + `aria-haspopup`, Esc/outside-click/nav to
+  close, plain-link keyboard semantics). Mobile: the six items wrap to two tidy
+  rows with **no horizontal overflow**. Verified: tsc/lint/build 0; a keyboard +
+  reachability check 9/9 (all 37 existing destinations reachable, logo→Today,
+  Enter opens / Esc closes, nav landmark labelled); desktop + mobile screenshots.
+  Full regression 1016/1017 — the one miss is a marginal, load-sensitive memory
+  **perf-budget** assertion (≈1531ms vs a 1500ms threshold), unrelated to this
+  presentation-only change and green in prior sprints; no test was weakened.
