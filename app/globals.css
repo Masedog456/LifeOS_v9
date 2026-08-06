@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* LIFEOS-044 — a barely-warm paper white instead of clinical #fff, so the app
+   * reads like a thoughtful study rather than enterprise software. The shift is
+   * subtle (a few points of warmth) and never changes branding or contrast. */
+  --background: #fcfbf9;
+  --foreground: #1c1a17;
 }
 
 @theme inline {
@@ -14,8 +17,9 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    /* A faintly warm near-black, matched to the paper white above. */
+    --background: #0b0b0a;
+    --foreground: #ededeb;
   }
 }
 
@@ -23,7 +27,43 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+
+/* LIFEOS-044 — one calm motion vocabulary for everyday interactions. Hover,
+ * focus, and press feel smooth and consistent across the whole product instead
+ * of snapping. Reduced-motion (below) neutralizes all of it. */
+a, button, [role="button"], summary,
+input, select, textarea, [data-card] {
+  transition: background-color 150ms ease, border-color 150ms ease,
+    color 150ms ease, box-shadow 200ms ease, opacity 150ms ease, transform 150ms ease;
+}
+button:not(:disabled):active, [role="button"]:active {
+  transform: translateY(0.5px);
+}
+
+/* Subtle, tasteful card elevation on hover — a gentle lift, never a bounce. */
+.lo-card {
+  transition: box-shadow 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+.lo-card:hover {
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 2px rgba(24, 24, 27, 0.04), 0 10px 30px -18px rgba(24, 24, 27, 0.22);
+}
+@media (prefers-color-scheme: dark) {
+  .lo-card:hover {
+    border-color: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 34px -18px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Progressive-disclosure sections (LIFEOS-044): a quiet, keyboard-native
+ * <details> with a rotating marker and no default triangle. */
+.lo-details > summary { cursor: pointer; list-style: none; }
+.lo-details > summary::-webkit-details-marker { display: none; }
+.lo-details > summary .lo-caret { transition: transform 180ms ease; }
+.lo-details[open] > summary .lo-caret { transform: rotate(90deg); }
 
 /* ===== LIFEOS-041 design tokens (generated from lib/design/tokens.ts + color.ts) ===== */
 :root {

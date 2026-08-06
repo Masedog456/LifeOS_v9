@@ -81,11 +81,11 @@ const NAV: NavItem[] = [
     kind: "menu", key: "more", label: "More",
     sections: [
       { heading: "Thinking tools", links: [
-        { href: "/compare", label: "Compare" },
-        { href: "/inquiry", label: "Inquiry" },
+        { href: "/dialogue", label: "Explore an idea" },
+        { href: "/inquiry", label: "Ask a question" },
+        { href: "/reason", label: "Think it through" },
+        { href: "/compare", label: "Compare ideas" },
         { href: "/threads", label: "Threads" },
-        { href: "/reason", label: "Reason" },
-        { href: "/dialogue", label: "Dialogue" },
       ] },
       { heading: "Create & decide", links: [
         { href: "/author", label: "Author" },
