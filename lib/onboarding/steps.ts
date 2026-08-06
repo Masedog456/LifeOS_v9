@@ -22,7 +22,7 @@ export interface OnboardingStep {
 }
 
 export const STEPS: readonly OnboardingStep[] = [
-  { id: "welcome", title: "Welcome", teaches: "What LifeOS is: a quiet place to capture, decide, and do.", interactive: false, skippableIfPresent: false },
+  { id: "welcome", title: "Welcome", teaches: "A calm home for your thinking. LifeOS helps you capture, decide, and reflect — and keeps your own judgment at the center. It never thinks for you.", interactive: false, skippableIfPresent: false },
   { id: "capture", title: "Capture one thing", teaches: "Saving a thought quickly, without deciding what it is yet.", interactive: true, skippableIfPresent: true },
   { id: "decide", title: "Decide what it is", teaches: "Processing a capture into something you can act on.", interactive: true, skippableIfPresent: true },
   { id: "project", title: "Create or pick a project", teaches: "Grouping related work under an outcome.", interactive: true, skippableIfPresent: true },

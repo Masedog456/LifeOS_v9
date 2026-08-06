@@ -19,11 +19,11 @@ import { completeOnboarding, isOnboardingDone, readPrefs, restartOnboarding, wri
 
 const LOOP = [
   ["Capture", "a passing thought, a quote, a page — everything starts as a capture"],
-  ["Belief", "captures become belief proposals; only YOU accept them into your Constitution"],
-  ["Understand", "beliefs connect into concepts, principles, and frameworks — your world model"],
-  ["Investigate", "research projects and Socratic dialogues test what you think against evidence"],
-  ["Integrate", "tensions between ideas become explicit, and syntheses resolve them honestly"],
-  ["Act & reflect", "decisions, reviews, and formation practices close the loop back into life"],
+  ["Consider", "captures become proposals you weigh; only you accept them into your beliefs"],
+  ["Understand", "beliefs connect into concepts, principles, and frameworks — your own map of what you know"],
+  ["Investigate", "research and open-ended dialogue test what you think against the evidence"],
+  ["Integrate", "tensions between ideas are made explicit, and you resolve them honestly"],
+  ["Act & reflect", "decisions, reviews, and practices carry the thinking back into your days"],
 ] as const;
 
 export default function WelcomePage() {
@@ -89,11 +89,12 @@ export default function WelcomePage() {
 
       {step === 0 && (
         <section>
-          <h2 className="text-lg font-medium">An operating system for what you believe</h2>
+          <h2 className="text-lg font-medium">Living well is still your work</h2>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-            LifeOS turns books, notes, and passing thoughts into examined beliefs, an explicit world model, and
-            practices that shape your days. Nothing is ever changed for you: AI proposes, deterministic engines
-            surface structure, and <span className="font-medium">you judge everything</span>.
+            The digital age didn&apos;t lift the work of living thoughtfully — it multiplied it. LifeOS is a calm
+            place to meet that work on your own terms: to gather what you read and think, weigh decisions with
+            clarity, and keep your own judgment at the center. It&apos;s here to <span className="font-medium">help you think</span> —
+            never to think for you. Nothing is ever changed without you; you judge everything.
           </p>
           <ol className="mt-4 flex flex-col gap-2">
             {LOOP.map(([name, desc], i) => (
@@ -143,11 +144,11 @@ export default function WelcomePage() {
         <section>
           <h2 className="text-lg font-medium">Start each day in one place</h2>
           <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-            Two pages anchor daily use: <Link href="/today" className="underline underline-offset-4">Today</Link> shows what deserves attention,
-            and the <span className="font-medium">LifeOS Inbox</span> collects deterministic recommendations from every subsystem —
-            contradictions to investigate, beliefs to review, tensions to resolve. Nothing is ever done automatically.
+            Two pages anchor daily use: <Link href="/today" className="underline underline-offset-4">Today</Link> gathers what deserves your attention,
+            and the <span className="font-medium">LifeOS Inbox</span> quietly points out things you might want to revisit —
+            an idea to investigate, a belief worth re-reading, a tension left open. It only ever suggests; you decide what matters.
           </p>
-          <p className="mt-3 text-sm text-zinc-500"><span className="font-medium">Suggested next step:</span> open the LifeOS Inbox and press “Scan now” — it will tell you what your knowledge already wants you to look at.</p>
+          <p className="mt-3 text-sm text-zinc-500"><span className="font-medium">A gentle next step:</span> open the LifeOS Inbox and press “Scan now” to see what&apos;s worth a second look — nothing acts on its own.</p>
           <div className="mt-4 flex gap-2">
             <button type="button" onClick={finish} className="rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Finish → open the LifeOS Inbox</button>
             <Link href="/today" onClick={() => completeOnboarding("done")} className="rounded-full px-4 py-2 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100">or go to Today</Link>

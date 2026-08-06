@@ -119,7 +119,7 @@ export default function TodayPage() {
 
       {showOnboardingInvite && (
         <div className="mb-5 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
-          <p className="text-sm text-zinc-700 dark:text-zinc-200">New here? A two-minute tour explains the cognitive loop and gets your first thought captured.</p>
+          <p className="text-sm text-zinc-700 dark:text-zinc-200">New here? A short tour shows how LifeOS helps you capture, decide, and reflect — you stay in charge of everything.</p>
           <Link href="/welcome" className="mt-2 inline-block rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Start the tour →</Link>
         </div>
       )}
