@@ -39,6 +39,15 @@ function snip(s: string, n = 64): string {
   const t = s.replace(/\s+/g, " ").trim();
   return t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t;
 }
+/** A warm, time-of-day greeting — the small touch that makes Today feel like
+ * opening your own notebook rather than a dashboard (LIFEOS-044). */
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "Still up";
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 export default function TodayPage() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -84,16 +93,25 @@ export default function TodayPage() {
     state.captures.length === 0 && state.beliefs.length === 0 && state.sources.length === 0 &&
     state.dialogueSessions.length === 0 && state.researchProjects.length === 0;
   const showOnboardingInvite = !isOnboardingDone();
+  // The collapsible "More from your notebook" only appears when it holds
+  // something — an empty disclosure would be noise, not calm.
+  const hasSecondary =
+    view.openDialogues.length > 0 || view.activeResearch.length > 0 || view.openDecisions.length > 0 ||
+    view.staleBeliefs.length > 0 || view.duePractices.length > 0 || view.recentCaptures.length > 0 ||
+    view.memory.length > 0 || view.reflectionPrompts.length > 0 || view.completed.length > 0;
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
-      <header className="mb-6">
+      <header className="mb-7">
         <div className="flex items-start justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Today</h1>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
+            <h1 className="mt-0.5 text-[1.75rem] font-semibold leading-tight tracking-tight">{greeting()}.</h1>
+          </div>
           <button type="button" onClick={openQuickCapture} className="shrink-0 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900">＋ Quick capture</button>
         </div>
-        <p className="mt-1 text-sm text-zinc-500">
-          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })} — a projection of what deserves attention. Nothing here is a copy; every card links to the record itself. Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> to search or run a command.
+        <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+          Here&apos;s what&apos;s worth your attention — everything links back to the real record, nothing is a copy. Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> anytime to search or jump anywhere.
         </p>
       </header>
 
@@ -161,14 +179,22 @@ export default function TodayPage() {
             <p className="text-sm text-zinc-700 dark:text-zinc-200">{view.proposals.length} belief proposal{view.proposals.length === 1 ? "" : "s"} waiting for your judgment.</p>
           </Card>
 
+          {/* Progressive disclosure (LIFEOS-044): the deeper, more reflective
+              parts of the day stay one calm click away, so Today opens quiet. */}
+          {hasSecondary && (
+          <details className="lo-details flex flex-col gap-4">
+            <summary className="flex items-center gap-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+              <span aria-hidden className="lo-caret text-[9px]">▸</span> More from your notebook
+            </summary>
+            <div className="mt-2 flex flex-col gap-4">
           {/* Continue */}
-          <Card title="Continue" href="/dialogue" linkLabel="Dialogues →" show={view.openDialogues.length > 0}>
+          <Card title="Continue" href="/dialogue" linkLabel="Explore an idea →" show={view.openDialogues.length > 0}>
             {view.openDialogues.slice(0, 3).map((d) => (
               <Link key={d.id} href={`/dialogue/${d.id}`} className="block py-0.5 text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">
                 {snip(d.title, 56)} <span className="text-xs text-zinc-400">· {d.status} · {ago(d.updatedAt)}</span>
               </Link>
             ))}
-            {view.openTensions.length > 0 && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{view.openTensions.length} unresolved tension{view.openTensions.length === 1 ? "" : "s"} across your dialogues.</p>}
+            {view.openTensions.length > 0 && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{view.openTensions.length} unresolved tension{view.openTensions.length === 1 ? "" : "s"} across your explorations.</p>}
           </Card>
 
           <Card title="Active research" href="/research" linkLabel="Research →" show={view.activeResearch.length > 0}>
@@ -230,10 +256,14 @@ export default function TodayPage() {
               </Link>
             ))}
           </Card>
+            </div>
+          </details>
+          )}
 
           {view.activeRecs.length === 0 && view.proposals.length === 0 && view.openDialogues.length === 0 && view.activeResearch.length === 0 && view.openDecisions.length === 0 && view.staleBeliefs.length === 0 && view.duePractices.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-black/[.10] p-5 text-sm text-zinc-500 dark:border-white/[.12]">
-              All clear — nothing is waiting on you. Capture a thought, open a dialogue, or run a scan in the <Link href="/orchestrator" className="underline underline-offset-4">LifeOS Inbox</Link>.
+            <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-center text-sm text-zinc-500 dark:border-white/[.12]">
+              <p className="text-zinc-600 dark:text-zinc-300">You&apos;re all caught up. 🌿</p>
+              <p className="mx-auto mt-1 max-w-md text-xs">Nothing is waiting on you right now. Capture a thought, open an idea to explore, or take a quiet moment — it&apos;ll all be here when you return.</p>
             </div>
           )}
         </div>
@@ -245,10 +275,10 @@ export default function TodayPage() {
 function Card({ title, href, linkLabel, show, children }: { title: string; href: string; linkLabel: string; show: boolean; children: React.ReactNode }) {
   if (!show) return null;
   return (
-    <section className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-      <div className="mb-1.5 flex items-center justify-between">
+    <section data-card className="lo-card rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
+      <div className="mb-2 flex items-center justify-between">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>
-        <Link href={href} className="text-[11px] text-zinc-400 underline-offset-4 hover:underline">{linkLabel}</Link>
+        <Link href={href} className="text-[11px] text-zinc-400 underline-offset-4 hover:text-zinc-600 hover:underline dark:hover:text-zinc-300">{linkLabel}</Link>
       </div>
       {children}
     </section>
