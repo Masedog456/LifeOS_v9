@@ -21,9 +21,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LifeOS — Belief Threads",
+  title: "LifeOS — a quiet home for thinking clearly",
   description:
-    "Capture a thought, resurface a past one, and watch your beliefs bend over time.",
+    "A calm place to organize your reading, thinking, projects, and decisions. LifeOS helps you think and keeps your own judgment at the center — it never thinks for you.",
 };
 
 export default function RootLayout({
