@@ -49,7 +49,7 @@ export default function ThemeDetailPage() {
         <h1 className="text-2xl font-semibold tracking-tight">{theme.name}</h1>
         {theme.aliases.length > 0 && <p className="mt-0.5 text-[11px] text-zinc-400">also: {theme.aliases.join(", ")}</p>}
         <p className="mt-1 text-sm text-zinc-500">
-          {theme.total} connection{theme.total === 1 ? "" : "s"}{span ? ` across ${span}` : ""}. Also in the <Link href={`/world/concept/${theme.id}`} className="underline underline-offset-4">World model</Link>.
+          {theme.total} connection{theme.total === 1 ? "" : "s"}{span ? ` across ${span}` : ""}. Also in <Link href={`/world/concept/${theme.id}`} className="underline underline-offset-4">Knowledge</Link>.
         </p>
         <ExplanationDetail explanation={theme.explanation} />
       </header>

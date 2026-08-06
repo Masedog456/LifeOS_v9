@@ -199,7 +199,7 @@ export default function ThreadDetailPage() {
             </div>
           </>
         ) : (
-          <p className="text-sm text-zinc-400">No synthesis yet. Generate one from the thread&apos;s members — it cites only existing evidence and never changes your Constitution.</p>
+          <p className="text-sm text-zinc-400">No synthesis yet. Generate one from the thread&apos;s members — it cites only existing evidence and never changes your beliefs.</p>
         )}
       </section>
 
@@ -271,7 +271,7 @@ export default function ThreadDetailPage() {
         {showCandidates && (
           <div className="mt-2">
             {candidates.length === 0 ? (
-              <p className="text-sm text-zinc-400">No deterministic candidates found.</p>
+              <p className="text-sm text-zinc-400">Nothing to suggest here yet.</p>
             ) : (
               <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
                 {candidates.map((c) => (

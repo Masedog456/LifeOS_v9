@@ -34,7 +34,7 @@ export default function SemanticIndexPanel({ state }: { state: StoreState }) {
           : "Everything is already indexed.",
       );
     } catch {
-      setNote("Indexing failed — deterministic search still works.");
+      setNote("Indexing failed — regular search still works.");
     } finally {
       setBusy(false);
     }

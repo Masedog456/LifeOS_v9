@@ -36,14 +36,14 @@ const PRIORITY_TONE: Record<Recommendation["priority"], string> = {
 };
 
 const SUBSYSTEM_LABEL: Record<Recommendation["subsystem"], string> = {
-  belief: "Belief Ledger",
+  belief: "Beliefs",
   research: "Research",
-  graph: "Graph",
+  graph: "Connections",
   dialogue: "Dialogue",
   review: "Review",
   formation: "Formation",
   decision: "Decisions",
-  world: "World Model",
+  world: "Knowledge",
 };
 
 function statusLabel(r: Recommendation): string | null {

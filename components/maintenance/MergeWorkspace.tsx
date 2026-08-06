@@ -27,7 +27,7 @@ export default function MergeWorkspace() {
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
       <header className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Merge records</h1>
-        <p className="mt-0.5 text-sm text-zinc-500">Consolidate duplicates deterministically. A merge preserves history, citations, and backlinks, keeps the chosen record&apos;s id, archives the rest (reversible), and never deletes.</p>
+        <p className="mt-0.5 text-sm text-zinc-500">Consolidate duplicates safely. A merge preserves history, citations, and backlinks, keeps the chosen record, archives the rest (reversible), and never deletes.</p>
       </header>
 
       {candidates.length === 0 ? (

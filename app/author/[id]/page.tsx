@@ -158,7 +158,7 @@ export default function AuthorProjectPage() {
       {/* Export */}
       <section className="mb-8">
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-400">4 · Export</h2>
-        <p className="mb-2 text-xs text-zinc-400">Deterministic export — citations preserved as a numbered reference list in every format.</p>
+        <p className="mb-2 text-xs text-zinc-400">Export in any format — citations preserved as a numbered reference list every time.</p>
         <ExportBar project={p} />
       </section>
 

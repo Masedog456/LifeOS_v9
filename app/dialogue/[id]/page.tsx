@@ -104,7 +104,7 @@ export default function DialogueSessionPage() {
             </ul>
           )}
           <div className="flex flex-col gap-3">
-            <button type="button" onClick={() => addPerspective(d.id, "constitution", "Your current Constitution")} className="self-start rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">+ Current Constitution</button>
+            <button type="button" onClick={() => addPerspective(d.id, "constitution", "Your current beliefs")} className="self-start rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">+ Your current beliefs</button>
             <PerspGroup label="Frameworks" kind="framework" items={state.frameworks.map((f) => ({ id: f.id, label: f.name }))} onAdd={addPerspOf} />
             <PerspGroup label="Principles" kind="principle" items={state.principles.map((p) => ({ id: p.id, label: snippet(p.statement) }))} onAdd={addPerspOf} />
             <PerspGroup label="Beliefs" kind="belief" items={state.beliefs.filter((b) => b.status !== "rejected").map((b) => ({ id: b.id, label: snippet(b.text) }))} onAdd={addPerspOf} />
@@ -125,7 +125,7 @@ export default function DialogueSessionPage() {
 
       {tab === "Outcomes" && (
         <section className="flex flex-col gap-5">
-          <p className="text-xs text-zinc-400">Turn the dialogue into something. Nothing changes automatically — every outcome is an explicit action, and belief/Constitution proposals go to your Inbox for review.</p>
+          <p className="text-xs text-zinc-400">Turn the conversation into something. Nothing changes automatically — every outcome is an explicit action, and any belief proposals go to your Inbox for review.</p>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => { const rid = dialogueToResearch(d.id); if (rid) router.push(`/research/${rid}`); }} className="rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">→ Research project</button>
             <button type="button" onClick={() => { const kid = dialogueToKnowledge(d.id); if (kid) router.push(`/author/${kid}`); }} className="rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">→ Knowledge project</button>
@@ -136,7 +136,7 @@ export default function DialogueSessionPage() {
             <input value={outcomeText} onChange={(e) => setOutcomeText(e.target.value)} placeholder="Text for a belief / concept / principle / framework…" className="w-full rounded-lg border border-black/[.10] bg-transparent px-3 py-2 text-sm outline-none dark:border-white/[.12]" />
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               <button type="button" onClick={() => { dialogueToBeliefProposal(d.id, outcomeText); setOutcomeText(""); }} disabled={!outcomeText.trim()} className="rounded-full border border-black/[.12] px-3 py-1.5 disabled:opacity-30 dark:border-white/[.15]">→ Belief proposal (Inbox)</button>
-              <button type="button" onClick={() => { dialogueToBeliefProposal(d.id, outcomeText, true); setOutcomeText(""); }} disabled={!outcomeText.trim()} className="rounded-full border border-black/[.12] px-3 py-1.5 disabled:opacity-30 dark:border-white/[.15]">→ Constitution proposal (Inbox)</button>
+              <button type="button" onClick={() => { dialogueToBeliefProposal(d.id, outcomeText, true); setOutcomeText(""); }} disabled={!outcomeText.trim()} className="rounded-full border border-black/[.12] px-3 py-1.5 disabled:opacity-30 dark:border-white/[.15]">→ Belief proposal (Inbox)</button>
               <button type="button" onClick={() => { dialogueToConcept(d.id, outcomeText); setOutcomeText(""); }} disabled={!outcomeText.trim()} className="rounded-full border border-black/[.12] px-3 py-1.5 disabled:opacity-30 dark:border-white/[.15]">→ Concept</button>
               <button type="button" onClick={() => { dialogueToPrinciple(d.id, outcomeText); setOutcomeText(""); }} disabled={!outcomeText.trim()} className="rounded-full border border-black/[.12] px-3 py-1.5 disabled:opacity-30 dark:border-white/[.15]">→ Principle</button>
               <button type="button" onClick={() => { dialogueToFramework(d.id, outcomeText); setOutcomeText(""); }} disabled={!outcomeText.trim()} className="rounded-full border border-black/[.12] px-3 py-1.5 disabled:opacity-30 dark:border-white/[.15]">→ Framework</button>
