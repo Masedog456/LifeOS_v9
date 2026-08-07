@@ -75,7 +75,7 @@ function ReviewItem({
     }
     recordReviewJudgment(reviewId, item.id, "revised");
     setRevising(false);
-    setDone("Revised through your Constitution's revision history.");
+    setDone("Revised — kept in your beliefs' revision history.");
   }
 
   async function suggestPractice() {

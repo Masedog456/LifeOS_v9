@@ -141,7 +141,7 @@ function ImportPanel({ onDone, onCancel }: { onDone: (id: string) => void; onCan
   return (
     <div className="mb-6 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
       <h2 className="text-sm font-semibold">Import a document</h2>
-      <p className="mt-0.5 text-[11px] text-zinc-400">Paste plain text or Markdown. Headings become sections; paragraphs become passages. Nothing is sent anywhere — parsing is local and deterministic.</p>
+      <p className="mt-0.5 text-[11px] text-zinc-400">Paste plain text or Markdown. Headings become sections; paragraphs become passages. Nothing is sent anywhere — it&apos;s all parsed right here on your device.</p>
       <div className="mt-3 flex flex-col gap-2">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" aria-label="Document title" className="w-full rounded-lg border border-black/[.10] bg-transparent px-3 py-2 text-sm outline-none focus:border-black/[.25] dark:border-white/[.12]" />
         <div className="flex flex-wrap gap-2">

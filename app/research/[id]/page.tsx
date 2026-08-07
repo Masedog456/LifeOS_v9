@@ -208,13 +208,13 @@ export default function ResearchProjectPage() {
       {tab === "Timeline" && <ResearchTimeline items={timeline} />}
       {tab === "Gaps" && (
         <section>
-          <p className="mb-3 text-xs text-zinc-400">Surfaced deterministically. Nothing is resolved for you — these are invitations to look.</p>
+          <p className="mb-3 text-xs text-zinc-400">Surfaced from your own records. Nothing is resolved for you — these are invitations to look.</p>
           <GapList gaps={gaps} />
         </section>
       )}
       {tab === "Export" && (
         <section>
-          <p className="mb-3 text-xs text-zinc-400">Deterministic export of the whole investigation — questions, hypotheses, argument map, gaps, and evidence — with provenance preserved as a numbered reference list.</p>
+          <p className="mb-3 text-xs text-zinc-400">A complete export of the whole investigation — questions, hypotheses, argument map, gaps, and evidence — with every source preserved as a numbered reference list.</p>
           <ResearchExportBar project={p} />
         </section>
       )}

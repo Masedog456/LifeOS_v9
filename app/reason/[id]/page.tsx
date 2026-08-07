@@ -96,7 +96,7 @@ export default function ReasoningDetailPage() {
       {/* Provisional conclusion + status */}
       <section className="mt-10 rounded-2xl border border-black/[.06] p-5 dark:border-white/[.08]">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Your provisional conclusion</h2>
-        <p className="mt-1 text-xs text-zinc-400">Where YOU land, in your own words. This never changes your Constitution automatically.</p>
+        <p className="mt-1 text-xs text-zinc-400">Where you land, in your own words. This never changes your beliefs automatically.</p>
         <textarea value={conclusion} onChange={(e) => setConclusion(e.target.value)} rows={3} placeholder="For now, I think…"
           className="mt-3 w-full resize-none rounded-lg border border-black/[.12] bg-transparent p-3 text-sm outline-none focus:border-black/[.25] dark:border-white/[.15] dark:focus:border-white/[.30]" />
         <div className="mt-3 flex flex-wrap items-center gap-2">

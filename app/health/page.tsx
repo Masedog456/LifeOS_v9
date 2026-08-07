@@ -110,7 +110,7 @@ export default function HealthPage() {
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">System Health</h1>
-        <p className="mt-1 text-sm text-zinc-500">Deterministic and observational — viewing this page changes nothing. No secrets are shown.</p>
+        <p className="mt-1 text-sm text-zinc-500">Read-only — viewing this page changes nothing, and no secrets are shown.</p>
       </header>
 
       {/* Sync reliability center + backup/restore (LIFEOS-032) + conflicts/recovery/integrity (LIFEOS-033) */}

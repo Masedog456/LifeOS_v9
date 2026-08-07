@@ -95,7 +95,7 @@ function SynthesisCard({ s }: { s: Synthesis }) {
           <p className="text-[11px] text-zinc-500">Integration is always an explicit action. Belief/Constitution proposals go to your Inbox — nothing is added to any record automatically.</p>
           <div className="flex flex-wrap gap-1.5 text-[11px]">
             <button type="button" onClick={() => synthesisToBeliefProposal(s.id)} className="rounded-full border border-black/[.12] px-2.5 py-1 dark:border-white/[.15]">→ Belief proposal (Inbox)</button>
-            <button type="button" onClick={() => synthesisToPrinciple(s.id)} className="rounded-full border border-black/[.12] px-2.5 py-1 dark:border-white/[.15]">→ Principle (World Model)</button>
+            <button type="button" onClick={() => synthesisToPrinciple(s.id)} className="rounded-full border border-black/[.12] px-2.5 py-1 dark:border-white/[.15]">→ Principle (Knowledge)</button>
             <button type="button" onClick={() => synthesisToResearch(s.id)} className="rounded-full border border-black/[.12] px-2.5 py-1 dark:border-white/[.15]">→ Research project</button>
           </div>
           <div className="flex gap-1.5">
@@ -128,7 +128,7 @@ export default function SynthesisPanel({ tension }: { tension: Tension }) {
 
       {showCandidates && (
         <div className="flex flex-col gap-2">
-          <p className="text-[11px] text-zinc-500">Deterministic scaffolds — a synthesis is never a compromise or a winner. Add one to work on it, or write your own.</p>
+          <p className="text-[11px] text-zinc-500">Starting points — a synthesis is never a compromise or a winner. Add one to work on it, or write your own.</p>
           {candidates.map((c) => (
             <div key={c.kind} className="rounded-xl border border-dashed border-black/[.12] p-3 dark:border-white/[.15]">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{CANDIDATE_LABEL[c.kind]}</p>

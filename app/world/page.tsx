@@ -107,8 +107,8 @@ function WorldWorkspace() {
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Knowledge</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Your evolving map of reality — concepts, the relationships between them, reusable principles,
-          and the frameworks that organize them. Deterministic and human-reviewed: nothing is inferred
+          Your evolving map of what you know — concepts, the relationships between them, reusable
+          principles, and the frameworks that organize them. Reviewed by you, always: nothing is added
           silently, and nothing changes a belief for you.
         </p>
       </header>
@@ -132,7 +132,7 @@ function WorldWorkspace() {
       {tab === "Concepts" && (
         <section>
           <div className="mb-5 flex gap-2">
-            <input value={conceptName} onChange={(e) => setConceptName(e.target.value)} placeholder="New concept (e.g. Non-duality)" className="flex-1 rounded-lg border border-black/[.10] bg-transparent px-3 py-2 text-sm outline-none focus:border-black/[.25] dark:border-white/[.12] dark:focus:border-white/[.30]" />
+            <input value={conceptName} onChange={(e) => setConceptName(e.target.value)} placeholder="New concept (e.g. Non-duality)" className="min-w-0 flex-1 rounded-lg border border-black/[.10] bg-transparent px-3 py-2 text-sm outline-none focus:border-black/[.25] dark:border-white/[.12] dark:focus:border-white/[.30]" />
             <button type="button" onClick={() => { if (conceptName.trim()) { createConcept({ name: conceptName }); setConceptName(""); } }} disabled={!conceptName.trim()} className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900">Create</button>
           </div>
           {state.concepts.length === 0 ? (
@@ -216,14 +216,14 @@ function WorldWorkspace() {
 
       {tab === "Tensions" && (
         <section>
-          <p className="mb-3 text-xs text-zinc-400">Surfaced deterministically. Nothing is resolved for you — these are invitations to look.</p>
+          <p className="mb-3 text-xs text-zinc-400">Surfaced from your own records. Nothing is resolved for you — these are invitations to look.</p>
           <TensionList tensions={tensions} />
         </section>
       )}
 
       {tab === "Review" && (
         <section>
-          <p className="mb-3 text-xs text-zinc-400">Proposals from your own material — deterministic first, then one AI pass. Everything here is reviewable; nothing is applied automatically.</p>
+          <p className="mb-3 text-xs text-zinc-400">Proposals drawn from your own material. Everything here is yours to review; nothing is applied automatically.</p>
           <button type="button" onClick={runProposals} disabled={running} className="mb-4 rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">
             {running ? "Analyzing…" : `Suggest concepts & links (~1 AI · ${est.evidenceCount} records)`}
           </button>

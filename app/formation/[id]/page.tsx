@@ -183,7 +183,7 @@ export default function FormationSessionPage() {
       {/* Structured capture */}
       {s.reflection && (
         <section className="mb-8 flex flex-col gap-5 rounded-2xl border border-black/[.06] p-5 dark:border-white/[.08]">
-          <p className="text-xs text-zinc-400">Optional structure — name what you&apos;re taking from this. Belief candidates can later go to your Inbox; nothing is added to your Constitution automatically.</p>
+          <p className="text-xs text-zinc-400">Optional structure — name what you&apos;re taking from this. Belief candidates can later go to your Inbox; nothing is added to your beliefs automatically.</p>
           <ListField label="Lessons" hint="What did this teach you?" values={s.lessons} onSave={(v) => setFormationFields(s.id, { lessons: v })} />
           <ListField label="Unresolved questions" hint="What's still open?" values={s.unresolvedQuestions} onSave={(v) => setFormationFields(s.id, { unresolvedQuestions: v })} />
           <ListField label="Emotional observations" hint="What did you feel, and where?" values={s.emotionalObservations} onSave={(v) => setFormationFields(s.id, { emotionalObservations: v })} />

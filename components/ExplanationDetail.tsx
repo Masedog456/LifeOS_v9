@@ -48,7 +48,7 @@ export default function ExplanationDetail({ explanation, defaultOpen = false }: 
                 <span aria-hidden className="mt-1 h-1 w-1 shrink-0 rounded-full bg-zinc-400" />
                 <span>
                   {t.label}
-                  <span className="ml-1 text-zinc-400" title="deterministic rule that fired">[{t.rule}]</span>
+                  <span className="ml-1 text-zinc-400" title="the rule that surfaced this">[{t.rule}]</span>
                 </span>
               </li>
             ))}
