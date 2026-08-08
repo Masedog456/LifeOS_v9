@@ -65,10 +65,13 @@ export default function Home() {
     if (analyze) {
       router.push("/inbox");
     } else {
+      // Honest, local-first status: the capture is safe on this device the
+      // instant it's written. Whether it has reached your account is a separate
+      // fact, shown by the sync indicator — so we never imply full sync here.
       setNote(
         count > 0
-          ? `Captured. ${count} belief${count === 1 ? "" : "s"} waiting in your Inbox.`
-          : "Captured.",
+          ? `Saved on this device. ${count} belief${count === 1 ? "" : "s"} waiting in your Inbox.`
+          : "Saved on this device.",
       );
       // Resurfacing runs only after the capture is saved, and never blocks it.
       resurface(raw);
