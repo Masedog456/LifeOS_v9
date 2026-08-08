@@ -2865,6 +2865,24 @@ export interface DocumentSourceMeta {
   importFormat: "plain" | "markdown" | "paste" | "pdf" | "epub" | "html";
   importedFrom?: string;
   originalLength?: number;
+  // ---- Upload provenance (LIFEOS-047). All optional & additive (stored in the
+  // reading_documents.source_metadata jsonb blob — no migration). ----
+  addMethod?: "upload" | "link" | "paste";
+  uploadFormat?: "pdf" | "txt" | "markdown" | "docx";
+  filename?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  /** Whitespace-stable hash of the extracted text, for duplicate detection. */
+  contentHash?: string;
+  url?: string;
+  pageCount?: number;
+  uploadedAt?: ISO;
+  /** Honest processing state of the reading item. */
+  processingState?: "uploading" | "processing" | "ready" | "needs_attention" | "failed";
+  /** True once the binary original is persisted server-side (Supabase Storage;
+   * a documented next increment — see READING_INGESTION.md). */
+  originalStored?: boolean;
+  note?: string;
 }
 
 export interface ReadingDocument {

@@ -102,6 +102,52 @@ export function assembleDocument(input: NewDocumentInput, ctx: IdClock): Reading
   };
 }
 
+/**
+ * Assemble a canonical ReadingDocument from an ALREADY-PARSED structure
+ * (LIFEOS-047) — used by upload ingestion so per-passage page provenance from a
+ * PDF is preserved (the string-based `assembleDocument` re-parses and would lose
+ * it). Same ReadingDocument output; not a parallel model.
+ */
+export function assembleDocumentFromParsed(
+  input: { title: string; authors?: string[]; kind?: ReadingDocument["kind"]; notes?: string; tags?: string[]; sourceMetadata: ReadingDocument["sourceMetadata"] },
+  parsed: { sections: { title: string; passages: { heading?: string; text: string; page?: number; location?: string }[] }[] },
+  ctx: IdClock,
+): ReadingDocument {
+  const at = ctx.now();
+  const sections = parsed.sections.map((s, si) => {
+    const sectionId = ctx.id();
+    return {
+      id: sectionId,
+      title: s.title || `Section ${si + 1}`,
+      order: si,
+      passages: s.passages.map((p, pi): Passage => ({
+        id: ctx.id(), sectionId, heading: p.heading, text: p.text, page: p.page, location: p.location,
+        order: pi, highlights: [], annotations: [], linked: [],
+      })),
+    };
+  });
+  const seenAuthors = new Set<string>();
+  const authors = (input.authors ?? []).map((a) => a.trim()).filter((a) => {
+    if (!a) return false; const key = normalizeAuthor(a); if (seenAuthors.has(key)) return false; seenAuthors.add(key); return true;
+  });
+  const firstPassage = sections.find((s) => s.passages.length > 0)?.passages[0];
+  return {
+    id: ctx.id(),
+    title: input.title.trim() || "Untitled document",
+    authors,
+    kind: input.kind ?? "book",
+    status: "not_started",
+    coverColor: coverTint(input.title || "Untitled"),
+    tags: input.tags ?? [],
+    notes: input.notes ?? "",
+    sections,
+    progress: { status: "not_started", percent: 0, readPassageIds: [], currentSectionId: sections[0]?.id, currentPassageId: firstPassage?.id },
+    sourceMetadata: input.sourceMetadata,
+    createdAt: at,
+    updatedAt: at,
+  };
+}
+
 /** Flatten a document's passages in reading order. */
 export function allPassages(doc: ReadingDocument): Passage[] {
   return doc.sections.flatMap((s) => s.passages);

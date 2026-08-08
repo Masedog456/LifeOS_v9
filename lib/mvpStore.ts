@@ -137,7 +137,7 @@ import type {
   SavedInsightView,
 } from "@/types/mvp";
 import { emptyAnalysis, emptyStages } from "@/types/mvp";
-import { assembleDocument, type NewDocumentInput } from "@/lib/library/documents";
+import { assembleDocument, assembleDocumentFromParsed, type NewDocumentInput } from "@/lib/library/documents";
 import { withPassageRead, withPosition, withStatus } from "@/lib/library/progress";
 import { makeHighlight } from "@/lib/library/highlights";
 import { makeAnnotation } from "@/lib/library/annotations";
@@ -3113,6 +3113,25 @@ function patchDocument(docId: string, update: (d: ReadingDocument) => ReadingDoc
 /** Import a document from parsed input. Returns the new document id. */
 export function createDocument(input: NewDocumentInput): string {
   const doc = assembleDocument(input, { id, now });
+  setState({ ...state, documents: [doc, ...state.documents] });
+  return doc.id;
+}
+
+/**
+ * Create a reading document from an already-parsed structure (LIFEOS-047 upload
+ * ingestion), preserving PDF page provenance and recording upload provenance in
+ * sourceMetadata. Reuses the canonical ReadingDocument model + Reader.
+ */
+export function createReadingFromParsed(input: {
+  title: string; authors?: string[]; kind?: ReadingDocument["kind"]; notes?: string; tags?: string[];
+  parsed: { sections: { title: string; passages: { heading?: string; text: string; page?: number; location?: string }[] }[] };
+  sourceMetadata: ReadingDocument["sourceMetadata"];
+}): string {
+  const doc = assembleDocumentFromParsed(
+    { title: input.title, authors: input.authors, kind: input.kind, notes: input.notes, tags: input.tags, sourceMetadata: input.sourceMetadata },
+    input.parsed,
+    { id, now },
+  );
   setState({ ...state, documents: [doc, ...state.documents] });
   return doc.id;
 }

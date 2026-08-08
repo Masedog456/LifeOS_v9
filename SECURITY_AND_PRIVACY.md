@@ -76,13 +76,23 @@ every user-owned table (ownership column, required policies, deletion mode,
 tombstone domain). `npm run audit:rls` walks all migrations, finds every
 `CREATE TABLE` with a `user_id` column, and **fails** if any lacks RLS + the
 required SELECT/INSERT/(UPDATE)/(DELETE) policies — so a newly added table cannot
-ship without an RLS review. Verified: **54 user-owned tables across 31 migrations
+ship without an RLS review. Verified: **55 user-owned tables across 32 migrations
 pass**, plus non-superuser RLS isolation and adversarial ownership tests
 (read/update/delete/reference another user's record all denied).
 
 Append-only/immutable tables (e.g. `reflections`, `retrieval_feedback`, the
 retention tables) intentionally omit UPDATE and/or DELETE; the audit documents
 that intent rather than rewriting historical migrations.
+
+**Reading upload originals (LIFEOS-047, migration 0032).** The binary a user
+uploads gets a **private** storage bucket `reading-originals` (never public) and a
+metadata table `reading_document_files`. Object access is isolated per user by an
+`<uid>/…` path convention enforced with RLS on `storage.objects`, so User A can
+never read, list, write, or delete User B's files; the metadata table stores only
+checksum/size/content-type/state — **never the file's text** — and cascades from
+the owning `auth.users` row. Parsed document text and AI study results are already
+per-user RLS-scoped on the existing `reading_documents` rows. Uploaded files and
+document text are **never** placed in `localStorage`.
 
 ---
 
@@ -188,6 +198,15 @@ policy, external-link behavior, retention limits, and browser permissions
 (camera/mic/geo/notifications explicitly NOT used). LifeOS does **not** implement
 end-to-end encryption and never claims to.
 
+**Reading: uploading vs. AI analysis are separate (LIFEOS-047).** Uploading,
+parsing, duplicate detection, and the on-device **Study** aids all happen locally
+in the browser. **Ask** and **Summarize** send only the *relevant passages of the
+one open document* — chosen by deterministic retrieval within a fixed character
+budget — to your configured AI provider; never the whole library, never other
+documents, never the raw file. When no provider is configured, answers are
+produced by an on-device deterministic draft, and the Study panel states which of
+the two produced the result so the data-flow is never ambiguous.
+
 ## 13. Account deletion & retention
 
 Deletion is staged and honest (`lib/privacy/deletion.ts`): explain scope → offer
@@ -222,9 +241,9 @@ holding a service-role key. Missing required config fails clearly.
 ## 16. Validation summary
 
 `tsc` 0 · `lint` 0 · production build 0 · security self-tests **94/94** · backup
-self-tests **38/38** · security E2E **34/34** · full regression **890/890** (16
-suites) · migration chain **0001–0031** idempotent 3× with non-superuser RLS
-isolation · `audit:rls` / `audit:secrets` / `audit:routes` / `audit:deps` all
+self-tests **38/38** · security E2E **34/34** · full regression (20+ suites) ·
+migration chain **0001–0032** idempotent 3× with non-superuser RLS isolation ·
+`audit:rls` (**55 tables**) / `audit:secrets` / `audit:routes` / `audit:deps` all
 pass · CSP verified with **zero** console violations while the app hydrates.
 
 ---

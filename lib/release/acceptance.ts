@@ -34,7 +34,7 @@ export interface AcceptanceGate {
 
 export const ACCEPTANCE_GATES: readonly AcceptanceGate[] = [
   { id: "route-audit", feature: 3, title: "Route audit", method: "hybrid", status: "partial", evidence: "lib/release/routes.ts validateRoutes() + scripts/route-smoke.mjs (local build)", manualStep: "Run route-smoke against the deployed preview URL." },
-  { id: "migration-rehearsal", feature: 4, title: "Migration rehearsal (0001→0031, idempotency, checkpoints)", method: "automated", status: "pass", evidence: "scripts/migration-rehearsal.mjs against local Postgres 16" },
+  { id: "migration-rehearsal", feature: 4, title: "Migration rehearsal (0001→0032, idempotency, checkpoints)", method: "automated", status: "pass", evidence: "scripts/migration-rehearsal.mjs against local Postgres 16" },
   { id: "schema-audit", feature: 5, title: "Production schema audit", method: "automated", status: "pass", evidence: "scripts/release-audit.mjs + scripts/audit-rls.mjs" },
   { id: "two-user-isolation", feature: 6, title: "Two-user isolation matrix", method: "hybrid", status: "partial", evidence: "scripts/migration-rehearsal.mjs RLS cross-user probes on local Postgres", manualStep: "Repeat on the production Supabase project with two real accounts." },
   { id: "auth", feature: 7, title: "Authentication acceptance", method: "credentialed", status: "manual-required", evidence: "lib/security/auth-boundaries + multi-tab logic tests (local)", manualStep: "Run sign-up/in/out/refresh/expiry/reset matrix against live Supabase auth." },

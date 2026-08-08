@@ -2607,3 +2607,36 @@ scope or order.
   Full regression 1016/1017 — the one miss is a marginal, load-sensitive memory
   **perf-budget** assertion (≈1531ms vs a 1500ms threshold), unrelated to this
   presentation-only change and green in prior sprints; no test was weakened.
+
+- **LIFEOS-047 — Native Reading Upload, Document Ingestion & AI Study Foundation.**
+  A real consumer vertical layered on the EXISTING reading library — no parallel
+  document system, no cloned UI, no gimmicky AI, and nothing fabricated. `/reading`
+  gets one obvious **`＋ Add reading`** entry (`components/reading/AddReadingPanel.tsx`)
+  with Upload / Link / Paste tabs, drag-and-drop on desktop and the native picker on
+  mobile, architected for future EPUB/PPTX/audio/video. Uploads (PDF text, TXT,
+  Markdown) are validated (`lib/reading/ingest.ts`), extracted, and land as normal
+  `ReadingDocument`s that open in the existing Reader. **Page provenance is preserved
+  end-to-end**: `extractPdf`'s `PageSpan[]` → `assignPages` (maps passage offsets to
+  real pages, never invents one) → `assembleDocumentFromParsed` (keeps `page`, unlike
+  the string-based assembler). Honest processing states (uploading/processing/ready/
+  needs_attention/failed) with a guarded state machine; scanned/encrypted/corrupt PDFs
+  are explained, never faked; the stored original is never dropped on failure (Retry).
+  Duplicate detection by whitespace-stable content hash → "Already in your library /
+  Open existing / Upload another copy". A restrained **Ask · Summarize · Study** panel
+  (`components/reading/StudyPanel.tsx`, logic in `lib/reading/study.ts`) sits *under*
+  reading: deterministic retrieval over THIS document only, a **char budget** so the
+  whole book is never sent, **grounded citations built from real chunk locations**
+  (never parsed from the model — page numbers are never invented), honest "doesn't
+  cover that" when nothing is retrieved, and on-device deterministic Study aids that
+  never mutate beliefs/Knowledge. **Save to LifeOS** reuses `convertPassage(...,{text})`
+  + `addAnnotation` so every saved item keeps a citation home. Provenance rides on
+  `sourceMetadata` (jsonb — **no data migration**). Migration **0032** provisions the
+  binary-original home: a **private** `reading-originals` bucket (never public, 25 MB)
+  with per-user `storage.objects` RLS by `<uid>/…` prefix, and an RLS-scoped
+  `reading_document_files` metadata table (checksum/size/state — never file text);
+  live byte-upload wiring is a documented next increment (`originalStored` stays
+  `false` until then — never a false "stored"). Release model advanced to head **0032**
+  (reserved release-fix slot → 0033); `audit:rls` **55/55**, release self-tests
+  **48/48**, security **94/94**. New self-tests `lib/reading/selftest.ts`
+  (`/dev/reading-ingest-tests`) **40/40**. New doc `READING_INGESTION.md`. Deferred by
+  design (documented, not faked): live embeddings, live binary upload, DOCX extraction.

@@ -2,14 +2,14 @@
   "release": {
     "releaseTag": "v1.0.0-rc1",
     "appVersion": "1.0.0-rc1",
-    "migrationVersion": 31,
-    "migrationCount": 31,
+    "migrationVersion": 32,
+    "migrationCount": 32,
     "stateVersion": 1,
     "exportArchiveVersion": 1,
     "backupSchemaVersion": 1,
     "supportedMigrationRange": [
       20,
-      31
+      32
     ],
     "supportedArchiveRange": [
       1,
@@ -84,8 +84,8 @@
     "duplicateCandidates",
     "savedInsightViews"
   ],
-  "migrationCount": 31,
-  "tableCountNote": "54 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
+  "migrationCount": 32,
+  "tableCountNote": "55 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
   "preferenceBlocks": [
     "onboarding",
     "onboardingV2",
@@ -276,7 +276,8 @@
     "0028_planning_focus.sql",
     "0029_knowledge_maintenance.sql",
     "0030_deterministic_insights.sql",
-    "0031_security_production_hardening.sql"
+    "0031_security_production_hardening.sql",
+    "0032_reading_document_files.sql"
   ],
-  "tableCount": 54
+  "tableCount": 55
 }

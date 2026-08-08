@@ -29,6 +29,7 @@ import { renderMarkdownInline } from "@/lib/library/annotations";
 import { STATUS_LABEL, READING_STATUSES, estimatedMinutesRemaining } from "@/lib/library/progress";
 import SyncStatus from "@/components/SyncStatus";
 import EntityLink from "@/components/entity/EntityLink";
+import StudyPanel from "@/components/reading/StudyPanel";
 import { trackOpenDocument, trackReading } from "@/lib/workspaces/tracking";
 import type { HighlightColor, Passage, ReadingDocument } from "@/types/mvp";
 
@@ -85,6 +86,7 @@ function Reader() {
   const [toast, setToast] = useState<{ label: string; href: string } | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [mobilePane, setMobilePane] = useState<"read" | "notes">("read");
+  const [studyOpen, setStudyOpen] = useState(false);
   const passageRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   // The focused passage: an explicit user choice, else ?passage / saved position
@@ -186,14 +188,27 @@ function Reader() {
               {doc.authors.length === 0 && "Unknown author"} · {doc.progress.percent}% read · ~{estimatedMinutesRemaining(doc)} min left
             </p>
           </div>
-          <select value={doc.status} onChange={(e) => setDocumentStatus(doc.id, e.target.value as ReadingDocument["status"])} aria-label="Reading status" className="rounded-full border border-black/[.12] bg-transparent px-3 py-1.5 text-[11px] dark:border-white/[.15]">
-            {READING_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setStudyOpen((v) => !v)} aria-expanded={studyOpen} aria-controls="study-panel" className={`rounded-full border px-3 py-1.5 text-[11px] font-medium ${studyOpen ? "border-transparent bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border-black/[.12] dark:border-white/[.15]"}`}>✦ Ask &amp; study</button>
+            <select value={doc.status} onChange={(e) => setDocumentStatus(doc.id, e.target.value as ReadingDocument["status"])} aria-label="Reading status" className="rounded-full border border-black/[.12] bg-transparent px-3 py-1.5 text-[11px] dark:border-white/[.15]">
+              {READING_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            </select>
+          </div>
         </div>
         <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-black/[.06] dark:bg-white/[.08]" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100}>
           <div className="h-full bg-zinc-800 dark:bg-zinc-200" style={{ width: `${progressPct}%` }} />
         </div>
       </header>
+
+      {studyOpen && (
+        <div id="study-panel">
+          <StudyPanel
+            doc={doc}
+            sectionId={sectionOfPassage(doc, focusId)?.id}
+            onJump={(pid) => { setFocusId(pid); setMobilePane("read"); }}
+          />
+        </div>
+      )}
 
       {/* Mobile pane switch */}
       <div className="mb-3 flex gap-1 sm:hidden">
