@@ -19,6 +19,16 @@ import { validateIntegrity } from "@/lib/sync/integrity";
 import { upgradeState } from "@/lib/migrations/upgrade-state";
 import { upgradeBackup } from "@/lib/migrations/upgrade-backup";
 import { budget } from "@/lib/ux/performance";
+import { reconcileAdoption, mergeLocalOnly } from "@/lib/persistence-reconcile";
+import type { StoreState } from "@/types/mvp";
+
+/** A minimal empty StoreState (all 41 domains as empty arrays) for pure tests. */
+function emptyStore(): StoreState {
+  const domains = ["captures", "proposals", "beliefs", "sources", "feedback", "comparisons", "inquiries", "megathreads", "reflections", "practices", "reviews", "reasonings", "embeddings", "decisions", "formationSessions", "concepts", "conceptRelationships", "principles", "frameworks", "knowledgeProjects", "researchProjects", "dialogueSessions", "tensions", "syntheses", "recommendations", "documents", "citations", "workspaces", "sessions", "goals", "projects", "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments", "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews"];
+  const s: Record<string, unknown[]> = {};
+  for (const d of domains) s[d] = [];
+  return s as unknown as StoreState;
+}
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -149,6 +159,44 @@ export function runSyncSelfTests(): SelfTestReport {
 
   // --- Determinism ---
   ok("45. merge is deterministic", deepEqual(threeWayMerge(base, { ...base, title: "Z" }, { ...base, tags: ["z"] }).merged, threeWayMerge(base, { ...base, title: "Z" }, { ...base, tags: ["z"] }).merged));
+
+  // --- Authenticated adoption reconciliation (capture-persistence data-loss fix) ---
+  {
+    const emptyS = emptyStore();
+    const cap = (id: string, text: string) => ({ id, text, createdAt: at(1), processingStatus: "inbox" });
+    // Local has a capture created during sign-in; remote is an OLDER snapshot without it.
+    const localWithA = { ...emptyStore(), captures: [cap("A", "typed during sign-in")] } as StoreState;
+    const remoteOld = { ...emptyStore(), captures: [cap("R1", "older remote capture")] } as StoreState;
+
+    // 46. The core invariant: adopting remote must NOT drop the local-only capture.
+    const merged = mergeLocalOnly(remoteOld, localWithA);
+    ok("46. adoption merge keeps the local-only capture A", merged.captures.some((c) => c.id === "A") && merged.captures.some((c) => c.id === "R1"));
+    ok("47. adoption merge keeps newest local capture on top", merged.captures[0]?.id === "A");
+
+    // 48. mergeLocalOnly returns the SAME remote ref when nothing local-only (cheap no-op).
+    ok("48. no local-only records → remote reference unchanged", mergeLocalOnly(remoteOld, remoteOld) === remoteOld);
+
+    // 49. Reproduce the exact bug path: remote has data, a capture was made during
+    //     the load → decision adopts a MERGED state (never plain remote) and flags a push.
+    const d = reconcileAdoption({ remote: remoteOld, local: localWithA, remoteHasData: true, localHasData: true, migratedFor: "user-1", userId: "user-1", empty: emptyS });
+    ok("49. returning user + capture during sign-in → adopt-merge, push queued", d.action === "adopt-merge" && d.pushLocalOnly === true && d.state.captures.some((c) => c.id === "A"));
+    ok("50. adopt-merge baselines the diff against remote (so A is pushed)", d.baseline === remoteOld);
+
+    // 51. Wrong-user safety: local belonging to another account is NOT merged in.
+    const dWrong = reconcileAdoption({ remote: remoteOld, local: localWithA, remoteHasData: true, localHasData: true, migratedFor: "someone-else", userId: "user-1", empty: emptyS });
+    ok("51. wrong-user local is never merged into this account", dWrong.action === "adopt" && dWrong.state.captures.every((c) => c.id !== "A"));
+
+    // 52. Remote empty + local ours → keep local and push it (offline-first sign-in).
+    const dMigrate = reconcileAdoption({ remote: emptyS, local: localWithA, remoteHasData: false, localHasData: true, migratedFor: null, userId: "user-1", empty: emptyS });
+    ok("52. remote empty, local ours → migrate-local keeps capture A and pushes", dMigrate.action === "migrate-local" && dMigrate.pushLocalOnly === true && dMigrate.state.captures.some((c) => c.id === "A"));
+
+    // 53. Remote empty + local belongs to another account → start clean (nothing merged/deleted remotely).
+    const dClean = reconcileAdoption({ remote: emptyS, local: localWithA, remoteHasData: false, localHasData: true, migratedFor: "someone-else", userId: "user-1", empty: emptyS });
+    ok("53. remote empty, foreign local → start-clean (no cross-account bleed)", dClean.action === "start-clean" && dClean.state.captures.length === 0);
+
+    // 54. Neither side destroyed: after adopt-merge the union has BOTH captures.
+    ok("54. adoption never destroys either side (union has both)", d.state.captures.length === 2);
+  }
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

@@ -16,6 +16,7 @@ import type { StoreState } from "@/types/mvp";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { SupabasePersistenceAdapter } from "@/lib/adapters/supabaseAdapter";
 import type { PersistenceHealth } from "@/lib/adapters/types";
+import { reconcileAdoption } from "@/lib/persistence-reconcile";
 import * as authStore from "@/lib/authStore";
 
 const STORAGE_KEY = "lifeos.mvp.v1";
@@ -398,7 +399,11 @@ async function handleSession(
   adoptionSettled = false; // gate pushes until the adopt/migrate decision lands
   try {
     await migrateOrAdopt(session.user.id, replaceState);
-    setHealth({ state: "synced", error: undefined });
+    // Only claim "synced" when there is nothing left to push. If adoption kept
+    // local-only records (e.g. a capture typed during sign-in), a push is queued
+    // and the released flush reports synced/failed honestly — we must not say
+    // "Saved" before that write is confirmed.
+    if (!pending) setHealth({ state: "synced", error: undefined });
   } catch (e) {
     recordSaveError(`Initial sync failed: ${msg(e)}`);
     setHealth({ state: "failed", error: msg(e) });
@@ -409,12 +414,19 @@ async function handleSession(
 }
 
 /**
- * Idempotent, wrong-user-safe reconciliation between local and remote:
- *  - remote has data              → adopt remote (source of truth)
- *  - remote empty, local unowned  → migrate local up (this user owns it now)
- *  - remote empty, local is ours  → re-push local (idempotent)
- *  - remote empty, local is someone else's → do NOT migrate; start clean for
- *    this user (their data is elsewhere; nothing is deleted from remote)
+ * Idempotent, wrong-user-safe, LOCAL-FIRST reconciliation between local and
+ * remote. Delegates the decision to the pure `reconcileAdoption`, then installs
+ * the result:
+ *  - remote has data              → adopt remote, but MERGE local-only records
+ *                                   (a capture typed during sign-in is never
+ *                                   dropped) and push those up.
+ *  - remote empty, local is ours  → keep local and push it up.
+ *  - remote empty, local is else's → start clean for this user (remote untouched).
+ *
+ * The critical fix: `local` is read AFTER `remote.loadState()` resolves, so any
+ * record created during that async window is included, and adoption merges
+ * rather than replaces — so a newly-created Capture is never rolled back on disk
+ * or in memory.
  */
 async function migrateOrAdopt(
   userId: string,
@@ -422,22 +434,35 @@ async function migrateOrAdopt(
 ): Promise<void> {
   if (!remote) return;
   const remoteState = await remote.loadState();
+  // Read local AFTER the remote load — this window is exactly when a user can
+  // create a capture; it must survive.
   const local = loadState();
   const migratedFor = readMigratedFor();
+  const empty = normalize(null);
 
-  if (hasData(remoteState)) {
-    replaceState(normalize(remoteState));
-    writeMigratedFor(userId);
-    return;
-  }
-  if (!migratedFor || migratedFor === userId) {
-    if (hasData(local)) await remote.saveState(normalize(local));
-    writeMigratedFor(userId);
-    return;
-  }
-  // Local data belongs to a different account — never migrate it into this one.
-  replaceState(normalize(null));
+  const decision = reconcileAdoption({
+    remote: normalize(remoteState),
+    local: normalize(local),
+    remoteHasData: hasData(remoteState),
+    localHasData: hasData(local),
+    migratedFor,
+    userId,
+    empty,
+  });
+
+  // Install the reconciled state locally (writes localStorage, updates the store,
+  // baselines lastSyncedState to `decision.state`).
+  replaceState(decision.state);
   writeMigratedFor(userId);
+
+  if (decision.pushLocalOnly) {
+    // There are local records remote doesn't have yet. Baseline the diff against
+    // the confirmed-synced remote so exactly those records are pushed, and queue
+    // the push through the normal (debounced + auto-retrying) path — so a failed
+    // remote write is retried and NEVER rolls back the durable local copy.
+    lastSyncedState = decision.baseline;
+    scheduleRemotePush(decision.state);
+  }
 }
 
 function readMigratedFor(): string | null {
