@@ -1214,8 +1214,39 @@ and a restrained AI study layer, and creates **no** second document type.
   mutates beliefs/Knowledge. **Save to LifeOS** reuses `convertPassage(...,{text})`
   and `addAnnotation`, keeping a citation home on the exact passage.
 - **Testing.** `lib/reading/selftest.ts` (surfaced at `/dev/reading-ingest-tests`)
-  — 40 assertions across format/validation/dedup/page-provenance/state-machine/
-  ingestion/chunking/retrieval/grounded-citations/context-budget/summarize/study.
+  — 58 assertions across format/validation/dedup/page-provenance/state-machine/
+  ingestion/chunking/retrieval/grounded-citations/context-budget/summarize/study,
+  plus (LIFEOS-047A) original-file persistence over a fake RLS-like backend.
+
+### Private original-file persistence (LIFEOS-047A — implemented)
+
+LIFEOS-047 stored parsed text but left the uploaded binary unsaved. 047A completes
+that lifecycle against the infrastructure 0032 already created, without a second
+file-storage system:
+
+- **Orchestration** (`lib/reading/originals.ts`, pure over an injectable
+  `OriginalsBackend` seam). `backupOriginal` uploads the bytes to a deterministic
+  per-user path `<uid>/<documentId>/<file>` and then writes the metadata row,
+  reporting success only when BOTH succeed (so `originalStored` is truthful); on a
+  metadata failure it removes the just-written object (no orphan).
+  `removeOriginalsForDocument` deletes only that document's own folder + metadata
+  rows (path- and RLS-scoped); `resolveOriginalUrl` mints a short-lived signed URL
+  for the owner. A real Supabase backend is built from the authenticated client;
+  the same seam is driven by an in-memory RLS-like fake in tests.
+- **Glue** (`lib/reading/backupManager.ts`). Text extraction + `ReadingDocument`
+  creation stay the fast path; the original uploads in the background. The picked
+  `File` is held for the session to power an honest in-session **Retry**; once
+  stored it is dropped. Silent no-op in local-only mode / when signed out.
+- **Provenance** rides on `sourceMetadata` (jsonb): `originalStored`,
+  `originalBackup` (uploading/stored/failed), `originalStoragePath`,
+  `originalFileId` — durable and cross-device via the existing document sync, so
+  another device resolves the original by metadata lookup + signed URL.
+- **UI** (`components/reading/OriginalStatus.tsx`): a calm reader strip showing
+  *Uploading original… / Original safely stored / not backed up + Retry*, and a
+  *Remove* that cleans up the original (existing `buildImpact` + `ConfirmDialog`)
+  before deleting the reading — refusing to delete if cleanup can't complete.
+- **Schema.** No new table; migration `0033` only makes the `reading_document_files`
+  checksum index **non-unique per user** so "Upload another copy" is never blocked.
 
 ### Durable persistence (LIFEOS-028 amendment — migration 0021)
 

@@ -76,7 +76,7 @@ every user-owned table (ownership column, required policies, deletion mode,
 tombstone domain). `npm run audit:rls` walks all migrations, finds every
 `CREATE TABLE` with a `user_id` column, and **fails** if any lacks RLS + the
 required SELECT/INSERT/(UPDATE)/(DELETE) policies — so a newly added table cannot
-ship without an RLS review. Verified: **55 user-owned tables across 32 migrations
+ship without an RLS review. Verified: **55 user-owned tables across 33 migrations
 pass**, plus non-superuser RLS isolation and adversarial ownership tests
 (read/update/delete/reference another user's record all denied).
 
@@ -84,15 +84,25 @@ Append-only/immutable tables (e.g. `reflections`, `retrieval_feedback`, the
 retention tables) intentionally omit UPDATE and/or DELETE; the audit documents
 that intent rather than rewriting historical migrations.
 
-**Reading upload originals (LIFEOS-047, migration 0032).** The binary a user
-uploads gets a **private** storage bucket `reading-originals` (never public) and a
-metadata table `reading_document_files`. Object access is isolated per user by an
-`<uid>/…` path convention enforced with RLS on `storage.objects`, so User A can
-never read, list, write, or delete User B's files; the metadata table stores only
-checksum/size/content-type/state — **never the file's text** — and cascades from
-the owning `auth.users` row. Parsed document text and AI study results are already
-per-user RLS-scoped on the existing `reading_documents` rows. Uploaded files and
-document text are **never** placed in `localStorage`.
+**Reading upload originals (LIFEOS-047 / 047A, migrations 0032–0033).** The binary
+a user uploads is privately preserved in the **private** storage bucket
+`reading-originals` (never public) with a metadata table `reading_document_files`.
+Object access is isolated per user by an `<uid>/…` path convention enforced with
+RLS on `storage.objects`, so User A can never read, list, write, or delete User
+B's files; the metadata table stores only checksum/size/content-type/state —
+**never the file's text** — and cascades from the owning `auth.users` row (its
+checksum index is non-unique per user, migration 0033, so "Upload another copy" is
+never blocked and there is no cross-user uniqueness domain to leak). Original
+downloads use **short-lived signed URLs** for the owner only — never public URLs,
+never another user's path. Deletion of a reading removes only that document's own
+`<uid>/<documentId>/` folder and metadata (path- and RLS-scoped), and refuses
+rather than orphaning a file if cleanup can't complete. Duplicate detection runs
+only over the user's OWN library, so a checksum match can never reveal that another
+user has the same file. Parsed document text and AI study results are per-user
+RLS-scoped on the existing `reading_documents` rows. Uploaded files and document
+text are **never** placed in `localStorage`. Two-user isolation for originals is
+covered by the reading self-tests (fake RLS-like backend) and the live
+migration-rehearsal probe.
 
 ---
 
@@ -242,7 +252,7 @@ holding a service-role key. Missing required config fails clearly.
 
 `tsc` 0 · `lint` 0 · production build 0 · security self-tests **94/94** · backup
 self-tests **38/38** · security E2E **34/34** · full regression (20+ suites) ·
-migration chain **0001–0032** idempotent 3× with non-superuser RLS isolation ·
+migration chain **0001–0033** idempotent 3× with non-superuser RLS isolation ·
 `audit:rls` (**55 tables**) / `audit:secrets` / `audit:routes` / `audit:deps` all
 pass · CSP verified with **zero** console violations while the app hydrates.
 

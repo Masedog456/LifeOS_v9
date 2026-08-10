@@ -992,18 +992,37 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   `reading_document_files` (checksum/size/content-type/state — **never** the file's
   text). RLS: object access isolated per user by an `<uid>/…` path convention on
   `storage.objects`; the metadata table uses user_id `default auth.uid()` + all four
-  policies + FK → `auth.users` on delete cascade, with a per-user unique index on
-  `checksum` for server-side dedup.
-- **Honest storage state.** Parsed text persists today via the existing
-  `reading_documents` rows. Live byte-upload into the bucket is a documented next
-  increment; until it ships `source_metadata.originalStored` stays `false` and the
-  app never claims an original is stored. Large binaries are **never** written to
-  `localStorage`. On document delete, a stored original (when present) is removed
-  with the document — no orphaned objects, no unexpected cascade onto other data.
+  policies + FK → `auth.users` on delete cascade, with a per-user checksum index
+  for lookups (see 047A — non-unique).
+- **Live byte-upload is now wired (LIFEOS-047A).** Uploaded originals are actually
+  preserved. `source_metadata.originalStored` becomes `true` **only after** both
+  the storage object and its metadata row are persisted — never optimistically;
+  large binaries are **never** written to `localStorage`. The in-memory `File` is
+  used only for the initial upload and an in-session Retry, never relied on across
+  reload. Cross-device: `originalStored` + the storage path ride on
+  `source_metadata` (durable), so another signed-in device resolves the original
+  by metadata lookup + a short-lived signed URL.
+- **Checksum index fix (migration `0033_reading_files_checksum_index.sql`).** 0032's
+  `(user_id, checksum)` UNIQUE index would block a legitimate "Upload another copy"
+  (a second document with identical bytes). 0033 drops it and recreates it
+  **non-unique** — duplicate detection is a per-user UX affordance, not a DB
+  constraint. No table/column/policy/bucket changed; historical migrations
+  untouched.
+- **Failure & deletion safety.** Extraction/`ReadingDocument` creation is the fast
+  path and is never destroyed by a backup failure. If the metadata write fails
+  after a good upload, the object is removed (no orphan); the deterministic path
+  means a retry overwrites in place. Deleting a reading cleans up only that
+  document's own `<uid>/<documentId>/` folder + metadata (covering orphaned partial
+  uploads) and refuses to delete if cleanup can't complete — no cross-document or
+  cross-user deletion, no unexpected cascade.
 - Validated on Postgres 16 via `scripts/migration-rehearsal.mjs`: full chain
-  **0001–0032 idempotent 3×** (55 public tables), checkpoint upgrades including
-  `pre-reading-ingestion`, RLS on every table, and the live non-superuser two-user
-  isolation probe. `audit:rls` passes **55 tables**.
+  **0001–0033 idempotent 3×** (55 public tables), checkpoint upgrades including
+  `pre-reading-ingestion` and `pre-reading-originals`, RLS on every table, and the
+  live non-superuser two-user isolation probe. `audit:rls` passes **55 tables**.
+  Original-file upload/metadata/deletion/retry/cross-user isolation are covered by
+  the reading self-tests over a fake RLS-like backend (`/dev/reading-ingest-tests`,
+  58 assertions). **Live Supabase Storage validation with disposable users is a
+  manual release check** (no live credentials in this environment).
 
 ---
 

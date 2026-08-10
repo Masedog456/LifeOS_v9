@@ -30,6 +30,7 @@ import { STATUS_LABEL, READING_STATUSES, estimatedMinutesRemaining } from "@/lib
 import SyncStatus from "@/components/SyncStatus";
 import EntityLink from "@/components/entity/EntityLink";
 import StudyPanel from "@/components/reading/StudyPanel";
+import OriginalStatus from "@/components/reading/OriginalStatus";
 import { trackOpenDocument, trackReading } from "@/lib/workspaces/tracking";
 import type { HighlightColor, Passage, ReadingDocument } from "@/types/mvp";
 
@@ -174,9 +175,12 @@ function Reader() {
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
       {/* Header */}
       <header className="mb-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <Link href="/reading" className="text-xs text-zinc-500 underline-offset-4 hover:underline">← Reading</Link>
-          <SyncStatus />
+          <div className="flex items-center gap-3">
+            <OriginalStatus doc={doc} />
+            <SyncStatus />
+          </div>
         </div>
         <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
           <div>

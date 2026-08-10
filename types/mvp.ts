@@ -2879,9 +2879,19 @@ export interface DocumentSourceMeta {
   uploadedAt?: ISO;
   /** Honest processing state of the reading item. */
   processingState?: "uploading" | "processing" | "ready" | "needs_attention" | "failed";
-  /** True once the binary original is persisted server-side (Supabase Storage;
-   * a documented next increment — see READING_INGESTION.md). */
+  /** True once the binary original is persisted privately server-side (both the
+   * storage object AND its metadata row exist). Never set optimistically. */
   originalStored?: boolean;
+  /** In-flight state of original-file backup, for honest UI (LIFEOS-047A).
+   * "uploading" while a backup is running; "failed" when it did not complete
+   * (retryable in-session); absent/"stored" once done. Distinct from
+   * processingState, which is about text extraction. */
+  originalBackup?: "uploading" | "stored" | "failed";
+  /** Private storage path of the stored original (`<uid>/<documentId>/<file>`),
+   * used to resolve a short-lived signed download URL. */
+  originalStoragePath?: string;
+  /** The reading_document_files row id for the stored original. */
+  originalFileId?: string;
   note?: string;
 }
 

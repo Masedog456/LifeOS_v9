@@ -12,14 +12,15 @@
  * Playwright suite to assert on.
  */
 
-import { useMemo, useSyncExternalStore } from "react";
-import { runReadingIngestSelfTests } from "@/lib/reading/selftest";
+import { useEffect, useState } from "react";
+import { runReadingIngestSelfTests, type SelfTestReport } from "@/lib/reading/selftest";
 
 export default function ReadingIngestTestsPage() {
-  // Run only on the client: the report embeds wall-clock timings, so running it
-  // during SSR too would cause a hydration mismatch.
-  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
-  const report = useMemo(() => (mounted ? runReadingIngestSelfTests() : null), [mounted]);
+  // Run only on the client (wall-clock timings would break SSR hydration). The
+  // suite is now async (it exercises the original-file persistence orchestration
+  // against an in-memory backend), so resolve it in an effect.
+  const [report, setReport] = useState<SelfTestReport | null>(null);
+  useEffect(() => { let live = true; void runReadingIngestSelfTests().then((r) => { if (live) setReport(r); }); return () => { live = false; }; }, []);
 
   if (!report) {
     return (

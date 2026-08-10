@@ -2640,3 +2640,40 @@ scope or order.
   **48/48**, security **94/94**. New self-tests `lib/reading/selftest.ts`
   (`/dev/reading-ingest-tests`) **40/40**. New doc `READING_INGESTION.md`. Deferred by
   design (documented, not faked): live embeddings, live binary upload, DOCX extraction.
+
+- **LIFEOS-047A — Complete private Reading file persistence.** Finishes the one
+  item 047 left deferred: the uploaded ORIGINAL binary is now genuinely, privately
+  preserved — no second file-storage system, no redesign. `lib/reading/originals.ts`
+  is pure orchestration over an injectable `OriginalsBackend` seam (real Supabase
+  backend built from the authenticated client; an in-memory RLS-like fake drives
+  tests): `backupOriginal` uploads bytes to a **deterministic** per-user path
+  `<uid>/<documentId>/<file>` THEN writes the metadata row, reporting success only
+  when BOTH land — so `originalStored` is truthful, never optimistic; a metadata
+  failure removes the just-written object (no orphan). `removeOriginalsForDocument`
+  deletes only that document's own folder + rows (path- & RLS-scoped, covers
+  orphaned partial uploads); `resolveOriginalUrl` mints a **short-lived signed URL**
+  for the owner only (never public, never another user's path).
+  `lib/reading/backupManager.ts` keeps extraction + ReadingDocument creation the
+  fast path and uploads in the background, holding the picked `File` for the session
+  to power an honest in-session **Retry** (retry-after-failure can't survive reload —
+  documented); it's a silent no-op in local-only mode / signed out. Provenance
+  (`originalStored`/`originalBackup`/`originalStoragePath`/`originalFileId`) rides on
+  `source_metadata` (jsonb) so it's durable and cross-device — another device
+  resolves the original by metadata lookup + signed URL. Reader UI
+  (`components/reading/OriginalStatus.tsx`): calm *Uploading original… / Original
+  safely stored / not backed up + Retry*, and a *Remove* that cleans up the original
+  (reusing `buildImpact` + `ConfirmDialog`) before deleting — refusing to delete if
+  cleanup can't complete (no orphan, no fake success). **Root-cause fix:** 0032's
+  `(user_id, checksum)` UNIQUE index would block the legitimate "Upload another copy"
+  flow; migration **0033** makes it non-unique (dedup is a per-user UX affordance,
+  not a DB constraint) — also wired the "Upload another copy" button to actually
+  force a second copy. Release model advanced to head **0033** (reserved fix → 0034)
+  coherently across versions/schema-compat/authorization-audit/selftests/audit +
+  rehearsal scripts. Reading self-tests **58/58** (added original upload/metadata/
+  originalStored-truthfulness/storage-fail/metadata-fail-orphan-cleanup/retry/
+  signed-URL/cross-user-isolation/upload-another-copy/correct-target-deletion/orphan
+  cleanup over the fake backend); release **48/48**, security **94/94**, `audit:rls`
+  **55 tables**, release-audit **17/17**. **Live Supabase Storage validation with
+  disposable users remains a manual release check** (no live credentials here) —
+  stated, not faked. Still deferred (documented): embeddings, OCR, DOCX, EPUB/PPTX/
+  audio/video.

@@ -11,18 +11,70 @@ import {
 import {
   chunkDocument, retrieve, groundedCitations, buildContext, scopeChunks, studyMaterial, CONTEXT_CHAR_BUDGET,
 } from "@/lib/reading/study";
+import {
+  backupOriginal, removeOriginalsForDocument, resolveOriginalUrl, storagePathFor,
+  type OriginalsBackend, type OriginalFileRow,
+} from "@/lib/reading/originals";
 import type { ParsedDocument } from "@/lib/library/importer";
 import type { ReadingDocument, Passage, PageSpan } from "@/types/mvp";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
 
+/**
+ * An in-memory fake of the storage + metadata backend that enforces the same
+ * per-user isolation the real RLS does: a user can only touch objects under
+ * their own `<uid>/…` prefix and only see their own metadata rows. Configurable
+ * failures let us test ordering, orphan cleanup, and retry without a live
+ * backend. This is exactly the seam `lib/reading/originals.ts` is written against.
+ */
+interface FakeCloud { objects: Map<string, { contentType: string }>; rows: OriginalFileRow[] }
+function makeCloud(): FakeCloud { return { objects: new Map(), rows: [] }; }
+function fakeBackend(cloud: FakeCloud, userId: string | null, opts: { failUpload?: boolean; failMeta?: boolean } = {}): OriginalsBackend {
+  const ownsPath = (p: string) => userId != null && p.split("/")[0] === userId; // storage RLS
+  return {
+    userId,
+    async uploadObject(path, _data, contentType) {
+      if (opts.failUpload) return { ok: false, error: "network-lost" };
+      if (!ownsPath(path)) return { ok: false, error: "denied" };
+      cloud.objects.set(path, { contentType });
+      return { ok: true };
+    },
+    async removeObjects(paths) {
+      for (const p of paths) { if (!ownsPath(p)) return { ok: false, error: "denied" }; cloud.objects.delete(p); }
+      return { ok: true };
+    },
+    async listFolder(prefix) {
+      if (userId == null || prefix.split("/")[0] !== userId) return { ok: true, names: [] }; // can't see others' folders
+      const names = [...cloud.objects.keys()].filter((k) => k.startsWith(prefix + "/")).map((k) => k.slice(prefix.length + 1));
+      return { ok: true, names };
+    },
+    async insertMetadata(row) {
+      if (opts.failMeta) return { ok: false, error: "db-error" };
+      if (row.user_id !== userId) return { ok: false, error: "denied" };
+      cloud.rows.push({ ...row });
+      return { ok: true };
+    },
+    async deleteMetadataForDocument(documentId) {
+      for (let i = cloud.rows.length - 1; i >= 0; i--) if (cloud.rows[i].user_id === userId && cloud.rows[i].document_id === documentId) cloud.rows.splice(i, 1);
+      return { ok: true };
+    },
+    async metadataForDocument(documentId) {
+      return { ok: true, rows: cloud.rows.filter((r) => r.user_id === userId && r.document_id === documentId) };
+    },
+    async signedUrl(path, ttlSeconds) {
+      if (!ownsPath(path) || !cloud.objects.has(path)) return { ok: false, error: "not-found" };
+      return { ok: true, url: `signed://${path}?ttl=${ttlSeconds}` };
+    },
+  };
+}
+
 function docWith(passages: { id: string; text: string; page?: number }[]): ReadingDocument {
   const section = { id: "s1", title: "Body", order: 0, passages: passages.map((p, i): Passage => ({ id: p.id, sectionId: "s1", text: p.text, page: p.page, order: i, highlights: [], annotations: [], linked: [] })) };
   return { id: "doc1", title: "Being and Time", authors: ["Heidegger"], kind: "book", status: "reading", tags: [], notes: "", sections: [section], progress: { status: "reading", percent: 0, readPassageIds: [] }, sourceMetadata: { importFormat: "pdf" }, createdAt: "t", updatedAt: "t" } as unknown as ReadingDocument;
 }
 
-export function runReadingIngestSelfTests(): SelfTestReport {
+export async function runReadingIngestSelfTests(): Promise<SelfTestReport> {
   const t0 = Date.now();
   const results: SelfTestResult[] = [];
   const ok = (name: string, cond: boolean, detail = "") => results.push({ name, pass: !!cond, detail: cond ? "ok" : detail || "failed" });
@@ -104,6 +156,73 @@ export function runReadingIngestSelfTests(): SelfTestReport {
   ok("11.1 study material is marked generated", study.generated === true);
   ok("11.2 key ideas keep a source ref back to a real passage", study.keyIdeas.length > 0 && study.keyIdeas.every((k) => k.ref.passageId && chunks.some((c) => c.passageId === k.ref.passageId)));
   ok("11.3 flashcards + questions derive from source", study.flashcards.length === study.keyIdeas.length && study.questions.length === study.keyIdeas.length);
+
+  // ---- 12. Original-file persistence (LIFEOS-047A) — over a fake, RLS-like backend ----
+  const bytes = new Uint8Array([37, 80, 68, 70]); // "%PDF"
+
+  // Real object keys go through the same safeFilename() as production — derive
+  // them from storagePathFor rather than hard-coding, so the test can't drift.
+  const pathA1 = storagePathFor("userA", "docA1", "Being and Time.pdf");
+  const pathMeta = storagePathFor("userA", "docMeta", "y.pdf");
+
+  // 12.1 Happy path: upload + metadata both succeed, per-user path, reload association.
+  const cloud = makeCloud();
+  const A = fakeBackend(cloud, "userA");
+  const r1 = await backupOriginal(A, { documentId: "docA1", filename: "Being and Time.pdf", contentType: "application/pdf", sizeBytes: 4, checksum: "h1", data: bytes });
+  ok("12.1 upload+metadata succeed → ok", r1.ok === true);
+  ok("12.2 stored at a per-user namespaced path", r1.ok === true && r1.storagePath === pathA1 && pathA1.startsWith("userA/docA1/"));
+  ok("12.3 object + metadata both persisted (originalStored is truthful)", cloud.objects.has(pathA1) && (await A.metadataForDocument("docA1")).rows.length === 1);
+
+  // 12.4 Storage failure: nothing persisted; ReadingDocument is untouched by design.
+  const rUp = await backupOriginal(fakeBackend(cloud, "userA", { failUpload: true }), { documentId: "docFail", filename: "x.pdf", contentType: "application/pdf", sizeBytes: 4, checksum: "h2", data: bytes });
+  ok("12.4 storage failure → not ok, stage=upload", rUp.ok === false && rUp.stage === "upload");
+  ok("12.5 storage failure leaves no object and no metadata", !cloud.objects.has(storagePathFor("userA", "docFail", "x.pdf")) && (await A.metadataForDocument("docFail")).rows.length === 0);
+
+  // 12.6 Metadata failure after a good upload → the just-written object is cleaned up (no orphan).
+  const rMeta = await backupOriginal(fakeBackend(cloud, "userA", { failMeta: true }), { documentId: "docMeta", filename: "y.pdf", contentType: "application/pdf", sizeBytes: 4, checksum: "h3", data: bytes });
+  ok("12.6 metadata failure → not ok, stage=metadata", rMeta.ok === false && rMeta.stage === "metadata");
+  ok("12.7 metadata failure removes the orphaned object", !cloud.objects.has(pathMeta) && (await A.metadataForDocument("docMeta")).rows.length === 0);
+
+  // 12.8 Retry after an interrupted upload succeeds (same input, good backend).
+  const rRetry = await backupOriginal(A, { documentId: "docMeta", filename: "y.pdf", contentType: "application/pdf", sizeBytes: 4, checksum: "h3", data: bytes });
+  ok("12.8 retry after failure succeeds", rRetry.ok === true && cloud.objects.has(pathMeta) && (await A.metadataForDocument("docMeta")).rows.length === 1);
+
+  // 12.9 No capability (signed out) → honest capability failure, nothing stored.
+  const rCap = await backupOriginal(fakeBackend(cloud, null), { documentId: "docA1", filename: "z.pdf", contentType: "application/pdf", sizeBytes: 4, checksum: "h4", data: bytes });
+  ok("12.9 no capability → not ok, stage=capability", rCap.ok === false && rCap.stage === "capability");
+
+  // 12.10 Private retrieval: a signed URL for the owner; nothing for anyone else.
+  const urlA = await resolveOriginalUrl(A, { documentId: "docA1" });
+  ok("12.10 owner resolves a short-lived signed URL", urlA.ok === true && !!urlA.url && urlA.url.startsWith(`signed://${pathA1}`));
+
+  // 12.11–12.13 Cross-user isolation: User B can neither see, retrieve, nor delete A's original.
+  const B = fakeBackend(cloud, "userB");
+  ok("12.11 User B cannot see User A's metadata", (await B.metadataForDocument("docA1")).rows.length === 0);
+  const urlB = await resolveOriginalUrl(B, { documentId: "docA1" });
+  ok("12.12 User B cannot resolve User A's original", urlB.ok === false);
+  const bDel = await removeOriginalsForDocument(B, "docA1");
+  ok("12.13 User B's delete cannot remove User A's object", cloud.objects.has(pathA1) && bDel.removed === 0);
+
+  // 12.14 Same-user "Upload another copy": a second document with identical bytes
+  // stores its OWN original at a distinct path (no unique-checksum blocker).
+  const copy1 = await backupOriginal(A, { documentId: "dupDocX", filename: "dup.pdf", contentType: "application/pdf", sizeBytes: 4, checksum: "hDup", data: bytes });
+  const copy2 = await backupOriginal(A, { documentId: "dupDocY", filename: "dup.pdf", contentType: "application/pdf", sizeBytes: 4, checksum: "hDup", data: bytes });
+  ok("12.14 second copy of same bytes stores its own original", copy1.ok === true && copy2.ok === true && cloud.objects.has(storagePathFor("userA", "dupDocX", "dup.pdf")) && cloud.objects.has(storagePathFor("userA", "dupDocY", "dup.pdf")));
+
+  // 12.15 Same-user library duplicate detection is by content hash over the user's OWN docs.
+  ok("12.15 duplicate detection is per-user (never cross-user)", findDuplicate([{ id: "dupDocX", title: "dup", sourceMetadata: { contentHash: "hDup" } }], "hDup")?.id === "dupDocX");
+
+  // 12.16 Deletion removes ONLY the target document's original.
+  const del = await removeOriginalsForDocument(A, "docA1");
+  ok("12.16 deletion removes the correct original only", del.ok === true && del.removed === 1 && !cloud.objects.has(pathA1) && cloud.objects.has(pathMeta));
+  ok("12.17 deletion removed the metadata row too", (await A.metadataForDocument("docA1")).rows.length === 0);
+
+  // 12.18 Orphan cleanup: an object with no metadata row is still removed on delete
+  // (folder-scoped cleanup), so an interrupted prior upload cannot linger.
+  const orphanPath = storagePathFor("userA", "docOrphan", "lost.pdf");
+  cloud.objects.set(orphanPath, { contentType: "application/pdf" });
+  const orphanDel = await removeOriginalsForDocument(A, "docOrphan");
+  ok("12.18 orphaned object (no metadata) is cleaned up on delete", orphanDel.ok === true && orphanDel.removed === 1 && !cloud.objects.has(orphanPath));
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

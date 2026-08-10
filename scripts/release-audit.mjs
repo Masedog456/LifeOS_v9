@@ -6,7 +6,7 @@
  * it against the declared release model (lib/release/*). It verifies:
  *
  *   - migration count + dense numbering + no duplicate numbers
- *   - only an allowed 0032 release-fix migration may be added
+ *   - only an allowed 0034 release-fix migration may be added
  *   - expected public table count
  *   - every user-owned (user_id) table enables RLS and has policies (delegates
  *     the deep policy check to audit-rls.mjs, invoked separately)
@@ -32,11 +32,11 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 32", files.length === 32, `found ${files.length}`);
+ok("migration count == 33", files.length === 33, `found ${files.length}`);
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
-const beyond32 = files.filter((f) => Number(f.slice(0, 4)) > 32);
-ok("no migration beyond 0032 except allowed 0033 fix", beyond32.every((f) => f === "0033_v1_release_fix.sql"), `unexpected: ${beyond32.join(", ")}`);
+const beyond33 = files.filter((f) => Number(f.slice(0, 4)) > 33);
+ok("no migration beyond 0033 except allowed 0034 fix", beyond33.every((f) => f === "0034_v1_release_fix.sql"), `unexpected: ${beyond33.join(", ")}`);
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");
