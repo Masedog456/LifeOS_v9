@@ -979,6 +979,34 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
 
 ---
 
+## Native reading upload & originals (LIFEOS-047)
+
+- **No data migration for document metadata.** The upload provenance (`addMethod`,
+  `uploadFormat`, `filename`, `mimeType`, `sizeBytes`, `contentHash`, `url`,
+  `pageCount`, `uploadedAt`, `processingState`, `originalStored`) rides on the
+  existing `reading_documents.source_metadata` jsonb column — additive, no schema
+  change, forward/backward compatible.
+- **One additive table + one private bucket** (migration
+  `0032_reading_document_files.sql`): the bucket `reading-originals` (private,
+  25 MB limit, never public) for the untouched uploaded file, and
+  `reading_document_files` (checksum/size/content-type/state — **never** the file's
+  text). RLS: object access isolated per user by an `<uid>/…` path convention on
+  `storage.objects`; the metadata table uses user_id `default auth.uid()` + all four
+  policies + FK → `auth.users` on delete cascade, with a per-user unique index on
+  `checksum` for server-side dedup.
+- **Honest storage state.** Parsed text persists today via the existing
+  `reading_documents` rows. Live byte-upload into the bucket is a documented next
+  increment; until it ships `source_metadata.originalStored` stays `false` and the
+  app never claims an original is stored. Large binaries are **never** written to
+  `localStorage`. On document delete, a stored original (when present) is removed
+  with the document — no orphaned objects, no unexpected cascade onto other data.
+- Validated on Postgres 16 via `scripts/migration-rehearsal.mjs`: full chain
+  **0001–0032 idempotent 3×** (55 public tables), checkpoint upgrades including
+  `pre-reading-ingestion`, RLS on every table, and the live non-superuser two-user
+  isolation probe. `audit:rls` passes **55 tables**.
+
+---
+
 ## Version 1 Release Candidate (LIFEOS-042)
 
 This area is included in the Version 1 release candidate (`v1.0.0-rc1`). Release

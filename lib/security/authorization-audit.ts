@@ -63,6 +63,10 @@ export const TABLE_REGISTRY: readonly TableAudit[] = [
   { table: "export_history", migration: "0031", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ["select", "insert", "delete"], deletion: "cascade-from-user", retention: true },
   { table: "import_history", migration: "0031", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ["select", "insert", "delete"], deletion: "cascade-from-user", retention: true },
   { table: "account_deletion_requests", migration: "0031", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ["select", "insert", "update"], deletion: "cascade-from-user", retention: true },
+  // Reading upload originals (LIFEOS-047) — metadata only (checksum/size/state),
+  // never the file's text; the binary itself lives in the private
+  // `reading-originals` storage bucket, isolated per user by RLS.
+  { table: "reading_document_files", migration: "0032", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "cascade-from-user" },
 ];
 
 export interface PolicyPresence {

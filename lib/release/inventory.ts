@@ -102,7 +102,7 @@ export function buildInventory(devSurfaces: string[] = []): ProductInventory {
     dataDomainCount: EXPORT_DOMAINS.length,
     dataDomains: EXPORT_DOMAINS,
     migrationCount: releaseVersions().migrationCount,
-    tableCountNote: "54 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
+    tableCountNote: "55 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
     preferenceBlocks: PREFERENCE_BLOCKS,
     envVars: ENV_VARS,
     securityControls: SECURITY_CONTROLS,

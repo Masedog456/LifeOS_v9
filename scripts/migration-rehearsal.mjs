@@ -5,7 +5,7 @@
  * Stands up a throwaway PostgreSQL 16 cluster and rehearses the complete
  * migration chain against it:
  *
- *   - clean apply 0001 -> 0031 in order
+ *   - clean apply 0001 -> 0032 in order
  *   - repeated application (idempotency) x3 on the same database
  *   - upgrade from every representative checkpoint (pre-reading ... current)
  *   - constraint + index + RLS survival after the full chain
@@ -85,19 +85,19 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 31, `found ${files.length} migration files, expected 31`);
+  ok("migration files present", files.length === 32, `found ${files.length} migration files, expected 32`);
 
-  // 1) Clean apply 0001 -> 0031 on a fresh database.
+  // 1) Clean apply 0001 -> 0032 on a fresh database.
   createDbWithAuth("rc_clean");
   applyChain("rc_clean", files);
   const tableCount = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("clean apply 0001->0031 (54 public tables)", tableCount === 54, `got ${tableCount} public tables`);
+  ok("clean apply 0001->0032 (55 public tables)", tableCount === 55, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
   applyChain("rc_clean", files);
   const tableCount3 = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("idempotent x3 (stable table count)", tableCount3 === 54, `after 3x got ${tableCount3}`);
+  ok("idempotent x3 (stable table count)", tableCount3 === 55, `after 3x got ${tableCount3}`);
 
   // 3) RLS enabled on every public table + each has policies.
   const noRls = psql("rc_clean", `select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity=false order by 1;`).trim();
@@ -111,19 +111,20 @@ function run() {
 
   // 5) Constraints + indexes survive (spot-check core tables exist with PKs + indexes).
   const pkCount = Number(psql("rc_clean", "select count(*) from pg_constraint where contype='p' and connamespace='public'::regnamespace;").trim());
-  ok("primary keys preserved (>=54)", pkCount >= 54, `found ${pkCount} PKs`);
+  ok("primary keys preserved (>=55)", pkCount >= 55, `found ${pkCount} PKs`);
   const idxCount = Number(psql("rc_clean", "select count(*) from pg_indexes where schemaname='public';").trim());
-  ok("indexes preserved (>=54)", idxCount >= 54, `found ${idxCount} indexes`);
+  ok("indexes preserved (>=55)", idxCount >= 55, `found ${idxCount} indexes`);
   for (const t of ["captures", "reading_documents", "document_passages", "document_citations", "workspaces", "goals", "projects", "next_actions", "daily_reviews", "planning_assignments", "focus_sessions", "maintenance_events", "saved_insight_views", "sync_tombstones", "sanitized_error_events"]) {
     const exists = psql("rc_clean", `select to_regclass('public.${t}') is not null;`).trim();
     ok(`table present: ${t}`, exists === "t", `to_regclass returned ${exists}`);
   }
 
   // 6) Checkpoint upgrades: for each checkpoint, apply through N on a fresh DB,
-  //    then apply the remainder — must reach 54 tables cleanly.
+  //    then apply the remainder — must reach 55 tables cleanly.
   const checkpoints = [
     ["pre-reading", 20], ["pre-workspaces", 21], ["pre-actions", 26],
-    ["pre-planning", 27], ["pre-maintenance", 28], ["pre-security", 30], ["current", 31],
+    ["pre-planning", 27], ["pre-maintenance", 28], ["pre-security", 30],
+    ["pre-reading-ingestion", 31], ["current", 32],
   ];
   for (const [id, through] of checkpoints) {
     const db = `rc_cp_${through}`;
@@ -133,7 +134,7 @@ function run() {
     applyChain(db, first);
     applyChain(db, rest);
     const c = Number(psql(db, "select count(*) from pg_tables where schemaname='public';").trim());
-    ok(`checkpoint upgrade ${id} (through ${through})`, c === 54, `reached ${c} tables`);
+    ok(`checkpoint upgrade ${id} (through ${through})`, c === 55, `reached ${c} tables`);
     psql("postgres", `drop database if exists ${db} with (force);`);
   }
 

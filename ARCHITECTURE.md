@@ -1185,6 +1185,38 @@ scope; this sprint establishes the architecture only).
   generation + source-reference lookup, search integration, and a performance
   budget (assemble + index a large document under 1s).
 
+### Native upload, ingestion & grounded study (LIFEOS-047 — implemented)
+
+Builds directly on the LIFEOS-028 model above — it adds an ingestion front door
+and a restrained AI study layer, and creates **no** second document type.
+
+- **Add-reading front door** (`components/reading/AddReadingPanel.tsx`, replaces
+  the old plain-paste ImportPanel on `/reading`). One primary action with Upload /
+  Link / Paste tabs; drag-and-drop on desktop, native picker on mobile.
+- **Ingestion core** (`lib/reading/ingest.ts`, pure). `detectFormat` /
+  `validateUpload` (25 MB, safe filenames, friendly refusals), `contentHash` +
+  `findDuplicate` (whitespace-stable dedup), a guarded `ProcessingState` machine
+  (`canTransition` / `isRetryable`), `assignPages` (maps passage char-offsets to
+  the PDF's real pages via `extractPdf`'s `PageSpan[]`, **never invents** a page),
+  and `ingestText` (honest needs_attention for scanned/empty text). PDF text comes
+  from the existing `lib/ingestion/pdfExtract.ts`; TXT/MD are read on-device.
+- **Provenance-preserving assembly** (`assembleDocumentFromParsed` in
+  `lib/library/documents.ts`, store action `createReadingFromParsed`). Builds a
+  `ReadingDocument` from already-parsed sections/passages so per-passage `page`
+  survives; provenance rides additively on `sourceMetadata` (jsonb — no migration).
+- **Grounded study** (`lib/reading/study.ts`, UI `components/reading/StudyPanel.tsx`).
+  `chunkDocument` (one chunk/passage with real location) → `retrieve` (deterministic
+  lexical, this document only) → `buildContext` (`CONTEXT_CHAR_BUDGET`, whole book
+  never sent) → `askQuestion`/`summarize` seam (falls back to the deterministic
+  mock offline). Citations come from `groundedCitations` (retrieved chunks' real
+  `page`/`passageId`), **never** from model output; empty retrieval yields an honest
+  "doesn't cover that". `studyMaterial` is deterministic and on-device and never
+  mutates beliefs/Knowledge. **Save to LifeOS** reuses `convertPassage(...,{text})`
+  and `addAnnotation`, keeping a citation home on the exact passage.
+- **Testing.** `lib/reading/selftest.ts` (surfaced at `/dev/reading-ingest-tests`)
+  — 40 assertions across format/validation/dedup/page-provenance/state-machine/
+  ingestion/chunking/retrieval/grounded-citations/context-budget/summarize/study.
+
 ### Durable persistence (LIFEOS-028 amendment — migration 0021)
 
 The reading library is a first-class, user-owned, RLS-protected set of NORMALIZED
