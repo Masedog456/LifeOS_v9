@@ -27,6 +27,7 @@
  *     URLs.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { safeFilename } from "@/lib/reading/ingest";
 
@@ -192,18 +193,14 @@ export function originalsConfigured(): boolean {
 }
 
 /**
- * Build the real Supabase-backed backend for the current session, or null when
- * there is no capability (local-only mode, or signed out). Resolving the user id
- * up front lets every path be namespaced by the owner and lets the seam stay
- * synchronous per-op.
+ * Build an `OriginalsBackend` bound to a specific authenticated Supabase client
+ * and user id. This is the SINGLE production implementation of the storage +
+ * metadata operations; `getOriginalsBackend` wraps it for the app's session, and
+ * the live validation harness builds one per test user so it exercises exactly
+ * this code (never a reimplementation). Every request runs under the given
+ * client's own session, so RLS is what enforces isolation.
  */
-export async function getOriginalsBackend(): Promise<OriginalsBackend | null> {
-  const client = getSupabaseClient();
-  if (!client) return null; // local-only mode
-  const { data, error } = await client.auth.getUser();
-  const userId = error ? null : data.user?.id ?? null;
-  if (!userId) return null; // signed out — no remote identity, nothing to store
-
+export function makeSupabaseOriginalsBackend(client: SupabaseClient, userId: string): OriginalsBackend {
   const bucket = client.storage.from(ORIGINALS_BUCKET);
   return {
     userId,
@@ -244,4 +241,19 @@ export async function getOriginalsBackend(): Promise<OriginalsBackend | null> {
       return { ok: true, url: data.signedUrl };
     },
   };
+}
+
+/**
+ * Build the real Supabase-backed backend for the current session, or null when
+ * there is no capability (local-only mode, or signed out). Resolving the user id
+ * up front lets every path be namespaced by the owner and lets the seam stay
+ * synchronous per-op.
+ */
+export async function getOriginalsBackend(): Promise<OriginalsBackend | null> {
+  const client = getSupabaseClient();
+  if (!client) return null; // local-only mode
+  const { data, error } = await client.auth.getUser();
+  const userId = error ? null : data.user?.id ?? null;
+  if (!userId) return null; // signed out — no remote identity, nothing to store
+  return makeSupabaseOriginalsBackend(client, userId);
 }

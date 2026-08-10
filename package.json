@@ -21,7 +21,8 @@
     "release:checklist": "node scripts/release-checklist.mjs",
     "release:routes": "node scripts/route-smoke.mjs",
     "release:visual": "node scripts/visual-regression.mjs",
-    "release:browsers": "node scripts/browser-matrix.mjs"
+    "release:browsers": "node scripts/browser-matrix.mjs",
+    "validate:reading-originals-live": "node scripts/validate-reading-originals-live.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",

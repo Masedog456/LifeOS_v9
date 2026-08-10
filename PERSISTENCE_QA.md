@@ -1021,8 +1021,16 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   live non-superuser two-user isolation probe. `audit:rls` passes **55 tables**.
   Original-file upload/metadata/deletion/retry/cross-user isolation are covered by
   the reading self-tests over a fake RLS-like backend (`/dev/reading-ingest-tests`,
-  58 assertions). **Live Supabase Storage validation with disposable users is a
-  manual release check** (no live credentials in this environment).
+  58 assertions). **Live Supabase Storage validation with two disposable users is a
+  manual release check** — run it locally against the real project with
+  `npm run validate:reading-originals-live` (requires `NEXT_PUBLIC_SUPABASE_URL`,
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`; the service key
+  is used only to provision/clean up disposable users — every RLS attack test runs
+  through User A / User B normal sessions). It exercises the real production code
+  (`makeSupabaseOriginalsBackend` / `backupOriginal` / `resolveOriginalUrl` /
+  `removeOriginalsForDocument`) and exits non-zero unless every check passes. The
+  metadata-write-fails-after-upload orphan-cleanup case is verified deterministically
+  (self-tests), not forced live, since forcing it would require weakening the DB.
 
 ---
 
