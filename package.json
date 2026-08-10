@@ -22,12 +22,13 @@
     "release:routes": "node scripts/route-smoke.mjs",
     "release:visual": "node scripts/visual-regression.mjs",
     "release:browsers": "node scripts/browser-matrix.mjs",
-    "validate:reading-originals-live": "node scripts/validate-reading-originals-live.mjs"
+    "validate:reading-originals-live": "node scripts/validate-reading-originals-live.mjs",
+    "beta:smoke": "node scripts/beta-smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.2",
     "next": "16.2.12",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "^6.2.108",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -40,5 +41,8 @@
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "overrides": {
+    "nanoid": "^3.3.17"
   }
 }
