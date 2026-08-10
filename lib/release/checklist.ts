@@ -33,8 +33,8 @@ const D = "2026-08-01";
 
 export const CHECKLIST: readonly ChecklistItem[] = [
   { section: "repository", item: "Feature freeze declared; only release-allowed changes on the RC branch", owner: "release", evidence: "V1_RELEASE_CHECKLIST + RELEASE_POLICY (this PR)", status: "done", blocker: "non-blocker", date: D },
-  { section: "migrations", item: "Chain 0001→0032 applies clean; idempotent x3; checkpoints upgrade", owner: "persistence", evidence: "scripts/migration-rehearsal.mjs", status: "done", blocker: "blocker", date: D },
-  { section: "migrations", item: "No new migration beyond an allowed 0033 release fix", owner: "persistence", evidence: "lib/release/migrations isAllowedReleaseFixMigration + audit", status: "done", blocker: "blocker", date: D },
+  { section: "migrations", item: "Chain 0001→0033 applies clean; idempotent x3; checkpoints upgrade", owner: "persistence", evidence: "scripts/migration-rehearsal.mjs", status: "done", blocker: "blocker", date: D },
+  { section: "migrations", item: "No new migration beyond an allowed 0034 release fix", owner: "persistence", evidence: "lib/release/migrations isAllowedReleaseFixMigration + audit", status: "done", blocker: "blocker", date: D },
   { section: "database", item: "Expected table/migration counts; no duplicate numbers; schema version", owner: "persistence", evidence: "scripts/release-audit.mjs", status: "done", blocker: "blocker", date: D },
   { section: "rls", item: "Every user-owned table has RLS + required policies", owner: "security", evidence: "npm run audit:rls (55 tables PASS)", status: "done", blocker: "blocker", date: D },
   { section: "authentication", item: "Sign-up/in/out/refresh/expiry/reset/multi-tab matrix", owner: "release/manual", evidence: "auth-boundaries logic tests + manual step documented", status: "manual-required", blocker: "blocker", date: D },

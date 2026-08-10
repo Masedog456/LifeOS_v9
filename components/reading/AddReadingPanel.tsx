@@ -15,6 +15,7 @@ import {
   validateUpload, ingestText, contentHash, findDuplicate, safeFilename,
   type ReadingFormat, type ProcessingState,
 } from "@/lib/reading/ingest";
+import { startOriginalBackup } from "@/lib/reading/backupManager";
 import { toast } from "@/lib/ux/feedback";
 
 type Tab = "upload" | "link" | "paste";
@@ -27,19 +28,24 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
   const [dup, setDup] = useState<{ id: string; title: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const lastFileRef = useRef<File | null>(null);
 
   // Paste / link fields.
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
   const [url, setUrl] = useState("");
 
-  const finish = useCallback((title: string, author: string | undefined, format: "plain" | "markdown", parsed: { sections: { title: string; passages: { heading?: string; text: string; page?: number; location?: string }[] }[] }, meta: Parameters<typeof createReadingFromParsed>[0]["sourceMetadata"]) => {
+  const finish = useCallback((title: string, author: string | undefined, format: "plain" | "markdown", parsed: { sections: { title: string; passages: { heading?: string; text: string; page?: number; location?: string }[] }[] }, meta: Parameters<typeof createReadingFromParsed>[0]["sourceMetadata"], original?: { file: File; filename: string; contentType: string; sizeBytes: number; checksum: string }) => {
     const id = createReadingFromParsed({ title, authors: author ? [author] : undefined, parsed, sourceMetadata: meta });
+    // The parsed reading is saved immediately (the fast path). If this was a file
+    // upload and remote storage is available, back up the ORIGINAL binary privately
+    // in the background — the reader opens now and never blocks on the network.
+    if (original) startOriginalBackup(id, original.file, { filename: original.filename, contentType: original.contentType, sizeBytes: original.sizeBytes, checksum: original.checksum });
     toast({ kind: "success", message: "Added to your reading" });
     onDone(id);
   }, [onDone]);
 
-  const handleFile = useCallback(async (file: File) => {
+  const handleFile = useCallback(async (file: File, opts?: { force?: boolean }) => {
     setDup(null);
     const v = validateUpload({ name: file.name, size: file.size, type: file.type });
     if (!v.ok || !v.format) { setStatus({ state: "failed", message: v.reason }); return; }
@@ -62,10 +68,14 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
         return;
       }
 
-      // Duplicate detection (safe, deterministic — never deletes anything).
+      // Duplicate detection over the user's OWN library (safe, deterministic —
+      // never deletes anything, never reveals another user's documents). "Upload
+      // another copy" (opts.force) deliberately bypasses it.
       const hash = contentHash(text);
-      const existing = findDuplicate(state.documents, hash);
-      if (existing) { setDup({ id: existing.id, title: existing.title }); setStatus({ state: "idle" }); return; }
+      if (!opts?.force) {
+        const existing = findDuplicate(state.documents, hash);
+        if (existing) { lastFileRef.current = file; setDup({ id: existing.id, title: existing.title }); setStatus({ state: "idle" }); return; }
+      }
 
       const out = ingestText({
         text, addMethod: "upload", format: fmt, filename: file.name, mimeType: file.type,
@@ -73,7 +83,8 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
       });
       if (!out.ok) { setStatus({ state: out.state, message: out.reason }); return; }
       const meta = { importFormat: fmt === "markdown" ? "markdown" as const : fmt === "pdf" ? "pdf" as const : "plain" as const, ...out.doc.provenance, note };
-      finish(out.doc.title, out.doc.author, out.doc.format, out.doc.parsed, meta as never);
+      const contentType = file.type || (fmt === "pdf" ? "application/pdf" : fmt === "markdown" ? "text/markdown" : "text/plain");
+      finish(out.doc.title, out.doc.author, out.doc.format, out.doc.parsed, meta as never, { file, filename: safeFilename(file.name), contentType, sizeBytes: file.size, checksum: hash });
     } catch {
       setStatus({ state: "failed", message: "Something went wrong reading that file. Your file wasn't changed — you can try again." });
     }
@@ -120,7 +131,7 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
           <p className="mt-0.5 text-zinc-600 dark:text-zinc-300">&ldquo;{dup.title}&rdquo; looks like the same document.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => onDone(dup.id)} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Open existing</button>
-            <button type="button" onClick={() => { setDup(null); if (tab === "upload") fileInput.current?.click(); }} className="rounded-full border border-black/[.12] px-4 py-1.5 text-xs dark:border-white/[.15]">Upload another copy</button>
+            <button type="button" onClick={() => { const f = lastFileRef.current; setDup(null); if (f) void handleFile(f, { force: true }); else if (tab === "upload") fileInput.current?.click(); }} className="rounded-full border border-black/[.12] px-4 py-1.5 text-xs dark:border-white/[.15]">Upload another copy</button>
           </div>
         </div>
       ) : tab === "upload" ? (

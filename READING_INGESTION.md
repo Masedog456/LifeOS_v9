@@ -148,33 +148,57 @@ These are conceptually separate and documented as such in the UI:
 See `SECURITY_AND_PRIVACY.md` for the data-flow statement and the per-user
 isolation guarantees.
 
-## 10. Storing the original file (increment status)
+## 10. Storing the original file (LIFEOS-047A — implemented)
 
-Parsed text, page provenance, highlights, and notes persist today in the
-`reading_documents` row. Binary originals (the PDF/DOCX itself, for "View
-original") get a **private, RLS-scoped home** provisioned by migration
-`0032_reading_document_files.sql`:
+Parsed text, page provenance, highlights, and notes persist in the
+`reading_documents` row. When you upload a file and are signed in with remote
+sync configured, the **original binary is now privately preserved** too:
 
-- a **private** storage bucket `reading-originals` (never public), 25 MB limit;
+- a **private** storage bucket `reading-originals` (never public, 25 MB;
+  migration `0032`);
 - per-user object isolation — objects live at `<uid>/<documentId>/<file>` and
   `storage.objects` RLS restricts every operation to `auth.uid()`'s own prefix,
   so User A can never read, list, write, or delete User B's files;
 - a `reading_document_files` metadata table (checksum, size, content type,
-  processing state — **never** the file's text), itself RLS-scoped and cascading
-  only from the owning `auth.users` row.
+  state — **never** the file's text), RLS-scoped and cascading only from the
+  owning `auth.users` row. Its checksum index is **non-unique per user**
+  (migration `0033`) so "Upload another copy" is never blocked.
 
-The client wiring that streams bytes into this bucket is a **separate, documented
-increment**. Until it ships, `sourceMetadata.originalStored` stays `false` and the
-app keeps the parsed text only — it never claims an original is stored when it
-isn't. **Large binaries are never placed in `localStorage`.** The RLS policies are
-never to be weakened and the bucket is never to be made public.
+**Lifecycle** (`lib/reading/originals.ts` orchestration + `backupManager.ts` glue):
+
+1. Text extraction and `ReadingDocument` creation stay the **fast path** — the
+   reader opens immediately.
+2. In the background the original is uploaded to a **deterministic** path, then
+   its metadata row is written. `sourceMetadata.originalStored` becomes `true`
+   **only after both succeed** — never optimistically.
+3. If the upload fails, the reading is kept and the reader shows *"Your reading
+   was added, but the original file wasn't backed up"* with an in-session
+   **Retry** (the picked file can't survive a reload, so retry-after-failure is
+   session-scoped — an honest limitation).
+4. If the metadata write fails after a good upload, the just-written object is
+   removed so no orphan is left; the deterministic path means a retry simply
+   overwrites in place.
+
+**Cross-device.** `originalStored` and the storage path ride on the document's
+`sourceMetadata` (jsonb), which syncs like any document field. Another signed-in
+device for the same user resolves the original by looking it up in
+`reading_document_files` and minting a **short-lived signed URL** — private
+access only, never a public URL, never another user's path. **Large binaries are
+never placed in `localStorage`;** RLS is never weakened and the bucket is never
+made public.
 
 ## 11. Delete & export
 
-Deletion uses the existing document deletion with its impact preview (highlights,
-notes, and derived records are shown before removal) — no unexpected cascade. When
-an original is stored, deleting the document also removes its object and metadata
-row. Export includes the document and its provenance through the existing backup.
+Deletion uses the existing impact-preview confirmation (`buildImpact` +
+`ConfirmDialog`) — highlights, notes, and derived records are shown before
+removal; beliefs/concepts made from the document are kept (only their citation
+home goes). When an original is stored, removal cleans up **only that document's
+own folder** (`<uid>/<documentId>/`, covering any orphaned partial upload) and
+its metadata rows — path- and RLS-scoped, so it can never touch another
+document's or another user's file. If that cleanup can't complete, the reading is
+**not** deleted and an honest error is shown, rather than orphaning the file or
+pretending cleanup happened. Export includes the document and its provenance
+through the existing backup.
 
 ## 12. Search
 
@@ -183,14 +207,19 @@ library search and command palette with no separate index.
 
 ## 13. Testing
 
-Pure, deterministic self-tests live in `lib/reading/selftest.ts`
-(`runReadingIngestSelfTests`) and are surfaced at `/dev/reading-ingest-tests`
-(`#reading-ingest-selftest-summary`) for the regression harness. **40 assertions**
-cover: format detection, upload validation, whitespace-stable duplicate hashing,
-PDF page provenance (including the never-invented fallback), the processing-state
-machine, honest ingestion of scanned/empty text, chunking with real locations,
-deterministic retrieval, grounded citations, the context budget, summarize
-scoping, and generated study material. Security (per-user isolation) is covered by
+Self-tests live in `lib/reading/selftest.ts` (`runReadingIngestSelfTests`) and are
+surfaced at `/dev/reading-ingest-tests` (`#reading-ingest-selftest-summary`) for
+the regression harness. **58 assertions** cover: format detection, upload
+validation, whitespace-stable duplicate hashing, PDF page provenance (including
+the never-invented fallback), the processing-state machine, honest ingestion of
+scanned/empty text, chunking with real locations, deterministic retrieval,
+grounded citations, the context budget, summarize scoping, generated study
+material, and — over an in-memory backend that mimics per-user RLS — original-file
+upload + metadata, `originalStored` truthfulness, storage-fails / metadata-fails
+ordering with orphan cleanup, retry after failure, private signed-URL retrieval,
+cross-user isolation (User B can't see/retrieve/delete User A's original),
+same-user "Upload another copy", correct-target deletion, and orphan cleanup.
+Live-backend security (real per-user isolation) is additionally covered by
 `audit:rls`, the authorization audit registry, and the migration rehearsal's live
 two-user probe.
 
@@ -206,14 +235,25 @@ two-user probe.
 | Store action | `lib/mvpStore.ts` (`createReadingFromParsed`) |
 | Add-reading UI | `components/reading/AddReadingPanel.tsx` |
 | Study UI | `components/reading/StudyPanel.tsx` |
-| Storage + RLS | `supabase/migrations/0032_reading_document_files.sql` |
+| Original-file persistence (orchestration + seam) | `lib/reading/originals.ts` |
+| Backup manager (in-session File + retry) | `lib/reading/backupManager.ts` |
+| Original-file status + safe removal UI | `components/reading/OriginalStatus.tsx` |
+| Storage + RLS | `supabase/migrations/0032_reading_document_files.sql`, `0033_reading_files_checksum_index.sql` |
 
-## 15. What LIFEOS-047 deliberately does NOT do
+## 15. What Reading upload deliberately does NOT do
 
 - No parallel document system — everything is a `ReadingDocument`.
 - No cloned third-party UI.
 - No gimmicky AI — Ask/Summarize/Study are restrained and subordinate to reading.
 - No fabricated citations, page numbers, summaries, or content.
-- No live embeddings yet (deterministic retrieval today; the seam is ready).
-- No live binary upload yet (bucket + RLS provisioned; wiring is a next increment).
-- No DOCX extraction yet (detected and honestly deferred to Paste).
+- No public URLs for originals — private access via short-lived signed URLs only.
+
+Intentional deferrals (documented, not faked), unchanged by LIFEOS-047A:
+
+- **Embeddings** — deterministic lexical retrieval today; the seam is ready.
+- **OCR** — scanned PDFs are detected and reported honestly, not extracted.
+- **DOCX extraction** — detected and honestly deferred to Paste.
+- **EPUB / PPTX / audio / video** — declared as future formats; not yet ingested.
+
+> LIFEOS-047A completed the one item 047 had listed as deferred here — *live
+> binary upload* — so uploaded originals are now genuinely, privately preserved.

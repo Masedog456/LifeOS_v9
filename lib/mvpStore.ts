@@ -3151,6 +3151,18 @@ export function deleteDocument(docId: string): void {
   setState({ ...state, documents: state.documents.filter((d) => d.id !== docId), citations: state.citations.filter((c) => c.documentId !== docId) });
 }
 
+/**
+ * Patch a document's original-file backup provenance (LIFEOS-047A). Merges into
+ * sourceMetadata (jsonb — durable & cross-device via the existing document sync).
+ * `originalStored` must only be set true once the object AND metadata row exist.
+ */
+export function setDocumentOriginal(
+  docId: string,
+  patch: Partial<Pick<ReadingDocument["sourceMetadata"], "originalStored" | "originalBackup" | "originalStoragePath" | "originalFileId" | "note">>,
+): void {
+  patchDocument(docId, (d) => ({ ...d, sourceMetadata: { ...d.sourceMetadata, ...patch } }));
+}
+
 export function setDocumentNotes(docId: string, notes: string): void {
   patchDocument(docId, (d) => ({ ...d, notes }));
 }
