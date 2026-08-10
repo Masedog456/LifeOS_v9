@@ -2677,3 +2677,43 @@ scope or order.
   disposable users remains a manual release check** (no live credentials here) —
   stated, not faked. Still deferred (documented): embeddings, OCR, DOCX, EPUB/PPTX/
   audio/video.
+
+- **LIFEOS-048 — Closed Beta Readiness & Production Validation (not a feature sprint).**
+  Determined whether an ordinary person can safely use the product, favoring real
+  behavior over test-count vanity. Reused existing validation infra (no duplicate
+  systems). **Security fixes (real, in-attack-surface):** upgraded `pdfjs-dist`
+  6.1.200 → **6.2.108** to clear GHSA-hq66-cqwq-w95j (arbitrary JS execution on
+  opening a malicious PDF — directly relevant since we parse user-uploaded PDFs;
+  validated a real PDF still extracts end-to-end through the UI), and pinned
+  `nanoid` ≥3.3.17 via `overrides` (DoS advisory; transitive). `audit:deps` now
+  PASS with only the documented `next→postcss/sharp` transitive exceptions. Fixed a
+  **secret-scan false positive** by scoping the "service-role in client" rule to
+  client-bundleable code (`scripts/` Node CLIs like the 047A live validator are not
+  bundled; real secret *values* still caught everywhere). **Consumer walkthrough
+  (headless Chromium, local prod build): 18/18** — capture-first root, capture
+  persists across reload, reading add→reader→grounded Ask+citation→save-as-note,
+  search finds the prior capture, review reachable, nav + `<main>` + all buttons
+  named + 320px no-overflow + zero JS errors. Capture sign-in-race repro **13/13**
+  (data-loss bug stays fixed). **Audit:** production security headers verified LIVE
+  on the running server (8 headers incl. CSP without `unsafe-eval`, HSTS preload,
+  nosniff, frame DENY, COOP); sign-in is nav `AuthControl` (magic-link; hidden only
+  in local-only mode); no route exposes private data pre-auth (local-first render +
+  stateless API routes + Supabase RLS boundary); account deletion (`/privacy/delete`,
+  "DELETE MY ACCOUNT") + content deletion both exist. **Findings:** `/api/ai` +
+  `/api/embed` are unauthenticated → provider-cost abuse risk (MEDIUM, cost not
+  privacy — documented in the runbook to monitor + spend-cap); **no in-app feedback
+  path existed (HIGH)** → added a minimal, config-gated `FeedbackLink` on Help
+  (`NEXT_PUBLIC_FEEDBACK_URL`; calm beta fallback, no hardcoded address). **New
+  tooling:** `scripts/beta-smoke.mjs` + `npm run beta:smoke` (post-deploy: HTTPS,
+  security headers, no 5xx on core routes, `/dev` gated 404, Supabase reachable;
+  13/15 locally = the 2 expected-local http+dev-enabled failures). **New docs:**
+  `CLOSED_BETA.md` (user-facing), `BETA_RUNBOOK.md` (founder ops + STOP conditions +
+  rollback pointers), `BETA_VALIDATION.md` (critical-path A–W with AUTO-PASS vs
+  MANUAL-REQUIRED status + the founder manual pack M1–M11). **Final gates:** tsc 0,
+  lint 0 err (1 pre-existing warning), build ✓, reading 58/58, security 94/94,
+  release 48/48, `audit:security` PASS, release-audit 17/17, full regression
+  **1030/1030** across 18 suites. **Verdict: READY WITH MANUAL CHECKS** — the
+  automatable critical path is green and the security posture is sound; the
+  remaining gates (real email sign-in, cross-device sync, live two-user Storage/RLS,
+  Safari/iPhone/Android, deployed headers) genuinely require a founder with live
+  credentials/devices and are specified as MANUAL, never faked.

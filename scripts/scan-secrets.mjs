@@ -18,8 +18,14 @@ const IGNORE_DIRS = new Set([".git", "node_modules", ".next", "out", "dist", "co
 const IGNORE_FILES = new Set(["scan-secrets.mjs", ".env.example", "package-lock.json"]);
 
 const FINDINGS = [];
+// `scripts/` holds Node-only dev/release tooling that Next never bundles into the
+// browser, so *referencing* the service-role env var there (e.g. the LIFEOS-047A
+// live validator) is correct and safe — it is the one legitimate place for it.
+// The rule targets CLIENT-bundleable code (app/components/lib); real secret VALUES
+// are still caught everywhere by the JWT / private-key rules below.
+const SERVER_ONLY = /^scripts[\\/]/;
 const RULES = [
-  { name: "service-role key usage in client", re: /SUPABASE_SERVICE_ROLE|service_role_key|serviceRoleKey/, only: /\.(ts|tsx|js|jsx|mjs)$/ },
+  { name: "service-role key usage in client", re: /SUPABASE_SERVICE_ROLE|service_role_key|serviceRoleKey/, only: /\.(ts|tsx|js|jsx|mjs)$/, skip: SERVER_ONLY },
   { name: "private key block", re: /-----BEGIN (RSA |EC )?PRIVATE KEY-----/ },
   { name: "hardcoded JWT", re: /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/ },
   { name: "openai-style key", re: /\bsk-[A-Za-z0-9]{20,}\b/ },
@@ -46,6 +52,7 @@ function walk(dir) {
     if (!body) continue;
     for (const rule of RULES) {
       if (rule.only && !rule.only.test(entry)) continue;
+      if (rule.skip && rule.skip.test(rel)) continue;
       if (rule.re.test(body)) FINDINGS.push({ file: rel, rule: rule.name });
     }
     // NEXT_PUBLIC_ carrying a service-role-looking value.
