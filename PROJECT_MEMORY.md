@@ -2788,3 +2788,38 @@ scope or order.
   audit:security 4/4 PASS, release-audit 17/17; tsc/lint/build clean. **No
   migration added.** Deliberately NOT enabled yet: any importer, provider,
   connector, OAuth, MCP, retrieval filtering, or claim verification.
+
+- **LIFEOS-050A — Provenance boundary adversarial validation (validation/fix-only).**
+  Attacked the merged LIFEOS-050 contract on both axes. **Source axis held
+  completely**: no `conqify_ai`/`external_ai`/`derived`/`unknown` origin can mint a
+  Citation through any convertPassage target, so the headline fix is sound.
+  **Authorship axis was still launderable** — a real defect: records whose *kind*
+  structurally guarantees user authorship (Capture, annotation/note) have nowhere
+  to store provenance, so AI prose saved into one classified as `user_authored` at
+  read time and gained `self` authority. The attribution line LIFEOS-050 wrote into
+  note text was present but **the classifier never read it**. Smallest fix: made the
+  marker a shared, machine-readable primitive (`attributionPrefix` /
+  `detectAttribution` / `withAttribution` in `lib/provenance`), taught
+  `classifyOrigin` to read it (text-declared origin overrides structural
+  authorship), and routed both writers through it — StudyPanel's note save and
+  `convertPassage`'s `capture` target (the only structurally-user-authored
+  conversion destination; the others already default to safe `unknown`). Because
+  the marker *is* the content, it survives editing, export, restore and sync with
+  no schema change — and if the user deletes it while rewriting in their own words,
+  authorship transfers, which is exactly when it should. **Save ≠ authorship** is
+  now enforced, not merely intended. No ontology expansion, no migration. Tests
+  80/80 (was 51; +29 adversarial: citation attacks across all six conversion
+  targets, note/capture laundering, multi-hop, double-stamp guard, rewrite
+  semantics, export round trip, query-authority separation). Full regression
+  **1160/1160** across 19 suites.
+
+- **PRODUCT FINDING (not implemented) — Conditional Practice / Protocol.** A real
+  missing primitive observed during 050A: material of the form *"WHEN/IF [trigger]
+  → [intended response]"* (e.g. *"When my child is in a fight-or-flight reaction,
+  stay at least two arm's lengths away"*) is **not a belief** and is poorly served
+  by Capture, Belief or NextAction. Likely future shape: trigger · intended
+  response · optional reason · provenance · lifecycle (active/paused/retired). A
+  future classifier could *suggest* "this looks like a protocol" and extract the
+  trigger/action for confirmation — **classification may be automatic; adoption
+  must not be.** No schema, model, route or UI was created for this. Recorded so it
+  is not lost; gated on beta evidence.

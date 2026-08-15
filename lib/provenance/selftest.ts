@@ -11,6 +11,7 @@ import {
   ORIGIN_TYPES, ORIGIN_LABEL, groundingAuthority, canGroundSource, canGroundSelf,
   isMachineProduced, isAiGenerated, lineagePreservesSource, lineageRoots,
   effectiveOrigin, recordGrounding, sourceGroundableSegments,
+  withAttribution, detectAttribution, attributionPrefix,
   type OriginType, type Provenance, type LineageLink,
 } from "@/lib/provenance";
 import { classifyOrigin, classifyLegacy, AMBIGUOUS_KINDS, isStructurallyUserAuthored, isStructurallySource } from "@/lib/provenance/classify";
@@ -114,6 +115,84 @@ export function runProvenanceSelfTests(): SelfTestReport {
   ok("9.2 user-thought set is exactly the two user-authored kinds", selfish.length === 2 && selfish.every((t) => t.includes("user_authored")));
   ok("9.3 AI set is exactly {external_ai, conqify_ai}", aiish.length === 2);
   ok("9.4 the three sets are mutually exclusive", sourceish.every((t) => !selfish.includes(t) && !aiish.includes(t)) && selfish.every((t) => !aiish.includes(t)));
+
+  // ==================== 10. Adversarial save matrix (LIFEOS-050A) ====================
+  // Every destination that can receive prose, exercised with source / AI /
+  // derived / user material. The invariant: AI prose may keep LINEAGE to a
+  // source, but must never become the source, and must never become the user.
+  const AI_ANSWER = "Schuon argues that individuality is a veil over the Self.";
+  const asNote = withAttribution(AI_ANSWER, "conqify_ai", "saved from Ask & study");
+  const asCapture = withAttribution(AI_ANSWER, "conqify_ai", "saved from your reading");
+  const asSummary = withAttribution("Across the work the author returns to...", "derived", "generated");
+  const fromChatGpt = withAttribution("Schuon argues X.", "external_ai", "imported", "ChatGPT");
+
+  // 10.1–10.4 Citation attacks: AI prose into every convertPassage target.
+  // convertPassage writes a Citation only when canGroundSource(origin) is true.
+  for (const target of ["belief", "concept", "research", "question", "synthesis", "capture"]) {
+    ok(`10.1 AI answer → ${target} cannot mint a source citation`, !canGroundSource("conqify_ai"), target);
+  }
+  ok("10.2 derived summary → any target cannot mint a source citation", !canGroundSource("derived"));
+  ok("10.3 external AI → any target cannot mint a source citation", !canGroundSource("external_ai"));
+  ok("10.4 ONLY source text mints a citation", canGroundSource("original_source") && ORIGIN_TYPES.filter(canGroundSource).length === 1);
+
+  // 10.5–10.9 Authorship laundering: structurally user-authored records.
+  ok("10.5 AI answer saved as a NOTE does not become user-authored", classifyOrigin({ kind: "annotation", text: asNote }) === "conqify_ai");
+  ok("10.6 AI answer saved as a CAPTURE does not become user-authored", classifyOrigin({ kind: "capture", text: asCapture }) === "conqify_ai");
+  ok("10.7 imported external AI stays external", classifyOrigin({ kind: "annotation", text: fromChatGpt }) === "external_ai");
+  ok("10.8 derived prose stays derived", classifyOrigin({ kind: "capture", text: asSummary }) === "derived");
+  ok("10.9 laundered records ground NOTHING on either axis", (() => {
+    const o = classifyOrigin({ kind: "annotation", text: asNote });
+    return !canGroundSource(o) && !canGroundSelf(o);
+  })());
+
+  // 10.10–10.12 Genuine user material is untouched (no false positives).
+  ok("10.10 a real user note is still user-authored", classifyOrigin({ kind: "annotation", text: "I disagree because attention is a discipline." }) === "user_authored");
+  ok("10.11 a real capture is still user-authored", classifyOrigin({ kind: "capture", text: "Remember to water the plants" }) === "user_authored");
+  ok("10.12 user material retains self-authority", canGroundSelf(classifyOrigin({ kind: "reflection" })));
+
+  // 10.13 Multi-hop: AI prose carried through several destinations stays AI.
+  ok("10.13 AI prose survives multiple hops without gaining authority", (() => {
+    let text = AI_ANSWER;
+    for (const ctx of ["saved from Ask & study", "saved from your reading", "again"]) {
+      text = withAttribution(text, "conqify_ai", ctx);
+    }
+    const o = classifyOrigin({ kind: "capture", text });
+    return o === "conqify_ai" && !canGroundSource(o) && !canGroundSelf(o);
+  })());
+  ok("10.14 attribution is never double-stamped", withAttribution(asNote, "conqify_ai", "again") === asNote);
+
+  // 10.15 Save ≠ authorship. Only a genuine rewrite (marker removed) transfers it.
+  ok("10.15 rewriting in the user's own words DOES transfer authorship", classifyOrigin({ kind: "annotation", text: "In my own words: attention is a discipline." }) === "user_authored");
+  ok("10.16 a trivial edit that keeps the marker keeps AI provenance", classifyOrigin({ kind: "annotation", text: asNote + " (typo fixed)" }) === "conqify_ai");
+
+  // 10.17 Export/restore round trip cannot launder origin (the marker IS the content).
+  ok("10.17 export→restore round trip preserves origin", (() => {
+    const archived = JSON.parse(JSON.stringify({ kind: "annotation", text: asNote }));
+    return classifyOrigin(archived) === "conqify_ai";
+  })());
+  ok("10.18 round trip cannot turn unknown into user/source", (() => {
+    const o = classifyOrigin(JSON.parse(JSON.stringify({ kind: "belief" })));
+    return o === "unknown" && !canGroundSource(o) && !canGroundSelf(o);
+  })());
+
+  // 10.19 Attribution helpers are well-formed and reversible.
+  ok("10.19 prefix→detect round-trips for every machine origin", (["conqify_ai", "external_ai", "derived"] as OriginType[]).every((t) => {
+    const detected = detectAttribution(attributionPrefix(t, "x") + "body");
+    return t === "external_ai" ? detected === "conqify_ai" : detected === t;
+  }));
+  ok("10.20 a named non-Conqify system is detected as external", detectAttribution(attributionPrefix("external_ai", "imported", "Gemini") + "body") === "external_ai");
+  ok("10.21 unmarked text yields no attribution", detectAttribution("Just my own thoughts.") === null && detectAttribution(undefined) === null);
+  ok("10.22 withAttribution never marks source or user material", withAttribution("plain", "original_source", "x") === "plain" && withAttribution("plain", "user_authored", "x") === "plain");
+
+  // 10.23 Query-authority separation (the three future questions).
+  ok("10.23 'what did the source say' excludes every AI/derived record", (() => {
+    const corpus: OriginType[] = [classifyOrigin({ kind: "passage" }), classifyOrigin({ kind: "annotation", text: asNote }), classifyOrigin({ kind: "reflection" }), classifyOrigin({ kind: "document_synthesis" })];
+    return corpus.filter(canGroundSource).length === 1;
+  })());
+  ok("10.24 'what did I think' excludes AI material saved as notes", (() => {
+    const corpus: OriginType[] = [classifyOrigin({ kind: "annotation", text: asNote }), classifyOrigin({ kind: "annotation", text: "my own words" })];
+    return corpus.filter(canGroundSelf).length === 1;
+  })());
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

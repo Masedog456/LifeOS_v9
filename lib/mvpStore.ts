@@ -181,7 +181,7 @@ import { rememberPanels } from "@/lib/planning/memory";
 import { makeMaintenanceEvent, appendMaintenanceHistory } from "@/lib/maintenance/history";
 import { rememberIgnoredDuplicate } from "@/lib/maintenance/preferences";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
-import { canGroundSource, type OriginType } from "@/lib/provenance";
+import { canGroundSource, withAttribution, type OriginType } from "@/lib/provenance";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
 const EMPTY_STATE: StoreState = {
@@ -3292,7 +3292,11 @@ export function convertPassage(
   let recordKind: string;
   let recordId: string;
   switch (target) {
-    case "capture": recordKind = "capture"; recordId = addCapture(text); break;
+    // A Capture is user-authored BY CONSTRUCTION, so machine prose entering one
+    // must declare itself in its text or it would read back as the user's own
+    // words (LIFEOS-050A). Other targets are classified `unknown` by default,
+    // which already fails safe.
+    case "capture": recordKind = "capture"; recordId = addCapture(withAttribution(text, origin, "saved from your reading")); break;
     case "belief": recordKind = "belief"; recordId = createBeliefFromText(text, { theme: passage.heading }); break;
     // The concept's `source` records who actually produced the description —
     // hard-coding "user" here previously stamped AI prose as user-authored.

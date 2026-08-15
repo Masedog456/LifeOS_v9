@@ -68,6 +68,52 @@ export const ORIGIN_LABEL: Record<OriginType, string> = {
   unknown: "Source unavailable",
 };
 
+// ----------------------------------------------------------- attribution ----
+
+/**
+ * Some record types are user-authored BY CONSTRUCTION — a Capture is something
+ * the user typed, a note is something the user wrote — and they have no field in
+ * which to record that their text actually came from a machine. Adding one would
+ * mean a migration for models whose authorship the schema otherwise guarantees.
+ *
+ * So when machine prose is saved into such a record, the attribution is written
+ * into the TEXT, in a form that is both human-readable and machine-detectable.
+ * It then survives editing, export, re-import and sync for free, because it *is*
+ * the content (LIFEOS-050A).
+ *
+ * If the user deletes the marker while rewriting the text in their own words,
+ * that is a deliberate authoring act — which is exactly when authorship should
+ * transfer. We never infer adoption from a Save click; we do honour a rewrite.
+ */
+const ATTRIBUTION_RE = /^_(AI-generated|Generated from your document)(?:\s*\(([^)]{1,60})\))?\s*—\s*[^\n]*_/;
+
+/** The attribution line prefixed to machine prose saved into a user-authored record. */
+export function attributionPrefix(origin: OriginType, context: string, system?: OriginSystem): string {
+  const label = ORIGIN_LABEL[origin];
+  const who = system && system.toLowerCase() !== "conqify" ? ` (${system})` : "";
+  return `_${label}${who} — ${context}:_\n\n`;
+}
+
+/**
+ * Detect an attribution marker at the start of a record's text. Returns the
+ * origin it declares, or `null` when the text carries no marker.
+ */
+export function detectAttribution(text: string | undefined): OriginType | null {
+  if (!text) return null;
+  const m = ATTRIBUTION_RE.exec(text.trimStart());
+  if (!m) return null;
+  if (m[1] === "Generated from your document") return "derived";
+  const system = m[2];
+  return system && system.toLowerCase() !== "conqify" ? "external_ai" : "conqify_ai";
+}
+
+/** Prefix machine prose with its attribution; returns user/source text unchanged. */
+export function withAttribution(text: string, origin: OriginType, context: string, system?: OriginSystem): string {
+  if (!isMachineProduced(origin)) return text;
+  if (detectAttribution(text)) return text; // already attributed — never double-stamp
+  return `${attributionPrefix(origin, context, system)}${text}`;
+}
+
 // ------------------------------------------------------------- grounding ----
 
 /**

@@ -30,7 +30,7 @@ import {
   askDocument, summarizeScope, studyMaterial,
   type GroundedAnswer, type GroundedSummary, type SourceRef, type SummaryScope,
 } from "@/lib/reading/study";
-import { ORIGIN_LABEL, type OriginType } from "@/lib/provenance";
+import { ORIGIN_LABEL, withAttribution, type OriginType } from "@/lib/provenance";
 import type { ReadingDocument } from "@/types/mvp";
 
 type Mode = "ask" | "summarize" | "study";
@@ -87,9 +87,7 @@ function SaveRow({ doc, passageId, text, title, origin, onSaved }: { doc: Readin
     // survives editing, export and re-import (LIFEOS-050). Adoption is never
     // inferred: if the user later rewrites this in their own words, that is
     // their act, not ours.
-    const body = origin === "original_source" || origin === "user_authored"
-      ? text.trim()
-      : `_${ORIGIN_LABEL[origin]} — saved from Ask & study:_\n\n${text.trim()}`;
+    const body = withAttribution(text.trim(), origin, "saved from Ask & study");
     const noteId = addAnnotation(doc.id, passageId, body);
     if (noteId) onSaved("Saved as a note on this passage");
   };
