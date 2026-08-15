@@ -2755,3 +2755,36 @@ scope or order.
   silently expanded**: book-length docs still sit in the single-key local blob (the
   LIFEOS-048 whole-state wall) — the working-set/IndexedDB fix stays out of scope.
   Still deferred: OCR, DOCX, EPUB, audio/video.
+
+- **LIFEOS-050 — Provenance generalization.** Phase-0 audit found two concrete
+  places where AI prose could silently acquire authority it never earned, both at
+  the Reader's Study→Save boundary: (1) `convertPassage` attached a real source
+  **Citation** regardless of whether the saved text was the source's words or the
+  model's — so an Ask answer became a belief/research record *carrying a citation
+  to p.167 of the book*; (2) the concept branch **hard-coded `source: "user"`**,
+  actively stamping AI prose as user-authored. Saving AI text as a note had the
+  same problem structurally (notes are user-authored by construction). Fix, with
+  **no migration and no new table**: new `lib/provenance/` contract —
+  `OriginType` (7 values incl. honest `unknown`), free-string `originSystem` so a
+  new AI product never needs a migration, and **two-axis grounding**
+  (`{source, self}`) because "what the book says" and "what I once thought" are
+  different evidence and collapsing them is the actual failure mode; exactly one
+  type (`original_source`) may ground a source claim. Classification is
+  **structural at read time** (`classify.ts`) rather than stamped on rows — a
+  Capture is user-authored because of what it is — so **no user data was
+  rewritten** and legacy records classify correctly, falling to `unknown` (never a
+  flattering guess) for the genuinely ambiguous kinds. Lineage
+  (`quoted_from|derived_from|imported_from` over the existing `RecordRefLite`)
+  generalizes the 049 rule: one `derived_from` anywhere permanently removes source
+  authority. `ProvenanceSegment[]` + `effectiveOrigin` (least-privileged wins) let
+  a future mixed-authorship artifact keep user turns and AI turns distinct —
+  representable now, **no importer built**. Behavioral fixes: a Citation is written
+  only when the text can ground a source claim (AI saves still get the navigable
+  `linked` ref); concept `source` records the true producer; AI text saved as a
+  note carries its attribution in the note body where it survives export.
+  Restrained UI: one "AI-generated" marker on the save row. New self-tests
+  `lib/provenance/selftest.ts` (`/dev/provenance-tests`) **51/51**; full regression
+  **1131/1131** across 19 suites; reading 108/108, release 48/48, security 94/94,
+  audit:security 4/4 PASS, release-audit 17/17; tsc/lint/build clean. **No
+  migration added.** Deliberately NOT enabled yet: any importer, provider,
+  connector, OAuth, MCP, retrieval filtering, or claim verification.

@@ -181,6 +181,7 @@ import { rememberPanels } from "@/lib/planning/memory";
 import { makeMaintenanceEvent, appendMaintenanceHistory } from "@/lib/maintenance/history";
 import { rememberIgnoredDuplicate } from "@/lib/maintenance/preferences";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
+import { canGroundSource, type OriginType } from "@/lib/provenance";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
 const EMPTY_STATE: StoreState = {
@@ -3240,19 +3241,42 @@ export function createBeliefFromText(text: string, opts?: { theme?: string }): s
   return beliefId;
 }
 
+/**
+ * Map a provenance origin onto the Concept model's existing `source` field, so
+ * an AI-written description is never recorded as user-authored (LIFEOS-050).
+ */
+function conceptSourceFor(origin: OriginType): Concept["source"] {
+  if (origin === "external_ai" || origin === "conqify_ai") return "ai";
+  if (origin === "derived") return "deterministic";
+  return "user";
+}
+
 export type ConversionTarget = "capture" | "belief" | "concept" | "question" | "research" | "synthesis";
 
 /**
  * Convert a passage (optionally a specific highlight) into a knowledge record
- * using the EXISTING canonical creators, then attach a Citation back to the
- * source and link the record to the passage/highlight. Returns the record's
- * kind + id. Everything deterministic; no AI.
+ * using the EXISTING canonical creators, then link the record to the
+ * passage/highlight. Returns the record's kind + id. Everything deterministic;
+ * no AI.
+ *
+ * PROVENANCE (LIFEOS-050). A caller may pass `text` that is NOT the source's own
+ * words — the Reader's Study panel does exactly this when saving an AI answer or
+ * summary. Such prose must never acquire source authority merely by being saved
+ * into a belief/concept/research record, so:
+ *
+ *   - `origin` declares what the text actually is (defaults to `original_source`,
+ *     which is correct for the ordinary "convert this passage" flow);
+ *   - a **Citation is written only when the text can ground a source claim**.
+ *     Machine prose still gets the `linked` reference, so the user can navigate
+ *     back to the passage it was about — but it does not become evidence;
+ *   - a concept's `source` field records the true producer instead of being
+ *     hard-coded to `"user"`.
  */
 export function convertPassage(
   docId: string,
   passageId: string,
   target: ConversionTarget,
-  opts?: { text?: string; title?: string; highlightId?: string },
+  opts?: { text?: string; title?: string; highlightId?: string; origin?: OriginType },
 ): { kind: string; id: string } | null {
   const doc = state.documents.find((d) => d.id === docId);
   const section = doc?.sections.find((s) => s.passages.some((p) => p.id === passageId));
@@ -3261,25 +3285,35 @@ export function convertPassage(
   const highlight = opts?.highlightId ? passage.highlights.find((h) => h.id === opts.highlightId) : undefined;
   const text = (opts?.text ?? highlight?.text ?? passage.text).trim();
   const title = (opts?.title ?? text).slice(0, 80);
+  // Default is the source's own words; callers saving machine prose say so.
+  const origin: OriginType = opts?.origin ?? "original_source";
+  const groundsSource = canGroundSource(origin);
 
   let recordKind: string;
   let recordId: string;
   switch (target) {
     case "capture": recordKind = "capture"; recordId = addCapture(text); break;
     case "belief": recordKind = "belief"; recordId = createBeliefFromText(text, { theme: passage.heading }); break;
-    case "concept": recordKind = "concept"; recordId = createConcept({ name: title, description: text, source: "user" }); break;
+    // The concept's `source` records who actually produced the description —
+    // hard-coding "user" here previously stamped AI prose as user-authored.
+    case "concept": recordKind = "concept"; recordId = createConcept({ name: title, description: text, source: conceptSourceFor(origin) }); break;
     case "question": recordKind = "research_project"; recordId = createResearchProject({ title: `Question: ${title}`, question: text }); break;
     case "research": recordKind = "research_project"; recordId = createResearchProject({ title, question: text }); break;
     case "synthesis": recordKind = "dialogue"; recordId = createDialogue({ title: `Synthesis: ${title}`, topic: text, purpose: "Integrate this passage into a synthesis" }); break;
     default: return null;
   }
 
-  // Attach citation + link the record to the passage (and highlight, if any).
-  const citation = makeCitation(doc, { section, passage, highlight }, { kind: recordKind, id: recordId }, { id, now });
+  // A Citation is EVIDENCE. It is written only when the saved text can actually
+  // ground a claim about the source (LIFEOS-050). Machine prose still gets the
+  // `linked` reference below, so the user can navigate back to the passage it
+  // was about — it simply never becomes source evidence.
+  const citation = groundsSource
+    ? makeCitation(doc, { section, passage, highlight }, { kind: recordKind, id: recordId }, { id, now })
+    : null;
   const ref: RecordRefLite = { kind: recordKind, id: recordId };
   setState({
     ...state,
-    citations: [citation, ...state.citations],
+    citations: citation ? [citation, ...state.citations] : state.citations,
     documents: state.documents.map((d) => (d.id !== docId ? d : {
       ...d,
       updatedAt: now(),

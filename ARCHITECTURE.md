@@ -1248,6 +1248,42 @@ file-storage system:
 - **Schema.** No new table; migration `0033` only makes the `reading_document_files`
   checksum index **non-unique per user** so "Upload another copy" is never blocked.
 
+### Provenance contract (LIFEOS-050 — implemented)
+
+The generalization of the LIFEOS-049 discipline, so the system can answer *what
+is this, who produced it, where did it come from, may it ground a claim?* for any
+record — with **no new table and no migration**.
+
+- **Vocabulary** (`lib/provenance/index.ts`): `OriginType` =
+  `original_source | user_authored | imported_user_authored | external_ai |
+  conqify_ai | derived | unknown`. `originSystem` is a free string, so a new AI
+  product never requires a migration to be representable.
+- **Grounding is two axes, not a boolean.** `groundingAuthority(origin)` returns
+  `{ source, self }` — "may cite as what the source says" vs "may cite as what I
+  previously thought". A reflection has full `self` authority and zero `source`
+  authority; collapsing them is how *"I once thought X"* becomes *"the book says
+  X"*. **Exactly one type — `original_source` — may ground a source claim.**
+- **Structural classification** (`lib/provenance/classify.ts`): a Capture is
+  user-authored because of what a Capture *is*; a passage is source; a 049 part
+  summary is derived. Classified at read time rather than stamped on every row,
+  so no user data is rewritten and duplicated facts cannot drift. Records that
+  could contain either the user's words or a machine's fall back to stored
+  provenance, then to **`unknown`** — never a flattering guess.
+- **Lineage**: `quoted_from | derived_from | imported_from` over the existing
+  `RecordRefLite`. One `derived_from` anywhere in a chain permanently removes
+  source authority — the general form of the 049 rule that a part summary can
+  never be a final citation.
+- **Segment-level provenance**: `ProvenanceSegment[]` lets one artifact carry
+  mixed authorship (a conversation's user turns vs the model's replies).
+  `effectiveOrigin` resolves a mixed artifact to its **least privileged**
+  constituent. Nothing imports conversations yet; the model can merely *represent*
+  them.
+- **Citation safety** (`convertPassage`): a Citation is EVIDENCE, so it is now
+  written **only when the saved text can ground a source claim**. Saving an AI
+  answer still links the record to the passage (navigable) but no longer mints a
+  citation, and a concept's `source` records the true producer instead of being
+  hard-coded to `"user"`.
+
 ### Durable persistence (LIFEOS-028 amendment — migration 0021)
 
 The reading library is a first-class, user-owned, RLS-protected set of NORMALIZED
