@@ -17,6 +17,7 @@
 
 import { detectAttribution } from "@/lib/provenance";
 import type { OriginType, Provenance } from "@/lib/provenance";
+import type { PracticeCandidate } from "@/types/mvp";
 
 /** Record kinds whose very existence guarantees the user wrote them. */
 const USER_AUTHORED_KINDS = new Set([
@@ -114,6 +115,26 @@ export function classifyOrigin(input: ClassifyInput): OriginType {
  */
 export function classifyLegacy(kind: string, text?: string): OriginType {
   return classifyOrigin({ kind, text });
+}
+
+/**
+ * Map a provenance origin onto the Practice model's existing `source` field
+ * (LIFEOS-050B, D-1).
+ *
+ * Stricter than the Concept mapping on purpose: only material that is genuinely
+ * the user's own earns `"user"`. Everything else — machine prose, derived
+ * output, and anything we cannot classify — falls back to `"ai"`, which reads
+ * back as `conqify_ai` and carries no self-authority. Uncertainty must not be
+ * rounded up into authorship, because this is the exact edge an AI answer saved
+ * into a Capture would otherwise use to launder itself into the user's own
+ * thinking (the LIFEOS-050A hole, arriving by a different door).
+ *
+ * It lives here rather than beside the store's other creators so the invariant
+ * stays testable without importing the store — provenance must be verifiable in
+ * isolation.
+ */
+export function practiceSourceFor(origin: OriginType): PracticeCandidate["source"] {
+  return origin === "user_authored" || origin === "imported_user_authored" ? "user" : "ai";
 }
 
 /** Convenience: does this record kind always guarantee user authorship? */

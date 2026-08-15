@@ -2823,3 +2823,85 @@ scope or order.
   trigger/action for confirmation — **classification may be automatic; adoption
   must not be.** No schema, model, route or UI was created for this. Recorded so it
   is not lost; gated on beta evidence.
+
+- **LIFEOS-050B — Pre-beta defect repair (fix-only).** Two defects named by the
+  Beta Product Signal audit, both confirmed against `main`, both repaired at the
+  smallest boundary. No telemetry, no counters, no new primitive, no migration.
+
+  **D-1 — the user's own thought was classified as AI.** `convertCapture`'s
+  practice branch hard-coded `addPractices(..., "mock")`, so a Practice made from
+  a Capture the user typed classified as `conqify_ai` and **lost `self`
+  authority** over their own thinking. The audit described this as passing
+  `"mock"` where the type permitted `"user"`; the code says something sharper.
+  `PracticeCandidate.source` is `"ai" | "mock" | "user"` — the *model* can express
+  user authorship — but `addPractices`' parameter was narrowed to `"ai" | "mock"`,
+  so the creator **could not represent it at all** and the call site had no honest
+  value to pass. Root cause is therefore the narrowed creator signature, not a
+  careless argument. Fix: widen the parameter to `PracticeCandidate["source"]`,
+  and classify the capture's real origin at the call site via a new
+  `practiceSourceFor(origin)` in `lib/provenance/classify.ts` (mirroring the
+  existing `conceptSourceFor` idiom). This is the inverse of the 050A defect —
+  provenance must neither **gain** false authorship nor **lose** real authorship.
+
+  The same edit had to not re-open 050A. Blanket-stamping `"user"` would have
+  made Capture → Practice a fresh laundering route for AI prose sitting inside a
+  Capture, so the mapping is deliberately **stricter** than the concept one: only
+  `user_authored` / `imported_user_authored` earn `"user"`; machine, derived and
+  **unknown** all fail safe to `"ai"`. Because 050A's `detectAttribution` is what
+  makes AI-in-a-Capture detectable at all, this sprint is **based on 050A
+  (PR #43), which must merge first** — on `main` alone the fix would be unsafe.
+
+  **D-2 — a diagnostic claimed an action that never existed.** Confirmed, and
+  broader than reported. `OUTCOME_LABEL` in `lib/insights/captures.ts` carried
+  twelve keys against the six-member `CaptureProcessingStatus` union: seven —
+  `rewritten`, `split`, `merged`, `converted`, `linked_project`,
+  `linked_knowledge`, `restored` — name capture *history actions* and were
+  therefore unreachable, while `processing` was missing and would have rendered
+  as a raw key. "Converted to action" was the worst: unreachable **and** false,
+  since none of the eleven `convertCapture` targets creates a `NextAction`. Fixed
+  by typing the map `Record<CaptureProcessingStatus, string>`, which makes the
+  drift a compile error. The reachable instance was in
+  `lib/insights/contributions.ts`: the `Capture → action` edge counted a
+  `capture_converted` event **that nothing emits**, OR'd with every
+  `capture_processed` event — so merely marking a capture processed asserted an
+  action that was never created. It now counts actions actually carrying
+  `sourceCaptureId`.
+
+  **Capture → NextAction is NOT missing, and was NOT built here.** The audit's
+  companion claim — that "call the dentist" has nowhere to go — is **wrong**, and
+  is corrected rather than acted on. The path exists, works and is tested: the
+  `→ Next action` control in `components/inbox/CaptureProcessor.tsx` routes to
+  `/actions?fromCapture=<id>`, `inheritFromCapture` pre-fills title/context/tags,
+  `createActionFromCapture` stamps `sourceCaptureId`, the command center offers
+  "Create action from current capture", the column persists as
+  `source_capture_id`, and `lib/actions/selftest.ts` 4.3 covers it. It is
+  documented in `NEXT_ACTIONS.md` and `CAPTURE_PROCESSING.md`. No promise was
+  broken, so nothing was restored and no feature was added.
+
+  Validation: full regression **1281/1281** across 22 suites (was 1262/1262;
+  +19 — provenance 93/93 with 13 new D-1 assertions, insights 103/103 with 6 new
+  D-2 assertions). tsc/lint/build clean, `audit:security` PASS, `release:audit`
+  17/17, migration count unchanged at 34. One pre-existing flake observed and not
+  touched: `lib/memory/selftest.ts` asserts a 1500ms wall-clock budget over a
+  300× scaled state, which fails intermittently under container load on the base
+  commit as well as this one.
+
+- **PRODUCT FINDING (not implemented) — Practice cadence is temporal, never
+  conditional.** Structural evidence for the Protocol finding above, recorded
+  during 050B and deliberately left unbuilt. `PracticeCandidate` carries
+  `cadence?: PracticeCadence`, whose entire vocabulary is `once | daily | weekly |
+  occasional` — every member answers *how often*. A protocol answers *under what
+  condition*: "when my child is in fight-or-flight, stay two arm's lengths away"
+  has no frequency, and forcing it into `occasional` would record something the
+  user did not mean. Practice is therefore **not** a near-miss to be widened but a
+  structurally distinct primitive, and `PracticeCandidate` was **not** modified to
+  shoehorn conditions into cadence. Beta measures how often testers produce
+  conditional material; existence is already established from the model.
+
+- **BETA OBSERVATION (no instrumentation added).** The LIFEOS-050B repairs change
+  what Insights *report*, not what LifeOS *records*: no event, counter, field or
+  telemetry was introduced, and the D-2 fix strictly **removes** an inflated
+  count. The Beta Product Signal conclusion stands unchanged — for the first
+  10–15 users, existing histories + Insights + Diagnostics + founder interviews
+  are sufficient, and Ask/Summarize remaining unpersisted stays an accepted
+  observation limitation to be answered by watching rather than by counters.
