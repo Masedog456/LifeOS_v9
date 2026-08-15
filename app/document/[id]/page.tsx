@@ -31,6 +31,7 @@ import SyncStatus from "@/components/SyncStatus";
 import EntityLink from "@/components/entity/EntityLink";
 import StudyPanel from "@/components/reading/StudyPanel";
 import OriginalStatus from "@/components/reading/OriginalStatus";
+import ImportDetails from "@/components/reading/ImportDetails";
 import { trackOpenDocument, trackReading } from "@/lib/workspaces/tracking";
 import type { HighlightColor, Passage, ReadingDocument } from "@/types/mvp";
 
@@ -177,7 +178,8 @@ function Reader() {
       <header className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Link href="/reading" className="text-xs text-zinc-500 underline-offset-4 hover:underline">← Reading</Link>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <ImportDetails doc={doc} />
             <OriginalStatus doc={doc} />
             <SyncStatus />
           </div>

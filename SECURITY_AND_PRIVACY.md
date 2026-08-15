@@ -76,13 +76,24 @@ every user-owned table (ownership column, required policies, deletion mode,
 tombstone domain). `npm run audit:rls` walks all migrations, finds every
 `CREATE TABLE` with a `user_id` column, and **fails** if any lacks RLS + the
 required SELECT/INSERT/(UPDATE)/(DELETE) policies — so a newly added table cannot
-ship without an RLS review. Verified: **55 user-owned tables across 33 migrations
+ship without an RLS review. Verified: **56 user-owned tables across 34 migrations
 pass**, plus non-superuser RLS isolation and adversarial ownership tests
 (read/update/delete/reference another user's record all denied).
 
 Append-only/immutable tables (e.g. `reflections`, `retrieval_feedback`, the
 retention tables) intentionally omit UPDATE and/or DELETE; the audit documents
 that intent rather than rewriting historical migrations.
+
+**Reading semantic index (LIFEOS-049, migration 0034).** Retrieval chunks of a
+reading are embedded and stored in `reading_chunk_embeddings`, per-user RLS,
+cascading from `auth.users`. The table stores **numbers and a chunk id — never
+document text**. Embedding goes through the server-only `/api/embed` route and
+sends only the chunk text of the ONE document being indexed, in bounded batches —
+never the library, never another document. With no provider configured, vectors
+are computed locally and deterministically, so semantic search works with zero
+external exposure. Hierarchical summarization sends only one part's source per
+request, and never the whole document in one call. Deleting a reading deletes its
+index.
 
 **Reading upload originals (LIFEOS-047 / 047A, migrations 0032–0033).** The binary
 a user uploads is privately preserved in the **private** storage bucket
@@ -252,8 +263,8 @@ holding a service-role key. Missing required config fails clearly.
 
 `tsc` 0 · `lint` 0 · production build 0 · security self-tests **94/94** · backup
 self-tests **38/38** · security E2E **34/34** · full regression (20+ suites) ·
-migration chain **0001–0033** idempotent 3× with non-superuser RLS isolation ·
-`audit:rls` (**55 tables**) / `audit:secrets` / `audit:routes` / `audit:deps` all
+migration chain **0001–0034** idempotent 3× with non-superuser RLS isolation ·
+`audit:rls` (**56 tables**) / `audit:secrets` / `audit:routes` / `audit:deps` all
 pass · CSP verified with **zero** console violations while the app hydrates.
 
 ---

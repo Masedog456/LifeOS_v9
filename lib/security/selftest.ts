@@ -103,7 +103,7 @@ export function runSecuritySelfTests(): SelfTestReport {
   }
 
   // ---- 5. Schema compatibility ----
-  ok("5.1 compatible → ok+sync", (() => { const r = evaluateCompatibility({ localStateVersion: 1, remoteMigrationVersion: 33 }); return r.mode === "ok" && syncIsSafe(r); })());
+  ok("5.1 compatible → ok+sync", (() => { const r = evaluateCompatibility({ localStateVersion: 1, remoteMigrationVersion: 34 }); return r.mode === "ok" && syncIsSafe(r); })());
   ok("5.2 server ahead → read-only, no sync", (() => { const r = evaluateCompatibility({ localStateVersion: 1, remoteMigrationVersion: 99 }); return r.mode === "read-only" && !r.canSync && r.canExport; })());
   ok("5.3 local newer → blocked", evaluateCompatibility({ localStateVersion: 5 }).mode === "blocked");
   ok("5.4 local older → upgrade, no write", (() => { const r = evaluateCompatibility({ localStateVersion: 0 }); return r.mode === "upgrade" && !r.canWrite; })());

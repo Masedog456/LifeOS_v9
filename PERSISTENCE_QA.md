@@ -1016,9 +1016,9 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   uploads) and refuses to delete if cleanup can't complete — no cross-document or
   cross-user deletion, no unexpected cascade.
 - Validated on Postgres 16 via `scripts/migration-rehearsal.mjs`: full chain
-  **0001–0033 idempotent 3×** (55 public tables), checkpoint upgrades including
+  **0001–0034 idempotent 3×** (56 public tables), checkpoint upgrades including
   `pre-reading-ingestion` and `pre-reading-originals`, RLS on every table, and the
-  live non-superuser two-user isolation probe. `audit:rls` passes **55 tables**.
+  live non-superuser two-user isolation probe. `audit:rls` passes **56 tables**.
   Original-file upload/metadata/deletion/retry/cross-user isolation are covered by
   the reading self-tests over a fake RLS-like backend (`/dev/reading-ingest-tests`,
   58 assertions). **Live Supabase Storage validation with two disposable users is a
@@ -1031,6 +1031,30 @@ same data loads. 11. [ ] Ask a Reader question → real Anthropic answer.
   `removeOriginalsForDocument`) and exits non-zero unless every check passes. The
   metadata-write-fails-after-upload orphan-cleanup case is verified deterministically
   (self-tests), not forced live, since forcing it would require weakening the DB.
+
+---
+
+## Book-scale reading (LIFEOS-049)
+
+- **No new document storage.** The retrieval-chunk layer, document parts, and the
+  document map are all **derived at call time** from existing passages — nothing
+  extra is persisted locally. The ingestion completeness report is a small object
+  on the existing `source_metadata` jsonb column (no migration).
+- **Vectors are deliberately NOT in local state.** `reading_chunk_embeddings`
+  (migration `0034`) keeps embeddings server-side, per-user RLS. Putting a book's
+  worth of vectors into the single-key localStorage blob would have made the known
+  whole-state persistence wall materially worse; this avoids that entirely.
+- **Persistence scaling risk (documented, not silently expanded).** A book-length
+  ReadingDocument still lives inside the one local `lifeos.mvp.v1` JSON blob, so
+  large libraries continue to press against the ~5 MB localStorage ceiling. That is
+  the pre-existing whole-state constraint recorded in LIFEOS-048, not a regression
+  from this sprint. Fixing it needs the working-set/IndexedDB persistence change,
+  which is deliberately **out of scope here**. The smallest safe mitigation taken:
+  extraction remains capped (600k chars) and reports truncation honestly, and no
+  new large per-document artifacts are written locally.
+- Validated on Postgres 16 via `scripts/migration-rehearsal.mjs`: chain
+  **0001–0034 idempotent 3×** (56 public tables) incl. the `pre-reading-semantic`
+  checkpoint.
 
 ---
 

@@ -16,6 +16,7 @@ import {
   type ReadingFormat, type ProcessingState,
 } from "@/lib/reading/ingest";
 import { startOriginalBackup } from "@/lib/reading/backupManager";
+import { buildIngestionReport } from "@/lib/reading/completeness";
 import { toast } from "@/lib/ux/feedback";
 
 type Tab = "upload" | "link" | "paste";
@@ -54,11 +55,18 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
 
     try {
       let text = ""; let pageMap = undefined as ReturnType<typeof Array.prototype.slice> | undefined; let pageCount: number | undefined; let note: string | undefined;
+      // Extraction facts kept for the completeness report (LIFEOS-049).
+      let attemptedPages = 0, readablePages = 0, emptyPageNumbers: number[] = [], truncated = false;
+      let truncationReason: "page_limit" | "char_limit" | "read_error" | undefined;
       if (fmt === "pdf") {
         setStatus({ state: "processing", message: "Extracting the text and pages…" });
         const res = await extractPdf(file);
         if (!res.ok) { setStatus({ state: res.status === "extraction_failed" && /scanned|readable/i.test(res.message ?? "") ? "needs_attention" : "failed", message: res.message ?? "We couldn't read this PDF." }); return; }
         text = res.text; pageMap = res.pageMap as unknown as typeof pageMap; pageCount = res.pageCount;
+        attemptedPages = res.extractedPages; readablePages = res.readablePages;
+        emptyPageNumbers = res.emptyPageNumbers; truncated = res.truncated; truncationReason = res.truncationReason;
+        // Surface an honest note when not every page was readable.
+        if (res.message) note = res.message;
       } else if (fmt === "txt" || fmt === "markdown") {
         setStatus({ state: "processing", message: "Reading the text…" });
         text = await file.text();
@@ -82,7 +90,14 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
         sizeBytes: file.size, pageMap: pageMap as never, pageCount, now: new Date().toISOString(),
       });
       if (!out.ok) { setStatus({ state: out.state, message: out.reason }); return; }
-      const meta = { importFormat: fmt === "markdown" ? "markdown" as const : fmt === "pdf" ? "pdf" as const : "plain" as const, ...out.doc.provenance, note };
+      // Deterministic completeness report — counted, never inferred (LIFEOS-049).
+      const parsedPassages = out.doc.parsed.sections.reduce((n, s) => n + s.passages.length, 0);
+      const ingestion = buildIngestionReport({
+        pageCount: pageCount ?? 0, attemptedPages, readablePages, emptyPageNumbers,
+        text, passages: parsedPassages, chunks: 0, sections: out.doc.parsed.sections.length,
+        truncated, truncationReason, now: new Date().toISOString(),
+      });
+      const meta = { importFormat: fmt === "markdown" ? "markdown" as const : fmt === "pdf" ? "pdf" as const : "plain" as const, ...out.doc.provenance, note, ingestion };
       const contentType = file.type || (fmt === "pdf" ? "application/pdf" : fmt === "markdown" ? "text/markdown" : "text/plain");
       finish(out.doc.title, out.doc.author, out.doc.format, out.doc.parsed, meta as never, { file, filename: safeFilename(file.name), contentType, sizeBytes: file.size, checksum: hash });
     } catch {
