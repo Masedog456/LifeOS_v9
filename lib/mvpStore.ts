@@ -182,6 +182,7 @@ import { makeMaintenanceEvent, appendMaintenanceHistory } from "@/lib/maintenanc
 import { rememberIgnoredDuplicate } from "@/lib/maintenance/preferences";
 import { isolateDomain, buildRecoveryReport, recordRecoveryEvent, type DomainRecovery } from "@/lib/sync/recovery";
 import { canGroundSource, withAttribution, type OriginType } from "@/lib/provenance";
+import { classifyOrigin, practiceSourceFor } from "@/lib/provenance/classify";
 
 /** Stable empty state — used for the server snapshot and pre-hydration client render. */
 const EMPTY_STATE: StoreState = {
@@ -1309,8 +1310,18 @@ export interface PracticeDraftInput {
   derivedFrom: PracticeDerivation;
 }
 
-/** Create proposed practice candidates from validated drafts. Returns their ids. */
-export function addPractices(drafts: PracticeDraftInput[], source: "ai" | "mock"): string[] {
+/**
+ * Create proposed practice candidates from validated drafts. Returns their ids.
+ *
+ * `source` records who actually produced the practice and is the ONLY thing that
+ * decides its authorship at read time (`classifyOrigin`). It spans the full
+ * `PracticeCandidate["source"]` union deliberately: narrowing it to the machine
+ * values made a practice the user wrote in their own Capture unrepresentable, so
+ * `convertCapture` had to stamp it `"mock"` and the user lost self-authority
+ * over their own thought (LIFEOS-050B, D-1). Callers must pass the TRUE producer
+ * — never a convenient default.
+ */
+export function addPractices(drafts: PracticeDraftInput[], source: PracticeCandidate["source"]): string[] {
   const at = now();
   const created: PracticeCandidate[] = drafts.map((d) => ({
     id: id(),
@@ -3251,6 +3262,7 @@ function conceptSourceFor(origin: OriginType): Concept["source"] {
   return "user";
 }
 
+
 export type ConversionTarget = "capture" | "belief" | "concept" | "question" | "research" | "synthesis";
 
 /**
@@ -3950,6 +3962,11 @@ export function convertCapture(captureId: string, target: ConversionTargetKey, o
   if (!c) return null;
   const text = effectiveText(c).trim();
   const title = titleFromText(text);
+  // Who actually wrote this capture? A Capture is user-authored by construction,
+  // but machine prose saved into one declares itself in its text (LIFEOS-050A),
+  // so the text must be read rather than assumed. Targets that record a producer
+  // use this instead of a hard-coded default (LIFEOS-050B).
+  const origin = classifyOrigin({ kind: "capture", text });
   let ref: RefLite | null = null;
 
   switch (target) {
@@ -3969,7 +3986,10 @@ export function convertCapture(captureId: string, target: ConversionTargetKey, o
     case "reflection": ref = { kind: "formation", id: addReflection({ prompt: title, response: text }) }; break;
     case "principle": ref = { kind: "principle", id: createPrinciple({ statement: text }) }; break;
     case "framework": ref = { kind: "framework", id: createFramework({ name: title, kind: "framework", description: text }) }; break;
-    case "practice": { const ids = addPractices([{ title, description: text, rationale: "Captured for practice.", derivedFrom: {} }], "mock"); ref = ids[0] ? { kind: "practice", id: ids[0] } : null; break; }
+    // The practice records its TRUE producer. Hard-coding "mock" here classified
+    // the user's own captured thought as `conqify_ai` and stripped its
+    // self-authority (LIFEOS-050B, D-1).
+    case "practice": { const ids = addPractices([{ title, description: text, rationale: "Captured for practice.", derivedFrom: {} }], practiceSourceFor(origin)); ref = ids[0] ? { kind: "practice", id: ids[0] } : null; break; }
     case "project_note": { if (!opts.contextId) return null; appendProjectNote(opts.contextId, text); ref = { kind: "project", id: opts.contextId }; break; }
     case "workspace_note": { if (!opts.contextId) return null; appendWorkspaceNote(opts.contextId, text); ref = { kind: "workspace", id: opts.contextId }; break; }
   }
