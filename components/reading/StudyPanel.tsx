@@ -35,11 +35,26 @@ import type { ReadingDocument } from "@/types/mvp";
 
 type Mode = "ask" | "summarize" | "study";
 
-/** Human-readable line about where an AI result came from (privacy/transparency). */
+/**
+ * Human-readable line about where an AI result came from (privacy/transparency).
+ *
+ * The non-AI branch deliberately names both possible causes instead of asserting
+ * one. It previously read "no AI provider is configured", which is false in the
+ * two cases where a provider IS configured but did not answer: `/api/ai` returns
+ * `source: "mock", degraded: true` when the provider call fails, and `aiClient`
+ * falls back to `source: "mock"` when the fetch itself fails. Neither carries the
+ * reason this far — `degraded` is dropped in `aiClient.call` — so the honest
+ * statement is the one that holds in every case (LIFEOS-050C).
+ *
+ * Distinguishing "not configured" from "unreachable" would mean threading a flag
+ * through aiClient, both study entry points, their two result interfaces and the
+ * LIFEOS-049 synthesis path. That is worth doing when something depends on the
+ * difference; it is not worth risking the reading suite for a caption.
+ */
 function sourceNote(source: string): string {
   return source === "ai"
     ? "Answered by your configured AI provider, using only the passages below."
-    : "Answered on your device with a deterministic draft (no AI provider is configured).";
+    : "Answered on your device with a deterministic draft — no AI provider answered (either none is configured, or it couldn't be reached).";
 }
 
 function CitationList({ doc, cites, onJump }: { doc: ReadingDocument; cites: SourceRef[]; onJump: (passageId: string) => void }) {

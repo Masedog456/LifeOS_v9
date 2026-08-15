@@ -12,6 +12,7 @@ import type { StoreState } from "@/types/mvp";
 import type { ActivityEvent } from "@/lib/insights/activity";
 import { eventsInRange } from "@/lib/insights/activity";
 import type { ResolvedRange } from "@/lib/insights/range";
+import { inRange } from "@/lib/insights/range";
 
 export interface ContributionEdge {
   from: string; // e.g. "action"
@@ -36,8 +37,16 @@ export function contributionMap(state: StoreState, index: ActivityEvent[], range
   const milestoneProject = new Set(actions.map((a) => a.milestoneId).filter(Boolean) as string[]).size;
   // project → goal (touched projects that advance a goal)
   const projectGoal = projects.filter((p) => touchedProjects.has(p.id) && p.goalId).length;
-  // capture → action (captures converted in range)
-  const captureAction = ev.filter((e) => e.type === "capture_converted" || (e.type === "capture_processed" && e.recordKind === "capture")).length;
+  // capture → action: actions created in range that genuinely came FROM a
+  // capture, counted off the `sourceCaptureId` the action actually carries.
+  //
+  // This previously counted `capture_converted` — an event type nothing emits —
+  // OR'd with every `capture_processed` event, so marking a capture processed
+  // asserted a capture→action edge even when no `NextAction` was ever created
+  // (LIFEOS-050B, D-2). The real edge is written by `createActionFromCapture`,
+  // and this is the only field that proves it.
+  const captureAction = (state.nextActions ?? [])
+    .filter((a) => a.sourceCaptureId && inRange(a.createdAt, range)).length;
   // session → action (actions completed while attributed to a project/session context)
   const sessionAction = ev.filter((e) => e.type === "action_completed").length;
   // document → citation (citations added in range that name a document)

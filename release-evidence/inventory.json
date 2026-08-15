@@ -126,7 +126,7 @@
       "name": "LIFEOS_ENABLE_DEV_ROUTES",
       "scope": "server",
       "required": false,
-      "purpose": "Opt-in flag that exposes /dev test routes in non-production only."
+      "purpose": "Opt-in escape hatch that exposes /dev test routes. Outside production /dev is always on and this is ignored; in a production build /dev is hidden unless this is set to \"1\". Leave it unset on any deployment testers can reach."
     },
     {
       "name": "ANTHROPIC_API_KEY",

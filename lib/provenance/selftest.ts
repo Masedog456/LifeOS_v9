@@ -14,7 +14,7 @@ import {
   withAttribution, detectAttribution, attributionPrefix,
   type OriginType, type Provenance, type LineageLink,
 } from "@/lib/provenance";
-import { classifyOrigin, classifyLegacy, AMBIGUOUS_KINDS, isStructurallyUserAuthored, isStructurallySource } from "@/lib/provenance/classify";
+import { classifyOrigin, classifyLegacy, AMBIGUOUS_KINDS, isStructurallyUserAuthored, isStructurallySource, practiceSourceFor } from "@/lib/provenance/classify";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -193,6 +193,56 @@ export function runProvenanceSelfTests(): SelfTestReport {
     const corpus: OriginType[] = [classifyOrigin({ kind: "annotation", text: asNote }), classifyOrigin({ kind: "annotation", text: "my own words" })];
     return corpus.filter(canGroundSelf).length === 1;
   })());
+
+  // ---- 11. Capture → Practice authorship (LIFEOS-050B, D-1) ----
+  //
+  // The regression these lock down: `convertCapture`'s practice branch used to
+  // hard-code `"mock"`, so a practice the user made from their OWN capture was
+  // classified `conqify_ai` and silently lost self-authority over their own
+  // thought. The fix routes the capture's real origin through
+  // `practiceSourceFor`. Provenance must not GAIN false authorship (10.x) and
+  // must not LOSE real authorship (here) — both directions are defects.
+  //
+  // Pure by construction: this asserts the classification chain
+  // (capture text → origin → practice source → practice origin) and never calls
+  // the store, because these tests run against the user's live data at
+  // `/dev/provenance-tests`.
+  const practiceOriginFor = (captureText: string): OriginType =>
+    classifyOrigin({ kind: "practice", source: practiceSourceFor(classifyOrigin({ kind: "capture", text: captureText })) });
+
+  // 11.1–11.3 The invariant: the user's own thought survives the conversion.
+  ok("11.1 user capture → practice stays user_authored", practiceOriginFor("Sit with the discomfort before answering.") === "user_authored");
+  ok("11.2 user capture → practice keeps SELF authority", canGroundSelf(practiceOriginFor("Sit with the discomfort before answering.")));
+  ok("11.3 user capture → practice gains NO source authority", !canGroundSource(practiceOriginFor("Sit with the discomfort before answering.")));
+
+  // 11.4–11.7 The same path must not become a laundering route (the 10.x hole,
+  // arriving by a different door). AI prose saved into a Capture then converted
+  // to a Practice must never emerge as the user's own.
+  ok("11.4 AI answer captured → practice does NOT become user-authored", practiceOriginFor(asCapture) === "conqify_ai");
+  ok("11.5 AI answer captured → practice grounds NOTHING", (() => {
+    const o = practiceOriginFor(asCapture);
+    return !canGroundSource(o) && !canGroundSelf(o);
+  })());
+  ok("11.6 imported external AI → practice does not become user-authored", !canGroundSelf(practiceOriginFor(fromChatGpt)));
+  ok("11.7 derived summary → practice does not become user-authored", !canGroundSelf(practiceOriginFor(asSummary)));
+
+  // 11.8–11.10 The mapping itself: strict, total, and failing safe. Unlike the
+  // concept mapping, anything we cannot positively call the user's is "ai".
+  ok("11.8 only genuinely user material maps to a user-authored practice", ORIGIN_TYPES.filter((t) => practiceSourceFor(t) === "user").length === 2);
+  ok("11.9 imported user material keeps its authorship", practiceSourceFor("imported_user_authored") === "user");
+  ok("11.10 unknown origin fails SAFE to machine authorship", practiceSourceFor("unknown") === "ai" && !canGroundSelf(classifyOrigin({ kind: "practice", source: "ai" })));
+
+  // 11.11–11.12 LIFEOS-050A is not weakened: the AI-proposed practice path
+  // (`/review` → addPractices(..., "mock")) still reads back as machine prose.
+  ok("11.11 AI-proposed practice still classifies as conqify_ai", classifyOrigin({ kind: "practice", source: "mock" }) === "conqify_ai");
+  ok("11.12 AI-proposed practice grounds NOTHING", (() => {
+    const o = classifyOrigin({ kind: "practice", source: "mock" });
+    return !canGroundSource(o) && !canGroundSelf(o);
+  })());
+
+  // 11.13 A practice is NOT structurally user-authored — its `source` is the
+  // only thing that decides, which is why the hard-coded value was so costly.
+  ok("11.13 practice authorship comes from source, never from its kind", !isStructurallyUserAuthored("practice") && classifyOrigin({ kind: "practice" }) === "unknown");
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

@@ -2823,3 +2823,213 @@ scope or order.
   trigger/action for confirmation — **classification may be automatic; adoption
   must not be.** No schema, model, route or UI was created for this. Recorded so it
   is not lost; gated on beta evidence.
+
+- **LIFEOS-050B — Pre-beta defect repair (fix-only).** Two defects named by the
+  Beta Product Signal audit, both confirmed against `main`, both repaired at the
+  smallest boundary. No telemetry, no counters, no new primitive, no migration.
+
+  **D-1 — the user's own thought was classified as AI.** `convertCapture`'s
+  practice branch hard-coded `addPractices(..., "mock")`, so a Practice made from
+  a Capture the user typed classified as `conqify_ai` and **lost `self`
+  authority** over their own thinking. The audit described this as passing
+  `"mock"` where the type permitted `"user"`; the code says something sharper.
+  `PracticeCandidate.source` is `"ai" | "mock" | "user"` — the *model* can express
+  user authorship — but `addPractices`' parameter was narrowed to `"ai" | "mock"`,
+  so the creator **could not represent it at all** and the call site had no honest
+  value to pass. Root cause is therefore the narrowed creator signature, not a
+  careless argument. Fix: widen the parameter to `PracticeCandidate["source"]`,
+  and classify the capture's real origin at the call site via a new
+  `practiceSourceFor(origin)` in `lib/provenance/classify.ts` (mirroring the
+  existing `conceptSourceFor` idiom). This is the inverse of the 050A defect —
+  provenance must neither **gain** false authorship nor **lose** real authorship.
+
+  The same edit had to not re-open 050A. Blanket-stamping `"user"` would have
+  made Capture → Practice a fresh laundering route for AI prose sitting inside a
+  Capture, so the mapping is deliberately **stricter** than the concept one: only
+  `user_authored` / `imported_user_authored` earn `"user"`; machine, derived and
+  **unknown** all fail safe to `"ai"`. Because 050A's `detectAttribution` is what
+  makes AI-in-a-Capture detectable at all, this sprint is **based on 050A
+  (PR #43), which must merge first** — on `main` alone the fix would be unsafe.
+
+  **D-2 — a diagnostic claimed an action that never existed.** Confirmed, and
+  broader than reported. `OUTCOME_LABEL` in `lib/insights/captures.ts` carried
+  twelve keys against the six-member `CaptureProcessingStatus` union: seven —
+  `rewritten`, `split`, `merged`, `converted`, `linked_project`,
+  `linked_knowledge`, `restored` — name capture *history actions* and were
+  therefore unreachable, while `processing` was missing and would have rendered
+  as a raw key. "Converted to action" was the worst: unreachable **and** false,
+  since none of the eleven `convertCapture` targets creates a `NextAction`. Fixed
+  by typing the map `Record<CaptureProcessingStatus, string>`, which makes the
+  drift a compile error. The reachable instance was in
+  `lib/insights/contributions.ts`: the `Capture → action` edge counted a
+  `capture_converted` event **that nothing emits**, OR'd with every
+  `capture_processed` event — so merely marking a capture processed asserted an
+  action that was never created. It now counts actions actually carrying
+  `sourceCaptureId`.
+
+  **Capture → NextAction is NOT missing, and was NOT built here.** The audit's
+  companion claim — that "call the dentist" has nowhere to go — is **wrong**, and
+  is corrected rather than acted on. The path exists, works and is tested: the
+  `→ Next action` control in `components/inbox/CaptureProcessor.tsx` routes to
+  `/actions?fromCapture=<id>`, `inheritFromCapture` pre-fills title/context/tags,
+  `createActionFromCapture` stamps `sourceCaptureId`, the command center offers
+  "Create action from current capture", the column persists as
+  `source_capture_id`, and `lib/actions/selftest.ts` 4.3 covers it. It is
+  documented in `NEXT_ACTIONS.md` and `CAPTURE_PROCESSING.md`. No promise was
+  broken, so nothing was restored and no feature was added.
+
+  Validation: full regression **1281/1281** across 22 suites (was 1262/1262;
+  +19 — provenance 93/93 with 13 new D-1 assertions, insights 103/103 with 6 new
+  D-2 assertions). tsc/lint/build clean, `audit:security` PASS, `release:audit`
+  17/17, migration count unchanged at 34. One pre-existing flake observed and not
+  touched: `lib/memory/selftest.ts` asserts a 1500ms wall-clock budget over a
+  300× scaled state, which fails intermittently under container load on the base
+  commit as well as this one.
+
+- **PRODUCT FINDING (not implemented) — Practice cadence is temporal, never
+  conditional.** Structural evidence for the Protocol finding above, recorded
+  during 050B and deliberately left unbuilt. `PracticeCandidate` carries
+  `cadence?: PracticeCadence`, whose entire vocabulary is `once | daily | weekly |
+  occasional` — every member answers *how often*. A protocol answers *under what
+  condition*: "when my child is in fight-or-flight, stay two arm's lengths away"
+  has no frequency, and forcing it into `occasional` would record something the
+  user did not mean. Practice is therefore **not** a near-miss to be widened but a
+  structurally distinct primitive, and `PracticeCandidate` was **not** modified to
+  shoehorn conditions into cadence. Beta measures how often testers produce
+  conditional material; existence is already established from the model.
+
+- **BETA OBSERVATION (no instrumentation added).** The LIFEOS-050B repairs change
+  what Insights *report*, not what LifeOS *records*: no event, counter, field or
+  telemetry was introduced, and the D-2 fix strictly **removes** an inflated
+  count. The Beta Product Signal conclusion stands unchanged — for the first
+  10–15 users, existing histories + Insights + Diagnostics + founder interviews
+  are sufficient, and Ask/Summarize remaining unpersisted stays an accepted
+  observation limitation to be answered by watching rather than by counters.
+
+---
+
+## BETA-EVIDENCE CANDIDATES (recorded LIFEOS-050C — none implemented)
+
+The pre-beta gate found that several strategically important directions existed
+only in conversation. They are written down here so they survive as text rather
+than as memory, and so a future sprint can be judged against what was actually
+intended.
+
+**None of these is built. None is scheduled.** Each is gated on evidence from the
+closed beta, not on enthusiasm. The discipline that matters: a direction earns
+implementation when testers repeatedly hit its absence — not when it becomes
+interesting to build.
+
+### A. Protocol / Conditional Practice
+
+Structure: **WHEN / IF [trigger] → [intended response]**.
+
+Structurally distinct from Practice, whose `PracticeCadence` vocabulary is
+`once | daily | weekly | occasional` — every member answers *how often*, and a
+protocol has no frequency at all. Example: *"When my child is in a fight-or-flight
+reaction, stay at least two arm's lengths away."* Forcing that into `occasional`
+would record something the user did not mean, which is why `PracticeCandidate`
+was left unmodified in LIFEOS-050B.
+
+Possible future behavior: a Capture reading "when X happens, do Y" is *suggested*
+as a Protocol, with the trigger and response extracted for confirmation.
+**Automatic classification may be allowed; automatic adoption must not be.**
+
+Likely shape: trigger · intended response · optional reason · provenance ·
+lifecycle (active/paused/retired).
+
+### B. Generic AI-output import / AI portability
+
+Future intake of AI output produced elsewhere — ChatGPT, Claude, Gemini,
+NotebookLM, Mindgrasp, and whatever follows.
+
+**Strong preference for robust generic import first** — paste, Markdown, export
+file — before any provider-specific API. Generic import covers every provider at
+once, cannot break when a vendor changes an endpoint, and requires no OAuth.
+
+Non-negotiable: imported AI output **retains external-AI provenance**. The
+LIFEOS-050 segment model already represents mixed authorship (a conversation
+interleaving the user's prompts with the model's replies) precisely so an
+importer cannot flatten it into "the user's notes."
+
+### C. Source verification
+
+Future capability: take an imported or generated AI claim, check it against the
+user's own original source, and report **supported / partially supported / not
+found / uncertain**, with citations resolving to real source passages.
+
+This is the natural endpoint of the provenance work: LIFEOS-050 established that
+AI prose can never *be* evidence; verification asks whether it *agrees with*
+evidence. The 049 retrieval layer and the citation model are the two pieces this
+would build on.
+
+### D. Provenance-aware universal retrieval
+
+Queries should eventually distinguish four questions that are currently one:
+
+- *What did the source say?*
+- *What did I think?*
+- *What did AI tell me?*
+- *What have I learned about X?*
+
+`groundingAuthority` already returns the two axes these need. **One knowledge
+universe — no per-provider retrieval islands.** A connector that brings its own
+private index defeats this before it starts, which is why the connector
+principles below forbid it.
+
+### E. Return / dormancy
+
+`lib/insights/dormancy.ts` (`dormancyView`) is already a working primitive for
+resurfacing material that has gone quiet. Observe whether beta users find value
+in returning to dormant items **before** expanding it into a feature. The risk to
+avoid is building a notification engine for a product whose whole premise is calm.
+
+### F. Persistence scaling
+
+Known future wall: the whole-state / localStorage architecture. Directions when
+it becomes necessary — a smaller working set, IndexedDB or structured local
+persistence, lazy/paginated loading, derived indexes held outside core state.
+
+**Do not implement until real usage or a reliability failure forces it.** Beta
+load (10–15 users) is far below the point where this matters, and rebuilding
+persistence speculatively would put the durability guarantees at risk for no
+present gain.
+
+### G. Connector roadmap
+
+The lane is preserved explicitly, having been absent from project memory before
+this sprint. Candidates:
+
+1. **Readwise** — highlights (noted as a deliberate non-goal in
+   `UX_SPECIFICATION.md`; revisit only on repeated beta demand)
+2. **Google Drive / Google Docs**
+3. **Zotero**
+4. **Generic AI interoperability** (see B — the preferred first step)
+5. **ChatGPT / Claude / Gemini import paths**
+6. **NotebookLM / Mindgrasp** — only if stable APIs *and* beta demand justify it
+7. **Scoped, read-only external-AI access (MCP-style)** — latest, most cautious
+
+Principles, which matter more than the list:
+
+- **One index, not one per connector.** All imported material enters the same
+  provenance-aware knowledge universe (see D).
+- **Snapshot / manual import before live sync.** Sync multiplies failure modes
+  and privacy surface; a file does not.
+- **Least privilege.** Avoid broad mailbox or whole-Drive access; scope to what
+  the user explicitly picks.
+- **No unstable private APIs.** A connector built on an unpublished endpoint is a
+  future outage with the founder's name on it.
+- **Direct connectors require repeated beta demand plus stable API support** —
+  both, not either.
+
+### H. Capture → NextAction discoverability
+
+The capability **exists and works**: `CaptureProcessor`'s `→ Next action` control
+routes to `/actions?fromCapture=<id>`, `inheritFromCapture` pre-fills, and
+`createActionFromCapture` stamps `sourceCaptureId`. It is absent only from
+`convertCapture`'s conversion *menu*.
+
+Track whether beta users **find** it. **Do not duplicate the conversion path** —
+a second route to the same record is how two subtly different behaviors get born.
+If testers reliably miss it, the fix is discoverability (a pointer from the
+conversion menu), not a new target.
