@@ -6,13 +6,13 @@
  * stored. No quality judgments. Pure.
  */
 
-import type { StoreState } from "@/types/mvp";
+import type { StoreState, CaptureProcessingStatus } from "@/types/mvp";
 import type { ActivityEvent } from "@/lib/insights/activity";
 import { eventsInRange } from "@/lib/insights/activity";
 import type { ResolvedRange } from "@/lib/insights/range";
 import { inRange } from "@/lib/insights/range";
 
-export interface CaptureFlowOutcome { key: string; label: string; count: number; percent: number }
+export interface CaptureFlowOutcome { key: CaptureProcessingStatus; label: string; count: number; percent: number }
 
 export interface CaptureFlow {
   createdInRange: number;
@@ -26,10 +26,28 @@ export interface CaptureFlow {
   sourceDistribution: { source: string; count: number }[];
 }
 
-const OUTCOME_LABEL: Record<string, string> = {
-  inbox: "Still in inbox", rewritten: "Rewritten", split: "Split", merged: "Merged",
-  converted: "Converted to action", linked_project: "Linked to project", linked_knowledge: "Linked to knowledge",
-  deferred: "Deferred", archived: "Archived", discarded: "Discarded", restored: "Restored", processed: "Processed",
+/**
+ * Outcome labels, keyed by the ONLY thing this view actually reads: a capture's
+ * `processingStatus`.
+ *
+ * Typing this as `Record<CaptureProcessingStatus, string>` is the fix, not a
+ * tidy-up (LIFEOS-050B, D-2). The map previously carried twelve keys against a
+ * six-member union, so seven labels — `rewritten`, `split`, `merged`,
+ * `converted`, `linked_project`, `linked_knowledge`, `restored` — could never be
+ * emitted: they name capture history ACTIONS, not statuses. The worst of them
+ * read "Converted to action", which was false twice over: no status ever
+ * produces it, and `convertCapture`'s eleven targets do not create a
+ * `NextAction` at all (that path is the processor's separate `→ Next action`
+ * control). The exhaustive type now makes a status impossible to add without a
+ * label, and a label impossible to invent without a status.
+ */
+const OUTCOME_LABEL: Record<CaptureProcessingStatus, string> = {
+  inbox: "Still in inbox",
+  processing: "Being processed",
+  processed: "Processed",
+  deferred: "Deferred",
+  archived: "Archived",
+  discarded: "Discarded",
 };
 
 function median(values: number[]): number | undefined {
@@ -47,14 +65,14 @@ export function captureFlow(state: StoreState, index: ActivityEvent[], range: Re
 
   // Outcome distribution over captures CREATED in range (deterministic denominator).
   const created = captures.filter((c) => inRange(c.createdAt, range));
-  const counts = new Map<string, number>();
+  const counts = new Map<CaptureProcessingStatus, number>();
   for (const c of created) {
-    const status = c.processingStatus === "processed" ? "processed" : c.processingStatus === "inbox" || !c.processingStatus ? "inbox" : c.processingStatus;
+    const status: CaptureProcessingStatus = c.processingStatus ?? "inbox";
     counts.set(status, (counts.get(status) ?? 0) + 1);
   }
   const total = created.length || 1;
   const outcomes: CaptureFlowOutcome[] = [...counts.entries()]
-    .map(([key, count]) => ({ key, label: OUTCOME_LABEL[key] ?? key, count, percent: Math.round((count / total) * 100) }))
+    .map(([key, count]) => ({ key, label: OUTCOME_LABEL[key], count, percent: Math.round((count / total) * 100) }))
     .sort((a, b) => b.count - a.count);
 
   // Median processing delay (processed captures with both timestamps).

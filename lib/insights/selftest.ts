@@ -197,6 +197,17 @@ export function runInsightsSelfTests(): SelfTestReport {
     // Zero-denominator safety: empty capture flow.
     const empty = captureFlow(emptyState(), [], resolveRange("today", { today, offsetMinutes: OFF }));
     ok("8.6 empty capture flow safe", empty.createdInRange === 0 && empty.medianProcessingDelayMs === undefined && empty.outcomes.length === 0);
+
+    // 8.7–8.9 Outcome labels must describe what actually happened
+    // (LIFEOS-050B, D-2). The map used to carry twelve keys against a six-member
+    // status union; the seven unreachable ones included "Converted to action",
+    // which no status emits and no conversion target creates.
+    ok("8.7 every outcome label is reachable and non-empty", flow.outcomes.every((o) => !!o.label && o.label !== o.key));
+    ok("8.8 no outcome claims an action was created", flow.outcomes.every((o) => !/\baction\b/i.test(o.label)));
+    ok("8.9 outcome keys are real processing statuses", (() => {
+      const STATUSES = ["inbox", "processing", "processed", "deferred", "archived", "discarded"];
+      return flow.outcomes.every((o) => STATUSES.includes(o.key));
+    })());
   }
 
   // ---- 9. Reading + knowledge activity ----
@@ -301,6 +312,26 @@ export function runInsightsSelfTests(): SelfTestReport {
     ok("14.1 action→milestone edge", edges.some((e) => e.from === "action" && e.to === "milestone" && e.count >= 1));
     ok("14.2 project→goal edge", edges.some((e) => e.from === "project" && e.to === "goal" && e.count >= 1));
     ok("14.3 edges are bounded (<= 8 types)", edges.length <= 8);
+
+    // 14.4–14.6 The capture→action edge must count real actions
+    // (LIFEOS-050B, D-2). It previously counted a `capture_converted` event that
+    // nothing emits, OR'd with every `capture_processed` event — so merely
+    // marking a capture processed asserted an edge to an action that was never
+    // created. `a1` above has no `sourceCaptureId`, so there is no such edge.
+    ok("14.4 processed capture alone does NOT assert a capture→action edge", (() => {
+      const s2 = emptyState();
+      s2.captures = [{ id: "c1", text: "call the dentist", createdAt: at("2026-07-10", 9), processedAt: at("2026-07-10", 11), processingStatus: "processed", history: [] } as never];
+      const e2 = contributionMap(s2, buildActivityIndex(s2), resolveRange("last_30_days", { today, offsetMinutes: OFF }));
+      return !e2.some((e) => e.from === "capture" && e.to === "action");
+    })());
+    ok("14.5 an action created FROM a capture does assert the edge", (() => {
+      const s3 = emptyState();
+      s3.captures = [{ id: "c1", text: "call the dentist", createdAt: at("2026-07-10", 9), processingStatus: "inbox", history: [] } as never];
+      s3.nextActions = [{ id: "a9", title: "Call the dentist", status: "open", sourceCaptureId: "c1", createdAt: at("2026-07-10", 10), updatedAt: at("2026-07-10", 10), history: [], tags: [], linkedEntityRefs: [], notes: "", description: "", order: 0 } as never];
+      const e3 = contributionMap(s3, buildActivityIndex(s3), resolveRange("last_30_days", { today, offsetMinutes: OFF }));
+      return e3.some((e) => e.from === "capture" && e.to === "action" && e.count === 1);
+    })());
+    ok("14.6 capture→action edge is absent when no action exists", !edges.some((e) => e.from === "capture" && e.to === "action"));
   }
 
   // ---- 15. Record activity (inspector) ----

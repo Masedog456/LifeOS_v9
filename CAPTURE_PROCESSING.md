@@ -247,13 +247,22 @@ capture is only ever planned because the user picked a horizon. See
 ## Addendum — capture flow insights (LIFEOS-039)
 
 The LIFEOS-039 **Capture Flow** view (`/insights/captures`) reports, for a
-user-selected range, where captures went: the outcome distribution (still in
-inbox, converted to action, linked to project/knowledge, deferred, archived,
-discarded, restored, …) with counts and percentages, the **median processing
-delay**, the **oldest unprocessed capture**, and source distribution where
-explicitly stored. It is derived from existing capture history — no new capture
-fields, no new storage. It makes **no quality judgments** about captures. See
-`DETERMINISTIC_INSIGHTS.md`.
+user-selected range, where captures went: the outcome distribution with counts
+and percentages, the **median processing delay**, the **oldest unprocessed
+capture**, and source distribution where explicitly stored. It is derived from
+existing capture history — no new capture fields, no new storage. It makes **no
+quality judgments** about captures. See `DETERMINISTIC_INSIGHTS.md`.
+
+The outcomes are exactly the six `processingStatus` values a capture can hold —
+**still in inbox, being processed, processed, deferred, archived, discarded** —
+because status is the only thing this view reads. It previously also listed
+outcomes like "converted to action", "linked to project/knowledge" and
+"restored": those name capture *history actions*, not statuses, so no capture
+could ever be reported under them. "Converted to action" was doubly wrong, since
+none of the eleven `convertCapture` targets creates a `NextAction` (that is the
+processor's separate `→ Next action` control, described above). Corrected in
+LIFEOS-050B; the label map is now typed against `CaptureProcessingStatus` so the
+two cannot drift apart again.
 
 ## Addendum — security & export (LIFEOS-040)
 
