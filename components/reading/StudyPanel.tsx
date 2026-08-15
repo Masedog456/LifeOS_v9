@@ -30,6 +30,7 @@ import {
   askDocument, summarizeScope, studyMaterial,
   type GroundedAnswer, type GroundedSummary, type SourceRef, type SummaryScope,
 } from "@/lib/reading/study";
+import { ORIGIN_LABEL, type OriginType } from "@/lib/provenance";
 import type { ReadingDocument } from "@/types/mvp";
 
 type Mode = "ask" | "summarize" | "study";
@@ -67,7 +68,7 @@ function CitationList({ doc, cites, onJump }: { doc: ReadingDocument; cites: Sou
 }
 
 /** Save-to-LifeOS row — grounded on the primary cited passage; never auto-adds. */
-function SaveRow({ doc, passageId, text, title, onSaved }: { doc: ReadingDocument; passageId?: string; text: string; title?: string; onSaved: (label: string, href?: string) => void }) {
+function SaveRow({ doc, passageId, text, title, origin, onSaved }: { doc: ReadingDocument; passageId?: string; text: string; title?: string; origin: OriginType; onSaved: (label: string, href?: string) => void }) {
   const state = useStore();
   if (!passageId || !text.trim()) return null;
   const targets: { target: ConversionTarget; label: string }[] = [
@@ -76,15 +77,30 @@ function SaveRow({ doc, passageId, text, title, onSaved }: { doc: ReadingDocumen
     { target: "belief", label: "Propose as belief" },
   ];
   const save = (target: ConversionTarget) => {
-    const res = convertPassage(doc.id, passageId, target, { text: text.trim(), title: title?.trim() });
+    const res = convertPassage(doc.id, passageId, target, { text: text.trim(), title: title?.trim(), origin });
     if (res) onSaved(`Saved to ${target === "research" ? "Research" : target}`, resolveRecord(state, res.kind, res.id)?.href);
   };
   const saveNote = () => {
-    const noteId = addAnnotation(doc.id, passageId, text.trim());
+    // A note is structurally user-authored material. Saving machine prose into
+    // one verbatim would launder it, and the annotation model has no provenance
+    // field — so the attribution is written into the note itself, where it
+    // survives editing, export and re-import (LIFEOS-050). Adoption is never
+    // inferred: if the user later rewrites this in their own words, that is
+    // their act, not ours.
+    const body = origin === "original_source" || origin === "user_authored"
+      ? text.trim()
+      : `_${ORIGIN_LABEL[origin]} — saved from Ask & study:_\n\n${text.trim()}`;
+    const noteId = addAnnotation(doc.id, passageId, body);
     if (noteId) onSaved("Saved as a note on this passage");
   };
+  const machine = origin !== "original_source" && origin !== "user_authored";
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {machine && (
+        <span className="mr-0.5 text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400" title="Saved material is marked as AI-generated and is never used as source evidence.">
+          {ORIGIN_LABEL[origin]}
+        </span>
+      )}
       <button type="button" onClick={saveNote} className="rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] hover:bg-black/[.04] dark:border-white/[.15]">Save as note</button>
       {targets.map((t) => (
         <button key={t.target} type="button" onClick={() => save(t.target)} className="rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] hover:bg-black/[.04] dark:border-white/[.15]">{t.label}</button>
@@ -161,7 +177,7 @@ export default function StudyPanel({ doc, sectionId, onJump }: { doc: ReadingDoc
                 <>
                   <p className="mt-2 text-[10px] text-zinc-400">{sourceNote(answer.source)}</p>
                   <CitationList doc={doc} cites={answer.citations} onJump={onJump} />
-                  <SaveRow doc={doc} passageId={primaryPassage} text={answer.answer} title={question.trim()} onSaved={flashSaved} />
+                  <SaveRow doc={doc} passageId={primaryPassage} text={answer.answer} title={question.trim()} origin="conqify_ai" onSaved={flashSaved} />
                 </>
               ) : (
                 <p className="mt-2 text-[11px] text-amber-600 dark:text-amber-400">No grounded answer — nothing was saved, and this isn&apos;t drawn from the document.</p>
@@ -183,7 +199,7 @@ export default function StudyPanel({ doc, sectionId, onJump }: { doc: ReadingDoc
               <p className="whitespace-pre-wrap text-zinc-800 dark:text-zinc-100">{summary.summary}</p>
               <p className="mt-2 text-[10px] text-zinc-400">{sourceNote(summary.source)}</p>
               <CitationList doc={doc} cites={summary.citations} onJump={onJump} />
-              <SaveRow doc={doc} passageId={summary.citations[0]?.passageId} text={summary.summary} title={`Summary of ${doc.title}`} onSaved={flashSaved} />
+              <SaveRow doc={doc} passageId={summary.citations[0]?.passageId} text={summary.summary} title={`Summary of ${doc.title}`} origin="conqify_ai" onSaved={flashSaved} />
             </div>
           )}
         </div>
@@ -200,7 +216,7 @@ export default function StudyPanel({ doc, sectionId, onJump }: { doc: ReadingDoc
                   <button type="button" onClick={() => onJump(k.ref.passageId)} className="text-left text-zinc-800 underline-offset-2 hover:underline dark:text-zinc-100">
                     {k.text} {k.ref.page ? <span className="text-[11px] text-zinc-400">· p. {k.ref.page}</span> : null}
                   </button>
-                  <SaveRow doc={doc} passageId={k.ref.passageId} text={k.text} title={k.text} onSaved={flashSaved} />
+                  <SaveRow doc={doc} passageId={k.ref.passageId} text={k.text} title={k.text} origin="original_source" onSaved={flashSaved} />
                 </li>
               ))}
             </ul>

@@ -84,6 +84,16 @@ Append-only/immutable tables (e.g. `reflections`, `retrieval_feedback`, the
 retention tables) intentionally omit UPDATE and/or DELETE; the audit documents
 that intent rather than rewriting historical migrations.
 
+**Provenance & AI attribution (LIFEOS-050).** Every record can be classified as
+original source, user-authored, imported-user-authored, external-AI, Conqify-AI,
+derived, or honestly `unknown`. **Only original source material may ground a claim
+about a source**; AI prose can never acquire source authority by being saved into
+another record type. Saving an AI answer from the Reader links it to the passage
+but does not mint a Citation, and material saved as a note carries its
+attribution in the note text so it survives editing, export and re-import. No new
+external exposure, no provider calls, no tokens: provenance is metadata about
+material Conqify already holds.
+
 **Reading semantic index (LIFEOS-049, migration 0034).** Retrieval chunks of a
 reading are embedded and stored in `reading_chunk_embeddings`, per-user RLS,
 cascading from `auth.users`. The table stores **numbers and a chunk id — never
