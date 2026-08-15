@@ -15,8 +15,8 @@
  * stored, the answer is `unknown` — never a flattering guess.
  */
 
-import type { OriginType } from "@/lib/provenance";
-import type { Provenance } from "@/lib/provenance";
+import { detectAttribution } from "@/lib/provenance";
+import type { OriginType, Provenance } from "@/lib/provenance";
 
 /** Record kinds whose very existence guarantees the user wrote them. */
 const USER_AUTHORED_KINDS = new Set([
@@ -59,6 +59,14 @@ export interface ClassifyInput {
   source?: string | null;
   /** True when the record is known to have been created from AI-generated text. */
   fromAiText?: boolean;
+  /**
+   * The record's text. Structurally user-authored kinds (capture, note) have
+   * nowhere to store provenance, so machine prose saved into them carries an
+   * attribution marker in the text itself — this is where it is read back
+   * (LIFEOS-050A). Without it, AI prose saved as a note would classify as the
+   * user's own words at read time.
+   */
+  text?: string;
 }
 
 /**
@@ -75,17 +83,23 @@ export function classifyOrigin(input: ClassifyInput): OriginType {
   // 2. A record created from AI text is machine prose regardless of its kind.
   if (input.fromAiText) return "conqify_ai";
 
-  // 3. Structural truth.
+  // 3. An attribution marker in the text overrides structural authorship. This
+  //    is what stops machine prose saved into a Capture or a note from being
+  //    read back later as the user's own thinking (LIFEOS-050A).
+  const declared = detectAttribution(input.text);
+  if (declared) return declared;
+
+  // 4. Structural truth.
   if (SOURCE_KINDS.has(input.kind)) return "original_source";
   if (USER_AUTHORED_KINDS.has(input.kind)) return "user_authored";
   if (DERIVED_KINDS.has(input.kind)) return "derived";
 
-  // 4. Legacy markers already carried by several models.
+  // 5. Legacy markers already carried by several models.
   if (input.source === "ai" || input.source === "mock") return "conqify_ai";
   if (input.source === "deterministic") return "derived";
   if (input.source === "user") return "user_authored";
 
-  // 5. Ambiguous kinds with nothing recorded: honestly unknown. These predate
+  // 6. Ambiguous kinds with nothing recorded: honestly unknown. These predate
   //    LIFEOS-050 and we refuse to assert authorship we cannot verify.
   if (AMBIGUOUS_KINDS.has(input.kind)) return "unknown";
 
@@ -98,8 +112,8 @@ export function classifyOrigin(input: ClassifyInput): OriginType {
  * structural rules, which are correct for every kind whose authorship the schema
  * guarantees, and `unknown` for the genuinely ambiguous ones.
  */
-export function classifyLegacy(kind: string): OriginType {
-  return classifyOrigin({ kind });
+export function classifyLegacy(kind: string, text?: string): OriginType {
+  return classifyOrigin({ kind, text });
 }
 
 /** Convenience: does this record kind always guarantee user authorship? */
