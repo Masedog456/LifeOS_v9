@@ -2905,3 +2905,131 @@ scope or order.
   10–15 users, existing histories + Insights + Diagnostics + founder interviews
   are sufficient, and Ask/Summarize remaining unpersisted stays an accepted
   observation limitation to be answered by watching rather than by counters.
+
+---
+
+## BETA-EVIDENCE CANDIDATES (recorded LIFEOS-050C — none implemented)
+
+The pre-beta gate found that several strategically important directions existed
+only in conversation. They are written down here so they survive as text rather
+than as memory, and so a future sprint can be judged against what was actually
+intended.
+
+**None of these is built. None is scheduled.** Each is gated on evidence from the
+closed beta, not on enthusiasm. The discipline that matters: a direction earns
+implementation when testers repeatedly hit its absence — not when it becomes
+interesting to build.
+
+### A. Protocol / Conditional Practice
+
+Structure: **WHEN / IF [trigger] → [intended response]**.
+
+Structurally distinct from Practice, whose `PracticeCadence` vocabulary is
+`once | daily | weekly | occasional` — every member answers *how often*, and a
+protocol has no frequency at all. Example: *"When my child is in a fight-or-flight
+reaction, stay at least two arm's lengths away."* Forcing that into `occasional`
+would record something the user did not mean, which is why `PracticeCandidate`
+was left unmodified in LIFEOS-050B.
+
+Possible future behavior: a Capture reading "when X happens, do Y" is *suggested*
+as a Protocol, with the trigger and response extracted for confirmation.
+**Automatic classification may be allowed; automatic adoption must not be.**
+
+Likely shape: trigger · intended response · optional reason · provenance ·
+lifecycle (active/paused/retired).
+
+### B. Generic AI-output import / AI portability
+
+Future intake of AI output produced elsewhere — ChatGPT, Claude, Gemini,
+NotebookLM, Mindgrasp, and whatever follows.
+
+**Strong preference for robust generic import first** — paste, Markdown, export
+file — before any provider-specific API. Generic import covers every provider at
+once, cannot break when a vendor changes an endpoint, and requires no OAuth.
+
+Non-negotiable: imported AI output **retains external-AI provenance**. The
+LIFEOS-050 segment model already represents mixed authorship (a conversation
+interleaving the user's prompts with the model's replies) precisely so an
+importer cannot flatten it into "the user's notes."
+
+### C. Source verification
+
+Future capability: take an imported or generated AI claim, check it against the
+user's own original source, and report **supported / partially supported / not
+found / uncertain**, with citations resolving to real source passages.
+
+This is the natural endpoint of the provenance work: LIFEOS-050 established that
+AI prose can never *be* evidence; verification asks whether it *agrees with*
+evidence. The 049 retrieval layer and the citation model are the two pieces this
+would build on.
+
+### D. Provenance-aware universal retrieval
+
+Queries should eventually distinguish four questions that are currently one:
+
+- *What did the source say?*
+- *What did I think?*
+- *What did AI tell me?*
+- *What have I learned about X?*
+
+`groundingAuthority` already returns the two axes these need. **One knowledge
+universe — no per-provider retrieval islands.** A connector that brings its own
+private index defeats this before it starts, which is why the connector
+principles below forbid it.
+
+### E. Return / dormancy
+
+`lib/insights/dormancy.ts` (`dormancyView`) is already a working primitive for
+resurfacing material that has gone quiet. Observe whether beta users find value
+in returning to dormant items **before** expanding it into a feature. The risk to
+avoid is building a notification engine for a product whose whole premise is calm.
+
+### F. Persistence scaling
+
+Known future wall: the whole-state / localStorage architecture. Directions when
+it becomes necessary — a smaller working set, IndexedDB or structured local
+persistence, lazy/paginated loading, derived indexes held outside core state.
+
+**Do not implement until real usage or a reliability failure forces it.** Beta
+load (10–15 users) is far below the point where this matters, and rebuilding
+persistence speculatively would put the durability guarantees at risk for no
+present gain.
+
+### G. Connector roadmap
+
+The lane is preserved explicitly, having been absent from project memory before
+this sprint. Candidates:
+
+1. **Readwise** — highlights (noted as a deliberate non-goal in
+   `UX_SPECIFICATION.md`; revisit only on repeated beta demand)
+2. **Google Drive / Google Docs**
+3. **Zotero**
+4. **Generic AI interoperability** (see B — the preferred first step)
+5. **ChatGPT / Claude / Gemini import paths**
+6. **NotebookLM / Mindgrasp** — only if stable APIs *and* beta demand justify it
+7. **Scoped, read-only external-AI access (MCP-style)** — latest, most cautious
+
+Principles, which matter more than the list:
+
+- **One index, not one per connector.** All imported material enters the same
+  provenance-aware knowledge universe (see D).
+- **Snapshot / manual import before live sync.** Sync multiplies failure modes
+  and privacy surface; a file does not.
+- **Least privilege.** Avoid broad mailbox or whole-Drive access; scope to what
+  the user explicitly picks.
+- **No unstable private APIs.** A connector built on an unpublished endpoint is a
+  future outage with the founder's name on it.
+- **Direct connectors require repeated beta demand plus stable API support** —
+  both, not either.
+
+### H. Capture → NextAction discoverability
+
+The capability **exists and works**: `CaptureProcessor`'s `→ Next action` control
+routes to `/actions?fromCapture=<id>`, `inheritFromCapture` pre-fills, and
+`createActionFromCapture` stamps `sourceCaptureId`. It is absent only from
+`convertCapture`'s conversion *menu*.
+
+Track whether beta users **find** it. **Do not duplicate the conversion path** —
+a second route to the same record is how two subtly different behaviors get born.
+If testers reliably miss it, the fix is discoverability (a pointer from the
+conversion menu), not a new target.

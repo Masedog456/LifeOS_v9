@@ -20,7 +20,7 @@ import { securityHeaders, validateHeaders, cspDirectives, serializeCsp } from "@
 import { isDevRoute, auditRouteManifest } from "@/lib/security/dev-routes";
 import { TABLE_REGISTRY, checkPoliciesInSql, auditTable, userOwnedTablesInSql, registryEntry } from "@/lib/security/authorization-audit";
 import { validateThreatModel, THREATS } from "@/lib/security/threat-model";
-import { mayRenderProtected, mayWriteProtected, isExpired, safeRedirect } from "@/lib/security/auth-boundaries";
+import { mayRenderProtected, mayWriteProtected, isExpired, safeRedirect, isClosedBetaRefusal, closedBetaRefusal, neutralAuthError } from "@/lib/security/auth-boundaries";
 import { publicHealth, authenticatedHealth, rollUp } from "@/lib/security/health";
 import { buildDiagnostics, assertSanitized } from "@/lib/security/diagnostics";
 import { renderMarkdownInline } from "@/lib/library/annotations";
@@ -194,6 +194,42 @@ export function runSecuritySelfTests(): SelfTestReport {
   ok("12.7 open redirect rejected", safeRedirect("https://evil.com/x") === "/today");
   ok("12.8 protocol-relative rejected", safeRedirect("//evil.com") === "/today");
   ok("12.9 same-origin path allowed", safeRedirect("/insights") === "/insights");
+
+  // ---- 12b. Closed-beta sign-in refusal (LIFEOS-050C) ----
+  //
+  // The beta admits users ONLY by founder pre-creation in Supabase. Sign-in
+  // passes `shouldCreateUser: false`, so an unknown address comes back as an
+  // error rather than a new account — and this is the classifier that decides
+  // whether that error is a refusal (show the calm closed-beta message) or a
+  // genuine fault (show the provider's own message). Getting it wrong in either
+  // direction is bad: a leaked provider string confuses a tester, and a real
+  // outage disguised as "you're not invited" hides a live incident.
+  //
+  // The absence of `shouldCreateUser: false` itself is guarded statically by
+  // `npm run audit:auth`, which also proves no second signup path exists — a
+  // unit test cannot see a `signUp()` added to a file it never imports.
+  ok("12b.1 unknown address is a closed-beta refusal", isClosedBetaRefusal("otp_disabled"));
+  ok("12b.2 dashboard signup-disabled is a refusal", isClosedBetaRefusal("signup_disabled"));
+  ok("12b.3 missing user is a refusal", isClosedBetaRefusal("user_not_found"));
+  ok("12b.4 rate limiting is NOT a refusal (real fault surfaces)", !isClosedBetaRefusal("over_email_send_rate_limit"));
+  ok("12b.5 provider outage is NOT a refusal", !isClosedBetaRefusal("unexpected_failure"));
+  ok("12b.6 a banned user is NOT treated as uninvited", !isClosedBetaRefusal("user_banned"));
+  ok("12b.7 an absent code is not a refusal", !isClosedBetaRefusal(undefined));
+  // The refusal copy must not become an account-existence oracle, and must not
+  // promise a link that was never sent.
+  ok("12b.8 refusal copy does not confirm or deny an account", (() => {
+    const m = closedBetaRefusal().toLowerCase();
+    return !/(isn't|is not|no) (an )?(account|user)|not registered|doesn't exist|unknown address/.test(m);
+  })());
+  ok("12b.9 refusal copy does not promise an email that was never sent", (() => {
+    const m = closedBetaRefusal().toLowerCase();
+    return !/check your email for a link|link is on its way|we've sent/.test(m);
+  })());
+  ok("12b.10 refusal copy names the closed beta and a way forward", (() => {
+    const m = closedBetaRefusal().toLowerCase();
+    return m.includes("closed beta") && m.includes("invit");
+  })());
+  ok("12b.11 neutral auth error still reveals nothing", !/account|exist|registered/i.test(neutralAuthError()));
 
   // ---- 13. Health ----
   {

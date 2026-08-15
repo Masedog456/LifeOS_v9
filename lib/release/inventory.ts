@@ -31,7 +31,7 @@ export const ENV_VARS: readonly EnvVar[] = [
   { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", scope: "public", required: false, purpose: "Supabase anon key (RLS-protected; never the service role)." },
   { name: "NEXT_PUBLIC_APP_VERSION", scope: "public", required: false, purpose: "App version shown in diagnostics/exports (defaults to release version)." },
   { name: "NEXT_PUBLIC_BUILD_ID", scope: "public", required: false, purpose: "Build identifier shown in diagnostics." },
-  { name: "LIFEOS_ENABLE_DEV_ROUTES", scope: "server", required: false, purpose: "Opt-in flag that exposes /dev test routes in non-production only." },
+  { name: "LIFEOS_ENABLE_DEV_ROUTES", scope: "server", required: false, purpose: "Opt-in escape hatch that exposes /dev test routes. Outside production /dev is always on and this is ignored; in a production build /dev is hidden unless this is set to \"1\". Leave it unset on any deployment testers can reach." },
   { name: "ANTHROPIC_API_KEY", scope: "server", required: false, purpose: "Optional; unused by the shipped deterministic feature set." },
   { name: "ANTHROPIC_MODEL", scope: "server", required: false, purpose: "Optional model id for legacy AI-assist scaffolding (not in V1 scope)." },
   { name: "EMBEDDING_PROVIDER_URL", scope: "server", required: false, purpose: "Optional semantic-retrieval provider (not in V1 scope)." },

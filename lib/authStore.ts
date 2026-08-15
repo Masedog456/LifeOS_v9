@@ -12,6 +12,7 @@
 
 import { useSyncExternalStore } from "react";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
+import { isClosedBetaRefusal, closedBetaRefusal } from "@/lib/security/auth-boundaries";
 
 export type AuthPhase = "idle" | "sending" | "sent" | "error";
 
@@ -86,10 +87,22 @@ export async function signInWithEmail(email: string): Promise<void> {
     typeof window !== "undefined" ? window.location.origin : undefined;
   const { error } = await client.auth.signInWithOtp({
     email: trimmed,
-    options: { emailRedirectTo },
+    options: {
+      emailRedirectTo,
+      // Closed beta: signing in must NEVER create an account. Supabase defaults
+      // this to `true`, which quietly turned every magic-link request from an
+      // unknown address into a self-registration — the invited-user model was a
+      // promise in CLOSED_BETA.md that nothing enforced (LIFEOS-050C). Testers
+      // are pre-created by the founder in the Supabase dashboard; this option is
+      // the client-side half of that control, and the dashboard's "allow new
+      // users to sign up" setting is the half that holds even if a client is
+      // bypassed. See BETA_RUNBOOK.md §5.
+      shouldCreateUser: false,
+    },
   });
-  if (error) set({ phase: "error", error: error.message });
-  else set({ phase: "sent" });
+  if (error) {
+    set({ phase: "error", error: isClosedBetaRefusal(error.code) ? closedBetaRefusal() : error.message });
+  } else set({ phase: "sent" });
 }
 
 export async function signOut(): Promise<void> {

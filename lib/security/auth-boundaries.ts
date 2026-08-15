@@ -62,6 +62,44 @@ export function neutralAuthError(): string {
   return "We couldn't complete that sign-in. Check your email for a link, or try again.";
 }
 
+/**
+ * Supabase error codes that all mean **this address has no account and we will
+ * not create one** (LIFEOS-050C).
+ *
+ * `otp_disabled` is what `shouldCreateUser: false` returns for an unknown
+ * address; `signup_disabled` is what the project returns when new signups are
+ * turned off in the dashboard; `user_not_found` covers the remaining shape.
+ * Treating all three alike lets the founder enable either control — or both —
+ * without the sign-in copy going wrong.
+ */
+const CLOSED_BETA_CODES = new Set(["otp_disabled", "signup_disabled", "user_not_found"]);
+
+/**
+ * True when a sign-in error means "not part of the closed beta" rather than a
+ * genuine fault.
+ *
+ * The distinction matters in both directions. Classifying a real outage as a
+ * refusal tells a legitimate tester they were never invited and hides a live
+ * incident; classifying a refusal as a fault dumps a raw provider string on
+ * someone who simply isn't on the list.
+ */
+export function isClosedBetaRefusal(code: string | undefined): boolean {
+  return code ? CLOSED_BETA_CODES.has(code) : false;
+}
+
+/**
+ * Copy shown when sign-in is refused because the address isn't invited.
+ *
+ * Deliberately does NOT confirm or deny that the address has an account, which
+ * keeps the no-enumeration stance of `neutralAuthError` above. It differs from
+ * that helper in one respect that matters here: it never says "check your email
+ * for a link", because in this case no link was sent and telling someone to
+ * wait for one would be false. It states the rule, and points to the invitation.
+ */
+export function closedBetaRefusal(): string {
+  return "LifeOS is in closed beta — sign-in links are only sent to invited addresses. If yours was invited, check your inbox; otherwise reply to your invitation and we'll add you.";
+}
+
 /** Map a raw auth state into a coarse category for diagnostics (no identifiers). */
 export function categorize(state: { loading: boolean; email: string | null; expiresInSec?: number }): AuthCategory {
   if (state.loading) return "loading";

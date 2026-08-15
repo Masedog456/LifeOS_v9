@@ -72,6 +72,37 @@ second device.
    project is back. Communicate that plainly.
 6. If it's a code regression: roll back (see `V1_ROLLBACK_REPORT.md`).
 
+## 4b. Closed-beta access — verify BEFORE inviting anyone
+
+The beta is invite-only by intent, and that intent is enforced in two places.
+Both must hold. The code half alone is not sufficient.
+
+1. **Verify that new user signup is disabled in Supabase Auth before inviting
+   testers.** This is the control that holds even if the client is bypassed —
+   someone calling the auth API directly is stopped here and nowhere else. Find
+   the signup toggle under Supabase → Authentication (email/provider settings)
+   and confirm it is **off**. The exact label and location move between Supabase
+   dashboard versions, so verify by behavior rather than by remembering a menu
+   path — see Test B below, which is the real check.
+
+2. **Pre-create each approved tester** in Supabase → Authentication → Users →
+   Add user. This is how someone gets in: there is no self-service signup, no
+   invite dashboard, and no allowlist table. It is deliberately manual while the
+   beta is small.
+
+3. **Confirm Site URL and Redirect URLs** include the exact production origin,
+   or magic links will land somewhere that cannot complete sign-in.
+
+4. **Test with an unapproved email** (Test B, §10). This is the only way to
+   prove the gate is real. Do it after every deployment that touches auth or
+   changes the Supabase project.
+
+The client-side half is `shouldCreateUser: false` in `lib/authStore.ts`. Supabase
+defaults that option to `true`, which is what previously allowed any address to
+self-register and made the "invited group" promise in `CLOSED_BETA.md`
+unenforced (LIFEOS-050C). An unapproved address now sees a plain closed-beta
+message instead of receiving a working link.
+
 ## 5. If authentication fails
 
 1. Confirm `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set on
@@ -136,3 +167,42 @@ back. In short: note the current good commit before deploying; if a release is b
 redeploy the previous known-good commit and confirm with `npm run beta:smoke`.
 **Application rollback does not roll back user data** — it restores the app, not the
 database; never perform a destructive data rollback in response to an app bug.
+
+## 10. Manual auth tests (run on production, before testers 1–3)
+
+These cannot be verified from the repository — they test the deployed app plus
+the Supabase project's own settings. Run all three in order. Never paste real
+tester addresses or keys into a report or an issue.
+
+### Test A — approved user can get in
+
+1. Pre-create the tester: Supabase → Authentication → Users → Add user.
+2. Open the production sign-in and request a magic link for that address.
+3. Confirm the email arrives (check spam; delivery is the usual failure).
+4. Follow the link and confirm it returns to the **production origin**, not
+   localhost — a wrong Site URL shows up here.
+5. Confirm normal app access, and that the app shows the signed-in state rather
+   than "Saved locally."
+
+### Test B — unapproved user is refused
+
+**This is the test that proves the beta is actually closed.**
+
+1. Use an address that is **not** in Supabase Auth (a throwaway you control).
+2. Request a magic link from the production sign-in.
+3. Confirm the UI shows the closed-beta message and **no link is sent**.
+4. Confirm no email arrives — wait a full minute; a delayed link is a failure,
+   not a slow success.
+5. Confirm Supabase → Authentication → Users **still does not contain** that
+   address. A new row here means the gate is open: stop and do not invite anyone.
+6. Delete the throwaway address afterwards if the attempt created anything.
+
+### Test C — returning user still works
+
+1. Sign out.
+2. Request a fresh magic link for the Test A address.
+3. Sign in and confirm the data from Test A is still present.
+
+This proves `shouldCreateUser: false` refuses only *unknown* addresses and has
+not broken sign-in for real testers — the regression that would otherwise lock
+out the whole beta.
