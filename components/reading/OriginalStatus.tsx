@@ -20,6 +20,7 @@ import { buildImpact } from "@/lib/ux/confirmations";
 import { requestConfirm } from "@/components/ux/ConfirmDialog";
 import { toast } from "@/lib/ux/feedback";
 import { canRetryOriginalBackup, removeStoredOriginal, retryOriginalBackup } from "@/lib/reading/backupManager";
+import { getSemanticIndexBackend, removeIndexForDocument } from "@/lib/reading/semanticIndex";
 import type { ReadingDocument } from "@/types/mvp";
 
 export default function OriginalStatus({ doc }: { doc: ReadingDocument }) {
@@ -52,6 +53,13 @@ export default function OriginalStatus({ doc }: { doc: ReadingDocument }) {
           toast({ kind: "error", message: "We couldn't remove the stored original just now — your reading wasn't deleted. Please try again." });
           return;
         }
+        // Also drop the reading's semantic index (LIFEOS-049). Best-effort and
+        // non-blocking for deletion: the index holds only numbers derived from
+        // text we are deleting anyway, and it is re-derivable.
+        try {
+          const idx = await getSemanticIndexBackend();
+          if (idx) await removeIndexForDocument(idx, doc.id);
+        } catch { /* index cleanup is best-effort */ }
         deleteDocument(doc.id);
         toast({ kind: "success", message: "Removed from your library" });
         router.push("/reading");

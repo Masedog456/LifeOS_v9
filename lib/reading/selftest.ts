@@ -9,12 +9,22 @@ import {
   canTransition, isRetryable, ingestText, titleFromFilename, safeFilename, MAX_UPLOAD_BYTES,
 } from "@/lib/reading/ingest";
 import {
-  chunkDocument, retrieve, groundedCitations, buildContext, scopeChunks, studyMaterial, CONTEXT_CHAR_BUDGET,
+  chunkDocument, retrieve, groundedCitations, buildContext, scopeChunks, studyMaterial, askDocument, CONTEXT_CHAR_BUDGET,
 } from "@/lib/reading/study";
 import {
   backupOriginal, removeOriginalsForDocument, resolveOriginalUrl, storagePathFor,
   type OriginalsBackend, type OriginalFileRow,
 } from "@/lib/reading/originals";
+import { buildIngestionReport, completenessHeadline } from "@/lib/reading/completeness";
+import {
+  buildRetrievalChunks, buildDocumentParts, MAX_CHUNK_CHARS, CHUNK_OVERLAP_CHARS,
+} from "@/lib/reading/chunking";
+import { selectEvidence, rankChunks, evidenceSpread } from "@/lib/reading/retrieval";
+import {
+  indexDocument, removeIndexForDocument, pendingChunks, chunkContentHash, INDEX_BATCH_SIZE,
+  type SemanticIndexBackend, type StoredVector,
+} from "@/lib/reading/semanticIndex";
+import { synthesizeDocument, buildDocumentMap, partContext, PART_CONTEXT_BUDGET } from "@/lib/reading/synthesis";
 import type { ParsedDocument } from "@/lib/library/importer";
 import type { ReadingDocument, Passage, PageSpan } from "@/types/mvp";
 
@@ -224,6 +234,221 @@ export async function runReadingIngestSelfTests(): Promise<SelfTestReport> {
   const orphanDel = await removeOriginalsForDocument(A, "docOrphan");
   ok("12.18 orphaned object (no metadata) is cleaned up on delete", orphanDel.ok === true && orphanDel.removed === 1 && !cloud.objects.has(orphanPath));
 
+  // ==================== 13. Book-scale reading intelligence (LIFEOS-049) ====================
+  // A synthetic long document with UNIQUE facts planted at five positions. These
+  // assertions exist to prevent the exact regression this sprint fixes: only the
+  // beginning of a long work being usable.
+  const MARKERS = {
+    opening: "zerthquill", earlyMid: "vandroskop", middle: "quilfaneth",
+    lateMid: "brindlewax", ending: "yovulmarch",
+  };
+  const longDoc = buildLongDoc(MARKERS);
+  const longChunks = buildRetrievalChunks(longDoc);
+  const longParts = buildDocumentParts(longDoc, longChunks);
+
+  // ---- 13.1 Ingestion completeness accounting ----
+  const fullReport = buildIngestionReport({
+    pageCount: 147, attemptedPages: 147, readablePages: 147, emptyPageNumbers: [],
+    text: "x".repeat(52000), passages: 812, chunks: 476, sections: 12,
+    truncated: false, now: "T",
+  });
+  ok("13.1 all-readable PDF reports complete", fullReport.extraction === "complete" && fullReport.warnings.length === 0);
+  ok("13.2 headline states real page counts", completenessHeadline(fullReport).includes("All 147 pages"));
+  const partialReport = buildIngestionReport({
+    pageCount: 147, attemptedPages: 147, readablePages: 132,
+    emptyPageNumbers: [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55],
+    text: "y".repeat(40000), passages: 700, chunks: 400, sections: 10, truncated: false, now: "T",
+  });
+  ok("13.3 partial extraction is NOT called complete", partialReport.extraction === "partial");
+  ok("13.4 unreadable pages collapse into honest ranges", partialReport.unreadableRanges.length === 1 && partialReport.unreadableRanges[0].from === 41 && partialReport.unreadableRanges[0].to === 55);
+  ok("13.5 headline names the scanned range", completenessHeadline(partialReport).includes("132 of 147") && completenessHeadline(partialReport).includes("41–55"));
+  const truncReport = buildIngestionReport({ pageCount: 900, attemptedPages: 400, readablePages: 400, emptyPageNumbers: [], text: "z".repeat(600000), passages: 9, chunks: 9, sections: 1, truncated: true, truncationReason: "char_limit", now: "T" });
+  ok("13.6 truncated extraction warns and is partial", truncReport.extraction === "partial" && truncReport.warnings.some((w) => /size limit/i.test(w)));
+  ok("13.7 no page info → unknown, never 'complete'", buildIngestionReport({ pageCount: 0, attemptedPages: 0, readablePages: 0, emptyPageNumbers: [], text: "abc", passages: 1, chunks: 1, sections: 1, truncated: false, now: "T" }).extraction === "unknown");
+
+  // ---- 13.8 Chunking: size, stability, provenance, no content dropped ----
+  ok("13.8 chunks are book-appropriate, not one-per-passage", longChunks.length > 0 && longChunks.length < countPassages(longDoc));
+  ok("13.9 chunk ids are stable + deterministic", JSON.stringify(buildRetrievalChunks(longDoc).map((c) => c.id)) === JSON.stringify(longChunks.map((c) => c.id)));
+  ok("13.10 every chunk maps to document/section/passages", longChunks.every((c) => c.documentId === longDoc.id && !!c.sectionId && c.passageIds.length > 0));
+  ok("13.11 chunks carry a real page range", longChunks.every((c) => typeof c.pageStart === "number" && typeof c.pageEnd === "number" && (c.pageEnd as number) >= (c.pageStart as number)));
+  ok("13.12 chunks respect the size ceiling", longChunks.every((c) => c.chars <= MAX_CHUNK_CHARS + CHUNK_OVERLAP_CHARS));
+  const allChunkText = longChunks.map((c) => c.text).join(" ");
+  ok("13.13 NO source content silently dropped (all five markers survive)", Object.values(MARKERS).every((m) => allChunkText.includes(m)));
+  ok("13.14 final passage is represented in the chunk layer", allChunkText.includes(MARKERS.ending));
+
+  // ---- 13.15 Deterministic parts (never invented chapter titles) ----
+  ok("13.15 a structureless PDF still yields multiple parts", longParts.length > 1);
+  ok("13.16 positional titles are honest, not invented chapters", longParts.every((p) => p.fromDocument === false && /^Part \d+ of \d+/.test(p.title)));
+  ok("13.17 parts cover every chunk exactly once", longParts.flatMap((p) => p.chunkIds).length === longChunks.length && new Set(longParts.flatMap((p) => p.chunkIds)).size === longChunks.length);
+
+  // ---- 13.18 Retrieval reaches the END of the document ----
+  const endHits = selectEvidence(MARKERS.ending, longChunks);
+  ok("13.18 a fact only near the END is retrievable", endHits.length > 0 && endHits[0].chunk.text.includes(MARKERS.ending));
+  const lastOrder = longChunks[longChunks.length - 1].order;
+  ok("13.19 late-document evidence really comes from late chunks", endHits[0].chunk.order > lastOrder * 0.6);
+  ok("13.20 a fact in the MIDDLE is retrievable", (() => { const h = selectEvidence(MARKERS.middle, longChunks); return h.length > 0 && h[0].chunk.text.includes(MARKERS.middle); })());
+  ok("13.21 unsupported question still returns nothing", selectEvidence("quantum chromodynamics lunar zebra", longChunks).length === 0);
+
+  // ---- 13.21b Citations resolve to the PRECISE passage, not the chunk start ----
+  const endAsk = await askDocument(longDoc, MARKERS.ending);
+  ok("13.21b citation points at the exact page the fact is on", endAsk.grounded === true && endAsk.citations[0].page === 60);
+  ok("13.21c answer reports multi-part evidence honestly", typeof endAsk.spread === "number");
+
+  // ---- 13.22 Evidence diversity ----
+  const commonHits = selectEvidence("recurring", longChunks, { k: 6 });
+  ok("13.22 evidence spans multiple regions, not one page", evidenceSpread(commonHits, longChunks.length) > 1);
+  ok("13.23 diversity never returns duplicates", new Set(commonHits.map((c) => c.chunk.id)).size === commonHits.length);
+
+  // ---- 13.24 Hybrid retrieval + honest fallback ----
+  const fakeVecs: StoredVector[] = longChunks.map((c) => ({
+    chunkId: c.id, chunkOrder: c.order, contentHash: chunkContentHash(c.text),
+    provider: "local", model: "lexical-v1", dimensions: 3,
+    vector: c.text.includes(MARKERS.ending) ? [1, 0, 0] : [0, 1, 0],
+  }));
+  const semHits = rankChunks("anything at all", longChunks, { queryVector: [1, 0, 0], vectors: fakeVecs });
+  ok("13.24 semantic similarity can surface a conceptually-near chunk", semHits.length > 0 && semHits[0].chunk.text.includes(MARKERS.ending));
+  ok("13.25 lexical fallback works with no vectors", rankChunks(MARKERS.middle, longChunks).length > 0);
+  ok("13.26 ranking is deterministic", JSON.stringify(rankChunks(MARKERS.middle, longChunks).map((r) => r.chunk.id)) === JSON.stringify(rankChunks(MARKERS.middle, longChunks).map((r) => r.chunk.id)));
+
+  // ---- 13.27 Hierarchical summarization covers the WHOLE work ----
+  const synth = await synthesizeDocument(longDoc);
+  ok("13.27 synthesis covers every part of the document", synth.partsCovered === synth.partsTotal && synth.coverage === 1);
+  ok("13.28 synthesis produced a summary per part", synth.parts.length === longParts.length);
+  ok("13.29 part summaries are marked DERIVED, never source", synth.parts.every((p) => p.derived === true) && synth.derived === true);
+  const lineagePassages = new Set(synth.refs.flatMap((r) => r.passageIds));
+  const lastPassageId = lastPassageOf(longDoc);
+  ok("13.30 lineage reaches the FINAL passage of the document", lineagePassages.has(lastPassageId));
+  const lastPartCtx = partContext(longChunks.filter((c) => longParts[longParts.length - 1].chunkIds.includes(c.id)));
+  ok("13.31 the last part's own context contains the ending fact", lastPartCtx.includes(MARKERS.ending));
+
+  // ---- 13.32 The whole raw document is NEVER sent in one request ----
+  const rawLen = longDoc.sections.flatMap((s) => s.passages).map((p) => p.text).join(" ").length;
+  ok("13.32 fixture is genuinely long", rawLen > PART_CONTEXT_BUDGET * 3);
+  ok("13.33 every part request stays inside the bounded budget", longParts.every((p) => partContext(longChunks.filter((c) => p.chunkIds.includes(c.id))).length <= PART_CONTEXT_BUDGET));
+  ok("13.34 no single request carries the whole document", longParts.every((p) => partContext(longChunks.filter((c) => p.chunkIds.includes(c.id))).length < rawLen));
+
+  // ---- 13.35 Document map (deterministic, derived, honest) ----
+  const map = buildDocumentMap(longDoc);
+  ok("13.35 document map spans the whole document", map.totalChunks === longChunks.length && map.parts.length === longParts.length);
+  ok("13.36 map marks itself derived and invents no chapter names", map.derived === true && map.parts.every((p) => p.fromDocument === false));
+  ok("13.37 key passages keep real source refs", map.keyPassages.length > 0 && map.keyPassages.every((k) => k.ref.passageIds.length > 0));
+
+  // ---- 13.38 Semantic index lifecycle over a fake backend (RLS-shaped) ----
+  const idx = makeIndexCloud();
+  const IA = fakeIndexBackend(idx, "userA");
+  const run1 = await indexDocument(IA, longDoc.id, longChunks);
+  ok("13.38 indexing embeds every chunk and reports complete", run1.state === "complete" && run1.indexed === longChunks.length);
+  const run2 = await indexDocument(IA, longDoc.id, longChunks);
+  ok("13.39 re-indexing is idempotent (nothing re-embedded)", run2.state === "complete" && run2.changed === false && idx.embedCalls === run1Batches(longChunks.length));
+  const idxFail = makeIndexCloud(); idxFail.failEmbedAfter = 1;
+  const runPartial = await indexDocument(fakeIndexBackend(idxFail, "userA"), longDoc.id, longChunks);
+  ok("13.40 provider failure yields honest PARTIAL, not a lie", runPartial.state === "partial" && runPartial.indexed > 0 && runPartial.indexed < longChunks.length && !!runPartial.note);
+  const resumed = await indexDocument(fakeIndexBackend({ ...idxFail, failEmbedAfter: Infinity }, "userA"), longDoc.id, longChunks);
+  ok("13.41 an interrupted index is resumable to complete", resumed.state === "complete" && resumed.indexed === longChunks.length);
+  ok("13.42 no capability (signed out) → unavailable, never fake", (await indexDocument(fakeIndexBackend(idx, null), longDoc.id, longChunks)).state === "unavailable");
+  ok("13.43 stale chunk text forces a re-embed", pendingChunks(longChunks, run1.vectors.map((v, i) => (i === 0 ? { ...v, contentHash: "stale" } : v))).length === 1);
+
+  // ---- 13.44 Index isolation + deletion cleanup ----
+  const IB = fakeIndexBackend(idx, "userB");
+  ok("13.44 User B cannot load User A's index", (await IB.load(longDoc.id)).vectors.length === 0);
+  const delIdx = await removeIndexForDocument(IB, longDoc.id);
+  ok("13.45 User B's delete cannot remove User A's index", delIdx.ok === true && idx.rows.some((r) => r.userId === "userA" && r.documentId === longDoc.id));
+  await removeIndexForDocument(IA, longDoc.id);
+  ok("13.46 deleting the reading deletes its own index", (await IA.load(longDoc.id)).vectors.length === 0);
+
+  // ---- 13.47 Old ReadingDocuments still work ----
+  const legacy = docWith([{ id: "lp1", text: "A short legacy document with no page numbers at all." }]);
+  ok("13.47 legacy doc (no pages) still chunks + retrieves", buildRetrievalChunks(legacy).length === 1 && selectEvidence("legacy", buildRetrievalChunks(legacy)).length === 1);
+  ok("13.48 legacy doc parts degrade gracefully", buildDocumentParts(legacy, buildRetrievalChunks(legacy)).length === 1);
+
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };
+}
+
+// ------------------------------------------------------------------ fixtures ----
+
+/** Expected embed batches for N chunks (used to assert idempotent re-indexing). */
+function run1Batches(n: number): number { return Math.ceil(n / INDEX_BATCH_SIZE); }
+
+function countPassages(doc: ReadingDocument): number {
+  return doc.sections.reduce((n, s) => n + s.passages.length, 0);
+}
+function lastPassageOf(doc: ReadingDocument): string {
+  const ps = doc.sections.flatMap((s) => s.passages);
+  return ps[ps.length - 1].id;
+}
+
+/**
+ * A synthetic book-length document: 60 pages of filler prose with five UNIQUE
+ * marker words planted at the opening, early-middle, middle, late-middle and
+ * final pages. No copyrighted text; deterministic; long enough that a single
+ * context window cannot hold it.
+ */
+function buildLongDoc(markers: Record<string, string>): ReadingDocument {
+  const PAGES = 60;
+  const perPage = 3;
+  const passages: Passage[] = [];
+  const total = PAGES * perPage;
+  const plant: Record<number, string> = {
+    [0]: markers.opening,
+    [Math.floor(total * 0.25)]: markers.earlyMid,
+    [Math.floor(total * 0.5)]: markers.middle,
+    [Math.floor(total * 0.75)]: markers.lateMid,
+    [total - 1]: markers.ending,
+  };
+  for (let i = 0; i < total; i++) {
+    const page = Math.floor(i / perPage) + 1;
+    const marker = plant[i] ? ` The distinctive term ${plant[i]} appears here and nowhere else.` : "";
+    // Realistic paragraph length (~600 chars) so the fixture is genuinely
+    // book-scale: ~180 paragraphs ≈ 110k characters ≈ many context windows.
+    const body = `Paragraph ${i + 1} develops the argument with recurring themes of attention and judgement, considered patiently across the work. `
+      + `It returns to the question of how a reader holds an idea steady long enough to test it, and why patience is itself a form of rigour. `
+      + `The discussion proceeds by example rather than assertion, and it declines to resolve what the evidence has not yet settled. `
+      + `Each observation is offered provisionally, so that a later page may qualify it without contradiction.`;
+    passages.push({
+      id: `lp${i}`, sectionId: "ls1",
+      text: `${body}${marker}`,
+      page, order: i, highlights: [], annotations: [], linked: [],
+    } as unknown as Passage);
+  }
+  return {
+    id: "longdoc", title: "A Long Work", authors: ["Author"], kind: "book", status: "reading",
+    tags: [], notes: "", sections: [{ id: "ls1", title: "Body", order: 0, passages }],
+    progress: { status: "reading", percent: 0, readPassageIds: [] },
+    sourceMetadata: { importFormat: "pdf" }, createdAt: "t", updatedAt: "t",
+  } as unknown as ReadingDocument;
+}
+
+/** In-memory semantic-index backend that mimics per-user RLS. */
+interface IndexCloud { rows: (StoredVector & { userId: string; documentId: string })[]; embedCalls: number; failEmbedAfter: number }
+function makeIndexCloud(): IndexCloud { return { rows: [], embedCalls: 0, failEmbedAfter: Infinity }; }
+function fakeIndexBackend(cloud: IndexCloud, userId: string | null): SemanticIndexBackend {
+  return {
+    userId,
+    async load(documentId) {
+      if (!userId) return { ok: true, vectors: [] };
+      return { ok: true, vectors: cloud.rows.filter((r) => r.userId === userId && r.documentId === documentId) };
+    },
+    async save(documentId, rows) {
+      if (!userId) return { ok: false, error: "denied" };
+      for (const r of rows) {
+        const i = cloud.rows.findIndex((x) => x.userId === userId && x.documentId === documentId && x.chunkId === r.chunkId);
+        if (i >= 0) cloud.rows[i] = { ...r, userId, documentId };
+        else cloud.rows.push({ ...r, userId, documentId });
+      }
+      return { ok: true };
+    },
+    async removeForDocument(documentId) {
+      if (!userId) return { ok: true };
+      for (let i = cloud.rows.length - 1; i >= 0; i--) {
+        if (cloud.rows[i].userId === userId && cloud.rows[i].documentId === documentId) cloud.rows.splice(i, 1);
+      }
+      return { ok: true };
+    },
+    async embed(texts) {
+      cloud.embedCalls += 1;
+      if (cloud.embedCalls > cloud.failEmbedAfter) return { ok: false, provider: "local", model: "lexical-v1", dimensions: 3, vectors: [], error: "provider down" };
+      return { ok: true, provider: "local", model: "lexical-v1", dimensions: 3, vectors: texts.map(() => [0, 1, 0]) };
+    },
+  };
 }

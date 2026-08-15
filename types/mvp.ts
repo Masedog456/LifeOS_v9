@@ -2892,6 +2892,13 @@ export interface DocumentSourceMeta {
   originalStoragePath?: string;
   /** The reading_document_files row id for the stored original. */
   originalFileId?: string;
+  /**
+   * Deterministic ingestion completeness report (LIFEOS-049) — how much of the
+   * source was actually imported. Absent on documents imported before 049; we
+   * show "not recorded" rather than inventing a completeness claim.
+   * Shape: `IngestionReport` from lib/reading/completeness.ts.
+   */
+  ingestion?: unknown;
   note?: string;
 }
 

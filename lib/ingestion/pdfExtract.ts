@@ -22,7 +22,16 @@ export interface PdfExtractResult {
   text: string;
   pageMap: PageSpan[];
   pageCount: number;
+  /** Pages we ATTEMPTED to read (== pageMap.length). Not a readability claim. */
   extractedPages: number;
+  /** Pages that actually yielded readable text (LIFEOS-049). */
+  readablePages: number;
+  /** Page numbers that yielded little/no text — image-only or blank (LIFEOS-049). */
+  emptyPageNumbers: number[];
+  /** True when extraction stopped early (page cap, char cap, or a read error). */
+  truncated: boolean;
+  /** Why extraction stopped early, when it did. */
+  truncationReason?: "page_limit" | "char_limit" | "read_error";
   /** User-facing message (never contains document text). */
   message?: string;
 }
@@ -43,7 +52,10 @@ function itemsToText(items: PdfTextItem[]): string {
 }
 
 function fail(status: ExtractionStatus, message: string): PdfExtractResult {
-  return { ok: false, status, text: "", pageMap: [], pageCount: 0, extractedPages: 0, message };
+  return {
+    ok: false, status, text: "", pageMap: [], pageCount: 0, extractedPages: 0,
+    readablePages: 0, emptyPageNumbers: [], truncated: false, message,
+  };
 }
 
 export async function extractPdf(file: File): Promise<PdfExtractResult> {
@@ -80,16 +92,22 @@ export async function extractPdf(file: File): Promise<PdfExtractResult> {
   const pageCount = doc.numPages;
   const pagesToRead = Math.min(pageCount, MAX_PAGES);
   const pageMap: PageSpan[] = [];
+  // Pages that produced no usable text — image-only, blank, or decorative. These
+  // ARE recorded in the page map (as zero-width spans) so page provenance stays
+  // aligned, but they must never be counted as "readable" (LIFEOS-049).
+  const emptyPageNumbers: number[] = [];
   let text = "";
-  let capped = pagesToRead < pageCount;
+  let truncated = pagesToRead < pageCount;
+  let truncationReason: PdfExtractResult["truncationReason"] = truncated ? "page_limit" : undefined;
 
   try {
     for (let p = 1; p <= pagesToRead; p++) {
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
       const seg = normalizeText(itemsToText(content.items as PdfTextItem[]));
-      if (seg.length === 0) {
+      if (seg.trim().length < MIN_CHARS_PER_PAGE) {
         pageMap.push({ page: p, start: text.length, end: text.length });
+        emptyPageNumbers.push(p);
         continue;
       }
       if (text.length > 0) text += "\n\n";
@@ -97,21 +115,26 @@ export async function extractPdf(file: File): Promise<PdfExtractResult> {
       text += seg;
       pageMap.push({ page: p, start, end: text.length });
       if (text.length > MAX_EXTRACT_CHARS) {
-        capped = true;
+        truncated = true;
+        truncationReason = "char_limit";
         break;
       }
     }
   } catch {
-    // Partial extraction is still useful — keep what we have.
-    capped = true;
+    // Partial extraction is still useful — keep what we have, and say so.
+    truncated = true;
+    truncationReason = truncationReason ?? "read_error";
   }
   void doc.cleanup?.();
 
   const extractedPages = pageMap.length;
+  const readablePages = extractedPages - emptyPageNumbers.length;
   const total = text.trim().length;
-  const perPage = extractedPages > 0 ? total / extractedPages : 0;
+  // Density is judged over pages that actually carried text — an appendix of
+  // plates should not make a readable book look scanned.
+  const perPage = readablePages > 0 ? total / readablePages : 0;
 
-  if (total < 20 || perPage < MIN_CHARS_PER_PAGE) {
+  if (total < 20 || readablePages === 0 || perPage < MIN_CHARS_PER_PAGE) {
     return {
       ok: false,
       status: "scanned_ocr_required",
@@ -119,17 +142,29 @@ export async function extractPdf(file: File): Promise<PdfExtractResult> {
       pageMap: [],
       pageCount,
       extractedPages,
+      readablePages: 0,
+      emptyPageNumbers,
+      truncated,
+      truncationReason,
       message: "Little or no selectable text found — this looks like a scanned PDF (OCR required).",
     };
   }
 
   return {
     ok: true,
-    status: capped ? "partial_text" : "text_extracted",
+    status: truncated ? "partial_text" : "text_extracted",
     text,
     pageMap,
     pageCount,
     extractedPages,
-    message: capped ? `Extracted ${extractedPages} of ${pageCount} page(s).` : undefined,
+    readablePages,
+    emptyPageNumbers,
+    truncated,
+    truncationReason,
+    message: truncated
+      ? `Read ${readablePages} of ${pageCount} page(s) before reaching a size limit.`
+      : readablePages < pageCount
+        ? `${readablePages} of ${pageCount} page(s) contained readable text.`
+        : undefined,
   };
 }

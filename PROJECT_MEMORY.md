@@ -2717,3 +2717,41 @@ scope or order.
   remaining gates (real email sign-in, cross-device sync, live two-user Storage/RLS,
   Safari/iPhone/Android, deployed headers) genuinely require a founder with live
   credentials/devices and are specified as MANUAL, never faked.
+
+- **LIFEOS-049 — Complete Reading Intelligence (book-length study).** Phase-0 audit
+  proved the limitation was **not** ingestion truncation for ordinary books but the
+  study layer. Three defects, found in code: (1) **PRIMARY** — `summarizeScope`
+  scored all chunks equally in reading order and filled ONE 8,000-char context, so
+  "summarize this book" summarized its **first ~4 pages**; (2) `extractedPages`
+  counted every page attempted, including image-only pages that produced no text, so
+  "readable pages" was never computed and `partial_text`/"Extracted N of M" was
+  computed then **discarded** by the UI; (3) retrieval was lexical-only, top-6, no
+  diversity — and PDFs go through the *plain* parser, yielding exactly **one**
+  section ("Body"), so section-level understanding was impossible. Fixes, smallest
+  correct architecture: `lib/reading/completeness.ts` (deterministic ingestion report
+  → `source_metadata.ingestion`, jsonb, no migration; never "complete" unless every
+  page was read; unreadable pages collapse into honest ranges); `lib/reading/chunking.ts`
+  (stable ~750-token retrieval chunks w/ ~12% overlap, **separate from Reader
+  passages**, each mapping to document/section/passageIds/page-range; deterministic
+  PARTS grouped by **character budget** — a fixed chunk count silently dropped each
+  part's tail, caught by my own test); `lib/reading/retrieval.ts` (hybrid lexical +
+  semantic cosine with MMR diversity + deterministic tie-breaks, lexical fallback
+  always); `lib/reading/synthesis.ts` (map/reduce: chunks → part summaries → document
+  synthesis, whole book never in one request, honest `coverage`, part summaries marked
+  `derived`, lineage to real passages) + deterministic on-device Document Map;
+  `lib/reading/semanticIndex.ts` + migration **0034** `reading_chunk_embeddings`
+  (per-user RLS, vectors **deliberately not** in the localStorage blob, batched via the
+  existing `/api/embed`, resumable/idempotent by content hash, honest partial state,
+  document readable regardless, deleted with the reading). **Citation precision fix:**
+  answers now resolve to the *specific passage inside a chunk* — a fact on p.120 cites
+  p.120, not the chunk's start page. UI: quiet expandable **Import details** in the
+  Reader (plain language; older docs say "not recorded" rather than claiming
+  completeness). Validated at book scale on a real 120-page PDF: ingest 1.2 s, Ask
+  103 ms citing p.120 verbatim, whole-doc summarize 134 ms. Reading self-tests
+  **108/108** (was 58; +50 incl. late-document retrieval, full-coverage synthesis,
+  bounded-budget proofs, index lifecycle/partial/resume/isolation, legacy-doc
+  compatibility); full regression **1080/1080**; release 48/48; security 94/94;
+  `audit:rls` 56 tables; release-audit 17/17. Persistence risk **documented, not
+  silently expanded**: book-length docs still sit in the single-key local blob (the
+  LIFEOS-048 whole-state wall) — the working-set/IndexedDB fix stays out of scope.
+  Still deferred: OCR, DOCX, EPUB, audio/video.

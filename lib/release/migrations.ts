@@ -9,8 +9,8 @@
  * release self-test check against, so the two can never disagree.
  *
  * Historical migrations are never modified. A demonstrated release-blocking
- * database defect would add exactly one narrowly-scoped `0034_v1_release_fix.sql`
- * beyond the current head (0033, the reading-file checksum-index fix).
+ * database defect would add exactly one narrowly-scoped `0035_v1_release_fix.sql`
+ * beyond the current head (0034, the reading semantic index).
  */
 
 import { RELEASE_MIGRATION_COUNT } from "@/lib/release/versions";
@@ -35,7 +35,8 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-security", label: "Before security & production hardening", throughVersion: 30 },
   { id: "pre-reading-ingestion", label: "Before native reading upload", throughVersion: 31 },
   { id: "pre-reading-originals", label: "Before reading-file persistence", throughVersion: 32 },
-  { id: "current", label: "Current production head", throughVersion: 33 },
+  { id: "pre-reading-semantic", label: "Before the reading semantic index", throughVersion: 33 },
+  { id: "current", label: "Current production head", throughVersion: 34 },
 ];
 
 export interface MigrationListReport {
@@ -76,7 +77,7 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  * A demonstrated release-blocking migration fix may add exactly this file, and
  * nothing else. The audit rejects any new migration beyond it.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0034_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0035_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

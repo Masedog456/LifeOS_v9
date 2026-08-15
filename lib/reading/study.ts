@@ -21,6 +21,10 @@
 
 import type { ReadingDocument, Passage } from "@/types/mvp";
 import { askQuestion, summarize } from "@/lib/aiClient";
+import { buildRetrievalChunks } from "@/lib/reading/chunking";
+import { selectEvidence, evidenceSpread, lexicalScore } from "@/lib/reading/retrieval";
+import type { StoredVector } from "@/lib/reading/semanticIndex";
+import { synthesizeDocument } from "@/lib/reading/synthesis";
 
 export interface Chunk {
   documentId: string;
@@ -121,21 +125,63 @@ export interface GroundedAnswer {
   citations: SourceRef[];
   grounded: boolean;
   source: string;
+  /** How many distinct regions of the document the evidence came from (1–5). */
+  spread?: number;
+  /** True when the evidence was drawn from several parts of the work. */
+  multiPart?: boolean;
 }
 
 /**
- * ASK — answer a question strictly from the retrieved source. When the document
- * doesn't support the question (nothing retrieved), we say so honestly and never
- * fall back to general model knowledge presented as document-grounded.
+ * ASK — answer a question strictly from retrieved source. Upgraded in LIFEOS-049
+ * to search the WHOLE document via the stable retrieval-chunk layer with hybrid
+ * (lexical + optional semantic) ranking and MMR diversity, so evidence can come
+ * from anywhere in a book and six near-duplicates from one page cannot crowd out
+ * the rest of the work.
+ *
+ * Retrieval selects the evidence; the model only writes prose; citations are
+ * built from the retrieved chunks' real locations. When nothing is retrieved we
+ * say so honestly and never answer from general model knowledge.
  */
-export async function askDocument(doc: ReadingDocument, question: string): Promise<GroundedAnswer> {
-  const scored = retrieve(question, chunkDocument(doc));
-  if (scored.length === 0) {
+export async function askDocument(
+  doc: ReadingDocument,
+  question: string,
+  opts: { queryVector?: number[]; vectors?: StoredVector[]; k?: number } = {},
+): Promise<GroundedAnswer> {
+  const chunks = buildRetrievalChunks(doc);
+  const picked = selectEvidence(question, chunks, { queryVector: opts.queryVector, vectors: opts.vectors, k: opts.k });
+  if (picked.length === 0) {
     return { answer: "This document doesn't seem to cover that. Try rephrasing, or asking about something in the text.", citations: [], grounded: false, source: "grounded" };
   }
+  // Resolve each chunk to the SPECIFIC passage inside it that best answers the
+  // question, so a citation points at the real page the evidence is on — not
+  // merely the page the chunk happens to start on. Deterministic (lexical).
+  const byId = new Map(doc.sections.flatMap((s) => s.passages as Passage[]).map((p) => [p.id, p]));
+  const scored: ScoredChunk[] = picked.map((r) => {
+    const candidates = r.chunk.passageIds.map((id) => byId.get(id)).filter((p): p is Passage => !!p);
+    let best = candidates[0];
+    let bestScore = -1;
+    for (const p of candidates) {
+      const s = lexicalScore(question, p.text ?? "");
+      if (s > bestScore) { bestScore = s; best = p; }
+    }
+    return {
+      chunk: {
+        documentId: r.chunk.documentId,
+        sectionId: r.chunk.sectionId,
+        passageId: best?.id ?? r.chunk.passageIds[0] ?? "",
+        page: best?.page ?? r.chunk.pageStart,
+        order: r.chunk.order,
+        // Cite the matching passage's own words when we found one, so the
+        // snippet the user sees is the sentence that actually supports the claim.
+        text: bestScore > 0 && best?.text ? best.text : r.chunk.text,
+      },
+      score: r.score,
+    };
+  });
   const context = buildContext(scored);
   const { result, source } = await askQuestion(context, question);
-  return { answer: result, citations: groundedCitations(scored), grounded: true, source };
+  const spread = evidenceSpread(picked, chunks.length);
+  return { answer: result, citations: groundedCitations(scored), grounded: true, source, spread, multiPart: spread > 1 };
 }
 
 export type SummaryScope = "section" | "selection" | "document";
@@ -153,10 +199,38 @@ export function scopeChunks(doc: ReadingDocument, scope: SummaryScope, opts: { s
   return all;
 }
 
-export interface GroundedSummary { summary: string; citations: SourceRef[]; scope: SummaryScope; source: string }
+export interface GroundedSummary {
+  summary: string;
+  citations: SourceRef[];
+  scope: SummaryScope;
+  source: string;
+  /** Fraction of the document actually covered (document scope only). */
+  coverage?: number;
+  /** Honest note when a run covered only part of a very long work. */
+  note?: string;
+}
 
-/** SUMMARIZE — derived strictly from the source; never replaces the document. */
+/**
+ * SUMMARIZE — derived strictly from the source; never replaces the document.
+ *
+ * LIFEOS-049: **document** scope now uses hierarchical map/reduce synthesis
+ * (`synthesizeDocument`) so a book is summarized in full rather than being
+ * truncated at the first context window — the defect this sprint fixes. Section
+ * and selection scopes remain single-pass, which is correct at their size.
+ */
 export async function summarizeScope(doc: ReadingDocument, scope: SummaryScope, opts: { sectionId?: string; selection?: string } = {}): Promise<GroundedSummary> {
+  if (scope === "document") {
+    const synth = await synthesizeDocument(doc);
+    // Citations resolve to real passages — never to a part summary (§9 provenance).
+    const citations: SourceRef[] = synth.refs.slice(0, 8).map((r) => ({
+      documentId: r.documentId,
+      sectionId: r.sectionId,
+      passageId: r.passageIds[0] ?? "",
+      page: r.pageStart,
+      snippet: "",
+    }));
+    return { summary: synth.summary, citations, scope, source: synth.source, coverage: synth.coverage, note: synth.note };
+  }
   const chunks = scopeChunks(doc, scope, opts);
   const scored: ScoredChunk[] = chunks.map((chunk) => ({ chunk, score: 1 }));
   const context = buildContext(scored, CONTEXT_CHAR_BUDGET);

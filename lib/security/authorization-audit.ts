@@ -67,6 +67,9 @@ export const TABLE_REGISTRY: readonly TableAudit[] = [
   // never the file's text; the binary itself lives in the private
   // `reading-originals` storage bucket, isolated per user by RLS.
   { table: "reading_document_files", migration: "0032", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "cascade-from-user" },
+  // Reading semantic index (LIFEOS-049) — one embedding per retrieval chunk.
+  // Stores numbers + a chunk id, never document text; scoped per user + document.
+  { table: "reading_chunk_embeddings", migration: "0034", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "cascade-from-user" },
 ];
 
 export interface PolicyPresence {

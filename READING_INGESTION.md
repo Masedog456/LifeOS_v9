@@ -205,11 +205,59 @@ through the existing backup.
 Uploaded documents are ordinary `ReadingDocument`s, so they appear in the existing
 library search and command palette with no separate index.
 
+## 12b. Book-length reading intelligence (LIFEOS-049)
+
+LIFEOS-047 was correct at paragraph scale and wrong at book scale. Three defects
+were proven from the code and fixed:
+
+1. **Whole-document Summarize only saw the first ~8,000 characters.** `summarizeScope`
+   scored every chunk equally in reading order and filled a single context window,
+   so "summarize this book" summarized its first few pages. **Fixed** by hierarchical
+   map/reduce (`lib/reading/synthesis.ts`): each part is summarized from its own
+   source in a bounded call, then those summaries — never the raw book — are
+   synthesized. Coverage is reported honestly.
+2. **Page accounting overstated readability.** `extractedPages` counted every page
+   attempted, including image-only pages that yielded no text. **Fixed**: the
+   extractor now reports `readablePages` and `emptyPageNumbers` separately, and
+   truncation (page cap, 600k-char cap, or read error) is explicit rather than
+   silently discarded.
+3. **Retrieval was lexical-only, top-6, with no diversity.** A question phrased in
+   different words found nothing, and six near-duplicates from one page could crowd
+   out the rest of a work. **Fixed** by a stable retrieval-chunk layer
+   (`lib/reading/chunking.ts`, ~750 tokens with ~12% overlap) plus hybrid
+   lexical+semantic ranking with MMR diversity (`lib/reading/retrieval.ts`).
+
+**Ingestion completeness.** Every upload now records a deterministic report
+(`lib/reading/completeness.ts`) on `sourceMetadata.ingestion` — pages, readable
+pages, unreadable ranges, words, passages, sections, truncation, warnings, and an
+`extraction` verdict that is **never "complete" unless every page was read**. The
+Reader shows it as a quiet, expandable **Import details** line in plain language
+("All 120 pages contained readable text", or "132 of 147 pages… pages 41–55 appear
+to be scans"). Documents imported before 049 carry no report and say so rather than
+claiming completeness.
+
+**Semantic index.** Retrieval chunks are embedded via the existing `/api/embed`
+route (server-only keys; deterministic local vectors when no provider is
+configured) and stored in `reading_chunk_embeddings` (migration **0034**),
+per-user RLS, one row per stable chunk id. Indexing is batched, resumable and
+idempotent (content-hashed), reports partial state honestly, and **never blocks
+reading** — the document is fully usable if indexing fails or the user is signed
+out, where retrieval simply stays lexical. Vectors are deliberately kept OUT of
+the local state blob so they cannot worsen the localStorage wall. Deleting a
+reading deletes its index.
+
+**Provenance is unchanged in spirit and stricter in practice.** Citations resolve
+to the **specific passage inside a chunk** that best matches the question — so a
+fact on p. 120 cites p. 120, not the page its chunk happens to start on. Part
+summaries and document syntheses are marked `derived: true` and can never be the
+final citation for a claim; synthesis lineage always resolves back to real source
+passages.
+
 ## 13. Testing
 
 Self-tests live in `lib/reading/selftest.ts` (`runReadingIngestSelfTests`) and are
 surfaced at `/dev/reading-ingest-tests` (`#reading-ingest-selftest-summary`) for
-the regression harness. **58 assertions** cover: format detection, upload
+the regression harness. **108 assertions** cover: format detection, upload
 validation, whitespace-stable duplicate hashing, PDF page provenance (including
 the never-invented fallback), the processing-state machine, honest ingestion of
 scanned/empty text, chunking with real locations, deterministic retrieval,
