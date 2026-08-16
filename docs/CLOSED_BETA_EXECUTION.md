@@ -26,14 +26,25 @@ evidence rather than memory.
 Every gate below requires credentials, a browser, a real device, or a real file.
 **None of them has been run.** They are not "probably fine"; they are unverified.
 
-### G1 — Live migration rehearsal `0001 → 0037`
-Restore a copy of the current production schema to a scratch database, then apply
-migrations in order through `0037_protocols.sql`.
+### G1 — Migration rehearsal — ✅ **RAN, PASSED 38/38**
 
-**Expected:** clean apply; **58** public tables; RLS enabled on `notes` and
-`protocols`; `next_actions.due_date` present and nullable.
+`node scripts/migration-rehearsal.mjs` now executes end to end against a
+throwaway Postgres 16 cluster. Verified: clean apply `0001 → 0037`, **58** public
+tables, idempotent ×3, upgrade from all ten historical checkpoints reaching the
+same 58 tables as a clean install, RLS enabled with policies on every public
+table, `user_id` defaulting to `auth.uid()`, and a live two-user isolation probe
+(B can neither read, update, nor delete A's rows).
 
-**Do not** run this against production. **Blocker if it fails.**
+Two things had to be fixed for it to run at all, both in the harness, neither in a
+migration:
+- `pgvector` was missing from the build image (`postgresql-16-pgvector`).
+- The harness carried a `storage` gap and two stale `56`-table expectations from
+  before `notes` (0035) and `protocols` (0037) existed.
+
+**Still recommended before beta:** run once against a *restored copy of the real
+production schema*. The harness models Supabase's `storage` schema rather than
+reproducing it, so it proves our chain is sound but not that production's exact
+starting state upgrades cleanly.
 
 ### G2 — Deployment
 Confirm the closed-beta environment is actually serving `d2d7fe6`. Pushing `main`
