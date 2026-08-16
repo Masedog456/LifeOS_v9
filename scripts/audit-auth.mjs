@@ -2,7 +2,17 @@
 /**
  * Closed-beta account-creation audit (LIFEOS-050C).
  *
- * The closed beta has exactly one intended way in: the founder pre-creates a
+ * PUBLIC EARLY ACCESS (updated LIFEOS-055S). Conqify now intentionally allows a
+ * verified email to create an account through the passwordless flow, so this
+ * audit NO LONGER requires `shouldCreateUser: false`. What it still guards is
+ * everything that was never intentional:
+ *
+ *   - anonymous auth (`signInAnonymously`) must stay absent — remote sync may
+ *     begin only after a durable email identity
+ *   - no password/OAuth/admin-create side doors
+ *   - no service-role credential in shipped code
+ *
+ * Historical note: the closed beta had exactly one intended way in — the founder pre-creates a
  * user in Supabase, and that user requests a magic link. Nothing in the app may
  * create an account.
  *
@@ -90,8 +100,12 @@ for (const dir of SHIPPED) {
     otpCallSites++;
     // The option must be present and explicitly false. `shouldCreateUser: true`
     // or a bare omission both mean "anyone may register".
-    if (!/shouldCreateUser\s*:\s*false/.test(body)) {
-      problems.push(`${rel}: signInWithOtp() without \`shouldCreateUser: false\` — unknown emails would self-register`);
+    // Public Early Access: self-registration through a verified email is
+    // intentional, so `shouldCreateUser: true` is allowed. The option must still
+    // be EXPLICIT — an omitted flag means nobody decided, and the posture of a
+    // public auth surface should never be an accident.
+    if (!/shouldCreateUser\s*:\s*(?:true|false)/.test(body)) {
+      problems.push(`${rel}: signInWithOtp() without an explicit \`shouldCreateUser\` — the signup posture must be deliberate, not implicit`);
     }
   }
 }
@@ -101,12 +115,13 @@ if (otpCallSites === 0) {
 }
 
 if (problems.length) {
-  console.error("Auth audit FAILED — closed beta is not closed:");
+  console.error("Auth audit FAILED — the auth boundary is not what it claims:");
   for (const p of problems) console.error(`  ✗ ${p}`);
   console.error("\nThe beta admits users ONLY by founder pre-creation in Supabase.");
   process.exit(1);
 }
 
-console.log(`Auth audit: ${otpCallSites} sign-in call site(s), all passing shouldCreateUser: false.`);
+console.log(`Auth audit: ${otpCallSites} sign-in call site(s), each declaring shouldCreateUser explicitly.`);
 console.log("Auth audit: no signUp / admin.createUser / OAuth / anonymous path in shipped code.");
+console.log("Auth audit: public email self-registration is INTENTIONAL for Early Access; anonymous auth remains forbidden.");
 console.log("Auth audit PASS — no in-app account creation.");

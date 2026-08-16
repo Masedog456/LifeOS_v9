@@ -13,6 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { LOCAL_DIMENSIONS, LOCAL_MODEL, LOCAL_PROVIDER, localEmbed } from "@/lib/embeddings/local";
+import { guardCostBearingRoute, rateLimit } from "@/lib/security/api-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -76,6 +77,22 @@ async function callProvider(cfg: ProviderConfig, texts: string[]): Promise<numbe
 }
 
 export async function POST(request: Request) {
+  // Same cost boundary as /api/ai: a configured embedding provider is billable.
+  const guard = await guardCostBearingRoute(request, [process.env.EMBEDDING_API_KEY]);
+  if (!guard.ok) {
+    return NextResponse.json(
+      { error: guard.status === 503 ? "Embedding is unavailable right now." : "Sign in to use this feature." },
+      { status: guard.status },
+    );
+  }
+  if (guard.userId) {
+    const rl = rateLimit(guard.userId);
+    if (rl.limited) {
+      return NextResponse.json({ error: "Too many requests. Try again shortly." },
+        { status: 429, headers: { "retry-after": String(rl.retryAfterSeconds) } });
+    }
+  }
+
   let texts: string[];
   try {
     const body = (await request.json()) as { texts?: unknown };

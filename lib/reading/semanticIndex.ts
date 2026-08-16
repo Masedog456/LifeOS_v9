@@ -22,6 +22,7 @@
 
 import type { RetrievalChunk } from "@/lib/reading/chunking";
 import { hashText } from "@/lib/hash";
+import { authedJsonHeaders } from "@/lib/security/api-token";
 
 /** Chunks embedded per request. `/api/embed` accepts up to 128; stay well under. */
 export const INDEX_BATCH_SIZE = 24;
@@ -237,7 +238,7 @@ export async function getSemanticIndexBackend(): Promise<SemanticIndexBackend | 
       try {
         const res = await fetch("/api/embed", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: await authedJsonHeaders(),
           body: JSON.stringify({ texts }),
         });
         if (!res.ok) return { ok: false, provider: "", model: "", dimensions: 0, vectors: [], error: "embed failed" };

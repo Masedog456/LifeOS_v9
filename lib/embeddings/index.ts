@@ -10,6 +10,7 @@
 import type { EmbeddableItem } from "@/lib/embeddings/types";
 import type { EmbeddingRecord, StoreState } from "@/types/mvp";
 import { embeddableItems } from "@/lib/embeddings/records";
+import { authedJsonHeaders } from "@/lib/security/api-token";
 
 export const EMBED_BATCH_SIZE = 32;
 export const EMBED_MAX_PER_OP = 200;
@@ -45,7 +46,7 @@ interface EmbedResponse {
 async function requestEmbeddings(texts: string[]): Promise<EmbedResponse> {
   const res = await fetch("/api/embed", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: await authedJsonHeaders(),
     body: JSON.stringify({ texts }),
   });
   if (!res.ok) throw new Error(`embed route ${res.status}`);
