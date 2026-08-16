@@ -12,9 +12,14 @@ import type { NextAction, ActionHistoryEvent, ActionStatus, RecordRefLite } from
 export type ActionEventKind =
   | "created" | "edited" | "started" | "paused" | "resumed" | "completed"
   | "reopened" | "deferred" | "returned" | "waiting" | "unblocked"
-  | "cancelled" | "restored" | "linked" | "unlinked";
+  | "cancelled" | "restored" | "linked" | "unlinked"
+  | "due_set" | "due_cleared";
 
 export const ACTION_LABEL: Record<ActionEventKind, string> = {
+  // Neutral, past-tense wording — the history records what happened, never a
+  // verdict on the user's timeliness (LIFEOS-053).
+  due_set: "Due date set",
+  due_cleared: "Due date removed",
   created: "Created",
   edited: "Edited",
   started: "Started",

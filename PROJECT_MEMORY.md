@@ -3163,3 +3163,76 @@ conversion menu), not a new target.
   migration. Contextual note fields (project/workspace/research) were **not**
   migrated — they were never the same thing as a standalone Note, and
   manufacturing structure from old data was explicitly out of scope.
+
+---
+
+- **LIFEOS-053 — Minimal time model.** One field, and a careful account of why it
+  is only one.
+
+  **Audit finding that shaped the sprint.** Semantic dates already existed at
+  every level of the hierarchy *except the one that matters daily*:
+  `Goal.targetDate`, `Project.startDate` + `targetDate`, `Milestone.targetDate`.
+  The **leaf** — `NextAction`, the thing a person actually does — had
+  `deferredUntil`, `waitingSince` and `followUpDate` but **no due date**. So
+  "call the dentist by Friday" was unrepresentable, and that job stayed with
+  whatever reminders app the user already had.
+
+  **Added: exactly one field.** `NextAction.dueDate?: DayKey` ("yyyy-mm-dd"),
+  plus migration `0036_action_due_date.sql` (nullable `date` column, partial
+  index, RLS unchanged) and `lib/actions/due.ts` — a pure classifier
+  (overdue/today/tomorrow/soon/later/none), ordering, and summary.
+
+  **Deliberately NOT added, each for a stated reason:**
+
+  - **A start / "not before" date** — `deferredUntil` **already is one**. Adding
+    a second would have created exactly the duplicate semantics the brief warned
+    about. This was the single most useful audit finding.
+  - **A due TIME.** Every named use case is a day ("by Friday", "before the
+    15th", "expires next month"). A datetime needs a stored timezone to mean
+    anything and drifts across travel and DST — it converts a deadline into a
+    bug. Real appointments belong to the future Event layer.
+  - **A recurrence engine.** Both existing recurrence concepts are
+    **descriptive only** — `PracticeCadence` is a label, and
+    `ActionTemplate.suggestedRecurrence` is documented as "a plain human
+    description, never a schedule the system acts on". There is nothing to
+    extend, and a half-built engine is precisely how duplicate actions get
+    generated. Recurring responsibilities remain the largest known everyday gap.
+  - **Dates on Notes.** Note = useful information; Action = something to do. A
+    note with a deadline is a task wearing a disguise.
+  - **New dates on Goals/Projects/Milestones** — they already have them.
+
+  **Timezone: date-only means no shift is possible.** A due date is compared as a
+  `DayKey` with the same local-date helpers Capture deferral and Daily Review
+  already use. No `Date` instant is constructed to answer "is this overdue?", so
+  nothing converts to UTC and back, and a deadline set on the 22nd is the 22nd in
+  every timezone and across DST. Month, year, leap-day and both DST transitions
+  are asserted.
+
+  **Language.** "Was due Mon, Aug 10" — past tense, stated once, no day-count, no
+  exclamation. `DUE_FORBIDDEN_WORDS` extends the Return ban from LIFEOS-052 and is
+  test-asserted, including an explicit check that no "N days late" count is ever
+  rendered. A deadline is the easiest place for a calm product to start nagging.
+
+  **Return stays distinct from due.** Return says "this may be worth revisiting";
+  a due date says "this needs attention by X". Dormant material never becomes
+  fake overdue work — dormancy has no due date and cannot acquire one.
+
+  **Today** gained one card: *Needs attention* (overdue + due today, together,
+  because on a Tuesday morning they are the same question) and *Next 7 days*.
+  Upcoming deliberately EXCLUDES today and overdue so it never restates Today.
+  Waiting follow-ups keep surfacing through their existing path — not duplicated.
+
+  Actions suite 62 → **123**; full regression **1443/1443** across 23 suites.
+  Release head 0035 → 0036; reserved fix slot now `0037_v1_release_fix.sql`.
+
+  **Confirmed not built:** notifications/reminders of any kind, Protocol,
+  Calendar connector, Event, Person, Commitment, AI classification, date parsing
+  from capture text, universal retrieval, persistence rewrite.
+
+- **ROADMAP SEQUENCE (unchanged, reconfirmed).** Life track: Notes / Capture
+  front door ✅ → minimal time model ✅ → **Protocol + deterministic Capture
+  classification** → Google Calendar read connector. Knowledge track: Reading /
+  library scaling, AI portability, source verification, universal retrieval,
+  Readwise, Zotero, Drive/Docs. **Protocol is not recurrence** — a conditional
+  trigger ("when X happens → do Y") has no cadence, and the time model added here
+  deliberately gives it nothing to be confused with.

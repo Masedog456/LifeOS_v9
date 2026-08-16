@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  useStore, updateAction, startAction, completeAction, deferAction, markActionWaiting,
+  useStore, updateAction, startAction, completeAction, deferAction, markActionWaiting, setActionDueDate,
   pauseAction, cancelAction, restoreAction, reopenAction, duplicateAction,
   deleteAction, linkActionRef, unlinkActionRef, addActionTag, removeActionTag,
 } from "@/lib/mvpStore";
@@ -24,6 +24,7 @@ import { actionSessions, actionContribution } from "@/lib/actions/tracking";
 import { actionSources, dependencyNeighbours } from "@/lib/actions/relationships";
 import { dependencyImpact } from "@/lib/actions/dependencies";
 import { useUnsavedGuard } from "@/lib/ux/dirty-state";
+import { dueLabel } from "@/lib/actions/due";
 import { toast } from "@/lib/ux/feedback";
 import { writeActionMemory } from "@/lib/actions/memory";
 import EntityPicker from "@/components/reviews/EntityPicker";
@@ -58,6 +59,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
   const [waitOn, setWaitOn] = useState("");
   const [waitDate, setWaitDate] = useState("");
   const [deferDate, setDeferDate] = useState("");
+  const [dueDraft, setDueDraft] = useState(action?.dueDate ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (action && seenId !== action.id) { setSeenId(action.id); setTitleDraft(action.title); setDescDraft(action.description); setNotesDraft(action.notes); }
@@ -125,6 +127,25 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
             <button type="button" onClick={() => { completeAction(action.id, { note: completeNote }); setCompleteOpen(false); setCompleteNote(""); toast({ kind: "success", message: "Completed" }); }} className="mt-2 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white">Mark complete</button>
           </section>
         )}
+
+        {/* Due date (LIFEOS-053). Date-only, optional, and as cheap to remove as
+            to set — a deadline you cannot clear is one users stop setting. */}
+        <section className="mb-4 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="action-due" className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Due</label>
+            <input id="action-due" type="date" value={dueDraft} onChange={(e) => setDueDraft(e.target.value)}
+              className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" />
+            <button type="button" disabled={dueDraft === (action.dueDate ?? "")}
+              onClick={() => { setActionDueDate(action.id, dueDraft || undefined); toast({ kind: "success", message: dueDraft ? "Due date set" : "Due date removed" }); }}
+              className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Save</button>
+            {action.dueDate && (
+              <button type="button" onClick={() => { setDueDraft(""); setActionDueDate(action.id, undefined); toast({ kind: "info", message: "Due date removed" }); }}
+                className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Clear</button>
+            )}
+            {action.dueDate && <span className="text-xs text-zinc-500">{dueLabel(action)}</span>}
+          </div>
+          <p className="mt-1 text-[11px] text-zinc-500">A day, not a time. Nothing is scheduled and you won&apos;t be notified — it shows up on Today.</p>
+        </section>
 
         {/* Defer options. */}
         {deferOpen && (

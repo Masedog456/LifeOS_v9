@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import type { NextAction, ActionDependency } from "@/types/mvp";
 import { SIZE_LABEL, userFacingStatus, statusTone } from "@/lib/actions/status";
 import { buildBlockedByMap, isBlocked } from "@/lib/actions/dependencies";
+import { dueLabel } from "@/lib/actions/due";
 
 const snip = (s: string, n = 90) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
@@ -65,6 +66,8 @@ export default function ActionList({ items, deps, selected, activeIndex, onToggl
                   {a.estimatedSize !== "unspecified" && <span>· {SIZE_LABEL[a.estimatedSize]}</span>}
                   {a.context && <span>· {a.context}</span>}
                   {a.status === "deferred" && a.deferredUntil && <span>· until {a.deferredUntil}</span>}
+                  {/* Due is shown as a plain fact beside the action (LIFEOS-053). */}
+                  {dueLabel(a) && <span>· {dueLabel(a)}</span>}
                   {a.status === "waiting" && a.waitingOn && <span>· waiting on {a.waitingOn}</span>}
                   {a.tags.map((t) => <span key={t} className="rounded-full bg-black/[.06] px-1.5 dark:bg-white/[.08]">{t}</span>)}
                 </div>

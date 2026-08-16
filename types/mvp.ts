@@ -2477,6 +2477,28 @@ export interface NextAction {
   updatedAt: ISO;
   completedAt?: ISO;
   cancelledAt?: ISO;
+  /**
+   * When this must be done, as a LOCAL day key (yyyy-mm-dd) — LIFEOS-053.
+   *
+   * The one field the minimal time model adds. Goals, Projects and Milestones
+   * already carried `targetDate`; the leaf of the hierarchy — the thing a person
+   * actually does — was the only level that could not answer "by when?", so
+   * "call the dentist by Friday" was unrepresentable.
+   *
+   * **Date-only, deliberately.** Every use case the sprint named ("by Friday",
+   * "before the 15th", "expires next month") is a day, not an instant. A
+   * datetime would need a stored timezone to be meaningful and would drift
+   * across travel and DST, converting a deadline into a bug. When real
+   * appointments arrive they belong to a future Event layer fed by a calendar —
+   * a due date must never be used as a fake calendar event.
+   *
+   * Distinct from its neighbours, and none of them is a substitute:
+   *  - `deferredUntil` — "not before" (a START date; already existed)
+   *  - `followUpDate`  — "check back on" (waiting only; already existed)
+   *  - `dueDate`       — "must be done by"
+   *  - planning horizon — the user's chosen attention band, never a deadline
+   */
+  dueDate?: string;
   /** Local day key (yyyy-mm-dd) an action returns to "Next" on. */
   deferredUntil?: string;
   /** Free text: what/who this action is waiting on. */

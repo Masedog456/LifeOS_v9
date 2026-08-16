@@ -32,13 +32,13 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 35", files.length === 35, `found ${files.length}`);
+ok("migration count == 36", files.length === 36, `found ${files.length}`);
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
-// Head is 0035 (0035_notes.sql, LIFEOS-052). A release-blocking DB defect
-// would add exactly one narrowly-scoped 0036_v1_release_fix.sql beyond it.
-const beyond35 = files.filter((f) => Number(f.slice(0, 4)) > 35);
-ok("no migration beyond 0035 except allowed 0036 fix", beyond35.every((f) => f === "0036_v1_release_fix.sql"), `unexpected: ${beyond35.join(", ")}`);
+// Head is 0036 (0036_action_due_date.sql, LIFEOS-053). A release-blocking DB
+// defect would add exactly one narrowly-scoped 0037_v1_release_fix.sql beyond it.
+const beyond36 = files.filter((f) => Number(f.slice(0, 4)) > 36);
+ok("no migration beyond 0036 except allowed 0037 fix", beyond36.every((f) => f === "0037_v1_release_fix.sql"), `unexpected: ${beyond36.join(", ")}`);
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");
