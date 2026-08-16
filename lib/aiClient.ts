@@ -30,10 +30,25 @@ import { authedJsonHeaders } from "@/lib/security/api-token";
 export type AiSource = "ai" | "mock";
 export type { ChunkMap } from "@/lib/mockAI";
 
+/**
+ * Why a request fell back to deterministic output. Reported so the UI can say
+ * something TRUE — the previous copy blamed a missing API key for every failure,
+ * including a plain session expiry, which sent users to fix an env var that was
+ * already correct (LIFEOS-055T).
+ */
+export type DegradedReason = "auth" | "rate_limited" | "provider" | "offline";
+
+export const DEGRADED_MESSAGE: Record<DegradedReason, string> = {
+  auth: "Sign in again to use AI — your session expired.",
+  rate_limited: "Too many AI requests just now. Try again in a moment.",
+  provider: "AI is unavailable right now, so this is a offline-generated answer.",
+  offline: "Couldn't reach AI, so this is a offline-generated answer.",
+};
+
 async function call<T>(
   body: Record<string, unknown>,
   fallback: () => T,
-): Promise<{ result: T; source: AiSource }> {
+): Promise<{ result: T; source: AiSource; degradedReason?: DegradedReason }> {
   try {
     const res = await fetch("/api/ai", {
       method: "POST",
@@ -42,11 +57,19 @@ async function call<T>(
       headers: await authedJsonHeaders(),
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error("ai route failed");
+    if (!res.ok) {
+      // Distinguish the causes rather than blaming the API key for all of them.
+      const reason: DegradedReason =
+        res.status === 401 || res.status === 403 ? "auth"
+          : res.status === 429 ? "rate_limited"
+            : "provider";
+      return { result: fallback(), source: "mock", degradedReason: reason };
+    }
     const data = (await res.json()) as { result: T; source: AiSource };
     return { result: data.result, source: data.source };
   } catch {
-    return { result: fallback(), source: "mock" };
+    // Network failure — genuinely offline, not an auth or key problem.
+    return { result: fallback(), source: "mock", degradedReason: "offline" };
   }
 }
 

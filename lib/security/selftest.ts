@@ -17,6 +17,9 @@ import {
   bearerToken, costBearing, evaluateAccess, rateLimit, resetRateLimits,
   nextBucket, isOverLimit, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS,
 } from "@/lib/security/api-auth";
+import { tokenIsFresh, TOKEN_REFRESH_SKEW_SECONDS } from "@/lib/security/api-token";
+import { DEGRADED_MESSAGE } from "@/lib/aiClient";
+import { mockAnswer } from "@/lib/mockAI";
 import { evaluateCompatibility, syncIsSafe } from "@/lib/security/schema-compatibility";
 import { probeStorage, readJson, writeJson } from "@/lib/security/storage-resilience";
 import { acquireLock, releaseLock } from "@/lib/security/multi-tab";
@@ -342,6 +345,55 @@ export function runSecuritySelfTests(): SelfTestReport {
     // ---- no secret may ever reach the client bundle ----
     ok("12.27 no NEXT_PUBLIC Anthropic key exists", process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY === undefined);
     ok("12.28 no NEXT_PUBLIC embedding key exists", process.env.NEXT_PUBLIC_EMBEDDING_API_KEY === undefined);
+  }
+
+  // ============ 13. The 055T defect: signed-in user, 401 on /api/ai ============
+  //
+  // Production evidence: a signed-in user hit Reading -> Ask, Vercel logged
+  // POST /api/ai 401, and the UI blamed a missing API key that was in fact
+  // configured. Root cause: the client sent whatever `getSession()` returned,
+  // including an EXPIRED access token. Supabase tokens live ~1 hour and only
+  // auto-refresh while the tab is awake, so a long-lived tab is still "signed
+  // in" while its token is stale.
+  {
+    const NOW = 1_800_000_000_000; // fixed clock
+    const nowSec = Math.floor(NOW / 1000);
+
+    // ---- freshness policy ----
+    ok("13.1 a token expiring in an hour is fresh", tokenIsFresh(nowSec + 3600, NOW) === true);
+    ok("13.2 an ALREADY EXPIRED token is not fresh (the defect)", tokenIsFresh(nowSec - 1, NOW) === false);
+    ok("13.3 a token expiring inside the skew window is not fresh",
+      tokenIsFresh(nowSec + (TOKEN_REFRESH_SKEW_SECONDS - 5), NOW) === false);
+    ok("13.4 a token just past the skew window is fresh",
+      tokenIsFresh(nowSec + (TOKEN_REFRESH_SKEW_SECONDS + 5), NOW) === true);
+    ok("13.5 a session without expiry is not forced to refresh", tokenIsFresh(undefined, NOW) === true);
+    ok("13.6 the skew is a real, non-zero margin", TOKEN_REFRESH_SKEW_SECONDS > 0);
+
+    // ---- the server side must NOT be weakened by any of this ----
+    const cfg = { supabaseConfigured: true };
+    ok("13.7 an expired token still fails server verification",
+      evaluateAccess({ costBearing: true, ...cfg, token: "expired.jwt", tokenValid: false }).status === 401);
+    ok("13.8 /api/ai is still NOT anonymous",
+      evaluateAccess({ costBearing: true, ...cfg, token: null }).allow === false);
+    ok("13.9 a refreshed, valid token is accepted",
+      evaluateAccess({ costBearing: true, ...cfg, token: "fresh.jwt", tokenValid: true }).allow === true);
+
+    // ---- the copy must not blame the API key for an auth failure ----
+    ok("13.10 a 401 reports an auth cause", DEGRADED_MESSAGE.auth.toLowerCase().includes("sign in"));
+    ok("13.11 auth copy does NOT mention an API key",
+      !/api key|anthropic_api_key/i.test(DEGRADED_MESSAGE.auth));
+    ok("13.12 rate-limit copy is distinct", DEGRADED_MESSAGE.rate_limited !== DEGRADED_MESSAGE.auth);
+    ok("13.13 provider copy is distinct", DEGRADED_MESSAGE.provider !== DEGRADED_MESSAGE.auth);
+    ok("13.14 offline copy is distinct", DEGRADED_MESSAGE.offline !== DEGRADED_MESSAGE.provider);
+    ok("13.15 no degraded message blames a missing key",
+      Object.values(DEGRADED_MESSAGE).every((m) => !/set ANTHROPIC_API_KEY/i.test(m)));
+    // The generic offline answer must be cause-neutral now.
+    ok("13.16 the mock answer no longer asserts 'no AI key configured'",
+      !/no AI key configured/i.test(mockAnswer("x".repeat(50), "q")));
+    ok("13.17 the mock answer no longer tells users to set a key",
+      !/ANTHROPIC_API_KEY/i.test(mockAnswer("x".repeat(50), "q")));
+    ok("13.18 the mock answer still says it is offline output",
+      /offline/i.test(mockAnswer("x".repeat(50), "q")));
   }
 
   const passed = results.filter((r) => r.pass).length;

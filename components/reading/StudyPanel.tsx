@@ -32,6 +32,7 @@ import {
 } from "@/lib/reading/study";
 import { ORIGIN_LABEL, withAttribution, type OriginType } from "@/lib/provenance";
 import type { ReadingDocument } from "@/types/mvp";
+import { DEGRADED_MESSAGE } from "@/lib/aiClient";
 
 type Mode = "ask" | "summarize" | "study";
 
@@ -189,6 +190,13 @@ export default function StudyPanel({ doc, sectionId, onJump }: { doc: ReadingDoc
               {answer.grounded ? (
                 <>
                   <p className="mt-2 text-[10px] text-zinc-400">{sourceNote(answer.source)}</p>
+                  {/* Say WHY it degraded — an expired session is not a missing
+                      API key, and telling users to set one wasted their time. */}
+                  {answer.degradedReason && (
+                    <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                      {DEGRADED_MESSAGE[answer.degradedReason]}
+                    </p>
+                  )}
                   <CitationList doc={doc} cites={answer.citations} onJump={onJump} />
                   <SaveRow doc={doc} passageId={primaryPassage} text={answer.answer} title={question.trim()} origin="conqify_ai" onSaved={flashSaved} />
                 </>

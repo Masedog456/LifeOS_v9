@@ -20,7 +20,7 @@
  */
 
 import type { ReadingDocument, Passage } from "@/types/mvp";
-import { askQuestion, summarize } from "@/lib/aiClient";
+import { askQuestion, summarize, type DegradedReason } from "@/lib/aiClient";
 import { buildRetrievalChunks } from "@/lib/reading/chunking";
 import { selectEvidence, evidenceSpread, lexicalScore } from "@/lib/reading/retrieval";
 import type { StoredVector } from "@/lib/reading/semanticIndex";
@@ -129,6 +129,8 @@ export interface GroundedAnswer {
   spread?: number;
   /** True when the evidence was drawn from several parts of the work. */
   multiPart?: boolean;
+  /** Why this fell back to offline output, when it did (LIFEOS-055T). */
+  degradedReason?: DegradedReason;
 }
 
 /**
@@ -179,9 +181,9 @@ export async function askDocument(
     };
   });
   const context = buildContext(scored);
-  const { result, source } = await askQuestion(context, question);
+  const { result, source, degradedReason } = await askQuestion(context, question);
   const spread = evidenceSpread(picked, chunks.length);
-  return { answer: result, citations: groundedCitations(scored), grounded: true, source, spread, multiPart: spread > 1 };
+  return { answer: result, citations: groundedCitations(scored), grounded: true, source, spread, multiPart: spread > 1, degradedReason };
 }
 
 export type SummaryScope = "section" | "selection" | "document";
