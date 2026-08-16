@@ -2,14 +2,14 @@
   "release": {
     "releaseTag": "v1.0.0-rc1",
     "appVersion": "1.0.0-rc1",
-    "migrationVersion": 34,
-    "migrationCount": 34,
+    "migrationVersion": 35,
+    "migrationCount": 35,
     "stateVersion": 1,
     "exportArchiveVersion": 1,
     "backupSchemaVersion": 1,
     "supportedMigrationRange": [
       20,
-      34
+      35
     ],
     "supportedArchiveRange": [
       1,
@@ -41,7 +41,7 @@
     "/privacy",
     "/security"
   ],
-  "dataDomainCount": 40,
+  "dataDomainCount": 41,
   "dataDomains": [
     "captures",
     "proposals",
@@ -82,9 +82,10 @@
     "focusSessions",
     "maintenanceEvents",
     "duplicateCandidates",
-    "savedInsightViews"
+    "savedInsightViews",
+    "notes"
   ],
-  "migrationCount": 34,
+  "migrationCount": 35,
   "tableCountNote": "55 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
   "preferenceBlocks": [
     "onboarding",
@@ -279,7 +280,8 @@
     "0031_security_production_hardening.sql",
     "0032_reading_document_files.sql",
     "0033_reading_files_checksum_index.sql",
-    "0034_reading_chunk_embeddings.sql"
+    "0034_reading_chunk_embeddings.sql",
+    "0035_notes.sql"
   ],
-  "tableCount": 56
+  "tableCount": 57
 }

@@ -58,6 +58,7 @@ import type {
   MaintenanceEvent,
   DuplicateCandidate,
   SavedInsightView,
+  Note,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -167,6 +168,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const maintenance = await this.loadMaintenance();
     // Insights saved views (LIFEOS-039): resilient to the 0030 table being absent.
     const savedInsightViews = await this.loadInsightViews();
+    const notes = await this.loadNotes();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -218,6 +220,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       maintenanceEvents: maintenance.maintenanceEvents,
       duplicateCandidates: maintenance.duplicateCandidates,
       savedInsightViews,
+      notes,
     };
   }
 
@@ -338,6 +341,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("maintenanceEvents")) await this.syncMaintenanceEvents(state.maintenanceEvents ?? [], base?.maintenanceEvents ?? []);
     if (w("duplicateCandidates")) await this.syncDuplicateCandidates(state.duplicateCandidates ?? [], base?.duplicateCandidates ?? []);
     if (w("savedInsightViews")) await this.syncInsightViews(state.savedInsightViews ?? [], base?.savedInsightViews ?? []);
+    if (w("notes")) await this.syncNotes(state.notes ?? [], base?.notes ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -513,6 +517,22 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const d = diffById<SavedInsightViewRow>(current.map(insightViewToRow), base.map(insightViewToRow));
     if (d.upsert.length) await this.throwing(this.client.from("saved_insight_views").upsert(d.upsert));
     if (d.deleteIds.length) { await this.throwing(this.client.from("saved_insight_views").delete().in("id", d.deleteIds)); await this.writeTombstones("savedInsightViews", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for notes (LIFEOS-052). */
+  private async syncNotes(current: Note[], base: Note[]): Promise<void> {
+    const d = diffById<NoteRow>(current.map(noteToRow), base.map(noteToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("notes").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("notes").delete().in("id", d.deleteIds)); await this.writeTombstones("notes", d.deleteIds); }
+  }
+
+  /** Load notes, resilient to the 0035 table being absent. */
+  private async loadNotes(): Promise<Note[]> {
+    try {
+      const res = await this.client.from("notes").select("*").order("updated_at", { ascending: false });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToNote);
+    } catch { return []; }
   }
 
   /** Load saved insight views, resilient to the 0030 table being absent. */
@@ -2072,6 +2092,34 @@ function rowToInsightView(r: any): SavedInsightView {
     id: r.id, name: r.name ?? "", insight: r.insight ?? "home", rangeKind: (r.range_kind ?? "last_7_days") as SavedInsightView["rangeKind"],
     customStart: r.custom_start ?? undefined, customEnd: r.custom_end ?? undefined, grouping: r.grouping ?? undefined,
     filters: (r.filters && typeof r.filters === "object") ? r.filters : {}, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+interface NoteRow {
+  id: string; user_id?: string; title: string | null; body: string;
+  workspace_id: string | null; source_capture_id: string | null;
+  linked_refs: unknown; tags: string[]; from_ai_text: boolean; archived: boolean;
+  created_at: string; updated_at: string;
+}
+function noteToRow(n: Note): NoteRow {
+  return {
+    id: n.id, title: n.title ?? null, body: n.body ?? "",
+    workspace_id: n.workspaceId ?? null, source_capture_id: n.sourceCaptureId ?? null,
+    linked_refs: n.linkedEntityRefs ?? [], tags: n.tags ?? [],
+    // Provenance is a stored fact, not a display flag: it must round-trip.
+    from_ai_text: !!n.fromAiText, archived: !!n.archived,
+    created_at: n.createdAt, updated_at: n.updatedAt,
+  };
+}
+function rowToNote(r: any): Note {
+  return {
+    id: r.id, title: r.title ?? undefined, body: r.body ?? "",
+    workspaceId: r.workspace_id ?? undefined, sourceCaptureId: r.source_capture_id ?? undefined,
+    linkedEntityRefs: Array.isArray(r.linked_refs) ? r.linked_refs : [],
+    tags: Array.isArray(r.tags) ? r.tags : [],
+    fromAiText: r.from_ai_text ? true : undefined,
+    archived: r.archived ? true : undefined,
+    createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 

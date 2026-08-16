@@ -24,6 +24,7 @@ import { openQuickCapture } from "@/lib/command/events";
 import FirstRun from "@/components/ux/FirstRun";
 import TodayReviewCard from "@/components/reviews/TodayReviewCard";
 import TodayInboxCard from "@/components/inbox/TodayInboxCard";
+import TodayReturnCard from "@/components/planning/TodayReturnCard";
 import TodayActions from "@/components/actions/TodayActions";
 import TodayPlanCard from "@/components/planning/TodayPlanCard";
 import TodayInsightsCard from "@/components/insights/TodayInsightsCard";
@@ -136,6 +137,7 @@ export default function TodayPage() {
 
           {/* Capture inbox entry point (LIFEOS-035, Feature 13). */}
           <TodayInboxCard />
+          <TodayReturnCard />
 
           {/* Next actions entry point (LIFEOS-036, Feature 16). */}
           <TodayActions />
