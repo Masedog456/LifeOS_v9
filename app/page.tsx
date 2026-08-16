@@ -24,11 +24,8 @@ export default function Home() {
   const [note, setNote] = useState<string | null>(null);
   const [resurfaced2, setResurfaced2] = useState<RankedResult[]>([]);
   const [showMore, setShowMore] = useState(false);
-  // Synchronous guard against a double-click double-submitting before the
-  // `busy` state has a chance to re-render and disable the buttons.
   const submitting = useRef(false);
 
-  // Retrieval runs AFTER the capture is already saved, and never blocks it.
   function resurface(raw: string) {
     try {
       const related = relatedTo(raw, buildRecords(state), state.feedback, { semantic: state.embeddings.length > 0 }).slice(0, 3);
@@ -40,8 +37,6 @@ export default function Home() {
   }
 
   async function generate(captureId: string, raw: string) {
-    // The single AI route, via the shared client (which itself falls back
-    // to a deterministic mock if the network fails).
     const { result, source } = await generateBeliefs(raw);
     attachProposals(captureId, result, source);
     return result.length;
@@ -54,7 +49,6 @@ export default function Home() {
     setBusy(true);
     setNote(null);
 
-    // Save locally FIRST, before any AI work.
     const captureId = addCapture(raw);
     const count = await generate(captureId, raw);
 
@@ -65,15 +59,11 @@ export default function Home() {
     if (analyze) {
       router.push("/inbox");
     } else {
-      // Honest, local-first status: the capture is safe on this device the
-      // instant it's written. Whether it has reached your account is a separate
-      // fact, shown by the sync indicator — so we never imply full sync here.
       setNote(
         count > 0
           ? `Saved on this device. ${count} belief${count === 1 ? "" : "s"} waiting in your Inbox.`
           : "Saved on this device.",
       );
-      // Resurfacing runs only after the capture is saved, and never blocks it.
       resurface(raw);
     }
   }
@@ -105,6 +95,16 @@ export default function Home() {
       )}
 
       <section>
+        <div className="mb-6">
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-400">Chaos → order</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+            Bring what&apos;s competing for your attention into one place.
+          </h1>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+            Capture a thought, responsibility, idea, commitment, or something you&apos;re learning. Conqify helps you give it shape without taking the choice away from you.
+          </p>
+        </div>
+
         <label htmlFor="capture" className="sr-only">
           What&apos;s on your mind?
         </label>
@@ -142,9 +142,7 @@ export default function Home() {
 
         {!resurfaced && resurfaced2.length === 0 && (
           <p className="mt-6 text-sm leading-relaxed text-zinc-400">
-            Paste a quote from anything you&apos;re reading, or write down a
-            thought. LifeOS will help you decide what you actually believe about
-            it — and remember it, so you can watch your thinking change.
+            Start messy. Conqify can help turn scattered thoughts into notes, actions, protocols, projects, and things worth returning to.
           </p>
         )}
       </section>
@@ -153,7 +151,7 @@ export default function Home() {
         <section className="rounded-2xl border border-black/[.06] bg-black/[.02] p-5 dark:border-white/[.08] dark:bg-white/[.03]">
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-              This reminded LifeOS of
+              This reminded Conqify of
             </p>
             <button
               type="button"
@@ -181,7 +179,6 @@ export default function Home() {
         </section>
       )}
 
-      {/* One quiet entry point to the daily review — no dashboard, no metrics. */}
       <div className="text-center">
         <Link href="/review" className="text-sm text-zinc-500 underline-offset-4 hover:underline">
           Begin today&apos;s review →
