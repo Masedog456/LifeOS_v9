@@ -160,9 +160,12 @@ import { captureStatus, effectiveText } from "@/lib/inbox/capture-status";
 import { makeEvent, appendHistory } from "@/lib/inbox/history";
 import { deferKeyFor, returnDueDefers, type DeferOption } from "@/lib/inbox/defer";
 import { titleFromText, type ConversionTargetKey } from "@/lib/inbox/conversion";
+import { normalizeNewNote, noteDisplayTitle, type NewNoteInput } from "@/lib/notes/notes";
+import { extractConditional } from "@/lib/capture/classify";
+import { type NotePromotionKey } from "@/lib/notes/promotion";
 import { planSplit } from "@/lib/inbox/split";
 import { planMerge } from "@/lib/inbox/merge";
-import type { CaptureProcessingStatus, RecordRefLite as RefLite } from "@/types/mvp";
+import type { CaptureProcessingStatus, RecordRefLite as RefLite, Note, Protocol, ProtocolStatus } from "@/types/mvp";
 import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
 import { clearRollback, setRecovery } from "@/lib/sync/status-store";
 // Next actions & commitments (LIFEOS-036).
@@ -226,6 +229,8 @@ const EMPTY_STATE: StoreState = {
   maintenanceEvents: [],
   duplicateCandidates: [],
   savedInsightViews: [],
+  notes: [],
+  protocols: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -573,6 +578,8 @@ export function hydrate() {
           history: asArray<MaintenanceEvent>(d?.history),
         })),
         savedInsightViews: asArray<SavedInsightView>(parsed.savedInsightViews),
+        notes: asArray<Note>(parsed.notes),
+        protocols: asArray<Protocol>(parsed.protocols),
       };
       // Deferred captures whose local date has arrived return to the inbox
       // (LIFEOS-035, Feature 9) — deterministic, no background workers.
@@ -640,7 +647,7 @@ export function resetStore() {
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
     workspaces: [], sessions: [], goals: [], projects: [],
     nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [],
-    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [],
+    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [], notes: [], protocols: [],
   });
 }
 
@@ -3970,6 +3977,20 @@ export function convertCapture(captureId: string, target: ConversionTargetKey, o
   let ref: RefLite | null = null;
 
   switch (target) {
+    // The everyday default. `fromAiText` carries the capture's TRUE origin onto
+    // the note, so machine prose kept from a capture reads back as `conqify_ai`
+    // rather than the user's own words — the LIFEOS-050A boundary, arriving here
+    // by the newest door (LIFEOS-052).
+    // Protocol carries the capture's CLASSIFIED origin, so machine prose kept
+    // from a capture cannot be laundered into an authored intention by passing
+    // through the classifier (LIFEOS-050A/050B; §3 of LIFEOS-054).
+    case "protocol": {
+      const cond = extractConditional(text);
+      if (!cond) return null;
+      ref = { kind: "protocol", id: createProtocol({ trigger: cond.trigger, response: cond.response, sourceCaptureId: c.id, fromAiText: origin === "conqify_ai" }) };
+      break;
+    }
+    case "note": ref = { kind: "note", id: createNote({ body: text, sourceCaptureId: c.id, workspaceId: c.sourceContext?.workspaceId, tags: c.tags ?? [], fromAiText: origin === "conqify_ai" }) }; break;
     case "belief": {
       // Reference the EXISTING capture (never spawn a duplicate inbox capture).
       const at = now();
@@ -4002,6 +4023,171 @@ export function convertCapture(captureId: string, target: ConversionTargetKey, o
     { ...x, linkedEntityRefs: [...(x.linkedEntityRefs ?? []), ref!], processingStatus: toStatus, processedAt: after === "processed" ? now() : x.processedAt, archivedAt: after === "archive" ? now() : x.archivedAt, processedByAction: after !== "inbox" ? `convert:${target}` : x.processedByAction },
     makeEvent({ action: "convert", at: now(), fromStatus: captureStatus(c), toStatus, targets: [ref!], detail: `→ ${target}` }),
   ));
+  return ref;
+}
+
+// ------------------------------------------------------------ protocols ----
+
+/**
+ * Create a Protocol (LIFEOS-054). WHEN/IF [trigger] → [response].
+ *
+ * Only ever called from an explicit user confirmation. The classifier can
+ * SUGGEST this shape and pre-fill the trigger/response for editing, but a
+ * machine suggestion never reaches this function on its own — confirming a
+ * structure is not the same as authoring a commitment.
+ */
+export function createProtocol(input: { trigger: string; response: string; reason?: string; sourceCaptureId?: string; fromAiText?: boolean }): string {
+  const at = now();
+  const p: Protocol = {
+    id: id(),
+    trigger: input.trigger.trim(),
+    response: input.response.trim(),
+    reason: input.reason?.trim() || undefined,
+    status: "active",
+    sourceCaptureId: input.sourceCaptureId,
+    fromAiText: input.fromAiText ? true : undefined,
+    createdAt: at,
+    updatedAt: at,
+  };
+  setState({ ...state, protocols: [p, ...(state.protocols ?? [])] });
+  return p.id;
+}
+
+/** Edit a protocol's own fields. Provenance and lineage are never touched. */
+export function updateProtocol(protocolId: string, patch: { trigger?: string; response?: string; reason?: string }): void {
+  const at = now();
+  setState({
+    ...state,
+    protocols: (state.protocols ?? []).map((p) => {
+      if (p.id !== protocolId) return p;
+      const next: Protocol = { ...p, updatedAt: at };
+      if (patch.trigger !== undefined) next.trigger = patch.trigger.trim();
+      if (patch.response !== undefined) next.response = patch.response.trim();
+      if (patch.reason !== undefined) next.reason = patch.reason.trim() || undefined;
+      return next;
+    }),
+  });
+}
+
+/**
+ * Move a protocol through its lifecycle. Three states, no scoring: there is no
+ * streak, no compliance rate and no success metric, because a protocol is a
+ * remembered intention rather than a behaviour to be graded.
+ */
+export function setProtocolStatus(protocolId: string, status: ProtocolStatus): void {
+  const at = now();
+  setState({ ...state, protocols: (state.protocols ?? []).map((p) => (p.id === protocolId ? { ...p, status, updatedAt: at } : p)) });
+}
+
+/** Permanently remove a protocol. */
+export function deleteProtocol(protocolId: string): void {
+  setState({ ...state, protocols: (state.protocols ?? []).filter((p) => p.id !== protocolId) });
+}
+
+// ---------------------------------------------------------------- notes ----
+
+/**
+ * Create a standalone Note (LIFEOS-052).
+ *
+ * The lightest creator in the store on purpose: no status, no lifecycle, no
+ * proposal, no judgment, no history. A Note is allowed to just be useful.
+ *
+ * Provenance: `fromAiText` is stored when the body is machine prose the user
+ * chose to keep, so `classifyOrigin` reports `conqify_ai` rather than reading it
+ * back as the user's own thinking. Saving is not authorship — this is the
+ * LIFEOS-050A hole, and a note-shaped door into it.
+ */
+export function createNote(input: NewNoteInput): string {
+  const at = now();
+  const fields = normalizeNewNote(input);
+  const note: Note = {
+    id: id(),
+    ...fields,
+    linkedEntityRefs: [],
+    createdAt: at,
+    updatedAt: at,
+  };
+  setState({ ...state, notes: [note, ...(state.notes ?? [])] });
+  return note.id;
+}
+
+/** Edit a note's own fields. Never touches provenance or lineage. */
+export function updateNote(noteId: string, patch: { title?: string; body?: string; workspaceId?: string | null; tags?: string[] }): void {
+  const at = now();
+  setState({
+    ...state,
+    notes: (state.notes ?? []).map((n) => {
+      if (n.id !== noteId) return n;
+      const next: Note = { ...n, updatedAt: at };
+      if (patch.title !== undefined) next.title = patch.title.trim() || undefined;
+      if (patch.body !== undefined) next.body = patch.body;
+      // `null` clears the topic; `undefined` leaves it alone.
+      if (patch.workspaceId !== undefined) next.workspaceId = patch.workspaceId || undefined;
+      if (patch.tags !== undefined) next.tags = patch.tags.map((t) => t.trim()).filter(Boolean);
+      return next;
+    }),
+  });
+}
+
+/** Archive a note (recoverable) — the default "delete" in the UI. */
+export function archiveNote(noteId: string, archived = true): void {
+  const at = now();
+  setState({ ...state, notes: (state.notes ?? []).map((n) => (n.id === noteId ? { ...n, archived: archived || undefined, updatedAt: at } : n)) });
+}
+
+/** Permanently remove a note. Deliberately explicit and irreversible. */
+export function deleteNote(noteId: string): void {
+  setState({ ...state, notes: (state.notes ?? []).filter((n) => n.id !== noteId) });
+}
+
+/** Link a note to any existing record (references only, never copies). */
+export function linkNote(noteId: string, ref: RefLite): void {
+  const at = now();
+  setState({
+    ...state,
+    notes: (state.notes ?? []).map((n) => {
+      if (n.id !== noteId) return n;
+      if ((n.linkedEntityRefs ?? []).some((r) => r.kind === ref.kind && r.id === ref.id)) return n;
+      return { ...n, linkedEntityRefs: [...(n.linkedEntityRefs ?? []), ref], updatedAt: at };
+    }),
+  });
+}
+
+/**
+ * Promote a Note into a more formal record, reusing the EXISTING canonical
+ * creators — never a parallel implementation (LIFEOS-052).
+ *
+ * The note is always preserved and gains a link to what it became. Promotion is
+ * additive: the informal version is often the one the user actually wants back.
+ *
+ * The new record's authorship is classified from the note, not assumed. A note
+ * holding AI prose promotes to a practice that reads back as `conqify_ai` —
+ * the same boundary LIFEOS-050B repaired for captures (D-1).
+ */
+export function promoteNote(noteId: string, key: NotePromotionKey, opts: { contextId?: string } = {}): RefLite | null {
+  const n = (state.notes ?? []).find((x) => x.id === noteId);
+  if (!n) return null;
+  const title = noteDisplayTitle(n);
+  const body = (n.body ?? "").trim();
+  const origin = classifyOrigin({ kind: "note", text: body, fromAiText: n.fromAiText });
+  let ref: RefLite | null = null;
+
+  switch (key) {
+    case "concept": ref = { kind: "concept", id: createConcept({ name: title, definition: body }) }; break;
+    case "practice": {
+      const ids = addPractices([{ title, description: body, rationale: "Promoted from a note.", derivedFrom: {} }], practiceSourceFor(origin));
+      ref = ids[0] ? { kind: "practice", id: ids[0] } : null;
+      break;
+    }
+    case "project_note": {
+      if (!opts.contextId) return null;
+      appendProjectNote(opts.contextId, body || title);
+      ref = { kind: "project", id: opts.contextId };
+      break;
+    }
+  }
+  if (!ref) return null;
+  linkNote(noteId, ref);
   return ref;
 }
 
@@ -4197,6 +4383,21 @@ export function reopenAction(actionId: string): void {
 export function deferAction(actionId: string, option: ActionDeferOption): void {
   const key = actionDeferKeyFor(option);
   bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "deferred", deferredUntil: key }, makeActionEvent({ action: "deferred", at: now(), fromStatus: a.status, toStatus: "deferred", detail: key ?? "someday" })));
+}
+
+/**
+ * Set or clear an action's due date (LIFEOS-053).
+ *
+ * `undefined`/empty CLEARS it — removing a deadline must be as cheap as adding
+ * one, or users stop setting them. The status is never changed: a due date is
+ * information, not a state machine, and nothing here schedules or notifies.
+ */
+export function setActionDueDate(actionId: string, dueDate?: string): void {
+  const key = typeof dueDate === "string" && dueDate.trim() ? dueDate.trim() : undefined;
+  bumpAction(actionId, (a) => appendActionHistory(
+    { ...a, dueDate: key },
+    makeActionEvent({ action: key ? "due_set" : "due_cleared", at: now(), detail: key }),
+  ));
 }
 
 /** Mark an action waiting (Feature 8). Optional follow-up date; no notifications. */

@@ -21,6 +21,7 @@ export const EXPORT_DOMAINS = [
   "recommendations", "documents", "citations", "workspaces", "sessions", "goals", "projects",
   "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments",
   "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews",
+  "notes", "protocols",
 ] as const;
 
 export type ExportDomain = (typeof EXPORT_DOMAINS)[number];

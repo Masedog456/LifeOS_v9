@@ -110,6 +110,8 @@ function normalize(partial: Partial<StoreState> | null): StoreState {
     maintenanceEvents: partial?.maintenanceEvents ?? [],
     duplicateCandidates: partial?.duplicateCandidates ?? [],
     savedInsightViews: partial?.savedInsightViews ?? [],
+    notes: partial?.notes ?? [],
+    protocols: partial?.protocols ?? [],
   };
 }
 

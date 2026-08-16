@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore, convertCapture } from "@/lib/mvpStore";
 import { makeEntityContext, entityRef } from "@/lib/entities/entity";
-import { CONVERSION_TARGETS, previewConversion, type ConversionTargetKey } from "@/lib/inbox/conversion";
+import { CONVERSION_TARGETS, targetsInGroup, previewConversion, NEXT_ACTION_ROUTE, type ConversionTargetKey } from "@/lib/inbox/conversion";
 import EntityPicker from "@/components/reviews/EntityPicker";
 import { toast } from "@/lib/ux/feedback";
 import type { Capture, RecordRefLite } from "@/types/mvp";
@@ -23,6 +23,11 @@ export default function ConversionPreview({ capture, onConverted }: { capture: C
   const [contextId, setContextId] = useState<string | undefined>();
   const [contextTitle, setContextTitle] = useState("");
   const [after, setAfter] = useState<"inbox" | "processed" | "archive">("processed");
+  // Formal destinations stay one click away — progressive disclosure, not removal.
+  const [showFormal, setShowFormal] = useState(false);
+  const keepTargets = useMemo(() => targetsInGroup("keep"), []);
+  const contextTargets = useMemo(() => targetsInGroup("context"), []);
+  const formalTargets = useMemo(() => targetsInGroup("formal"), []);
 
   const targetDef = CONVERSION_TARGETS.find((t) => t.key === target);
   const preview = target ? previewConversion(state, capture, target, contextId) : null;
@@ -37,11 +42,54 @@ export default function ConversionPreview({ capture, onConverted }: { capture: C
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-1.5">
-        {CONVERSION_TARGETS.map((t) => (
-          <button key={t.key} type="button" onClick={() => { setTarget(t.key); setContextId(undefined); setContextTitle(""); }}
-            className={`rounded-full px-2.5 py-1 text-[11px] ${target === t.key ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-black/[.10] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.12] dark:text-zinc-300 dark:hover:bg-white/[.06]"}`}>{t.label}</button>
-        ))}
+      {/*
+        The front door (LIFEOS-052). Before this sprint every one of the eleven
+        destinations was intellectual, so someone capturing "call the dentist"
+        was offered eleven ways to file it as philosophy. Nothing was removed —
+        the formal destinations are one click away — but the everyday ones now
+        come first, and Next action routes to the flow that already exists
+        rather than a second implementation of it.
+      */}
+      <div>
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Keep it</p>
+        <div className="flex flex-wrap gap-1.5">
+          {keepTargets.map((t) => (
+            <button key={t.key} type="button" onClick={() => { setTarget(t.key); setContextId(undefined); setContextTitle(""); }}
+              className={`rounded-full px-2.5 py-1 text-[11px] ${target === t.key ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-black/[.10] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.12] dark:text-zinc-300 dark:hover:bg-white/[.06]"}`}>{t.label}</button>
+          ))}
+          <Link href={NEXT_ACTION_ROUTE.href(capture.id)}
+            className="rounded-full border border-black/[.10] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.12] dark:text-zinc-300 dark:hover:bg-white/[.06]">
+            {NEXT_ACTION_ROUTE.label} →
+          </Link>
+        </div>
+        <p className="mt-1 text-[11px] text-zinc-500">
+          A note is just useful information — no category needed. {NEXT_ACTION_ROUTE.description}
+        </p>
+      </div>
+
+      <div>
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Add to something</p>
+        <div className="flex flex-wrap gap-1.5">
+          {contextTargets.map((t) => (
+            <button key={t.key} type="button" onClick={() => { setTarget(t.key); setContextId(undefined); setContextTitle(""); }}
+              className={`rounded-full px-2.5 py-1 text-[11px] ${target === t.key ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-black/[.10] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.12] dark:text-zinc-300 dark:hover:bg-white/[.06]"}`}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <button type="button" onClick={() => setShowFormal((v) => !v)} aria-expanded={showFormal}
+          className="text-[11px] text-zinc-500 underline underline-offset-2 hover:text-zinc-700 dark:hover:text-zinc-300">
+          {showFormal ? "Hide" : "Make it formal"} — belief, concept, decision, research and more
+        </button>
+        {showFormal && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {formalTargets.map((t) => (
+              <button key={t.key} type="button" onClick={() => { setTarget(t.key); setContextId(undefined); setContextTitle(""); }}
+                className={`rounded-full px-2.5 py-1 text-[11px] ${target === t.key ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-black/[.10] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.12] dark:text-zinc-300 dark:hover:bg-white/[.06]"}`}>{t.label}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {targetDef?.needsContext && (

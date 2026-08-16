@@ -8,6 +8,7 @@
  * no per-feature duplication. Pure and offline; no AI.
  */
 
+import { noteDisplayTitle } from "@/lib/notes/notes";
 import type { StoreState } from "@/types/mvp";
 import type { SearchEntry } from "@/lib/command/types";
 
@@ -134,6 +135,19 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
 
   // ---- Reading companion (LIFEOS-028): documents, authors, passages, highlights, notes ----
   const authorSeen = new Set<string>();
+  // Notes are registered with the EXISTING command index rather than getting an
+  // index of their own — a second retrieval island is exactly what the Gap Audit
+  // warned about (LIFEOS-052).
+  for (const n of state.notes ?? []) {
+    if (n.archived) continue;
+    add("note", n.id, noteDisplayTitle(n), { body: `${n.title ?? ""} ${n.body} ${(n.tags ?? []).join(" ")}`, aliases: n.tags, updatedAt: n.updatedAt, href: `/notes?note=${n.id}` });
+  }
+  // Protocols join the EXISTING command index — no separate protocol index,
+  // no retrieval island (LIFEOS-054 §19).
+  for (const p of state.protocols ?? []) {
+    if (p.status === "retired") continue;
+    add("protocol", p.id, `When ${p.trigger} → ${p.response}`, { body: `${p.trigger} ${p.response} ${p.reason ?? ""}`, status: p.status, updatedAt: p.updatedAt, href: `/protocols?protocol=${p.id}` });
+  }
   for (const doc of state.documents) {
     const sectionNotes = doc.sections.map((s) => s.note ?? "").join(" ");
     add("document", doc.id, doc.title, {
@@ -164,6 +178,8 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
  */
 export function resolveRecord(state: StoreState, kind: string, id: string): { title: string; href: string; status?: string } | undefined {
   switch (kind) {
+    case "protocol": { const p = (state.protocols ?? []).find((x) => x.id === id); return p && { title: `When ${p.trigger} → ${p.response}`, href: `/protocols?protocol=${p.id}`, status: p.status }; }
+    case "note": { const n = (state.notes ?? []).find((x) => x.id === id); return n && { title: noteDisplayTitle(n), href: `/notes?note=${n.id}` }; }
     case "capture": { const c = state.captures.find((x) => x.id === id); return c && { title: snip(c.workingText ?? c.text, 60), href: "/", status: c.processingStatus ?? "inbox" }; }
     case "belief": { const b = state.beliefs.find((x) => x.id === id); return b && { title: snip(b.text, 60), href: "/constitution", status: b.status }; }
     case "concept": { const c = state.concepts.find((x) => x.id === id); return c && { title: c.name, href: `/world/concept/${c.id}`, status: c.status }; }

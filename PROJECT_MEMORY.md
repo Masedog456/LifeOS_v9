@@ -2997,8 +2997,42 @@ present gain.
 
 ### G. Connector roadmap
 
-The lane is preserved explicitly, having been absent from project memory before
-this sprint. Candidates:
+**Restructured into two tracks (LIFEOS-052).** The Life Organization Gap Audit
+found that **Google Calendar was absent from this list entirely** — the most
+consequential omission in the roadmap for a product aiming at life organization,
+because calendar is the only external system that reliably knows what is actually
+happening to the user this week, and unlike email it carries almost no
+unstructured private content.
+
+**LIFE CONTEXT**
+
+1. **Google Calendar — HIGH-VALUE LIFE-ORGANIZATION CANDIDATE. Not implemented.**
+   Read relevant events, attach Conqify context (a preparation note, a question
+   the user wanted to ask), never write and never rebuild the calendar. Highest
+   life context per unit of privacy risk. Gated on the internal date/time model
+   existing first: a calendar connector with nothing to attach to events is a
+   read-only feed.
+2. **Google Drive / Google Docs** — user-selected files only (insurance, forms,
+   warranties, contracts).
+3. **Contacts** — reference identities only, and only after a Person model exists.
+4. **Gmail** — deferred. Highest privacy risk of any candidate, and its main value
+   (commitments and follow-ups) is unbuildable until Person and dates exist.
+   Never mailbox ingestion; only ever a narrow, user-selected-message workflow.
+
+**KNOWLEDGE / LEARNING**
+
+1. **Generic AI interoperability** (see B — the preferred first AI step)
+2. **Readwise** — highlights (a deliberate non-goal in `UX_SPECIFICATION.md`;
+   revisit only on repeated beta demand)
+3. **Zotero**
+4. **ChatGPT / Claude / Gemini import paths**
+5. **NotebookLM / Mindgrasp** — only if stable APIs *and* beta demand justify it
+6. **Scoped, read-only external-AI access (MCP-style)** — latest, most cautious
+
+**Expected sequence** (from the Gap Audit): Notes / Capture front door →
+minimal time model → Protocol + classification → Calendar read connector.
+
+The original flat candidate list, preserved:
 
 1. **Readwise** — highlights (noted as a deliberate non-goal in
    `UX_SPECIFICATION.md`; revisit only on repeated beta demand)
@@ -3092,3 +3126,293 @@ conversion menu), not a new target.
 - **BETA-EVIDENCE CANDIDATE (F, updated) — persistence scaling is now measured,
   not theoretical.** The number to beat: **~5 books of 500 pages** before the
   local quota is the wall. This is the concrete trigger for the F entry above.
+
+- **LIFEOS-052 — Notes, Topics & the Capture front door.** The first sprint of
+  the life-organization track, and the smallest change that makes the daily loop
+  close.
+
+  **The problem, restated precisely.** `CONVERSION_TARGETS` offered eleven
+  destinations for a processed capture — belief, concept, decision, research,
+  dialogue, reflection, principle, framework, practice, project note, workspace
+  note. **Every one was intellectual.** Searching the type system for a note
+  entity returned `notes: string` as a *field* on ten records plus
+  `ResearchNote` scoped inside a `ResearchProject`. So the product's own stated
+  principle — *not every useful thought needs to become formal knowledge* — was
+  **unimplementable**: every exit from Capture was a promotion.
+
+  **What was built.** A `Note` primitive with deliberately **no status, no
+  lifecycle, no confidence, and no epistemic standing** — those are exactly what
+  make the formal records expensive to file into. `lib/notes/` holds pure
+  helpers, topics, and a promotion planner shaped like `lib/inbox/conversion.ts`.
+  Migration `0035_notes.sql` (RLS-protected, tombstone-compatible) plus adapter
+  load/sync make notes real cross-device user data. Notes register with the
+  **existing** command index rather than getting one of their own.
+
+  **Topics are Workspaces — no new entity, no discriminator.** `Workspace` was
+  already documented as grouping entities "around a project or life area". A
+  `kind: "project" | "area"` field was considered and rejected: it would cost a
+  schema/migration/sync change, force a distinction users must understand (the
+  taxonomy bureaucracy the audit warned against), and require guessing a kind for
+  every existing workspace — manufacturing structure from old data. Nothing
+  forecloses adding it later; notes point at a workspace id either way.
+
+  **Provenance held at the newest door.** `note` was already in the classifier's
+  `USER_AUTHORED_KINDS`, so the risk was real: AI prose kept as a note reading
+  back as the user's own thinking — the LIFEOS-050A hole arriving by a new route.
+  `fromAiText` is stored on the note and carried from the capture's *classified*
+  origin, and an attribution marker in the body still overrides structural
+  authorship. Promotion classifies from the note rather than assuming, so an AI
+  note promotes to a practice that reads back as `conqify_ai` (the LIFEOS-050B
+  D-1 boundary).
+
+  **The front door, regrouped not rebuilt.** Destinations now carry a
+  `ConversionGroup`: `keep` (Note first), `context` (append to a project or
+  workspace), and `formal` (the nine epistemic targets, behind one "Make it
+  formal" disclosure). **Nothing was removed.** Next action is presented beside
+  Note but is NOT a twelfth target — `NEXT_ACTION_ROUTE` points at the existing
+  `/actions?fromCapture=` flow, following candidate H's explicit instruction that
+  the fix is discoverability, not a second route to the same record.
+
+  **Promotion is short on purpose.** Only Knowledge (concept), Practice, and
+  Project note — each reusing a creator that already exists. "Question" was
+  requested conditionally ("if such target currently exists") and **does not**:
+  `Inquiry` is the output of a dialectical analysis run, with no simple
+  question-creator to reuse, and inventing one to fill a menu slot would add the
+  parallel implementation the module exists to avoid.
+
+  **Two defects found and fixed while in the area:**
+
+  1. **`STORE_DOMAINS` was silently discarding nine domains on restore.**
+     `upgradeState` treats that list as an allow-list and drops anything missing
+     from it, and it had not been updated since the execution/planning work: a
+     user restoring a backup lost every **next action, daily review, action
+     dependency, action template, planning assignment, focus session, maintenance
+     event, duplicate candidate, and saved insight view**. Adding a tenth
+     omission while editing that exact line was not defensible, so all nine were
+     restored alongside `notes`. Strictly additive — data that was being thrown
+     away now survives.
+  2. **`returnSuggestion` excluded never-active records.** Records with no
+     activity at all report `Infinity` days and were being filtered out — hiding
+     exactly what a Return signal exists to surface. They are now included with
+     their own true wording ("No recorded activity yet.") rather than a number.
+
+  **Today gained one signal, not two.** The capture count was **already built**
+  (`TodayInboxCard`, LIFEOS-035) — `captureInboxSignal` delegates to the same
+  `queueCounts` rather than recounting, because two independent counts of one
+  thing is how a UI starts contradicting itself. The genuinely missing piece was
+  Return: `dormancyView` has been a working primitive since LIFEOS-039 but lived
+  at `/insights/dormancy`, inside a menu of eighteen, so nothing ever came back.
+  `TodayReturnCard` surfaces **one** item, always with its reason, dismissible,
+  never a list. `RETURN_FORBIDDEN_WORDS` is asserted by tests so guilt language
+  cannot creep in.
+
+  **Release model advanced.** Head moved 0034 → 0035, so the reserved
+  release-fix slot became `0036_v1_release_fix.sql`; `EXPECTED_MIGRATION_VERSION`,
+  `RELEASE_MIGRATION_COUNT`, the checkpoint list, the rehearsal script and the
+  release audit all moved together (57 public tables).
+
+  Notes suite **90/90** new assertions; full regression **1382/1382** across 23
+  suites. tsc/lint/build clean, `audit:security` PASS, `release:audit` 17/17.
+
+  **Not built, deliberately:** dates, deadlines, recurrence, reminders, Protocol,
+  Person, Event, Commitment, Calendar, any connector, AI classification,
+  universal retrieval, nested topics, a rich editor, and the Reading working-set
+  migration. Contextual note fields (project/workspace/research) were **not**
+  migrated — they were never the same thing as a standalone Note, and
+  manufacturing structure from old data was explicitly out of scope.
+
+---
+
+- **LIFEOS-053 — Minimal time model.** One field, and a careful account of why it
+  is only one.
+
+  **Audit finding that shaped the sprint.** Semantic dates already existed at
+  every level of the hierarchy *except the one that matters daily*:
+  `Goal.targetDate`, `Project.startDate` + `targetDate`, `Milestone.targetDate`.
+  The **leaf** — `NextAction`, the thing a person actually does — had
+  `deferredUntil`, `waitingSince` and `followUpDate` but **no due date**. So
+  "call the dentist by Friday" was unrepresentable, and that job stayed with
+  whatever reminders app the user already had.
+
+  **Added: exactly one field.** `NextAction.dueDate?: DayKey` ("yyyy-mm-dd"),
+  plus migration `0036_action_due_date.sql` (nullable `date` column, partial
+  index, RLS unchanged) and `lib/actions/due.ts` — a pure classifier
+  (overdue/today/tomorrow/soon/later/none), ordering, and summary.
+
+  **Deliberately NOT added, each for a stated reason:**
+
+  - **A start / "not before" date** — `deferredUntil` **already is one**. Adding
+    a second would have created exactly the duplicate semantics the brief warned
+    about. This was the single most useful audit finding.
+  - **A due TIME.** Every named use case is a day ("by Friday", "before the
+    15th", "expires next month"). A datetime needs a stored timezone to mean
+    anything and drifts across travel and DST — it converts a deadline into a
+    bug. Real appointments belong to the future Event layer.
+  - **A recurrence engine.** Both existing recurrence concepts are
+    **descriptive only** — `PracticeCadence` is a label, and
+    `ActionTemplate.suggestedRecurrence` is documented as "a plain human
+    description, never a schedule the system acts on". There is nothing to
+    extend, and a half-built engine is precisely how duplicate actions get
+    generated. Recurring responsibilities remain the largest known everyday gap.
+  - **Dates on Notes.** Note = useful information; Action = something to do. A
+    note with a deadline is a task wearing a disguise.
+  - **New dates on Goals/Projects/Milestones** — they already have them.
+
+  **Timezone: date-only means no shift is possible.** A due date is compared as a
+  `DayKey` with the same local-date helpers Capture deferral and Daily Review
+  already use. No `Date` instant is constructed to answer "is this overdue?", so
+  nothing converts to UTC and back, and a deadline set on the 22nd is the 22nd in
+  every timezone and across DST. Month, year, leap-day and both DST transitions
+  are asserted.
+
+  **Language.** "Was due Mon, Aug 10" — past tense, stated once, no day-count, no
+  exclamation. `DUE_FORBIDDEN_WORDS` extends the Return ban from LIFEOS-052 and is
+  test-asserted, including an explicit check that no "N days late" count is ever
+  rendered. A deadline is the easiest place for a calm product to start nagging.
+
+  **Return stays distinct from due.** Return says "this may be worth revisiting";
+  a due date says "this needs attention by X". Dormant material never becomes
+  fake overdue work — dormancy has no due date and cannot acquire one.
+
+  **Today** gained one card: *Needs attention* (overdue + due today, together,
+  because on a Tuesday morning they are the same question) and *Next 7 days*.
+  Upcoming deliberately EXCLUDES today and overdue so it never restates Today.
+  Waiting follow-ups keep surfacing through their existing path — not duplicated.
+
+  Actions suite 62 → **123**; full regression **1443/1443** across 23 suites.
+  Release head 0035 → 0036; reserved fix slot now `0037_v1_release_fix.sql`.
+
+  **Confirmed not built:** notifications/reminders of any kind, Protocol,
+  Calendar connector, Event, Person, Commitment, AI classification, date parsing
+  from capture text, universal retrieval, persistence rewrite.
+
+- **ROADMAP SEQUENCE — as recorded at LIFEOS-053 (HISTORICAL; superseded by the
+  CURRENT ROADMAP SEQUENCE at the end of this file).** Kept for its finding, not
+  its ordering — that ordering listed Protocol as upcoming, and Protocol has since
+  shipped. The finding still holds: **Protocol is not recurrence** — a conditional
+  trigger ("when X happens → do Y") has no cadence, and the time model added in
+  053 deliberately gives it nothing to be confused with.
+
+---
+
+- **LIFEOS-054 — Protocols & deterministic capture classification.** Beta-evidence
+  candidate A, built at last, plus the classifier that Note (LIFEOS-052) made safe.
+
+  **Protocol is its own noun, and the reason is structural.** Every member of
+  `PracticeCadence` — `once | daily | weekly | occasional` — answers *how often*.
+  A protocol has **no frequency at all**; it has a **condition**. Filing "when my
+  child is in a fight-or-flight reaction, give him physical space" as
+  `occasional` records something the user never said. `practice_candidates` is
+  untouched, no legacy practice was migrated, and historical intent was not
+  inferred (§21). Fields: trigger · response · optional reason · status
+  (active/paused/retired) · provenance · source capture. Migration
+  `0037_protocols.sql`, RLS + tombstones.
+
+  **Deliberately absent from Protocol:** cadence, due date, next-occurrence,
+  schedule, trigger engine, notification — and **no streak, compliance rate, or
+  success score**. A protocol is a remembered intention, not a behaviour to be
+  graded. Today does **not** surface protocols: no reliable trigger detection
+  exists, and a guessed trigger is worse than none.
+
+  **The classifier is deterministic and pure.** `lib/capture/classify.ts` — no
+  AI, no network, no state. Rule ORDER carries most of the correctness, and the
+  two orderings that matter are counter-intuitive: a conditional *contains* an
+  action verb ("when X, **call** Y"), and a waiting clause contains one too
+  ("waiting for Sarah to **send**"), so protocol and waiting must both be tested
+  **before** the action rule or every protocol misroutes. Informational markers
+  beat imperatives, which is why "Recipe: buy chicken, simmer" stays a note.
+
+  **Confidence means routing, never truth.** Three coarse bands
+  (`high | likely | possible`), no percentage — fake precision invites trust the
+  rules have not earned. Nothing computes belief confidence, psychological
+  certainty, or importance; those would be judgments about the user's own
+  thinking. Every suggestion carries a plain-language reason ("Uses a when →
+  response pattern"), never a regex.
+
+  **Restraint where it matters most.** "I think X" and "I believe X" classify as
+  **Note**, not Belief — a declarative sentence is not evidence someone wants a
+  belief recorded, and Belief stays an intentional promotion. Reflection is
+  suggested only on **explicit** reflective language ("I've realized…") and never
+  above `likely`. Project requires an outcome verb and is only ever `possible`,
+  because a wrong Project costs far more than a wrong Note. Belief, Decision and
+  Principle are **not suggestible types at all**.
+
+  **Multi-intent is reported, not resolved.** Collapsing "call the dentist, and
+  remember to give him space when he's overwhelmed" into one type would silently
+  drop what the person said, so the capture is flagged and routed to the existing
+  `planSplit` flow. No fragment is lost.
+
+  **Question has no fake destination.** There is no simple question record —
+  `Inquiry` is the output of a dialectical analysis run — so a question is offered
+  as a Note and the UI says so plainly rather than pointing at something that
+  does not exist.
+
+  **Nothing is created automatically.** Even "Call the dentist" yields a
+  proposal. Protocol trigger/response are **editable before the record exists**,
+  so a machine's reading of a sentence never becomes the user's stated intention
+  without their hands on it. Provenance travels with the capture's *classified*
+  origin, so routing through the classifier cannot launder AI prose into an
+  authored intention (LIFEOS-050A/050B).
+
+  **Waiting reuses existing semantics** — classification extracts `waitingOn` and
+  points at the existing action route; **no parallel waiting system**. Known
+  limitation: setting waiting status is still a second step on the action page.
+
+  Protocols suite **91** new assertions; full regression **1535/1535** across 24
+  suites. Release head 0036 → 0037; reserved fix slot now `0038_v1_release_fix.sql`
+  (58 tables). No date parsing was added — "Call dentist Friday" classifies as an
+  action and the user sets Friday through the existing due-date control.
+
+- **FUTURE VISUALIZATION LAYER (roadmap only — nothing implemented).** Potential
+  representations: calendar, timeline, charts, relationship graphs. Potential
+  inputs: actions, projects, notes, reading, practices, protocols, calendar
+  events, connector data. **Principles, which matter more than the list:**
+  visualizations explain the user's life rather than rate it; **no gamified life
+  score, no fake wellness or productivity index**; factual views over judgments;
+  connectors feed one shared data model rather than provider-specific dashboards;
+  contextual visualization beats a dashboard wall. Nothing was built.
+
+## CURRENT ROADMAP SEQUENCE (authoritative)
+
+This block supersedes every earlier ROADMAP SEQUENCE note in this file. Earlier
+blocks are kept for their sprint-specific findings, not for their ordering.
+**Nothing below is implemented.**
+
+**LIFE ORGANIZATION**
+
+1. Notes / Capture front door — ✅ shipped (LIFEOS-052)
+2. Minimal time model — ✅ shipped (LIFEOS-053)
+3. Protocol + deterministic Capture classification — ✅ shipped (LIFEOS-054)
+4. **Google Calendar read connector** — *the next high-value life connector.*
+   Read relevant events and attach Conqify context; never write, never rebuild the
+   calendar. Now genuinely ready: there are dates, notes and protocols for events
+   to attach to.
+5. Recurrence / recurring responsibilities — the largest remaining everyday gap.
+   Both existing recurrence concepts (`PracticeCadence`,
+   `ActionTemplate.suggestedRecurrence`) are DESCRIPTIVE only; there is no engine
+   to extend, and a half-built one is how duplicate actions get generated.
+6. Visualization architecture — see FUTURE VISUALIZATION LAYER above.
+
+Later, and only on beta evidence: narrow Gmail (highest privacy risk of any
+candidate), Drive / Docs, Contacts where justified, Return evolution, and
+Person / Event / Commitment.
+
+**KNOWLEDGE**
+
+1. Reading / library scaling — the measured 051B wall: **~0.90 MB of JSON per
+   500-page book, so roughly five such books approach a typical 5 MB localStorage
+   quota.** The remote side is already normalized, so this is a LOCAL problem.
+2. Generic AI portability / import — paste, Markdown, export file before any API
+3. Source verification — supported / partially supported / not found / uncertain
+4. Provenance-aware universal retrieval — one knowledge universe, no per-connector
+   islands. Today the command palette indexes 27 record kinds while `RecordType`
+   covers 9 knowledge-only types; unifying those two is this item.
+5. Readwise
+6. Zotero
+7. Drive / Docs
+8. NotebookLM / Mindgrasp — conditional on stable APIs *and* repeated demand
+9. Scoped, read-only MCP-style AI access — last, and most cautious
+
+**Connector principles (unchanged):** one index, not one per connector; snapshot /
+manual import before live sync; least privilege; no unstable private APIs; direct
+connectors require repeated beta demand **and** stable API support, both.

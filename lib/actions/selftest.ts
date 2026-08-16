@@ -16,10 +16,15 @@ import { planDependency, wouldCreateCycle, isBlocked, buildBlockedByMap, depende
 import { deferKeyFor, isDue, isSomeday, returnDueActions, returningToday } from "@/lib/actions/defer";
 import { isFollowUpDue, dueFollowUps } from "@/lib/actions/waiting";
 import { makeTemplate, instantiateTemplate } from "@/lib/actions/templates";
-import { makeEvent, appendHistory } from "@/lib/actions/history";
+import { makeEvent, appendHistory, ACTION_LABEL } from "@/lib/actions/history";
+import {
+  dueBucket, dueLabel, dueKeyOf, overdueActions, dueTodayActions, upcomingActions,
+  undatedActions, sortByDue, dueSummary, isNeutralDueLanguage, DUE_FORBIDDEN_WORDS,
+  UPCOMING_WINDOW_DAYS,
+} from "@/lib/actions/due";
 import { projectActionSummary, todayActions, dailyActions, openActionsForMilestone } from "@/lib/actions/relationships";
 import { mergeActionRecord, mergeDependencies } from "@/lib/actions/merge-rules";
-import { todayKey, addDays } from "@/lib/reviews/dates";
+import { todayKey, addDays, dayDiff } from "@/lib/reviews/dates";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -31,6 +36,8 @@ function emptyState(): StoreState {
     concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [],
     dialogueSessions: [], tensions: [], syntheses: [], recommendations: [], documents: [], citations: [], workspaces: [],
     sessions: [], goals: [], projects: [], dailyReviews: [], nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [], maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [],
+    notes: [],
+    protocols: [],
   };
 }
 
@@ -279,7 +286,132 @@ export function runActionSelfTests(): SelfTestReport {
   }
 
   const ms = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - started);
-  const passed = results.filter((r) => r.pass).length;
+  // ==================== 30. Minimal time model (LIFEOS-053) ====================
+  //
+  // The gap this closes: Goals, Projects and Milestones all carried `targetDate`,
+  // but the LEAF — the thing a person actually does — could not answer "by when?".
+  const DUE_TODAY = "2026-08-16";
+  const mk = (title: string, sourceCaptureId?: string): NextAction =>
+    makeAction({ title, sourceCaptureId }, { order: 0, at: "2026-08-01T00:00:00.000Z" });
+  const due = (id: string, dueDate?: string, over: Partial<NextAction> = {}): NextAction =>
+    ({ ...mk(id), id, dueDate, ...over }) as NextAction;
+
+  // ---- 30.1 The field is optional and clearable ----
+  ok("30.1 an action with no due date is valid", dueKeyOf(due("a")) === undefined);
+  ok("30.2 an action with a due date exposes it", dueKeyOf(due("b", "2026-08-20")) === "2026-08-20");
+  ok("30.3 an empty-string due date reads as none", dueKeyOf(due("c", "")) === undefined);
+  ok("30.4 clearing is representable", dueKeyOf({ ...due("d", "2026-08-20"), dueDate: undefined }) === undefined);
+
+  // ---- 30.5 Buckets ----
+  ok("30.5 due today", dueBucket(due("t", DUE_TODAY), DUE_TODAY) === "today");
+  ok("30.6 due tomorrow", dueBucket(due("t", addDays(DUE_TODAY, 1)), DUE_TODAY) === "tomorrow");
+  ok("30.7 due soon (within the window)", dueBucket(due("t", addDays(DUE_TODAY, 5)), DUE_TODAY) === "soon");
+  ok("30.8 due later (beyond the window)", dueBucket(due("t", addDays(DUE_TODAY, 30)), DUE_TODAY) === "later");
+  ok("30.9 overdue", dueBucket(due("t", addDays(DUE_TODAY, -3)), DUE_TODAY) === "overdue");
+  ok("30.10 no due date → none", dueBucket(due("t"), DUE_TODAY) === "none");
+  ok("30.11 the window edge is inclusive", dueBucket(due("t", addDays(DUE_TODAY, UPCOMING_WINDOW_DAYS)), DUE_TODAY) === "soon");
+  ok("30.12 one day past the window is later", dueBucket(due("t", addDays(DUE_TODAY, UPCOMING_WINDOW_DAYS + 1)), DUE_TODAY) === "later");
+
+  // ---- 30.13 Completed work stops being due ----
+  ok("30.13 a completed overdue action is not overdue",
+    dueBucket(due("t", addDays(DUE_TODAY, -5), { status: "completed" }), DUE_TODAY) === "none");
+  ok("30.14 a cancelled action is not due", dueBucket(due("t", DUE_TODAY, { status: "cancelled" }), DUE_TODAY) === "none");
+  ok("30.15 completing removes it from the overdue list",
+    overdueActions([due("t", addDays(DUE_TODAY, -5), { status: "completed" })], DUE_TODAY).length === 0);
+
+  // ---- 30.16 Date-only means NO timezone can move a deadline ----
+  // Pure string/calendar arithmetic: no Date instant is constructed, so there is
+  // no UTC round-trip that could shift a day across a boundary.
+  ok("30.16 a due date is compared as a day key, not an instant",
+    dueBucket(due("t", "2026-08-16"), "2026-08-16") === "today");
+  ok("30.17 the day before is overdue, not 'today at 23:59'",
+    dueBucket(due("t", "2026-08-15"), "2026-08-16") === "overdue");
+  ok("30.18 the day after is tomorrow, not 'today at 00:01'",
+    dueBucket(due("t", "2026-08-17"), "2026-08-16") === "tomorrow");
+  // Month, year and leap-day boundaries.
+  ok("30.19 month boundary", dayDiff("2026-09-01", "2026-08-31") === 1 && dueBucket(due("t", "2026-09-01"), "2026-08-31") === "tomorrow");
+  ok("30.20 year boundary", dueBucket(due("t", "2027-01-01"), "2026-12-31") === "tomorrow");
+  ok("30.21 leap day is a real day", dayDiff("2028-03-01", "2028-02-29") === 1);
+  // A DST transition must not turn one day into two or zero.
+  ok("30.22 spring-forward day boundary holds", dayDiff("2026-03-09", "2026-03-08") === 1);
+  ok("30.23 fall-back day boundary holds", dayDiff("2026-11-02", "2026-11-01") === 1);
+
+  // ---- 30.24 Today vs Upcoming split ----
+  const mixed = [
+    due("over", addDays(DUE_TODAY, -2)), due("now", DUE_TODAY), due("tmr", addDays(DUE_TODAY, 1)),
+    due("soon", addDays(DUE_TODAY, 4)), due("far", addDays(DUE_TODAY, 40)), due("none"),
+  ];
+  ok("30.24 overdue list contains only overdue", overdueActions(mixed, DUE_TODAY).map((a) => a.id).join() === "over");
+  ok("30.25 due-today list contains only today", dueTodayActions(mixed, DUE_TODAY).map((a) => a.id).join() === "now");
+  ok("30.26 upcoming EXCLUDES today and overdue", upcomingActions(mixed, DUE_TODAY).map((a) => a.id).join() === "tmr,soon");
+  ok("30.27 upcoming excludes far-future work", !upcomingActions(mixed, DUE_TODAY).some((a) => a.id === "far"));
+  ok("30.28 undated actions are listed as their own normal state", undatedActions(mixed).map((a) => a.id).join() === "none");
+
+  // ---- 30.29 Ordering ----
+  ok("30.29 upcoming is chronological", JSON.stringify(upcomingActions(mixed, DUE_TODAY).map((a) => a.dueDate)) === JSON.stringify([addDays(DUE_TODAY, 1), addDays(DUE_TODAY, 4)]));
+  ok("30.30 sortByDue puts dated before undated", sortByDue(mixed, DUE_TODAY)[0].id === "over" && sortByDue(mixed, DUE_TODAY).at(-1)?.id === "none");
+  ok("30.31 sorting is deterministic", JSON.stringify(sortByDue(mixed, DUE_TODAY).map((a) => a.id)) === JSON.stringify(sortByDue(mixed, DUE_TODAY).map((a) => a.id)));
+  ok("30.32 equal dates fall back to manual order",
+    sortByDue([{ ...due("b", DUE_TODAY), order: 2 }, { ...due("a", DUE_TODAY), order: 1 }], DUE_TODAY).map((a) => a.id).join() === "a,b");
+
+  // ---- 30.33 Summary ----
+  const sum = dueSummary(mixed, DUE_TODAY);
+  ok("30.33 summary counts overdue", sum.overdue === 1);
+  ok("30.34 summary counts due today", sum.today === 1);
+  ok("30.35 summary counts upcoming", sum.upcoming === 2);
+  ok("30.36 needsAttention combines overdue + today", sum.needsAttention === 2);
+
+  // ---- 30.37 Language: factual, never scolding ----
+  ok("30.37 overdue reads in the past tense", dueLabel(due("t", addDays(DUE_TODAY, -3)), DUE_TODAY).startsWith("Was due"));
+  ok("30.38 due today is plain", dueLabel(due("t", DUE_TODAY), DUE_TODAY) === "Due today");
+  ok("30.39 due tomorrow is plain", dueLabel(due("t", addDays(DUE_TODAY, 1)), DUE_TODAY) === "Due tomorrow");
+  ok("30.40 no due date produces no label", dueLabel(due("t"), DUE_TODAY) === "");
+  ok("30.41 overdue copy carries no guilt", isNeutralDueLanguage(dueLabel(due("t", addDays(DUE_TODAY, -9)), DUE_TODAY)));
+  ok("30.42 guilt words are actually detected", !isNeutralDueLanguage("You're behind and slipping"));
+  ok("30.43 no overdue-day COUNT is shown", !/\d+\s*days?\s*(late|overdue)/i.test(dueLabel(due("t", addDays(DUE_TODAY, -9)), DUE_TODAY)));
+  ok("30.44 streak language is banned", DUE_FORBIDDEN_WORDS.includes("streak"));
+  ok("30.45 history wording is neutral", ACTION_LABEL.due_set === "Due date set" && ACTION_LABEL.due_cleared === "Due date removed");
+
+  // ---- 30.46 Due is DISTINCT from its neighbours ----
+  // `deferredUntil` is already a start/"not before" date, `followUpDate` is
+  // already "check back on". Neither was overloaded to mean a deadline.
+  const deferred = due("d", undefined, { status: "deferred", deferredUntil: addDays(DUE_TODAY, 20) });
+  ok("30.46 a deferred action has no due date", dueKeyOf(deferred) === undefined);
+  ok("30.47 a start date does not make something due", dueBucket(deferred, DUE_TODAY) === "none");
+  const waiting = due("w", undefined, { status: "waiting", followUpDate: DUE_TODAY, waitingOn: "contractor" });
+  ok("30.48 a follow-up is not a due date", dueKeyOf(waiting) === undefined);
+  ok("30.49 follow-up still surfaces through its own path", isFollowUpDue(waiting, DUE_TODAY));
+  ok("30.50 due and follow-up coexist without collision",
+    dueBucket({ ...waiting, dueDate: DUE_TODAY }, DUE_TODAY) === "today" && isFollowUpDue({ ...waiting, dueDate: DUE_TODAY }, DUE_TODAY));
+
+  // ---- 30.51 A future deadline does not clutter Today ----
+  const nextMonth = due("reg", addDays(DUE_TODAY, 30), { title: "Renew registration" });
+  ok("30.51 next month is absent from needs-attention", dueSummary([nextMonth], DUE_TODAY).needsAttention === 0);
+  ok("30.52 next month is absent from upcoming", upcomingActions([nextMonth], DUE_TODAY).length === 0);
+  ok("30.53 it appears once it enters the window", upcomingActions([nextMonth], addDays(DUE_TODAY, 25)).length === 1);
+
+  // ---- 30.54 Capture → Action keeps lineage AND accepts a date ----
+  const fromCap = { ...mk("Call dentist", "c1"), dueDate: addDays(DUE_TODAY, 4) } as NextAction;
+  ok("30.54 a capture-derived action keeps its lineage", fromCap.sourceCaptureId === "c1");
+  ok("30.55 a capture-derived action can carry a due date", dueBucket(fromCap, DUE_TODAY) === "soon");
+
+  // ---- 30.56 Legacy records stay valid ----
+  const legacy = { ...mk("old") } as NextAction;
+  delete (legacy as Partial<NextAction>).dueDate;
+  ok("30.56 a legacy action without the field is valid", dueBucket(legacy, DUE_TODAY) === "none");
+  ok("30.57 legacy actions are not given a fabricated default", legacy.dueDate === undefined);
+  ok("30.58 legacy actions still sort", sortByDue([legacy], DUE_TODAY).length === 1);
+
+  // ---- 30.59 No recurrence engine was built ----
+  // Deliberate: both existing recurrence concepts are DESCRIPTIVE
+  // (`PracticeCadence`, `ActionTemplate.suggestedRecurrence`), and a half-built
+  // engine is how duplicate actions get generated.
+  ok("30.59 actions carry no recurrence rule", !("recurrence" in (due("x") as object)));
+  ok("30.60 actions carry no next-occurrence field", !("nextDue" in (due("x") as object)));
+  ok("30.61 completing a dated action creates nothing",
+    [{ ...due("x", DUE_TODAY), status: "completed" as const }].length === 1);
+
+    const passed = results.filter((r) => r.pass).length;
   const failed = results.length - passed;
   return { pass: failed === 0, total: results.length, passed, failed, ms, results };
 }
