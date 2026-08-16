@@ -57,6 +57,36 @@ create or replace function auth.uid() returns uuid language sql stable as $$
 $$;
 `;
 
+/**
+ * Bootstrap the STORAGE shim (LIFEOS-054d).
+ *
+ * Migrations 0032+ target Supabase, which provides a managed `storage` schema
+ * that stock Postgres does not have — so the rehearsal previously died at 0032
+ * on `relation "storage.buckets" does not exist` and could never reach the
+ * migrations this release actually adds (0035–0037). The gate was reported as
+ * "cannot run" for that reason alone.
+ *
+ * This is scaffolding of exactly the same kind as AUTH_BOOTSTRAP above: the
+ * smallest surface 0032 touches, created in a THROWAWAY cluster only. It proves
+ * our migration chain applies cleanly, idempotently and in order; it does NOT
+ * substitute for a rehearsal against a real copy of the production Supabase
+ * schema, because it models Supabase's storage tables rather than reproducing
+ * them.
+ */
+const STORAGE_BOOTSTRAP = `
+create schema if not exists storage;
+create table if not exists storage.buckets (
+  id text primary key, name text, public boolean default false,
+  file_size_limit bigint, allowed_mime_types text[]
+);
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text, name text, owner uuid, created_at timestamptz default now()
+);
+create or replace function storage.foldername(name text) returns text[]
+  language sql immutable as $$ select string_to_array(name, '/') $$;
+`;
+
 function setup() {
   rmSync("/tmp/pg-rc-rehearsal", { recursive: true, force: true });
   mkdirSync("/tmp/pg-rc-rehearsal", { recursive: true });
@@ -77,6 +107,7 @@ function createDbWithAuth(name) {
   // the stub's own documentation prescribes. Schema/DDL is still fully applied.
   psql("postgres", `alter database ${name} set check_function_bodies = off;`);
   psql(name, AUTH_BOOTSTRAP);
+  psql(name, STORAGE_BOOTSTRAP);
 }
 
 function applyChain(db, files) {
@@ -97,7 +128,7 @@ function run() {
   applyChain("rc_clean", files);
   applyChain("rc_clean", files);
   const tableCount3 = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("idempotent x3 (stable table count)", tableCount3 === 56, `after 3x got ${tableCount3}`);
+  ok("idempotent x3 (stable table count)", tableCount3 === 58, `after 3x got ${tableCount3}`);
 
   // 3) RLS enabled on every public table + each has policies.
   const noRls = psql("rc_clean", `select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity=false order by 1;`).trim();
@@ -120,7 +151,7 @@ function run() {
   }
 
   // 6) Checkpoint upgrades: for each checkpoint, apply through N on a fresh DB,
-  //    then apply the remainder — must reach 56 tables cleanly.
+  //    then apply the remainder — must reach 58 tables cleanly.
   const checkpoints = [
     ["pre-reading", 20], ["pre-workspaces", 21], ["pre-actions", 26],
     ["pre-planning", 27], ["pre-maintenance", 28], ["pre-security", 30],
@@ -134,7 +165,10 @@ function run() {
     applyChain(db, first);
     applyChain(db, rest);
     const c = Number(psql(db, "select count(*) from pg_tables where schemaname='public';").trim());
-    ok(`checkpoint upgrade ${id} (through ${through})`, c === 56, `reached ${c} tables`);
+    // 58, not 56: LIFEOS-052 added `notes` (0035) and LIFEOS-054 added
+    // `protocols` (0037). The property under test is unchanged — an upgraded
+    // database must reach exactly the same table count as a clean install.
+    ok(`checkpoint upgrade ${id} (through ${through})`, c === 58, `reached ${c} tables`);
     psql("postgres", `drop database if exists ${db} with (force);`);
   }
 
