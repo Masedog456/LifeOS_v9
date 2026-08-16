@@ -36,6 +36,7 @@ import { mockDecision, type MockDecisionContext } from "@/lib/mockDecision";
 import { mockFormationSynthesis, type MockFormationContext } from "@/lib/mockFormationSession";
 import { mockWorld } from "@/lib/mockWorld";
 import { mockOutlines, mockSectionDraft, type MockOutlineContext, type MockSectionContext } from "@/lib/mockAuthoring";
+import { guardCostBearingRoute, rateLimit } from "@/lib/security/api-auth";
 
 export const maxDuration = 30;
 export const runtime = "nodejs";
@@ -857,6 +858,28 @@ async function callAnthropic(key: string, input: AiInput): Promise<unknown> {
 }
 
 export async function POST(request: Request) {
+  // COST BOUNDARY (LIFEOS-055S). Before parsing anything, establish that a
+  // caller who could spend money is a real Conqify user. A rejected request
+  // never reaches Anthropic. When no key is configured the route can only serve
+  // deterministic mocks, so no login is demanded and local/signed-out use is
+  // unchanged.
+  const guard = await guardCostBearingRoute(request, [process.env.ANTHROPIC_API_KEY]);
+  if (!guard.ok) {
+    return NextResponse.json(
+      { error: guard.status === 503 ? "AI is unavailable right now." : "Sign in to use AI features." },
+      { status: guard.status },
+    );
+  }
+  if (guard.userId) {
+    const rl = rateLimit(guard.userId);
+    if (rl.limited) {
+      return NextResponse.json(
+        { error: "Too many AI requests. Try again shortly." },
+        { status: 429, headers: { "retry-after": String(rl.retryAfterSeconds) } },
+      );
+    }
+  }
+
   let input: AiInput;
   try {
     const body = (await request.json()) as {

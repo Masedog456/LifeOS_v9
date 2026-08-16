@@ -25,6 +25,7 @@ import { mockFormationSynthesis, type MockFormationContext } from "@/lib/mockFor
 import { mockWorld } from "@/lib/mockWorld";
 import { mockOutlines, mockSectionDraft } from "@/lib/mockAuthoring";
 import type { DraftTransform, EvidenceItem, ProjectEvidence } from "@/types/mvp";
+import { authedJsonHeaders } from "@/lib/security/api-token";
 
 export type AiSource = "ai" | "mock";
 export type { ChunkMap } from "@/lib/mockAI";
@@ -36,7 +37,9 @@ async function call<T>(
   try {
     const res = await fetch("/api/ai", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      // Attach the existing Supabase session so the server can tell a real user
+      // from the open internet. Signed out => no header => route serves mocks.
+      headers: await authedJsonHeaders(),
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error("ai route failed");

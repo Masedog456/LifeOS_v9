@@ -13,6 +13,10 @@ import { classifyUrl, isSafeUrl, safeHref, externalLinkProps, EXTERNAL_LINK_REL,
 import { checkText, checkCount, jsonDepth, withinJsonDepth, safeJsonParse, isValidUuid, isValidTimestamp, hasControlChars, LIMITS } from "@/lib/security/input-limits";
 import { redactMessage, maskEmail, buildDiagnosticEvent, isCleanDiagnosticEvent, errorToCode } from "@/lib/security/redaction";
 import { toSafeError, publicError } from "@/lib/security/errors";
+import {
+  bearerToken, costBearing, evaluateAccess, rateLimit, resetRateLimits,
+  nextBucket, isOverLimit, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS,
+} from "@/lib/security/api-auth";
 import { evaluateCompatibility, syncIsSafe } from "@/lib/security/schema-compatibility";
 import { probeStorage, readJson, writeJson } from "@/lib/security/storage-resilience";
 import { acquireLock, releaseLock } from "@/lib/security/multi-tab";
@@ -271,6 +275,74 @@ export function runSecuritySelfTests(): SelfTestReport {
     return /<a href="https:\/\/example.com\/?" rel="noopener noreferrer nofollow" target="_blank">x<\/a>/.test(html);
   })(), renderMarkdownInline("[x](https://example.com)"));
   ok("15.5 quotes escaped", renderMarkdownInline(`"'`) === "&quot;&#39;");
+
+  // ==================== 12. Public AI cost boundary (LIFEOS-055S) ====================
+  //
+  // The hole this closes: at public launch POST /api/ai accepted any request
+  // from the open internet and, with ANTHROPIC_API_KEY set, spent real money on
+  // it. Nothing identified the caller.
+  {
+    // ---- bearer parsing ----
+    ok("12.1 bearer token parsed", bearerToken("Bearer abc.def.ghi") === "abc.def.ghi");
+    ok("12.2 case-insensitive scheme", bearerToken("bearer xyz") === "xyz");
+    ok("12.3 missing header → null", bearerToken(null) === null);
+    ok("12.4 wrong scheme → null", bearerToken("Basic abc") === null);
+    ok("12.5 empty token → null", bearerToken("Bearer   ") === null);
+
+    // ---- cost detection ----
+    ok("12.6 a configured key is cost-bearing", costBearing(["sk-live"]) === true);
+    ok("12.7 no key is not cost-bearing", costBearing([undefined]) === false);
+    ok("12.8 blank key is not cost-bearing", costBearing(["   "]) === false);
+
+    // ---- the policy itself ----
+    const cfg = { supabaseConfigured: true };
+    // THE CRITICAL CASE: paid key + anonymous caller must be refused.
+    const anon = evaluateAccess({ costBearing: true, ...cfg, token: null });
+    ok("12.9 paid + no token → REFUSED", anon.allow === false);
+    ok("12.10 paid + no token → 401", anon.status === 401);
+    const forged = evaluateAccess({ costBearing: true, ...cfg, token: "forged", tokenValid: false });
+    ok("12.11 paid + invalid token → REFUSED", forged.allow === false && forged.status === 401);
+    const good = evaluateAccess({ costBearing: true, ...cfg, token: "real", tokenValid: true });
+    ok("12.12 paid + valid token → allowed", good.allow === true);
+    // No key means mocks only — no spend, so no login demanded.
+    ok("12.13 unpaid + no token → allowed (mocks only)",
+      evaluateAccess({ costBearing: false, ...cfg, token: null }).allow === true);
+    ok("12.14 unpaid path never 401s",
+      evaluateAccess({ costBearing: false, ...cfg, token: null }).status === undefined);
+    // Paid key but no identity system: refuse rather than spend anonymously.
+    const misconfig = evaluateAccess({ costBearing: true, supabaseConfigured: false, token: "x", tokenValid: true });
+    ok("12.15 paid + no auth system → REFUSED", misconfig.allow === false);
+    ok("12.16 that is a 503, not a 401 (server's fault)", misconfig.status === 503);
+
+    // ---- the property that matters: a refusal cannot reach the provider ----
+    const refusals = [
+      evaluateAccess({ costBearing: true, ...cfg, token: null }),
+      evaluateAccess({ costBearing: true, ...cfg, token: "bad", tokenValid: false }),
+      evaluateAccess({ costBearing: true, supabaseConfigured: false, token: null }),
+    ];
+    ok("12.17 every refusal blocks before the provider call", refusals.every((r) => r.allow === false));
+
+    // ---- rate limiting (per-instance speed bump, honestly bounded) ----
+    resetRateLimits();
+    const t0 = 1_000_000;
+    let last = { limited: false, retryAfterSeconds: 0 };
+    for (let i = 0; i < RATE_LIMIT_MAX; i++) last = rateLimit("u1", t0);
+    ok("12.18 requests up to the cap are allowed", last.limited === false);
+    ok("12.19 the next request is limited", rateLimit("u1", t0).limited === true);
+    ok("12.20 limiting is per identity", rateLimit("u2", t0).limited === false);
+    ok("12.21 a new window resets the bucket",
+      rateLimit("u1", t0 + RATE_LIMIT_WINDOW_MS + 1).limited === false);
+    ok("12.22 a retry hint is offered", rateLimit("u1", t0).retryAfterSeconds >= 1);
+    // Bucket arithmetic is pure and testable without timers.
+    ok("12.23 a fresh bucket starts at 1", nextBucket(undefined, t0).count === 1);
+    ok("12.24 within-window increments", nextBucket({ count: 3, resetAt: t0 + 100 }, t0).count === 4);
+    ok("12.25 expired window restarts", nextBucket({ count: 99, resetAt: t0 - 1 }, t0).count === 1);
+    ok("12.26 over-limit detection", isOverLimit({ count: RATE_LIMIT_MAX + 1, resetAt: t0 }) === true);
+
+    // ---- no secret may ever reach the client bundle ----
+    ok("12.27 no NEXT_PUBLIC Anthropic key exists", process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY === undefined);
+    ok("12.28 no NEXT_PUBLIC embedding key exists", process.env.NEXT_PUBLIC_EMBEDDING_API_KEY === undefined);
+  }
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

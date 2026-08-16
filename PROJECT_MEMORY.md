@@ -3416,3 +3416,59 @@ Person / Event / Commitment.
 **Connector principles (unchanged):** one index, not one per connector; snapshot /
 manual import before live sync; least privilege; no unstable private APIs; direct
 connectors require repeated beta demand **and** stable API support, both.
+
+---
+
+- **LIFEOS-055S — Public AI cost boundary (security repair, no features).**
+
+  **The hole.** At public launch (`10cc1a5`), `POST /api/ai` accepted requests
+  from the open internet and — with `ANTHROPIC_API_KEY` set — spent real money on
+  them. **Nothing identified the caller.** `/api/embed` had the same shape for a
+  paid embedding provider. Before this repair the abuse boundary was: *anyone who
+  knew the URL could bill our Anthropic account, at ~1024–4096 max_tokens per
+  request, with no cap on request count.* Only `MAX_INPUT_CHARS` bounded a single
+  call; nothing bounded the number of calls.
+
+  **The fix, and why it is not a parallel auth system.** It reuses the only
+  identity Conqify has: the Supabase session the browser already holds. The
+  client attaches its existing access token; the server validates it with
+  `auth.getUser(jwt)` using the **public anon key**. No new credential, no new
+  table, **no service-role key**, RLS untouched.
+
+  **The policy that matters — auth is tied to the money, not the URL.**
+  Authentication is required when, and only when, a request could actually spend:
+  if no provider key is configured the route can only return deterministic mocks,
+  so demanding a login there would break local development and signed-out use for
+  no security gain. A rejected caller never reaches the provider. Every existing
+  client already falls back to mocks on a non-OK response, so signed-out use
+  degrades honestly rather than breaking.
+
+  **Rate limiting, honestly bounded.** A small in-memory per-user bucket
+  (60/min). Vercel runs many instances, so this is a **per-instance speed bump,
+  not a distributed quota** — the real cost control is that every paid request
+  now requires an account. A shared-state quota was deliberately not built.
+
+  **Two things checked and deliberately NOT changed:**
+  - **Model.** Default is `claude-sonnet-5` — current and valid. No evidence
+    justified changing it, so it was left alone.
+  - **Logging.** `[ai] task=… failed: …` interpolates only the task enum and an
+    error string like `anthropic_401`. **No user text, no keys, no tokens** in
+    logs or error responses. Verified, not assumed.
+
+  **The `anthropic_401` was never a code defect.** It is Anthropic rejecting the
+  credential — a wrong, expired, or malformed `ANTHROPIC_API_KEY` in Vercel. The
+  code handled it correctly by degrading to mocks and saying so.
+
+  **Stale audit found in passing.** `scripts/audit-auth.mjs` still enforced the
+  closed-beta invariant `shouldCreateUser: false` and so failed against the
+  intentional public-signup switch in PR #51. Updated to guard the CURRENT
+  posture — public email self-registration allowed, **anonymous auth still
+  forbidden**, no side doors — and to require `shouldCreateUser` be **explicit**,
+  because the posture of a public auth surface should never be an accident.
+  Public signup was not reverted.
+
+  **Residual, documented not fixed:** `/api/extract` fetches user-supplied URLs
+  and is unauthenticated. It bears no provider cost and is SSRF-guarded
+  (protocol/localhost/private-range checks), so it was left outside this minimal
+  repair — but it is an outbound fetcher on a public domain and should get an
+  identity or IP bound if abuse appears.
