@@ -8,9 +8,10 @@
  * module holds the deterministic expectations that both the rehearsal and the
  * release self-test check against, so the two can never disagree.
  *
- * Historical migrations are never modified. A demonstrated release-blocking
- * database defect would add exactly one narrowly-scoped `0035_v1_release_fix.sql`
- * beyond the current head (0034, the reading semantic index).
+ * Historical migrations are never modified. The current head is 0035
+ * (`0035_notes.sql`, the LIFEOS-052 standalone Note). A demonstrated
+ * release-blocking database defect would add exactly one narrowly-scoped
+ * `0036_v1_release_fix.sql` beyond it.
  */
 
 import { RELEASE_MIGRATION_COUNT } from "@/lib/release/versions";
@@ -36,7 +37,7 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-reading-ingestion", label: "Before native reading upload", throughVersion: 31 },
   { id: "pre-reading-originals", label: "Before reading-file persistence", throughVersion: 32 },
   { id: "pre-reading-semantic", label: "Before the reading semantic index", throughVersion: 33 },
-  { id: "current", label: "Current production head", throughVersion: 34 },
+  { id: "current", label: "Current production head", throughVersion: 35 },
 ];
 
 export interface MigrationListReport {
@@ -77,7 +78,7 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  * A demonstrated release-blocking migration fix may add exactly this file, and
  * nothing else. The audit rejects any new migration beyond it.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0035_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0036_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

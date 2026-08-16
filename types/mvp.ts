@@ -2736,6 +2736,52 @@ export interface StoreState {
   maintenanceEvents: MaintenanceEvent[];
   duplicateCandidates: DuplicateCandidate[];
   savedInsightViews: SavedInsightView[];
+  notes: Note[];
+}
+
+// ---------- Notes (LIFEOS-052) ----------
+
+/**
+ * A lightweight, standalone Note: useful information that does NOT have to be
+ * promoted into anything formal.
+ *
+ * The gap this fills (Life Organization Gap Audit): every existing exit from
+ * Capture was a promotion — belief, concept, decision, research, dialogue,
+ * reflection, principle, framework, practice, or a note *field* on a project or
+ * workspace. There was nowhere to put a recipe, a chord shape, or "por vs para".
+ * The product's own principle — not every useful thought needs to become formal
+ * knowledge — was unimplementable.
+ *
+ * Deliberately minimal. A Note has **no status, no lifecycle, no confidence, and
+ * no epistemic standing**: those are exactly what make the formal records
+ * expensive to file into. A Note may stay a Note forever; promotion is always
+ * the user's explicit choice (`lib/notes/promotion.ts`).
+ */
+export interface Note {
+  id: string;
+  /** Optional — an untitled note is a legitimate note. */
+  title?: string;
+  body: string;
+  /**
+   * Optional Topic. A Topic *is* a Workspace — see `lib/notes/topics.ts`. No
+   * separate topic entity and no workspace discriminator were introduced.
+   */
+  workspaceId?: string;
+  /** The capture this note came from, when it came from one. */
+  sourceCaptureId?: string;
+  /** Free-form references to any records this note connects to. */
+  linkedEntityRefs: RecordRefLite[];
+  tags: string[];
+  /**
+   * True when this note was created from AI-generated text. Saving is not
+   * authorship: `classifyOrigin` reads this (and any attribution marker in the
+   * body) so machine prose kept as a note is never read back as the user's own
+   * thinking (LIFEOS-050A/050B).
+   */
+  fromAiText?: boolean;
+  archived?: boolean;
+  createdAt: ISO;
+  updatedAt: ISO;
 }
 
 // ---------- Deterministic System Insights (LIFEOS-039) ----------
