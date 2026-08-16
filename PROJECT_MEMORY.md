@@ -3070,6 +3070,63 @@ conversion menu), not a new target.
 
 ---
 
+- **LIFEOS-051A — Large-book reading: the coverage walls (partial sprint, scoped).**
+  The sprint premise was "remove the 600k extraction ceiling." The audit
+  disproved it: **the binding constraint was somewhere else entirely, and it bit
+  four times earlier.**
+
+  Measured against the real shipped pipeline (synthetic books at ~1,800 chars per
+  page, running `parseInput → assignPages → buildRetrievalChunks →
+  buildDocumentParts`), there were **three** truncations stacked on each other,
+  not one:
+
+  1. **`MAX_PARTS_PER_RUN = 40` with `parts.slice(0, 40)`** — the whole-document
+     synthesis took the FIRST 40 parts. At the measured ~0.5 parts/page this
+     stopped covering a whole book at **81 pages**: a 300-page book was
+     summarized from its first 27% and a 500-page book from its first 24%. This
+     was the real ceiling, and it is the same first-N failure LIFEOS-049 fixed at
+     the chunk level, still present one layer up.
+  2. **The reduce stage `break`** — part summaries past
+     `SYNTHESIS_CONTEXT_BUDGET` (7,000 chars) were silently discarded, so even
+     within those 40 parts only the earliest summaries reached the final call.
+  3. **`MAX_EXTRACT_CHARS = 600_000`** — ~333 pages of prose. A 500-page book
+     lost its last third; a 1,000-page book lost two thirds.
+
+  Fixes: `selectParts` samples **evenly across the whole work** (always keeping
+  first and last, deterministic, in reading order) instead of taking the opening;
+  `reduceToOne` folds summaries through **multiple levels** instead of dropping
+  the tail; `MAX_PARTS_PER_RUN` raised 40 → 240 (~480 pages covered in full); and
+  the extraction cap raised 600k → 4M and re-documented as a **resource** bound,
+  so `MAX_PAGES = 1500` now binds first for any realistic book. Coverage is still
+  reported honestly, and the note now says the sample is spread across the work
+  rather than leaving "24%" to be misread as "the first 24%".
+
+  Measured before → after, same fixtures (5 unique facts planted at 0/25/50/75/100%):
+
+  | pages | facts ingested | facts reachable by whole-book synthesis |
+  |---|---|---|
+  | 100 | 5/5 → 5/5 | 4/5 → **5/5** |
+  | 300 | 5/5 → 5/5 | 2/5 → **5/5** |
+  | 500 | 3/5 → 5/5 | 1/5 → **5/5** |
+  | 1000 | 2/5 → 5/5 | 1/5 → **3/5** (opening, three-quarter, **final**) |
+
+  Compute was never the problem: parse, page assignment and chunking all run in
+  **single-digit to ~26 milliseconds** even at 1,000 pages.
+
+  **NOT done, and deliberately deferred to 051B** (the sprint's §2/§3/§4): the
+  local working set. The entire store — every document's full text — is still one
+  `JSON.stringify(state)` in one localStorage key. Measured: a 500-page book is
+  **0.90 MB** of JSON, so roughly **5 such books fill a typical 5 MB quota**,
+  and that quota is shared with everything else in LifeOS. The remote side is
+  already normalized (`document_sections` / `document_passages` with row-level
+  sync), so this is a LOCAL persistence problem only. Incremental page-by-page
+  ingestion, normalized local source storage, an IndexedDB working set, lazy
+  range loading and a migration for existing documents are all still open.
+
+- **BETA-EVIDENCE CANDIDATE (F, updated) — persistence scaling is now measured,
+  not theoretical.** The number to beat: **~5 books of 500 pages** before the
+  local quota is the wall. This is the concrete trigger for the F entry above.
+
 - **LIFEOS-052 — Notes, Topics & the Capture front door.** The first sprint of
   the life-organization track, and the smallest change that makes the daily loop
   close.

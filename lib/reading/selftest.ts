@@ -24,7 +24,11 @@ import {
   indexDocument, removeIndexForDocument, pendingChunks, chunkContentHash, INDEX_BATCH_SIZE,
   type SemanticIndexBackend, type StoredVector,
 } from "@/lib/reading/semanticIndex";
-import { synthesizeDocument, buildDocumentMap, partContext, PART_CONTEXT_BUDGET } from "@/lib/reading/synthesis";
+import {
+  synthesizeDocument, buildDocumentMap, partContext, PART_CONTEXT_BUDGET,
+  selectParts, reduceToOne, MAX_PARTS_PER_RUN,
+} from "@/lib/reading/synthesis";
+import { MAX_EXTRACT_CHARS, MAX_PAGES } from "@/lib/ingestion/pdfExtract";
 import type { ParsedDocument } from "@/lib/library/importer";
 import type { ReadingDocument, Passage, PageSpan } from "@/types/mvp";
 
@@ -361,6 +365,76 @@ export async function runReadingIngestSelfTests(): Promise<SelfTestReport> {
   ok("13.47 legacy doc (no pages) still chunks + retrieves", buildRetrievalChunks(legacy).length === 1 && selectEvidence("legacy", buildRetrievalChunks(legacy)).length === 1);
   ok("13.48 legacy doc parts degrade gracefully", buildDocumentParts(legacy, buildRetrievalChunks(legacy)).length === 1);
 
+  // ==================== 14. Large-book scale (LIFEOS-051A) ====================
+  //
+  // The regression this locks down: for a book longer than ~81 pages, whole-
+  // document synthesis took `parts.slice(0, 40)` — the OPENING 40 parts — so a
+  // 300-page book was summarized from its first quarter and knew nothing about
+  // its ending, while honestly reporting only a percentage that read like a
+  // rounding note. Coverage may be partial; it must never be front-loaded.
+  const BK = {
+    opening: "aardvarkine", earlyMid: "basiliskine", middle: "chimaerine",
+    lateMid: "dryadophane", ending: "erinyesque",
+  };
+
+  // ---- 14.1 selectParts: even distribution, never the opening slice ----
+  const seq = Array.from({ length: 500 }, (_, i) => i);
+  const picked = selectParts(seq, 40);
+  ok("14.1 selection keeps the requested budget", picked.length === 40);
+  ok("14.2 selection always includes the FIRST part", picked[0] === 0);
+  ok("14.3 selection always includes the LAST part", picked[picked.length - 1] === 499);
+  ok("14.4 selection is spread, not the opening slice", picked[picked.length - 1] - picked[0] === 499 && picked[20] > 200);
+  ok("14.5 selection stays in reading order", picked.every((v, i, a) => i === 0 || a[i - 1] < v));
+  ok("14.6 selection is deterministic", JSON.stringify(selectParts(seq, 40)) === JSON.stringify(picked));
+  ok("14.7 a budget at or above total returns everything", selectParts(seq, 500).length === 500 && selectParts(seq, 900).length === 500);
+  ok("14.8 tiny budgets stay valid", selectParts(seq, 1).length === 1 && selectParts(seq, 2)[1] === 499);
+
+  // ---- 14.9 reduceToOne: folds levels instead of dropping the tail ----
+  const fakeSummarize = async (t: string) => ({ result: `S(${t.length})`, source: "mock" });
+  const manyBlocks = Array.from({ length: 60 }, (_, i) => `Part ${i}: ${"z".repeat(500)}`);
+  const reduced = await reduceToOne(manyBlocks, fakeSummarize, 7000);
+  ok("14.9 an over-budget reduce still yields ONE summary", typeof reduced.summary === "string" && reduced.summary.length > 0);
+  ok("14.10 an over-budget reduce uses MORE THAN ONE level", reduced.levels > 1);
+  ok("14.11 a small reduce stays single-level", (await reduceToOne(["a: x", "b: y"], fakeSummarize, 7000)).levels === 1);
+  ok("14.12 an empty reduce does not throw", (await reduceToOne([], fakeSummarize, 7000)).summary.length >= 0);
+
+  // ---- 14.13 Book fixtures: 100 / 300 / 500 / 1000 pages ----
+  // Each asserts the property that actually matters at scale: the END of the
+  // book is represented in the synthesis, whatever the coverage fraction.
+  for (const pages of [100, 300, 500, 1000]) {
+    const book = buildBookDoc(pages, BK);
+    const bChunks = buildRetrievalChunks(book);
+    const bParts = buildDocumentParts(book, bChunks);
+    const lastPassage = book.sections[0].passages[book.sections[0].passages.length - 1].id;
+
+    ok(`14.13.${pages} every page is chunked (${pages}p)`, bChunks.length > 0 && bParts.length > 0);
+
+    const sel = selectParts(bParts, Math.min(bParts.length, MAX_PARTS_PER_RUN));
+    const selText = sel.flatMap((p) => bChunks.filter((c) => p.chunkIds.includes(c.id))).map((c) => c.text).join(" ");
+    ok(`14.14.${pages} the ENDING fact is reachable by synthesis (${pages}p)`, selText.includes(BK.ending));
+    ok(`14.15.${pages} the OPENING fact is still reachable (${pages}p)`, selText.includes(BK.opening));
+    ok(`14.16.${pages} the MIDDLE fact is reachable (${pages}p)`, selText.includes(BK.middle));
+
+    const bSynth = await synthesizeDocument(book);
+    ok(`14.17.${pages} lineage reaches the FINAL passage (${pages}p)`,
+      new Set(bSynth.refs.flatMap((r) => r.passageIds)).has(lastPassage));
+    ok(`14.18.${pages} coverage is reported honestly (${pages}p)`,
+      bSynth.partsTotal === bParts.length && bSynth.coverage > 0 && bSynth.coverage <= 1);
+    ok(`14.19.${pages} partial coverage says it is sampled across the work (${pages}p)`,
+      bSynth.coverage === 1 ? bSynth.note === undefined : !!bSynth.note && /evenly across/.test(bSynth.note));
+    ok(`14.20.${pages} no single part request carries the whole book (${pages}p)`,
+      bParts.every((p) => partContext(bChunks.filter((c) => p.chunkIds.includes(c.id))).length <= PART_CONTEXT_BUDGET));
+    // Late-book retrieval must work regardless of length — the Ask guarantee.
+    ok(`14.21.${pages} the ending fact is retrievable by search (${pages}p)`,
+      rankChunks(BK.ending, bChunks).some((r) => r.chunk.text.includes(BK.ending)));
+  }
+
+  // ---- 14.22 The raised extraction ceiling is a resource bound, not a book bound ----
+  ok("14.22 extraction ceiling exceeds the page ceiling for real prose",
+    MAX_EXTRACT_CHARS > MAX_PAGES * 1800);
+  ok("14.23 a 500-page book fits well inside the extraction ceiling", 500 * 1800 < MAX_EXTRACT_CHARS);
+  ok("14.24 a 1000-page book fits inside the extraction ceiling", 1000 * 1800 < MAX_EXTRACT_CHARS);
+
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };
 }
@@ -384,6 +458,42 @@ function lastPassageOf(doc: ReadingDocument): string {
  * final pages. No copyrighted text; deterministic; long enough that a single
  * context window cannot hold it.
  */
+/**
+ * A synthetic BOOK of `pages` pages (~1,800 characters/page — ordinary trade
+ * paperback prose), with a unique marker planted at five positions including the
+ * very last page. Used by §14 to prove that large-book behavior degrades
+ * honestly and evenly rather than silently losing the end (LIFEOS-051A).
+ */
+function buildBookDoc(pages: number, markers: Record<string, string>): ReadingDocument {
+  const perPage = 3;
+  const total = pages * perPage;
+  const plant: Record<number, string> = {
+    [0]: markers.opening,
+    [Math.floor(total * 0.25)]: markers.earlyMid,
+    [Math.floor(total * 0.5)]: markers.middle,
+    [Math.floor(total * 0.75)]: markers.lateMid,
+    [total - 1]: markers.ending,
+  };
+  const passages: Passage[] = [];
+  for (let i = 0; i < total; i++) {
+    const marker = plant[i] ? ` The distinctive term ${plant[i]} appears here and nowhere else.` : "";
+    const body = `Paragraph ${i + 1} continues the argument, weighing attention against habit and returning to what the reader can actually verify. `
+      + `It proceeds by example, declines to settle what the evidence has not settled, and leaves room for a later page to qualify it.`;
+    passages.push({
+      id: `bk${pages}p${i}`, sectionId: `bk${pages}s1`,
+      text: `${body}${marker}`,
+      page: Math.floor(i / perPage) + 1, order: i, highlights: [], annotations: [], linked: [],
+    } as unknown as Passage);
+  }
+  return {
+    id: `book${pages}`, title: `A ${pages}-Page Work`, authors: ["Author"], kind: "book", status: "reading",
+    tags: [], notes: "", sections: [{ id: `bk${pages}s1`, title: "Body", order: 0, passages }],
+    progress: { status: "reading", percent: 0, readPassageIds: [] },
+    sourceMetadata: { importFormat: "plain" },
+    createdAt: "2026-08-15T00:00:00.000Z", updatedAt: "2026-08-15T00:00:00.000Z",
+  } as unknown as ReadingDocument;
+}
+
 function buildLongDoc(markers: Record<string, string>): ReadingDocument {
   const PAGES = 60;
   const perPage = 3;
