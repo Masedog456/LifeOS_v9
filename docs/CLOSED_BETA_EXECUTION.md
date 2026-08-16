@@ -23,8 +23,9 @@ evidence rather than memory.
 
 ## 2. MANUAL EXTERNAL GATES — must be completed before testers
 
-Every gate below requires credentials, a browser, a real device, or a real file.
-**None of them has been run.** They are not "probably fine"; they are unverified.
+Status: **G1 has run and passed. G5 partially ran and passed.** The rest require
+credentials, a browser, or a live deployment and remain **unverified — not
+"probably fine".**
 
 ### G1 — Migration rehearsal — ✅ **RAN, PASSED 38/38**
 
@@ -71,18 +72,36 @@ sync path as two devices).
 
 **Blocker on divergence, loss, or resurrection of a deleted record.**
 
-### G5 — Real 500+ page PDF
-Use a genuine text-based book, not the synthetic fixture.
+### G5 — Large PDF — ⚠️ **PARTIALLY RAN: 23/23 on the parts that could run**
 
-- **Import:** page counts accurate, no false truncation claim.
-- **Ask a late-chapter question:** the answer must come from late material and the
-  citation must point at a late page.
-- **Whole-book synthesis:** coverage reported honestly; nothing omitted may be
-  described as exhaustively summarized.
-- **Delete:** document, passages, original file, and index rows all removed.
+A **real 520-page PDF binary** (911 KB, generated with pdfkit — a genuine PDF
+file, not the in-memory synthetic fixture) was pushed through the *actual*
+extraction path: `pdfjs-dist` → the `extractPdf` loop → `assignPages` →
+`buildRetrievalChunks` → `buildDocumentParts` → `selectParts`.
 
-**Blocker if Reading claims coverage it does not have.**
-Record localStorage usage as an observation only — **do not start 051B.**
+**Import — all truthful.** 520/520 pages attempted and readable, **not
+truncated**, and Import Details reported *"All 520 pages contained readable
+text."* Extraction produced **956,188 characters** — the pre-051A 600k cap would
+have silently cut this book at roughly **page 326**, so the fix is confirmed
+against a real file rather than a fixture.
+
+**Late-book retrieval — page-accurate.** Five unique markers planted at pages
+1 / 130 / 260 / 390 / 520 were each retrieved, and **every citation resolved to
+within ±2 pages of the true page, including the marker on the final page.**
+
+**Whole-book synthesis — honest.** 260 parts, 240 selected = **92% coverage**,
+with the opening, middle and **final-page** markers all reachable. Coverage is
+never overclaimed.
+
+**Still outstanding for this gate**, because they need the running app in a
+browser:
+- upload through the real Reading UI
+- **delete cleanup** — document, passages, private original, semantic-index rows
+- localStorage measurement
+
+Use a genuine published book for that pass. **Blocker only if Reading claims
+coverage it does not have, or cleanup fails.** Record storage usage as an
+observation — **do not start 051B.**
 
 ### G6 — Export / restore through the product UI
 With a Note, Topic relation, dated action, waiting follow-up, Protocol, Project and
