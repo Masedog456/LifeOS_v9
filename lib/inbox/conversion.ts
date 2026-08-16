@@ -10,9 +10,10 @@
 
 import type { Capture, StoreState } from "@/types/mvp";
 import { effectiveText } from "@/lib/inbox/capture-status";
+import { extractConditional } from "@/lib/capture/classify";
 
 export type ConversionTargetKey =
-  | "note"
+  | "note" | "protocol"
   | "belief" | "concept" | "decision" | "research" | "dialogue"
   | "reflection" | "principle" | "framework" | "practice"
   | "project_note" | "workspace_note";
@@ -47,6 +48,9 @@ export const CONVERSION_TARGETS: ConversionTarget[] = [
   // The everyday default. Listed first deliberately: most captured thoughts are
   // useful without being formal, and before LIFEOS-052 they had nowhere to go.
   { key: "note", label: "Note", entityKind: "note", group: "keep", description: "Keep it as useful information. No commitment, no category needed." },
+  // A conditional intention: WHEN/IF trigger → response. Everyday, not formal —
+  // it belongs beside Note rather than behind the epistemic disclosure.
+  { key: "protocol", label: "Protocol", entityKind: "protocol", group: "keep", description: "When something happens, respond a certain way." },
   { key: "belief", group: "formal", label: "Belief", entityKind: "belief", description: "A first-person belief in your constitution." },
   { key: "concept", group: "formal", label: "Concept", entityKind: "concept", description: "A named concept in your world model." },
   { key: "decision", group: "formal", label: "Decision", entityKind: "decision", description: "A decision to explore." },
@@ -126,6 +130,11 @@ export function previewConversion(state: StoreState, capture: Capture, targetKey
 
   switch (targetKey) {
     case "note": fields.push({ label: "Note", value: text }); break;
+    case "protocol": {
+      const cond = extractConditional(text);
+      fields.push({ label: "When", value: cond?.trigger ?? "" }, { label: "Then", value: cond?.response ?? text });
+      break;
+    }
     case "belief": fields.push({ label: "Statement", value: text }); break;
     case "concept": fields.push({ label: "Name", value: title }, { label: "Definition", value: text }); break;
     case "decision": fields.push({ label: "Title", value: title }, { label: "Question", value: text }); break;

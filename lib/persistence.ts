@@ -111,6 +111,7 @@ function normalize(partial: Partial<StoreState> | null): StoreState {
     duplicateCandidates: partial?.duplicateCandidates ?? [],
     savedInsightViews: partial?.savedInsightViews ?? [],
     notes: partial?.notes ?? [],
+    protocols: partial?.protocols ?? [],
   };
 }
 

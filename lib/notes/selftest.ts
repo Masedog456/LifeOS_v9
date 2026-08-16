@@ -124,7 +124,7 @@ export function runNotesSelfTests(): SelfTestReport {
   ok("5.1 Note is a conversion target", !!findTarget("note"));
   ok("5.2 Note is in the everyday 'keep' band", findTarget("note")?.group === "keep");
   ok("5.3 Note is listed FIRST", CONVERSION_TARGETS[0].key === "note");
-  ok("5.4 the eleven original targets all survive", CONVERSION_TARGETS.length === 12);
+  ok("5.4 the eleven original targets all survive", CONVERSION_TARGETS.length === 13); // +note (052) +protocol (054)
   ok("5.5 the formal band holds the epistemic destinations", targetsInGroup("formal").length === 9);
   ok("5.6 the context band holds the append targets", targetsInGroup("context").length === 2);
   ok("5.7 every target has a group", CONVERSION_TARGETS.every((t) => !!t.group));

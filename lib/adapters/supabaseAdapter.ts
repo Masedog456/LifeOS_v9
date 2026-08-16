@@ -59,6 +59,7 @@ import type {
   DuplicateCandidate,
   SavedInsightView,
   Note,
+  Protocol,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import {
@@ -169,6 +170,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     // Insights saved views (LIFEOS-039): resilient to the 0030 table being absent.
     const savedInsightViews = await this.loadInsightViews();
     const notes = await this.loadNotes();
+    const protocols = await this.loadProtocols();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -221,6 +223,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       duplicateCandidates: maintenance.duplicateCandidates,
       savedInsightViews,
       notes,
+      protocols,
     };
   }
 
@@ -342,6 +345,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("duplicateCandidates")) await this.syncDuplicateCandidates(state.duplicateCandidates ?? [], base?.duplicateCandidates ?? []);
     if (w("savedInsightViews")) await this.syncInsightViews(state.savedInsightViews ?? [], base?.savedInsightViews ?? []);
     if (w("notes")) await this.syncNotes(state.notes ?? [], base?.notes ?? []);
+    if (w("protocols")) await this.syncProtocols(state.protocols ?? [], base?.protocols ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -517,6 +521,22 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const d = diffById<SavedInsightViewRow>(current.map(insightViewToRow), base.map(insightViewToRow));
     if (d.upsert.length) await this.throwing(this.client.from("saved_insight_views").upsert(d.upsert));
     if (d.deleteIds.length) { await this.throwing(this.client.from("saved_insight_views").delete().in("id", d.deleteIds)); await this.writeTombstones("savedInsightViews", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for protocols (LIFEOS-054). */
+  private async syncProtocols(current: Protocol[], base: Protocol[]): Promise<void> {
+    const d = diffById<ProtocolRow>(current.map(protocolToRow), base.map(protocolToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("protocols").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("protocols").delete().in("id", d.deleteIds)); await this.writeTombstones("protocols", d.deleteIds); }
+  }
+
+  /** Load protocols, resilient to the 0037 table being absent. */
+  private async loadProtocols(): Promise<Protocol[]> {
+    try {
+      const res = await this.client.from("protocols").select("*").order("updated_at", { ascending: false });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToProtocol);
+    } catch { return []; }
   }
 
   /** Row-level upsert/delete for notes (LIFEOS-052). */
@@ -2092,6 +2112,28 @@ function rowToInsightView(r: any): SavedInsightView {
     id: r.id, name: r.name ?? "", insight: r.insight ?? "home", rangeKind: (r.range_kind ?? "last_7_days") as SavedInsightView["rangeKind"],
     customStart: r.custom_start ?? undefined, customEnd: r.custom_end ?? undefined, grouping: r.grouping ?? undefined,
     filters: (r.filters && typeof r.filters === "object") ? r.filters : {}, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+interface ProtocolRow {
+  id: string; user_id?: string; trigger_text: string; response_text: string;
+  reason: string | null; status: string; source_capture_id: string | null;
+  from_ai_text: boolean; created_at: string; updated_at: string;
+}
+function protocolToRow(p: Protocol): ProtocolRow {
+  return {
+    id: p.id, trigger_text: p.trigger, response_text: p.response, reason: p.reason ?? null,
+    status: p.status, source_capture_id: p.sourceCaptureId ?? null,
+    from_ai_text: !!p.fromAiText, created_at: p.createdAt, updated_at: p.updatedAt,
+  };
+}
+function rowToProtocol(r: any): Protocol {
+  return {
+    id: r.id, trigger: r.trigger_text ?? "", response: r.response_text ?? "",
+    reason: r.reason ?? undefined, status: (r.status ?? "active") as Protocol["status"],
+    sourceCaptureId: r.source_capture_id ?? undefined,
+    fromAiText: r.from_ai_text ? true : undefined,
+    createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 
