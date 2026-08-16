@@ -27,10 +27,31 @@ import { terms } from "@/lib/reading/retrieval";
 
 /** Max source characters sent in ONE part-summary request. */
 export const PART_CONTEXT_BUDGET = 7000;
-/** Max part-summary characters sent in the final synthesis request. */
+/** Max part-summary characters sent in ONE reduce request. */
 export const SYNTHESIS_CONTEXT_BUDGET = 7000;
-/** Safety ceiling on parts summarized in one run (very long books). */
-export const MAX_PARTS_PER_RUN = 40;
+
+/**
+ * Ceiling on parts summarized in one run — a COST bound (one AI call per part),
+ * not a statement about how much of a book Conqify can understand.
+ *
+ * Raised from 40 in LIFEOS-051A. At the measured ~0.5 parts per page, 40 parts
+ * stopped covering a whole book at about **81 pages** — so a 300-page book's
+ * "whole document" summary saw its first 27%, and a 500-page book its first
+ * 24%. That was the real large-book ceiling, and it bit four times earlier than
+ * the 600k extraction cap everyone was watching. 240 parts covers roughly a
+ * 480-page book in full.
+ *
+ * Past this ceiling the run no longer takes the FIRST N parts — see
+ * `selectParts`. Coverage is always reported honestly either way.
+ */
+export const MAX_PARTS_PER_RUN = 240;
+
+/**
+ * Max reduce levels before we stop folding summaries together. Three levels of
+ * ~7,000 characters each is far more than any book reaches in practice; the
+ * bound exists so a pathological input cannot loop.
+ */
+export const MAX_REDUCE_LEVELS = 3;
 
 export interface SourceRefLite {
   documentId: string;
@@ -63,6 +84,11 @@ export interface DocumentSynthesis {
   coverage: number;
   partsCovered: number;
   partsTotal: number;
+  /**
+   * How many reduce levels ran (1 = part summaries folded once). More than one
+   * means the book needed hierarchical reduction rather than a single pass.
+   */
+  reduceLevels: number;
   derived: true;
   source: string;
   /** Present when the run was incomplete — plain language. */
@@ -89,6 +115,89 @@ export function partContext(chunks: RetrievalChunk[], budget = PART_CONTEXT_BUDG
     used += block.length;
   }
   return out.join("\n\n");
+}
+
+/**
+ * Choose which parts to summarize when a book exceeds the per-run ceiling.
+ *
+ * The rule that matters: **spread the selection across the whole work.** The
+ * previous implementation was `parts.slice(0, limit)`, which meant a long book's
+ * "whole document" summary described its opening chapters and silently knew
+ * nothing about its ending — the same first-N failure LIFEOS-049 fixed at the
+ * chunk level, still present one layer up (LIFEOS-051A).
+ *
+ * Evenly samples the range, always keeping the first and last part, and always
+ * returns them in reading order. Deterministic: the same book yields the same
+ * selection every run, so a re-summary is not a lottery.
+ */
+export function selectParts<T>(parts: T[], limit: number): T[] {
+  if (limit >= parts.length || limit <= 0) return parts.slice();
+  if (limit === 1) return [parts[0]];
+  const picked: T[] = [];
+  const seen = new Set<number>();
+  // limit-1 even steps across the full index range guarantees index 0 and the
+  // final index are both hit, with the rest distributed between them.
+  for (let i = 0; i < limit; i++) {
+    const idx = Math.round((i * (parts.length - 1)) / (limit - 1));
+    if (seen.has(idx)) continue;
+    seen.add(idx);
+    picked.push(parts[idx]);
+  }
+  return picked;
+}
+
+/**
+ * Fold text blocks down to a single summary, adding levels as needed.
+ *
+ * The reduce stage used to `break` once the accumulated summaries passed
+ * `SYNTHESIS_CONTEXT_BUDGET`, silently discarding every later part summary — a
+ * second first-N truncation stacked on the first (LIFEOS-051A). Instead of
+ * dropping the tail, group the blocks into budget-sized batches, summarize each
+ * batch, and repeat on the results until one batch fits.
+ *
+ * The raw document is still never sent: every level consumes only the previous
+ * level's derived summaries. Returns how many levels ran so the caller can say
+ * how the synthesis was built.
+ */
+export async function reduceToOne(
+  blocks: string[],
+  summarizeFn: (text: string) => Promise<{ result: string; source: string }>,
+  budget = SYNTHESIS_CONTEXT_BUDGET,
+  maxLevels = MAX_REDUCE_LEVELS,
+): Promise<{ summary: string; levels: number; source: string }> {
+  let current = blocks.filter((b) => b.trim().length > 0);
+  if (current.length === 0) {
+    const { result, source } = await summarizeFn(" ");
+    return { summary: result, levels: 1, source };
+  }
+
+  let levels = 0;
+  let source = "mock";
+  while (levels < maxLevels) {
+    // Group into batches that each fit one request.
+    const batches: string[][] = [];
+    let cur: string[] = [];
+    let used = 0;
+    for (const b of current) {
+      // A single oversized block still gets its own batch rather than being lost.
+      if (cur.length && used + b.length > budget) { batches.push(cur); cur = []; used = 0; }
+      cur.push(b);
+      used += b.length;
+    }
+    if (cur.length) batches.push(cur);
+
+    const next: string[] = [];
+    for (const batch of batches) {
+      const { result, source: s } = await summarizeFn(batch.join("\n\n"));
+      next.push(result);
+      source = s;
+    }
+    levels++;
+    current = next;
+    if (current.length <= 1) break;
+  }
+
+  return { summary: current[0] ?? "", levels, source };
 }
 
 /** Summarize ONE part from its own chunks. One bounded call. */
@@ -125,38 +234,38 @@ export async function synthesizeDocument(
   const chunks = buildRetrievalChunks(doc);
   const parts = buildDocumentParts(doc, chunks);
   const limit = Math.min(parts.length, opts.maxParts ?? MAX_PARTS_PER_RUN);
-  const selected = parts.slice(0, limit);
+  // MAP: when a book exceeds the run ceiling, sample ACROSS it rather than
+  // taking its opening — the end of a book must be representable (LIFEOS-051A).
+  const selected = selectParts(parts, limit);
 
   const partSummaries: PartSummary[] = [];
   for (const part of selected) {
     partSummaries.push(await summarizePart(part, chunks));
   }
 
-  // Reduce: synthesize from the PART SUMMARIES, never the raw document.
-  const reduceInput: string[] = [];
-  let used = 0;
-  for (const p of partSummaries) {
-    const block = `${p.title}: ${p.summary}`.trim();
-    if (used + block.length > SYNTHESIS_CONTEXT_BUDGET) break;
-    reduceInput.push(block);
-    used += block.length;
-  }
-  const { result, source } = await summarize(reduceInput.join("\n\n") || " ");
+  // REDUCE: fold the PART SUMMARIES — never the raw document — adding levels
+  // instead of discarding the tail once one request's budget is full.
+  const blocks = partSummaries.map((p) => `${p.title}: ${p.summary}`.trim());
+  const { summary, levels, source } = await reduceToOne(blocks, summarize);
 
   const partsCovered = partSummaries.length;
   const partsTotal = parts.length;
+  const complete = partsCovered >= partsTotal;
   return {
-    summary: result,
+    summary,
     parts: partSummaries,
     refs: partSummaries.flatMap((p) => p.refs),
     coverage: partsTotal ? partsCovered / partsTotal : 0,
     partsCovered,
     partsTotal,
+    reduceLevels: levels,
     derived: true,
     source,
-    note: partsCovered < partsTotal
-      ? `This covers ${partsCovered} of ${partsTotal} parts of the document.`
-      : undefined,
+    // Say plainly that the sample is spread, so "24% covered" is not misread as
+    // "the first 24%" — the distinction the previous implementation got wrong.
+    note: complete
+      ? undefined
+      : `This covers ${partsCovered} of ${partsTotal} parts, sampled evenly across the whole document (beginning, middle and end included) rather than only its opening.`,
   };
 }
 
