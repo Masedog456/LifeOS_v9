@@ -3236,3 +3236,90 @@ conversion menu), not a new target.
   Readwise, Zotero, Drive/Docs. **Protocol is not recurrence** — a conditional
   trigger ("when X happens → do Y") has no cadence, and the time model added here
   deliberately gives it nothing to be confused with.
+
+---
+
+- **LIFEOS-054 — Protocols & deterministic capture classification.** Beta-evidence
+  candidate A, built at last, plus the classifier that Note (LIFEOS-052) made safe.
+
+  **Protocol is its own noun, and the reason is structural.** Every member of
+  `PracticeCadence` — `once | daily | weekly | occasional` — answers *how often*.
+  A protocol has **no frequency at all**; it has a **condition**. Filing "when my
+  child is in a fight-or-flight reaction, give him physical space" as
+  `occasional` records something the user never said. `practice_candidates` is
+  untouched, no legacy practice was migrated, and historical intent was not
+  inferred (§21). Fields: trigger · response · optional reason · status
+  (active/paused/retired) · provenance · source capture. Migration
+  `0037_protocols.sql`, RLS + tombstones.
+
+  **Deliberately absent from Protocol:** cadence, due date, next-occurrence,
+  schedule, trigger engine, notification — and **no streak, compliance rate, or
+  success score**. A protocol is a remembered intention, not a behaviour to be
+  graded. Today does **not** surface protocols: no reliable trigger detection
+  exists, and a guessed trigger is worse than none.
+
+  **The classifier is deterministic and pure.** `lib/capture/classify.ts` — no
+  AI, no network, no state. Rule ORDER carries most of the correctness, and the
+  two orderings that matter are counter-intuitive: a conditional *contains* an
+  action verb ("when X, **call** Y"), and a waiting clause contains one too
+  ("waiting for Sarah to **send**"), so protocol and waiting must both be tested
+  **before** the action rule or every protocol misroutes. Informational markers
+  beat imperatives, which is why "Recipe: buy chicken, simmer" stays a note.
+
+  **Confidence means routing, never truth.** Three coarse bands
+  (`high | likely | possible`), no percentage — fake precision invites trust the
+  rules have not earned. Nothing computes belief confidence, psychological
+  certainty, or importance; those would be judgments about the user's own
+  thinking. Every suggestion carries a plain-language reason ("Uses a when →
+  response pattern"), never a regex.
+
+  **Restraint where it matters most.** "I think X" and "I believe X" classify as
+  **Note**, not Belief — a declarative sentence is not evidence someone wants a
+  belief recorded, and Belief stays an intentional promotion. Reflection is
+  suggested only on **explicit** reflective language ("I've realized…") and never
+  above `likely`. Project requires an outcome verb and is only ever `possible`,
+  because a wrong Project costs far more than a wrong Note. Belief, Decision and
+  Principle are **not suggestible types at all**.
+
+  **Multi-intent is reported, not resolved.** Collapsing "call the dentist, and
+  remember to give him space when he's overwhelmed" into one type would silently
+  drop what the person said, so the capture is flagged and routed to the existing
+  `planSplit` flow. No fragment is lost.
+
+  **Question has no fake destination.** There is no simple question record —
+  `Inquiry` is the output of a dialectical analysis run — so a question is offered
+  as a Note and the UI says so plainly rather than pointing at something that
+  does not exist.
+
+  **Nothing is created automatically.** Even "Call the dentist" yields a
+  proposal. Protocol trigger/response are **editable before the record exists**,
+  so a machine's reading of a sentence never becomes the user's stated intention
+  without their hands on it. Provenance travels with the capture's *classified*
+  origin, so routing through the classifier cannot launder AI prose into an
+  authored intention (LIFEOS-050A/050B).
+
+  **Waiting reuses existing semantics** — classification extracts `waitingOn` and
+  points at the existing action route; **no parallel waiting system**. Known
+  limitation: setting waiting status is still a second step on the action page.
+
+  Protocols suite **91** new assertions; full regression **1535/1535** across 24
+  suites. Release head 0036 → 0037; reserved fix slot now `0038_v1_release_fix.sql`
+  (58 tables). No date parsing was added — "Call dentist Friday" classifies as an
+  action and the user sets Friday through the existing due-date control.
+
+- **FUTURE VISUALIZATION LAYER (roadmap only — nothing implemented).** Potential
+  representations: calendar, timeline, charts, relationship graphs. Potential
+  inputs: actions, projects, notes, reading, practices, protocols, calendar
+  events, connector data. **Principles, which matter more than the list:**
+  visualizations explain the user's life rather than rate it; **no gamified life
+  score, no fake wellness or productivity index**; factual views over judgments;
+  connectors feed one shared data model rather than provider-specific dashboards;
+  contextual visualization beats a dashboard wall. Nothing was built.
+
+- **ROADMAP SEQUENCE (reconfirmed).** Life track: Notes / Capture front door ✅ →
+  minimal time model ✅ → Protocol + deterministic classification ✅ →
+  **Google Calendar read connector** (next high-value life connector; not
+  implemented). Then: recurrence / responsibilities, visualization architecture.
+  Knowledge track unchanged: Reading / library scaling, generic AI portability,
+  source verification, universal retrieval, Readwise, Zotero, Drive/Docs,
+  NotebookLM/Mindgrasp conditional, scoped MCP-style AI access last.

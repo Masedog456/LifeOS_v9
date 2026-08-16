@@ -142,6 +142,12 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
     if (n.archived) continue;
     add("note", n.id, noteDisplayTitle(n), { body: `${n.title ?? ""} ${n.body} ${(n.tags ?? []).join(" ")}`, aliases: n.tags, updatedAt: n.updatedAt, href: `/notes?note=${n.id}` });
   }
+  // Protocols join the EXISTING command index — no separate protocol index,
+  // no retrieval island (LIFEOS-054 §19).
+  for (const p of state.protocols ?? []) {
+    if (p.status === "retired") continue;
+    add("protocol", p.id, `When ${p.trigger} → ${p.response}`, { body: `${p.trigger} ${p.response} ${p.reason ?? ""}`, status: p.status, updatedAt: p.updatedAt, href: `/protocols?protocol=${p.id}` });
+  }
   for (const doc of state.documents) {
     const sectionNotes = doc.sections.map((s) => s.note ?? "").join(" ");
     add("document", doc.id, doc.title, {
@@ -172,6 +178,7 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
  */
 export function resolveRecord(state: StoreState, kind: string, id: string): { title: string; href: string; status?: string } | undefined {
   switch (kind) {
+    case "protocol": { const p = (state.protocols ?? []).find((x) => x.id === id); return p && { title: `When ${p.trigger} → ${p.response}`, href: `/protocols?protocol=${p.id}`, status: p.status }; }
     case "note": { const n = (state.notes ?? []).find((x) => x.id === id); return n && { title: noteDisplayTitle(n), href: `/notes?note=${n.id}` }; }
     case "capture": { const c = state.captures.find((x) => x.id === id); return c && { title: snip(c.workingText ?? c.text, 60), href: "/", status: c.processingStatus ?? "inbox" }; }
     case "belief": { const b = state.beliefs.find((x) => x.id === id); return b && { title: snip(b.text, 60), href: "/constitution", status: b.status }; }

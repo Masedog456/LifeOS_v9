@@ -44,6 +44,7 @@ const NAV: NavItem[] = [
     sections: [{ links: [
       { href: "/", label: "Capture a thought" },
       { href: "/notes", label: "Notes" },
+      { href: "/protocols", label: "Protocols" },
       { href: "/process", label: "Process inbox" },
       { href: "/inbox", label: "Belief inbox", badge: "inbox" },
     ] }],
