@@ -28,6 +28,7 @@ import { toast } from "@/lib/ux/feedback";
 import { writeInboxMemory } from "@/lib/inbox/memory";
 import EntityPicker from "@/components/reviews/EntityPicker";
 import ConversionPreview from "@/components/inbox/ConversionPreview";
+import CaptureSuggestion from "@/components/inbox/CaptureSuggestion";
 import SplitCapture from "@/components/inbox/SplitCapture";
 import MergeCaptures from "@/components/inbox/MergeCaptures";
 import DeferCapture from "@/components/inbox/DeferCapture";
@@ -100,6 +101,12 @@ export default function CaptureProcessor({ captureId, initialAction }: { capture
                 <button type="button" onClick={saveRewrite} disabled={!rewriteDirty} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Save working version</button>
                 {capture.workingText !== undefined && <button type="button" onClick={() => { revertRewrite(capture.id); setDraft(""); toast({ kind: "info", message: "Reverted to original" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Revert to original</button>}
               </div>
+            </div>
+          )}
+          {panel === "convert" && (
+            <div className="mb-3">
+              {/* Suggestion first — the manual destination list stays right below. */}
+              <CaptureSuggestion capture={capture} onHandled={() => router.push("/process")} />
             </div>
           )}
           {panel === "convert" && <ConversionPreview capture={capture} onConverted={() => toast({ kind: "success", message: "Converted — source capture preserved" })} />}

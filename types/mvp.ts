@@ -2477,6 +2477,28 @@ export interface NextAction {
   updatedAt: ISO;
   completedAt?: ISO;
   cancelledAt?: ISO;
+  /**
+   * When this must be done, as a LOCAL day key (yyyy-mm-dd) — LIFEOS-053.
+   *
+   * The one field the minimal time model adds. Goals, Projects and Milestones
+   * already carried `targetDate`; the leaf of the hierarchy — the thing a person
+   * actually does — was the only level that could not answer "by when?", so
+   * "call the dentist by Friday" was unrepresentable.
+   *
+   * **Date-only, deliberately.** Every use case the sprint named ("by Friday",
+   * "before the 15th", "expires next month") is a day, not an instant. A
+   * datetime would need a stored timezone to be meaningful and would drift
+   * across travel and DST, converting a deadline into a bug. When real
+   * appointments arrive they belong to a future Event layer fed by a calendar —
+   * a due date must never be used as a fake calendar event.
+   *
+   * Distinct from its neighbours, and none of them is a substitute:
+   *  - `deferredUntil` — "not before" (a START date; already existed)
+   *  - `followUpDate`  — "check back on" (waiting only; already existed)
+   *  - `dueDate`       — "must be done by"
+   *  - planning horizon — the user's chosen attention band, never a deadline
+   */
+  dueDate?: string;
   /** Local day key (yyyy-mm-dd) an action returns to "Next" on. */
   deferredUntil?: string;
   /** Free text: what/who this action is waiting on. */
@@ -2737,6 +2759,69 @@ export interface StoreState {
   duplicateCandidates: DuplicateCandidate[];
   savedInsightViews: SavedInsightView[];
   notes: Note[];
+  protocols: Protocol[];
+}
+
+// ---------- Capture classification (LIFEOS-054) ----------
+
+/** The shapes the deterministic classifier can recognize in a capture. */
+export type CaptureType =
+  | "action" | "note" | "protocol" | "waiting"
+  | "reflection" | "project" | "question" | "unknown";
+
+/**
+ * How sure the system is about a ROUTING suggestion — never about whether the
+ * user's statement is true. No percentage is exposed: fake precision invites
+ * trust the rules have not earned.
+ */
+export type ClassificationConfidence = "high" | "likely" | "possible";
+
+// ---------- Protocols (LIFEOS-054) ----------
+
+/**
+ * A Protocol's lifecycle. Deliberately the same three-state vocabulary used
+ * elsewhere in the product, and deliberately NOT a performance record: there is
+ * no streak, no compliance rate, no success score. A Protocol is a remembered
+ * intention, not a behavioural surveillance system.
+ */
+export type ProtocolStatus = "active" | "paused" | "retired";
+
+/**
+ * A conditional intention: **WHEN / IF [trigger] → [response]**.
+ *
+ * Structurally distinct from `PracticeCandidate`, and this is the whole reason it
+ * exists as its own noun. Every member of `PracticeCadence` — `once | daily |
+ * weekly | occasional` — answers *how often*. A protocol has no frequency at
+ * all; it has a **condition**. Filing "when my child is in a fight-or-flight
+ * reaction, give him physical space" as `occasional` would record something the
+ * user never said, which is why LIFEOS-050B left `PracticeCandidate` unmodified
+ * and recorded this as beta-evidence candidate A instead.
+ *
+ * A Protocol is NOT a due date, a recurrence, a cadence, an event, a task, or a
+ * belief. Nothing in the product schedules it, watches for its trigger, or
+ * notifies on it — there is no rule engine here, and Today deliberately does not
+ * surface protocols (LIFEOS-054 §18) because no reliable trigger detection
+ * exists and a guessed trigger would be worse than none.
+ */
+export interface Protocol {
+  id: string;
+  /** The condition, stored WITHOUT its leading "when"/"if" connective. */
+  trigger: string;
+  /** The intended response. */
+  response: string;
+  /** Optional: why this matters to the user. Never generated. */
+  reason?: string;
+  status: ProtocolStatus;
+  /** The capture this came from, when it came from one. */
+  sourceCaptureId?: string;
+  /**
+   * True when the text originated as AI-generated prose the user kept.
+   * Confirming a machine-suggested STRUCTURE never changes this: classification
+   * is not authorship (LIFEOS-050A/050B, and §3 of this sprint).
+   */
+  fromAiText?: boolean;
+  createdAt: ISO;
+  updatedAt: ISO;
 }
 
 // ---------- Notes (LIFEOS-052) ----------

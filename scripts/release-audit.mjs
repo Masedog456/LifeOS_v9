@@ -32,18 +32,18 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 35", files.length === 35, `found ${files.length}`);
+ok("migration count == 37", files.length === 37, `found ${files.length}`);
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
-// Head is 0035 (0035_notes.sql, LIFEOS-052). A release-blocking DB defect
-// would add exactly one narrowly-scoped 0036_v1_release_fix.sql beyond it.
-const beyond35 = files.filter((f) => Number(f.slice(0, 4)) > 35);
-ok("no migration beyond 0035 except allowed 0036 fix", beyond35.every((f) => f === "0036_v1_release_fix.sql"), `unexpected: ${beyond35.join(", ")}`);
+// Head is 0037 (0037_protocols.sql, LIFEOS-054). A release-blocking DB defect
+// would add exactly one narrowly-scoped 0038_v1_release_fix.sql beyond it.
+const beyond37 = files.filter((f) => Number(f.slice(0, 4)) > 37);
+ok("no migration beyond 0037 except allowed 0038 fix", beyond37.every((f) => f === "0038_v1_release_fix.sql"), `unexpected: ${beyond37.join(", ")}`);
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");
 const createTable = (allSql.match(/create table if not exists/gi) || []).length;
-ok("57 CREATE TABLE IF NOT EXISTS", createTable === 57, `found ${createTable}`);
+ok("58 CREATE TABLE IF NOT EXISTS", createTable === 58, `found ${createTable}`);
 const userOwned = (allSql.match(/user_id\s+uuid\s+not null\s+default\s+auth\.uid\(\)/gi) || []).length;
 ok("user-owned tables default user_id to auth.uid()", userOwned >= 40, `found ${userOwned}`);
 ok("every table uses IF NOT EXISTS (rerunnable)", (allSql.match(/create table\b/gi) || []).length === createTable, "found a CREATE TABLE without IF NOT EXISTS");

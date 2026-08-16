@@ -3163,3 +3163,163 @@ conversion menu), not a new target.
   migration. Contextual note fields (project/workspace/research) were **not**
   migrated — they were never the same thing as a standalone Note, and
   manufacturing structure from old data was explicitly out of scope.
+
+---
+
+- **LIFEOS-053 — Minimal time model.** One field, and a careful account of why it
+  is only one.
+
+  **Audit finding that shaped the sprint.** Semantic dates already existed at
+  every level of the hierarchy *except the one that matters daily*:
+  `Goal.targetDate`, `Project.startDate` + `targetDate`, `Milestone.targetDate`.
+  The **leaf** — `NextAction`, the thing a person actually does — had
+  `deferredUntil`, `waitingSince` and `followUpDate` but **no due date**. So
+  "call the dentist by Friday" was unrepresentable, and that job stayed with
+  whatever reminders app the user already had.
+
+  **Added: exactly one field.** `NextAction.dueDate?: DayKey` ("yyyy-mm-dd"),
+  plus migration `0036_action_due_date.sql` (nullable `date` column, partial
+  index, RLS unchanged) and `lib/actions/due.ts` — a pure classifier
+  (overdue/today/tomorrow/soon/later/none), ordering, and summary.
+
+  **Deliberately NOT added, each for a stated reason:**
+
+  - **A start / "not before" date** — `deferredUntil` **already is one**. Adding
+    a second would have created exactly the duplicate semantics the brief warned
+    about. This was the single most useful audit finding.
+  - **A due TIME.** Every named use case is a day ("by Friday", "before the
+    15th", "expires next month"). A datetime needs a stored timezone to mean
+    anything and drifts across travel and DST — it converts a deadline into a
+    bug. Real appointments belong to the future Event layer.
+  - **A recurrence engine.** Both existing recurrence concepts are
+    **descriptive only** — `PracticeCadence` is a label, and
+    `ActionTemplate.suggestedRecurrence` is documented as "a plain human
+    description, never a schedule the system acts on". There is nothing to
+    extend, and a half-built engine is precisely how duplicate actions get
+    generated. Recurring responsibilities remain the largest known everyday gap.
+  - **Dates on Notes.** Note = useful information; Action = something to do. A
+    note with a deadline is a task wearing a disguise.
+  - **New dates on Goals/Projects/Milestones** — they already have them.
+
+  **Timezone: date-only means no shift is possible.** A due date is compared as a
+  `DayKey` with the same local-date helpers Capture deferral and Daily Review
+  already use. No `Date` instant is constructed to answer "is this overdue?", so
+  nothing converts to UTC and back, and a deadline set on the 22nd is the 22nd in
+  every timezone and across DST. Month, year, leap-day and both DST transitions
+  are asserted.
+
+  **Language.** "Was due Mon, Aug 10" — past tense, stated once, no day-count, no
+  exclamation. `DUE_FORBIDDEN_WORDS` extends the Return ban from LIFEOS-052 and is
+  test-asserted, including an explicit check that no "N days late" count is ever
+  rendered. A deadline is the easiest place for a calm product to start nagging.
+
+  **Return stays distinct from due.** Return says "this may be worth revisiting";
+  a due date says "this needs attention by X". Dormant material never becomes
+  fake overdue work — dormancy has no due date and cannot acquire one.
+
+  **Today** gained one card: *Needs attention* (overdue + due today, together,
+  because on a Tuesday morning they are the same question) and *Next 7 days*.
+  Upcoming deliberately EXCLUDES today and overdue so it never restates Today.
+  Waiting follow-ups keep surfacing through their existing path — not duplicated.
+
+  Actions suite 62 → **123**; full regression **1443/1443** across 23 suites.
+  Release head 0035 → 0036; reserved fix slot now `0037_v1_release_fix.sql`.
+
+  **Confirmed not built:** notifications/reminders of any kind, Protocol,
+  Calendar connector, Event, Person, Commitment, AI classification, date parsing
+  from capture text, universal retrieval, persistence rewrite.
+
+- **ROADMAP SEQUENCE (unchanged, reconfirmed).** Life track: Notes / Capture
+  front door ✅ → minimal time model ✅ → **Protocol + deterministic Capture
+  classification** → Google Calendar read connector. Knowledge track: Reading /
+  library scaling, AI portability, source verification, universal retrieval,
+  Readwise, Zotero, Drive/Docs. **Protocol is not recurrence** — a conditional
+  trigger ("when X happens → do Y") has no cadence, and the time model added here
+  deliberately gives it nothing to be confused with.
+
+---
+
+- **LIFEOS-054 — Protocols & deterministic capture classification.** Beta-evidence
+  candidate A, built at last, plus the classifier that Note (LIFEOS-052) made safe.
+
+  **Protocol is its own noun, and the reason is structural.** Every member of
+  `PracticeCadence` — `once | daily | weekly | occasional` — answers *how often*.
+  A protocol has **no frequency at all**; it has a **condition**. Filing "when my
+  child is in a fight-or-flight reaction, give him physical space" as
+  `occasional` records something the user never said. `practice_candidates` is
+  untouched, no legacy practice was migrated, and historical intent was not
+  inferred (§21). Fields: trigger · response · optional reason · status
+  (active/paused/retired) · provenance · source capture. Migration
+  `0037_protocols.sql`, RLS + tombstones.
+
+  **Deliberately absent from Protocol:** cadence, due date, next-occurrence,
+  schedule, trigger engine, notification — and **no streak, compliance rate, or
+  success score**. A protocol is a remembered intention, not a behaviour to be
+  graded. Today does **not** surface protocols: no reliable trigger detection
+  exists, and a guessed trigger is worse than none.
+
+  **The classifier is deterministic and pure.** `lib/capture/classify.ts` — no
+  AI, no network, no state. Rule ORDER carries most of the correctness, and the
+  two orderings that matter are counter-intuitive: a conditional *contains* an
+  action verb ("when X, **call** Y"), and a waiting clause contains one too
+  ("waiting for Sarah to **send**"), so protocol and waiting must both be tested
+  **before** the action rule or every protocol misroutes. Informational markers
+  beat imperatives, which is why "Recipe: buy chicken, simmer" stays a note.
+
+  **Confidence means routing, never truth.** Three coarse bands
+  (`high | likely | possible`), no percentage — fake precision invites trust the
+  rules have not earned. Nothing computes belief confidence, psychological
+  certainty, or importance; those would be judgments about the user's own
+  thinking. Every suggestion carries a plain-language reason ("Uses a when →
+  response pattern"), never a regex.
+
+  **Restraint where it matters most.** "I think X" and "I believe X" classify as
+  **Note**, not Belief — a declarative sentence is not evidence someone wants a
+  belief recorded, and Belief stays an intentional promotion. Reflection is
+  suggested only on **explicit** reflective language ("I've realized…") and never
+  above `likely`. Project requires an outcome verb and is only ever `possible`,
+  because a wrong Project costs far more than a wrong Note. Belief, Decision and
+  Principle are **not suggestible types at all**.
+
+  **Multi-intent is reported, not resolved.** Collapsing "call the dentist, and
+  remember to give him space when he's overwhelmed" into one type would silently
+  drop what the person said, so the capture is flagged and routed to the existing
+  `planSplit` flow. No fragment is lost.
+
+  **Question has no fake destination.** There is no simple question record —
+  `Inquiry` is the output of a dialectical analysis run — so a question is offered
+  as a Note and the UI says so plainly rather than pointing at something that
+  does not exist.
+
+  **Nothing is created automatically.** Even "Call the dentist" yields a
+  proposal. Protocol trigger/response are **editable before the record exists**,
+  so a machine's reading of a sentence never becomes the user's stated intention
+  without their hands on it. Provenance travels with the capture's *classified*
+  origin, so routing through the classifier cannot launder AI prose into an
+  authored intention (LIFEOS-050A/050B).
+
+  **Waiting reuses existing semantics** — classification extracts `waitingOn` and
+  points at the existing action route; **no parallel waiting system**. Known
+  limitation: setting waiting status is still a second step on the action page.
+
+  Protocols suite **91** new assertions; full regression **1535/1535** across 24
+  suites. Release head 0036 → 0037; reserved fix slot now `0038_v1_release_fix.sql`
+  (58 tables). No date parsing was added — "Call dentist Friday" classifies as an
+  action and the user sets Friday through the existing due-date control.
+
+- **FUTURE VISUALIZATION LAYER (roadmap only — nothing implemented).** Potential
+  representations: calendar, timeline, charts, relationship graphs. Potential
+  inputs: actions, projects, notes, reading, practices, protocols, calendar
+  events, connector data. **Principles, which matter more than the list:**
+  visualizations explain the user's life rather than rate it; **no gamified life
+  score, no fake wellness or productivity index**; factual views over judgments;
+  connectors feed one shared data model rather than provider-specific dashboards;
+  contextual visualization beats a dashboard wall. Nothing was built.
+
+- **ROADMAP SEQUENCE (reconfirmed).** Life track: Notes / Capture front door ✅ →
+  minimal time model ✅ → Protocol + deterministic classification ✅ →
+  **Google Calendar read connector** (next high-value life connector; not
+  implemented). Then: recurrence / responsibilities, visualization architecture.
+  Knowledge track unchanged: Reading / library scaling, generic AI portability,
+  source verification, universal retrieval, Readwise, Zotero, Drive/Docs,
+  NotebookLM/Mindgrasp conditional, scoped MCP-style AI access last.
