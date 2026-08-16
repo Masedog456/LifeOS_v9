@@ -1949,7 +1949,7 @@ function rowToDailyReview(r: any): DailyReview {
 // ---------------------------- Next actions (LIFEOS-036) ----------------------------
 interface NextActionRow {
   id: string; user_id?: string; title: string; description: string; status: string;
-  completed_at: string | null; cancelled_at: string | null; deferred_until: string | null;
+  completed_at: string | null; cancelled_at: string | null; due_date: string | null; deferred_until: string | null;
   waiting_on: string | null; waiting_since: string | null; follow_up_date: string | null; notes: string;
   workspace_id: string | null; goal_id: string | null; project_id: string | null; milestone_id: string | null;
   source_capture_id: string | null; source_review_id: string | null;
@@ -1959,7 +1959,7 @@ interface NextActionRow {
 function actionToRow(a: NextAction): NextActionRow {
   return {
     id: a.id, title: a.title, description: a.description, status: a.status,
-    completed_at: a.completedAt ?? null, cancelled_at: a.cancelledAt ?? null, deferred_until: a.deferredUntil ?? null,
+    completed_at: a.completedAt ?? null, cancelled_at: a.cancelledAt ?? null, due_date: a.dueDate ?? null, deferred_until: a.deferredUntil ?? null,
     waiting_on: a.waitingOn ?? null, waiting_since: a.waitingSince ?? null, follow_up_date: a.followUpDate ?? null, notes: a.notes,
     workspace_id: a.workspaceId ?? null, goal_id: a.goalId ?? null, project_id: a.projectId ?? null, milestone_id: a.milestoneId ?? null,
     source_capture_id: a.sourceCaptureId ?? null, source_review_id: a.sourceReviewId ?? null,
@@ -1970,7 +1970,7 @@ function actionToRow(a: NextAction): NextActionRow {
 function rowToAction(r: any): NextAction {
   return {
     id: r.id, title: r.title ?? "", description: r.description ?? "", status: (r.status ?? "open") as NextAction["status"],
-    completedAt: r.completed_at ?? undefined, cancelledAt: r.cancelled_at ?? undefined, deferredUntil: r.deferred_until ?? undefined,
+    completedAt: r.completed_at ?? undefined, cancelledAt: r.cancelled_at ?? undefined, dueDate: r.due_date ?? undefined, deferredUntil: r.deferred_until ?? undefined,
     waitingOn: r.waiting_on ?? undefined, waitingSince: r.waiting_since ?? undefined, followUpDate: r.follow_up_date ?? undefined, notes: r.notes ?? "",
     workspaceId: r.workspace_id ?? undefined, goalId: r.goal_id ?? undefined, projectId: r.project_id ?? undefined, milestoneId: r.milestone_id ?? undefined,
     sourceCaptureId: r.source_capture_id ?? undefined, sourceReviewId: r.source_review_id ?? undefined,

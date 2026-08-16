@@ -4315,6 +4315,21 @@ export function deferAction(actionId: string, option: ActionDeferOption): void {
   bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "deferred", deferredUntil: key }, makeActionEvent({ action: "deferred", at: now(), fromStatus: a.status, toStatus: "deferred", detail: key ?? "someday" })));
 }
 
+/**
+ * Set or clear an action's due date (LIFEOS-053).
+ *
+ * `undefined`/empty CLEARS it — removing a deadline must be as cheap as adding
+ * one, or users stop setting them. The status is never changed: a due date is
+ * information, not a state machine, and nothing here schedules or notifies.
+ */
+export function setActionDueDate(actionId: string, dueDate?: string): void {
+  const key = typeof dueDate === "string" && dueDate.trim() ? dueDate.trim() : undefined;
+  bumpAction(actionId, (a) => appendActionHistory(
+    { ...a, dueDate: key },
+    makeActionEvent({ action: key ? "due_set" : "due_cleared", at: now(), detail: key }),
+  ));
+}
+
 /** Mark an action waiting (Feature 8). Optional follow-up date; no notifications. */
 export function markActionWaiting(actionId: string, waitingOn: string, followUpDate?: string): void {
   const at = now();

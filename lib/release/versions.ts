@@ -27,13 +27,13 @@ export const RELEASE_APP_VERSION = "1.0.0-rc1";
 /** The annotated tag message used when the release is finally cut. */
 export const RELEASE_TAG_MESSAGE = "LifeOS Version 1 Release Candidate";
 
-/** The highest migration number that ships in this release (0035). */
+/** The highest migration number that ships in this release (0036). */
 export const RELEASE_MIGRATION_VERSION = EXPECTED_MIGRATION_VERSION;
 
 /** The count of migration files that ship in this release. Equal to the highest
- * number because numbering is dense (0001..0035). Verified against the real
+ * number because numbering is dense (0001..0036). Verified against the real
  * files by the migration model + release audit. */
-export const RELEASE_MIGRATION_COUNT = 35;
+export const RELEASE_MIGRATION_COUNT = 36;
 
 /** The lowest migration version an installed client is allowed to run against
  * without a forced upgrade (forward-compatible additive schema only). */
