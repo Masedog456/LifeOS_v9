@@ -9,28 +9,6 @@ import SyncStatus from "@/components/SyncStatus";
 import AuthControl from "@/components/AuthControl";
 import WorkspaceSelector from "@/components/workspace/WorkspaceSelector";
 
-/**
- * Information architecture (LIFEOS-043). LifeOS used to expose ~35 destinations
- * in one flat wrapped row, so every subsystem competed equally. This nav
- * organizes around user INTENTIONS instead: six primary destinations, with the
- * deeper tools tucked one click away under grouped menus (progressive
- * disclosure). No route was added or removed — only regrouped and renamed for a
- * newcomer.
- *
- *   Today   — the home; what deserves attention right now.
- *   Capture — get a thought in, then process it.
- *   Work    — goals, projects, actions, planning, focus.
- *   Learn   — reading, knowledge, beliefs, research.
- *   Reflect — review, insights, and your own history.
- *   More    — advanced thinking tools, and system/privacy settings.
- *
- * Menus are a disclosure pattern: a button toggles a panel of ordinary links.
- * They are keyboard-navigable (Tab through, Esc closes), close on outside click
- * and on navigation, and announce their expanded state to screen readers. The
- * brand mark always returns to Today, and the command palette (⌘K / Ctrl K)
- * still reaches every destination directly.
- */
-
 type NavLink = { href: string; label: string; badge?: "inbox" };
 type NavSection = { heading?: string; links: NavLink[] };
 type NavItem =
@@ -94,7 +72,7 @@ const NAV: NavItem[] = [
         { href: "/decisions", label: "Decisions" },
         { href: "/formation", label: "Formation" },
         { href: "/review", label: "Review" },
-        { href: "/orchestrator", label: "LifeOS Inbox" },
+        { href: "/orchestrator", label: "Conqify Inbox" },
       ] },
       { heading: "System & privacy", links: [
         { href: "/maintenance", label: "Maintenance" },
@@ -122,7 +100,6 @@ export default function Nav() {
   const menuActive = (item: Extract<NavItem, { kind: "menu" }>) =>
     item.sections.some((s) => s.links.some((l) => isActive(l.href)));
 
-  // Close on outside click or Escape. Listeners only — no setState during render.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => { if (barRef.current && !barRef.current.contains(e.target as Node)) setOpen(null); };
@@ -135,9 +112,8 @@ export default function Nav() {
   return (
     <nav aria-label="Primary" className="w-full border-b border-black/[.06] dark:border-white/[.08]">
       <div ref={barRef} className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
-        {/* Left: brand + primary destinations. */}
         <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
-          <Link href="/today" className="mr-2 text-sm font-semibold tracking-tight" aria-label="LifeOS — go to Today">LifeOS</Link>
+          <Link href="/today" className="mr-2 text-sm font-semibold tracking-tight" aria-label="Conqify — go to Today">Conqify</Link>
           {NAV.map((item) =>
             item.kind === "link" ? (
               <Link
@@ -195,7 +171,6 @@ export default function Nav() {
           )}
         </div>
 
-        {/* Right: search, workspace, sync, account. */}
         <div className="flex items-center gap-2">
           <button
             type="button"

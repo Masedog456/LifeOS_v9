@@ -21,9 +21,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LifeOS — a quiet home for thinking clearly",
+  title: "Conqify — turn life's chaos into order",
   description:
-    "A calm place to organize your reading, thinking, projects, and decisions. LifeOS helps you think and keeps your own judgment at the center — it never thinks for you.",
+    "Bring your tasks, ideas, learning, projects, responsibilities, and plans together. Conqify helps you organize what matters and decide what comes next.",
 };
 
 export default function RootLayout({

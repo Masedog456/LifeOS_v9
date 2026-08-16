@@ -3,19 +3,12 @@
 import { useState } from "react";
 import { signInWithEmail, signOut, useAuth } from "@/lib/authStore";
 
-/**
- * Minimal, calm authentication control shown in the nav.
- *  - Supabase unconfigured → renders nothing (local-only mode).
- *  - Signed out → "Sign in" opening a small email magic-link form.
- *  - Signed in → the email + "Sign out".
- * No account-settings area.
- */
 export default function AuthControl() {
   const auth = useAuth();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
 
-  if (!auth.configured) return null; // local-only mode: nothing to show
+  if (!auth.configured) return null;
   if (auth.loading) return <span className="text-xs text-zinc-400">…</span>;
 
   if (auth.email) {
@@ -42,20 +35,19 @@ export default function AuthControl() {
         onClick={() => setOpen((o) => !o)}
         className="rounded-full border border-black/[.12] px-3 py-1 text-xs font-medium hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]"
       >
-        Sign in
+        Get started
       </button>
 
       {open && (
         <div className="absolute right-0 z-10 mt-2 w-72 rounded-xl border border-black/[.10] bg-white p-4 shadow-lg dark:border-white/[.12] dark:bg-zinc-900">
-          <p className="text-sm font-medium">Sign in to sync across devices</p>
+          <p className="text-sm font-medium">Join Conqify Early Access</p>
           <p className="mt-1 text-xs text-zinc-500">
-            We&apos;ll email you a secure sign-in link. Your data stays private to
-            your account.
+            Enter your email and we&apos;ll send a secure link. New verified emails create an account; returning members sign back in with the same flow.
           </p>
 
           {auth.phase === "sent" ? (
             <p className="mt-3 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
-              Check your email for a sign-in link.
+              Check your email for your secure Conqify link.
             </p>
           ) : (
             <form
@@ -78,7 +70,7 @@ export default function AuthControl() {
                 disabled={auth.phase === "sending" || !email.trim()}
                 className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
               >
-                {auth.phase === "sending" ? "Sending…" : "Email me a link"}
+                {auth.phase === "sending" ? "Sending…" : "Email me a secure link"}
               </button>
               {auth.phase === "error" && (
                 <p className="text-xs text-red-500">{auth.error ?? "Sign-in failed."}</p>
