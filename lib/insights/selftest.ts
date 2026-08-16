@@ -45,6 +45,7 @@ function emptyState(): StoreState {
     sessions: [], goals: [], projects: [], dailyReviews: [], nextActions: [], actionDependencies: [], actionTemplates: [],
     planningAssignments: [], focusSessions: [], maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [],
     notes: [],
+    protocols: [],
   };
 }
 

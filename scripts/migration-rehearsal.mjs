@@ -5,7 +5,7 @@
  * Stands up a throwaway PostgreSQL 16 cluster and rehearses the complete
  * migration chain against it:
  *
- *   - clean apply 0001 -> 0036 in order
+ *   - clean apply 0001 -> 0037 in order
  *   - repeated application (idempotency) x3 on the same database
  *   - upgrade from every representative checkpoint (pre-reading ... current)
  *   - constraint + index + RLS survival after the full chain
@@ -85,13 +85,13 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 36, `found ${files.length} migration files, expected 36`);
+  ok("migration files present", files.length === 37, `found ${files.length} migration files, expected 37`);
 
-  // 1) Clean apply 0001 -> 0036 on a fresh database.
+  // 1) Clean apply 0001 -> 0037 on a fresh database.
   createDbWithAuth("rc_clean");
   applyChain("rc_clean", files);
   const tableCount = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("clean apply 0001->0036 (57 public tables)", tableCount === 57, `got ${tableCount} public tables`);
+  ok("clean apply 0001->0037 (58 public tables)", tableCount === 58, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
@@ -124,7 +124,7 @@ function run() {
   const checkpoints = [
     ["pre-reading", 20], ["pre-workspaces", 21], ["pre-actions", 26],
     ["pre-planning", 27], ["pre-maintenance", 28], ["pre-security", 30],
-    ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["current", 36],
+    ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["current", 37],
   ];
   for (const [id, through] of checkpoints) {
     const db = `rc_cp_${through}`;
