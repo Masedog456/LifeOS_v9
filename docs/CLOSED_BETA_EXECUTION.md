@@ -1,0 +1,202 @@
+# Closed Beta — Execution Pack
+
+Prepared at `main` = **`d2d7fe6`** (LIFEOS-051A + 052 + 053 + 054 all landed).
+
+This document contains the gates a machine cannot run, the tester brief, the
+observation ledger, and the signals to watch. It exists so the beta is run from
+evidence rather than memory.
+
+---
+
+## 1. Automated status — already green, no action needed
+
+| Gate | Result |
+|---|---|
+| Full regression | **1586 / 1586** across 24 suites |
+| Cross-sprint integration harness | **64 / 64** |
+| TypeScript · lint · production build | clean (2 pre-existing warnings) |
+| `audit:security` | PASS — RLS · secrets · routes · auth · dependencies |
+| `release:audit` | PASS 17 / 17 |
+| Migration chain | 37 files, dense 1–37, **zero destructive statements**, 58 tables |
+
+---
+
+## 2. MANUAL EXTERNAL GATES — must be completed before testers
+
+Every gate below requires credentials, a browser, a real device, or a real file.
+**None of them has been run.** They are not "probably fine"; they are unverified.
+
+### G1 — Live migration rehearsal `0001 → 0037`
+Restore a copy of the current production schema to a scratch database, then apply
+migrations in order through `0037_protocols.sql`.
+
+**Expected:** clean apply; **58** public tables; RLS enabled on `notes` and
+`protocols`; `next_actions.due_date` present and nullable.
+
+**Do not** run this against production. **Blocker if it fails.**
+
+### G2 — Deployment
+Confirm the closed-beta environment is actually serving `d2d7fe6`. Pushing `main`
+is not deployment. Check the deployed commit in your hosting dashboard.
+
+### G3 — Closed-beta auth
+1. Attempt sign-in with an email that is **not** an approved tester.
+   **Expected:** no user created, no usable link, and a response that does not
+   reveal whether the account exists.
+2. Sign in as an approved tester. **Expected:** works, session persists, app loads.
+
+**Blocker if an unapproved address gains access.**
+
+### G4 — Two-session sync
+Two browser profiles signed into the same account (this exercises the same remote
+sync path as two devices).
+
+- **A:** create a Note with a Topic, a Next action with a due date, and a Protocol.
+- **B:** confirm all three appear with `dueDate`, topic link, trigger/response, and
+  any AI-origin marker intact.
+- **B:** edit the note, change the due date, edit the protocol response.
+- **A:** confirm all three changes.
+- **B:** delete one record. **A:** confirm the deletion propagates.
+
+**Blocker on divergence, loss, or resurrection of a deleted record.**
+
+### G5 — Real 500+ page PDF
+Use a genuine text-based book, not the synthetic fixture.
+
+- **Import:** page counts accurate, no false truncation claim.
+- **Ask a late-chapter question:** the answer must come from late material and the
+  citation must point at a late page.
+- **Whole-book synthesis:** coverage reported honestly; nothing omitted may be
+  described as exhaustively summarized.
+- **Delete:** document, passages, original file, and index rows all removed.
+
+**Blocker if Reading claims coverage it does not have.**
+Record localStorage usage as an observation only — **do not start 051B.**
+
+### G6 — Export / restore through the product UI
+With a Note, Topic relation, dated action, waiting follow-up, Protocol, Project and
+Reading item present: export, then restore.
+
+Check especially the nine domains that were silently dropped before LIFEOS-052:
+`nextActions`, `dailyReviews`, `actionDependencies`, `actionTemplates`,
+`planningAssignments`, `focusSessions`, `maintenanceEvents`, `duplicateCandidates`,
+`savedInsightViews`.
+
+**Any silent loss is a NO-GO.**
+
+### G7 — Account deletion
+On a **disposable** approved account holding a Note, Action, Protocol and Reading
+document: delete the account and confirm records, private original file, and index
+rows are all gone.
+
+### G8 — Five tester accounts
+Pre-approve exactly five addresses. **Do not enable open signup.**
+Do not seed fake usage data.
+
+---
+
+## 3. Tester brief
+
+> Use Conqify for a few days with real things from your life — the stuff you'd
+> normally text yourself, write on your hand, or forget.
+>
+> Capture things the way you naturally think them. Don't tidy them up for us.
+>
+> Have a look at Notes, Today, and Reading if you read anything long.
+>
+> **If something confuses you, please don't work around it to be helpful.** Getting
+> stuck is the useful part. Tell us what you expected to happen instead.
+>
+> This is a closed beta on real infrastructure. Use real information, but skip
+> anything you'd be uncomfortable having in an early product.
+
+**Do not explain Note, Belief, Protocol, Topic, or any other concept up front.**
+If they ask what something means, note the question — that *is* the finding — then
+answer plainly.
+
+---
+
+## 4. Observation ledger
+
+Copy one block per observation. **Never merge FACT and INTERPRETATION.**
+
+```
+TESTER:
+DATE:
+CONTEXT:            (what were they doing?)
+
+FACT:               (what literally happened — no explanation)
+
+INTERPRETATION:     (what it might mean — clearly separate)
+
+USER WORDS:         (short exact quote, if useful)
+
+WORKAROUND:         (what they did instead)
+
+FREQUENCY:          first occurrence / repeated
+
+POTENTIAL DECISION: (leave blank until evidence accumulates)
+```
+
+---
+
+## 5. Signals to watch — no instrumentation, observation only
+
+**Capture** — what they capture · which destination is suggested · was it right ·
+when Note was the fallback · when Split was needed · what had nowhere to go.
+
+**Notes** — is Note the natural "keep this" · do Topics make sense · do they want
+folders/nesting.
+
+**Actions / time** — do they add due dates · ask for recurrence · ask for reminders ·
+does Upcoming help · does "Needs attention" feel useful.
+
+**Protocol** — do real conditional protocols arise naturally · understood without
+coaching · **do they expect protocols to fire automatically** (they do not).
+
+**Today** — does it answer "what deserves attention now?" · does it feel crowded ·
+does Return help · anything duplicated.
+
+**Reading / knowledge** — do they upload real long sources · save AI output · trust
+citations · can they tell their own thought from AI output.
+
+**Retrieval** — what they search for · do they expect cross-domain search.
+
+**Connectors** — which is asked for *unprompted*: Calendar · Gmail · Drive ·
+Readwise · Zotero · AI import.
+
+**Visualization** — calendar view · charts · "where is my time going?" · timelines ·
+relationship graphs.
+
+---
+
+## 6. Decision rules — recorded now, applied only after evidence
+
+Written before the data so they cannot be bent to fit it.
+
+| Direction | Moves up when |
+|---|---|
+| **Recurrence** | recurring responsibilities cannot be represented AND 2+ testers hit it |
+| **Calendar** | repeatedly named as missing life context, especially unprompted |
+| **Protocol tuning** | only from actual misclassifications, never from taste |
+| **Classifier AI fallback** | **not** merely because rules are imperfect — classify the observed failures first |
+| **Visualization** | testers repeatedly want time/project/learning data seen spatially |
+| **Universal retrieval** | repeated cross-domain questions the two-index split cannot answer |
+| **051B persistence** | **immediately** if real library usage approaches the localStorage limit or causes a failure |
+| **Generic AI import** | 3+ users paste or ask to import ChatGPT / Claude / Gemini output |
+| **Any connector** | repeated *independent* demand + real manual-work reduction + safe scopes |
+
+---
+
+## 7. Blockers
+
+Data loss · restore loss · sync corruption · cross-user exposure · private-file
+exposure · auth bypass · unapproved self-registration · migration failure ·
+provenance laundering · AI output becoming user-authored · automatic action or
+commitment creation without confirmation · multi-intent capture dropping a
+fragment · widespread crash · Reading claiming false coverage · incomplete account
+deletion.
+
+**Missing future functionality is not a blocker.** No recurrence, no Calendar, no
+charts, no connectors, and an imperfect-but-safely-falling-back classifier are all
+expected states, not defects.
