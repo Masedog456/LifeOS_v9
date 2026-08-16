@@ -3416,3 +3416,38 @@ Person / Event / Commitment.
 **Connector principles (unchanged):** one index, not one per connector; snapshot /
 manual import before live sync; least privilege; no unstable private APIs; direct
 connectors require repeated beta demand **and** stable API support, both.
+
+---
+
+- **BETA-EVIDENCE CANDIDATE — DAILY PLANNING / TODAY PLAN (recorded, NOT
+  implemented).** Recorded during closed-beta deployment setup so it survives as
+  text rather than as memory.
+
+  **The distinction that matters:**
+
+  - **System orientation** — *"What may need my attention?"* Derived. This is
+    what `TodayDueCard` (overdue + due today) and `TodayActions` (pinned,
+    in-progress, follow-ups due) already do.
+  - **User plan** — *"What am I choosing to do today?"* Explicitly selected by
+    the person. **This does not exist.** `PlanningAssignment` with
+    `horizon: "today"` is the closest thing, but it lives in Planning rather than
+    on Today, and Today never asks the user to choose.
+
+  Possible future shape: a **Needs attention** section (system-derived, unchanged)
+  beside a **Today's plan** section (explicitly chosen, may include actions with
+  no due date, reorderable, and **never auto-populated** — auto-filling a plan
+  would manufacture commitments, which is the boundary the whole product holds).
+
+  **Evidence to observe during testers 1–5:**
+  - Do testers manually try to build a daily to-do list somewhere?
+  - Do they ask how to choose today's tasks?
+  - Do they confuse "due today" with "what I planned to do today"?
+  - Does the known `TodayDueCard` / `TodayActions` overlap read as repetitive?
+    (A pinned action due today legitimately appears in both. Recorded as evidence,
+    not assumed a defect — deliberately left unchanged before beta.)
+  - Do they look for an "Add to Today" control?
+
+  **This candidate may outrank Calendar and recurrence** if the evidence repeats.
+  It is cheap relative to both, it needs no connector and no schema beyond what
+  `PlanningAssignment` already provides, and it addresses the one question the Gap
+  Audit found Today still cannot answer. Gated on evidence, like everything else.
