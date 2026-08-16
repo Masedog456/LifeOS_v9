@@ -3286,13 +3286,12 @@ conversion menu), not a new target.
   Calendar connector, Event, Person, Commitment, AI classification, date parsing
   from capture text, universal retrieval, persistence rewrite.
 
-- **ROADMAP SEQUENCE (unchanged, reconfirmed).** Life track: Notes / Capture
-  front door ✅ → minimal time model ✅ → **Protocol + deterministic Capture
-  classification** → Google Calendar read connector. Knowledge track: Reading /
-  library scaling, AI portability, source verification, universal retrieval,
-  Readwise, Zotero, Drive/Docs. **Protocol is not recurrence** — a conditional
-  trigger ("when X happens → do Y") has no cadence, and the time model added here
-  deliberately gives it nothing to be confused with.
+- **ROADMAP SEQUENCE — as recorded at LIFEOS-053 (HISTORICAL; superseded by the
+  CURRENT ROADMAP SEQUENCE at the end of this file).** Kept because its finding
+  still holds, not because its ordering does — Protocol has since shipped.
+  **Protocol is not recurrence** — a conditional trigger ("when X happens → do Y")
+  has no cadence, and the time model added in 053 deliberately gives it nothing to
+  be confused with.
 
 ---
 
@@ -3373,10 +3372,45 @@ conversion menu), not a new target.
   connectors feed one shared data model rather than provider-specific dashboards;
   contextual visualization beats a dashboard wall. Nothing was built.
 
-- **ROADMAP SEQUENCE (reconfirmed).** Life track: Notes / Capture front door ✅ →
-  minimal time model ✅ → Protocol + deterministic classification ✅ →
-  **Google Calendar read connector** (next high-value life connector; not
-  implemented). Then: recurrence / responsibilities, visualization architecture.
-  Knowledge track unchanged: Reading / library scaling, generic AI portability,
-  source verification, universal retrieval, Readwise, Zotero, Drive/Docs,
-  NotebookLM/Mindgrasp conditional, scoped MCP-style AI access last.
+## CURRENT ROADMAP SEQUENCE (authoritative)
+
+This block supersedes every earlier ROADMAP SEQUENCE note in this file. Earlier
+blocks are retained for their sprint-specific findings, not for their ordering.
+**Nothing below is implemented.**
+
+**LIFE ORGANIZATION**
+
+1. Notes / Capture front door — ✅ shipped (LIFEOS-052)
+2. Minimal time model — ✅ shipped (LIFEOS-053)
+3. Protocol + deterministic Capture classification — ✅ shipped (LIFEOS-054)
+4. **Google Calendar read connector** — *next high-value life connector.* Read
+   relevant events and attach Conqify context; never write, never rebuild the
+   calendar. Now genuinely ready: there are dates, notes and protocols for events
+   to attach to.
+5. Recurrence / recurring responsibilities — the largest remaining everyday gap.
+   Both existing recurrence concepts (`PracticeCadence`,
+   `ActionTemplate.suggestedRecurrence`) are DESCRIPTIVE only.
+6. Visualization architecture — see the FUTURE VISUALIZATION LAYER above.
+
+Later, and only on beta evidence: narrow Gmail (highest privacy risk), Drive /
+Docs, Contacts where justified, Return evolution, and Person / Event / Commitment.
+
+**KNOWLEDGE**
+
+1. Reading / library scaling — the measured 051B wall: **~0.90 MB of JSON per
+   500-page book, so roughly five such books approach a typical 5 MB localStorage
+   quota.** The remote side is already normalized; this is a LOCAL problem.
+2. Generic AI portability / import (paste, Markdown, export file before any API)
+3. Source verification (supported / partially supported / not found / uncertain)
+4. Provenance-aware universal retrieval — one knowledge universe, no per-connector
+   islands. Today the command palette indexes 27 record kinds while
+   `RecordType` covers 9 knowledge-only types; unifying them is this item.
+5. Readwise
+6. Zotero
+7. Drive / Docs
+8. NotebookLM / Mindgrasp — conditional on stable APIs *and* repeated demand
+9. Scoped, read-only MCP-style AI access — last, and most cautious
+
+**Connector principles (unchanged):** one index not one per connector; snapshot /
+manual import before live sync; least privilege; no unstable private APIs; direct
+connectors require repeated beta demand **and** stable API support, both.
