@@ -3070,6 +3070,63 @@ conversion menu), not a new target.
 
 ---
 
+- **LIFEOS-051A — Large-book reading: the coverage walls (partial sprint, scoped).**
+  The sprint premise was "remove the 600k extraction ceiling." The audit
+  disproved it: **the binding constraint was somewhere else entirely, and it bit
+  four times earlier.**
+
+  Measured against the real shipped pipeline (synthetic books at ~1,800 chars per
+  page, running `parseInput → assignPages → buildRetrievalChunks →
+  buildDocumentParts`), there were **three** truncations stacked on each other,
+  not one:
+
+  1. **`MAX_PARTS_PER_RUN = 40` with `parts.slice(0, 40)`** — the whole-document
+     synthesis took the FIRST 40 parts. At the measured ~0.5 parts/page this
+     stopped covering a whole book at **81 pages**: a 300-page book was
+     summarized from its first 27% and a 500-page book from its first 24%. This
+     was the real ceiling, and it is the same first-N failure LIFEOS-049 fixed at
+     the chunk level, still present one layer up.
+  2. **The reduce stage `break`** — part summaries past
+     `SYNTHESIS_CONTEXT_BUDGET` (7,000 chars) were silently discarded, so even
+     within those 40 parts only the earliest summaries reached the final call.
+  3. **`MAX_EXTRACT_CHARS = 600_000`** — ~333 pages of prose. A 500-page book
+     lost its last third; a 1,000-page book lost two thirds.
+
+  Fixes: `selectParts` samples **evenly across the whole work** (always keeping
+  first and last, deterministic, in reading order) instead of taking the opening;
+  `reduceToOne` folds summaries through **multiple levels** instead of dropping
+  the tail; `MAX_PARTS_PER_RUN` raised 40 → 240 (~480 pages covered in full); and
+  the extraction cap raised 600k → 4M and re-documented as a **resource** bound,
+  so `MAX_PAGES = 1500` now binds first for any realistic book. Coverage is still
+  reported honestly, and the note now says the sample is spread across the work
+  rather than leaving "24%" to be misread as "the first 24%".
+
+  Measured before → after, same fixtures (5 unique facts planted at 0/25/50/75/100%):
+
+  | pages | facts ingested | facts reachable by whole-book synthesis |
+  |---|---|---|
+  | 100 | 5/5 → 5/5 | 4/5 → **5/5** |
+  | 300 | 5/5 → 5/5 | 2/5 → **5/5** |
+  | 500 | 3/5 → 5/5 | 1/5 → **5/5** |
+  | 1000 | 2/5 → 5/5 | 1/5 → **3/5** (opening, three-quarter, **final**) |
+
+  Compute was never the problem: parse, page assignment and chunking all run in
+  **single-digit to ~26 milliseconds** even at 1,000 pages.
+
+  **NOT done, and deliberately deferred to 051B** (the sprint's §2/§3/§4): the
+  local working set. The entire store — every document's full text — is still one
+  `JSON.stringify(state)` in one localStorage key. Measured: a 500-page book is
+  **0.90 MB** of JSON, so roughly **5 such books fill a typical 5 MB quota**,
+  and that quota is shared with everything else in LifeOS. The remote side is
+  already normalized (`document_sections` / `document_passages` with row-level
+  sync), so this is a LOCAL persistence problem only. Incremental page-by-page
+  ingestion, normalized local source storage, an IndexedDB working set, lazy
+  range loading and a migration for existing documents are all still open.
+
+- **BETA-EVIDENCE CANDIDATE (F, updated) — persistence scaling is now measured,
+  not theoretical.** The number to beat: **~5 books of 500 pages** before the
+  local quota is the wall. This is the concrete trigger for the F entry above.
+
 - **LIFEOS-052 — Notes, Topics & the Capture front door.** The first sprint of
   the life-organization track, and the smallest change that makes the daily loop
   close.
@@ -3229,13 +3286,12 @@ conversion menu), not a new target.
   Calendar connector, Event, Person, Commitment, AI classification, date parsing
   from capture text, universal retrieval, persistence rewrite.
 
-- **ROADMAP SEQUENCE (unchanged, reconfirmed).** Life track: Notes / Capture
-  front door ✅ → minimal time model ✅ → **Protocol + deterministic Capture
-  classification** → Google Calendar read connector. Knowledge track: Reading /
-  library scaling, AI portability, source verification, universal retrieval,
-  Readwise, Zotero, Drive/Docs. **Protocol is not recurrence** — a conditional
-  trigger ("when X happens → do Y") has no cadence, and the time model added here
-  deliberately gives it nothing to be confused with.
+- **ROADMAP SEQUENCE — as recorded at LIFEOS-053 (HISTORICAL; superseded by the
+  CURRENT ROADMAP SEQUENCE at the end of this file).** Kept for its finding, not
+  its ordering — that ordering listed Protocol as upcoming, and Protocol has since
+  shipped. The finding still holds: **Protocol is not recurrence** — a conditional
+  trigger ("when X happens → do Y") has no cadence, and the time model added in
+  053 deliberately gives it nothing to be confused with.
 
 ---
 
@@ -3316,10 +3372,47 @@ conversion menu), not a new target.
   connectors feed one shared data model rather than provider-specific dashboards;
   contextual visualization beats a dashboard wall. Nothing was built.
 
-- **ROADMAP SEQUENCE (reconfirmed).** Life track: Notes / Capture front door ✅ →
-  minimal time model ✅ → Protocol + deterministic classification ✅ →
-  **Google Calendar read connector** (next high-value life connector; not
-  implemented). Then: recurrence / responsibilities, visualization architecture.
-  Knowledge track unchanged: Reading / library scaling, generic AI portability,
-  source verification, universal retrieval, Readwise, Zotero, Drive/Docs,
-  NotebookLM/Mindgrasp conditional, scoped MCP-style AI access last.
+## CURRENT ROADMAP SEQUENCE (authoritative)
+
+This block supersedes every earlier ROADMAP SEQUENCE note in this file. Earlier
+blocks are kept for their sprint-specific findings, not for their ordering.
+**Nothing below is implemented.**
+
+**LIFE ORGANIZATION**
+
+1. Notes / Capture front door — ✅ shipped (LIFEOS-052)
+2. Minimal time model — ✅ shipped (LIFEOS-053)
+3. Protocol + deterministic Capture classification — ✅ shipped (LIFEOS-054)
+4. **Google Calendar read connector** — *the next high-value life connector.*
+   Read relevant events and attach Conqify context; never write, never rebuild the
+   calendar. Now genuinely ready: there are dates, notes and protocols for events
+   to attach to.
+5. Recurrence / recurring responsibilities — the largest remaining everyday gap.
+   Both existing recurrence concepts (`PracticeCadence`,
+   `ActionTemplate.suggestedRecurrence`) are DESCRIPTIVE only; there is no engine
+   to extend, and a half-built one is how duplicate actions get generated.
+6. Visualization architecture — see FUTURE VISUALIZATION LAYER above.
+
+Later, and only on beta evidence: narrow Gmail (highest privacy risk of any
+candidate), Drive / Docs, Contacts where justified, Return evolution, and
+Person / Event / Commitment.
+
+**KNOWLEDGE**
+
+1. Reading / library scaling — the measured 051B wall: **~0.90 MB of JSON per
+   500-page book, so roughly five such books approach a typical 5 MB localStorage
+   quota.** The remote side is already normalized, so this is a LOCAL problem.
+2. Generic AI portability / import — paste, Markdown, export file before any API
+3. Source verification — supported / partially supported / not found / uncertain
+4. Provenance-aware universal retrieval — one knowledge universe, no per-connector
+   islands. Today the command palette indexes 27 record kinds while `RecordType`
+   covers 9 knowledge-only types; unifying those two is this item.
+5. Readwise
+6. Zotero
+7. Drive / Docs
+8. NotebookLM / Mindgrasp — conditional on stable APIs *and* repeated demand
+9. Scoped, read-only MCP-style AI access — last, and most cautious
+
+**Connector principles (unchanged):** one index, not one per connector; snapshot /
+manual import before live sync; least privilege; no unstable private APIs; direct
+connectors require repeated beta demand **and** stable API support, both.

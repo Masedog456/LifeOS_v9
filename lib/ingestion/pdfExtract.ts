@@ -10,10 +10,26 @@
 import type { ExtractionStatus, PageSpan } from "@/types/mvp";
 import { normalizeText } from "@/lib/textNormalize";
 
-// ---- conservative limits (Phase 5) ----
-export const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB
+// ---- limits ----
+export const MAX_PDF_BYTES = 25 * 1024 * 1024; // 25 MB — hosting/upload bound
 export const MAX_PAGES = 1500;
-const MAX_EXTRACT_CHARS = 600_000;
+
+/**
+ * Character ceiling for one extraction (LIFEOS-051A).
+ *
+ * This is a **resource** safeguard, not a statement about how long a book may
+ * be. It was 600,000, which is roughly 333 pages of ordinary prose — measured,
+ * not estimated — so a 500-page book silently lost its last third and a
+ * 1,000-page book lost two thirds. The cap is what a browser tab can hold as one
+ * JavaScript string during extraction while the rest of the app stays
+ * responsive; it is not a claim that Conqify only understands 333 pages.
+ *
+ * Raised to 4,000,000 (~2,200 pages of prose, comfortably past the 1,500-page
+ * `MAX_PAGES` bound, so `MAX_PAGES` now binds first for any realistic book).
+ * When it IS hit, extraction still stops honestly and says which page it reached
+ * — never silently.
+ */
+export const MAX_EXTRACT_CHARS = 4_000_000;
 const MIN_CHARS_PER_PAGE = 8; // below this ⇒ likely scanned
 
 export interface PdfExtractResult {
