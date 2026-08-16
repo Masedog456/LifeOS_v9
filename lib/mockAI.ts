@@ -51,7 +51,11 @@ export function mockConcepts(text: string): string[] {
 export function mockAnswer(text: string, question: string): string {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   const q = question.trim() || "(no question)";
-  return `(Mock answer — no AI key configured.) I can't reason over this ~${words}-word source yet. Your question was: "${q}". Set ANTHROPIC_API_KEY to enable real answers.`;
+  // Cause-neutral on purpose (LIFEOS-055T): this text is produced for an
+  // expired session, a rate limit, a provider outage AND a missing key. The
+  // caller knows which one it was and says so; asserting "no AI key configured"
+  // here sent signed-in users to re-check an environment variable that was fine.
+  return `(Offline answer) I can't reason over this ~${words}-word source right now. Your question was: "${q}".`;
 }
 
 // ---------- Long-source map/reduce mocks (LIFEOS-007) ----------

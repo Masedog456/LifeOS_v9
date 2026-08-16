@@ -3472,3 +3472,46 @@ connectors require repeated beta demand **and** stable API support, both.
   (protocol/localhost/private-range checks), so it was left outside this minimal
   repair — but it is an outbound fetcher on a public domain and should get an
   identity or IP bound if abuse appears.
+
+---
+
+- **LIFEOS-055T — Reading → Ask returned 401 for a signed-in user (live defect).**
+
+  **Symptom.** Production logged `POST /api/ai → 401` while the user was visibly
+  signed in and `ANTHROPIC_API_KEY` was correctly configured. The UI then said
+  *"no AI key configured… Set ANTHROPIC_API_KEY"* — sending the founder to fix an
+  environment variable that was already right.
+
+  **Traced path (only one `/api/ai` call site exists).**
+  `StudyPanel` → `askDocument` (`lib/reading/study.ts`) → `askQuestion`
+  (`lib/aiClient.ts`) → `fetch("/api/ai", { headers: await authedJsonHeaders() })`.
+  The 055S plumbing was present and correct; there is no Reading-specific direct
+  fetch, no second Supabase client, and no storage-key mismatch —
+  `getSupabaseClient()` is a single cached singleton with `persistSession: true`
+  shared by `authStore`, `persistence`, and the token helper.
+
+  **Root cause: the client sent an EXPIRED token.** `currentAccessToken()` asked
+  for `getSession()` and forwarded whatever came back. A Supabase access token is
+  a short-lived JWT (~1 hour) and `autoRefreshToken` only keeps it fresh while
+  the tab is awake. A long-lived or backgrounded tab is therefore still *signed
+  in* — email shown, sync working, `onAuthStateChange` never fired — while the
+  stored access token is stale. The server correctly rejected it. **The server
+  guard was right; the client was sending a dead credential.**
+
+  **Repair.** `currentAccessToken()` now treats a token as usable only if it is
+  actually still valid (`tokenIsFresh`, with a 60-second skew for clock drift and
+  flight time) and refreshes exactly once when it is not. The server guard was
+  NOT weakened, `/api/ai` did NOT become anonymous, and no service-role
+  credential was introduced.
+
+  **Second defect, same report: the fallback copy lied.** `mockAnswer` asserted
+  *"no AI key configured"* for every failure — expired session, rate limit,
+  provider outage, and genuinely-missing key alike. That copy is now
+  cause-neutral, and `aiClient` classifies the actual failure
+  (`auth | rate_limited | provider | offline`) so the Reader can say *"Sign in
+  again — your session expired."* A message that names the wrong cause is worse
+  than a vague one, because it sends someone to change a setting that was fine.
+
+  **Durable lesson.** Attaching a token is not the same as attaching a *valid*
+  token. Any future client that authenticates a cost-bearing call must check
+  freshness, not merely presence.
