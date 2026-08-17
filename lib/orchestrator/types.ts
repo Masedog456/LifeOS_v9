@@ -6,6 +6,7 @@
  * one another and never mutate anything — the orchestrator merges their output.
  */
 
+import type { KnowledgeGraph } from "@/lib/graph";
 import type {
   ConfidenceLevel,
   OrchestratorSubsystem,
@@ -28,7 +29,15 @@ export interface RecommendationProposal {
   signature: string;
 }
 
-export type Scanner = (state: StoreState) => RecommendationProposal[];
+/**
+ * `graph` is an OPTIONAL, already-built view of the same store. It exists purely
+ * so one analysis pass does not rebuild an identical graph once per scanner —
+ * `runScanners` builds it once and threads it down. A scanner given no graph
+ * builds its own, so every existing call signature keeps working and scanners
+ * stay independently callable. It is not a cache: nothing is stored, nothing is
+ * invalidated, and the graph is a pure function of the state passed alongside it.
+ */
+export type Scanner = (state: StoreState, graph?: KnowledgeGraph) => RecommendationProposal[];
 
 /** Stable dedupe signature: type + the sorted ids of the affected objects. */
 export function signatureOf(type: RecommendationType, affected: RecommendationTarget[]): string {

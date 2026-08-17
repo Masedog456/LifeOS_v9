@@ -10,15 +10,15 @@
  */
 
 import type { StoreState } from "@/types/mvp";
-import { buildGraph, relationshipsOf } from "@/lib/graph";
+import { buildGraph, relationshipsOf, type KnowledgeGraph } from "@/lib/graph";
 import { proposal, type RecommendationProposal, type Scanner } from "@/lib/orchestrator/types";
 
-export const beliefScanner: Scanner = (state: StoreState): RecommendationProposal[] => {
+export const beliefScanner: Scanner = (state: StoreState, graph?: KnowledgeGraph): RecommendationProposal[] => {
   const out: RecommendationProposal[] = [];
   const seen = new Set<string>();
   const accepted = new Map(state.beliefs.filter((b) => b.status !== "rejected").map((b) => [b.id, b]));
   if (accepted.size === 0) return out;
-  const g = buildGraph(state);
+  const g = graph ?? buildGraph(state);
 
   const dialogueCovers = (a: string, b: string) =>
     state.dialogueSessions.some((d) => d.seedRefs.includes(a) && d.seedRefs.includes(b));

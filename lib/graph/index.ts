@@ -38,24 +38,24 @@ function snippet(s: string, n = 60): string {
 function buildNodes(state: StoreState): Map<string, GraphNode> {
   const nodes = new Map<string, GraphNode>();
   const add = (id: string, kind: RecordKind, label: string) => { if (id) nodes.set(id, { id, kind, label: snippet(label) }); };
-  for (const s of state.sources) add(s.id, "source", s.title);
-  for (const c of state.captures) add(c.id, "capture", c.text);
-  for (const p of state.proposals) add(p.id, "proposal", p.claim);
-  for (const b of state.beliefs) add(b.id, "belief", b.text);
-  for (const c of state.comparisons) add(c.id, "comparison", c.title);
-  for (const i of state.inquiries) add(i.id, "inquiry", i.question);
-  for (const t of state.megathreads) add(t.id, "megathread", t.title);
-  for (const r of state.reflections) add(r.id, "reflection", r.response);
-  for (const p of state.practices) add(p.id, "practice", p.userWording || p.title);
-  for (const r of state.reviews) add(r.id, "review", `${r.type} review`);
-  for (const q of state.reasonings) add(q.id, "reasoning", q.question);
-  for (const d of state.decisions) add(d.id, "decision", d.title);
-  for (const f of state.formationSessions) add(f.id, "formation", f.title);
-  for (const c of state.concepts) add(c.id, "concept", c.name);
-  for (const p of state.principles) add(p.id, "principle", p.statement);
-  for (const f of state.frameworks) add(f.id, "framework", f.name);
-  for (const k of state.knowledgeProjects) add(k.id, "knowledge_project", k.title);
-  for (const rp of state.researchProjects) add(rp.id, "research_project", rp.title);
+  for (const s of state.sources ?? []) add(s.id, "source", s.title);
+  for (const c of state.captures ?? []) add(c.id, "capture", c.text);
+  for (const p of state.proposals ?? []) add(p.id, "proposal", p.claim);
+  for (const b of state.beliefs ?? []) add(b.id, "belief", b.text);
+  for (const c of state.comparisons ?? []) add(c.id, "comparison", c.title);
+  for (const i of state.inquiries ?? []) add(i.id, "inquiry", i.question);
+  for (const t of state.megathreads ?? []) add(t.id, "megathread", t.title);
+  for (const r of state.reflections ?? []) add(r.id, "reflection", r.response);
+  for (const p of state.practices ?? []) add(p.id, "practice", p.userWording || p.title);
+  for (const r of state.reviews ?? []) add(r.id, "review", `${r.type} review`);
+  for (const q of state.reasonings ?? []) add(q.id, "reasoning", q.question);
+  for (const d of state.decisions ?? []) add(d.id, "decision", d.title);
+  for (const f of state.formationSessions ?? []) add(f.id, "formation", f.title);
+  for (const c of state.concepts ?? []) add(c.id, "concept", c.name);
+  for (const p of state.principles ?? []) add(p.id, "principle", p.statement);
+  for (const f of state.frameworks ?? []) add(f.id, "framework", f.name);
+  for (const k of state.knowledgeProjects ?? []) add(k.id, "knowledge_project", k.title);
+  for (const rp of state.researchProjects ?? []) add(rp.id, "research_project", rp.title);
   return nodes;
 }
 

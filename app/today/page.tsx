@@ -17,6 +17,7 @@ import { isOnboardingDone } from "@/lib/prefs";
 import { buildContinueThinking } from "@/lib/memory/continue";
 import { buildReflectionPrompts } from "@/lib/memory/prompts";
 import { buildLivingMemory } from "@/lib/memory/living";
+import { buildGraph } from "@/lib/graph";
 import { ExplanationSummary } from "@/components/ExplanationDetail";
 import { getPinned } from "@/lib/command/recent";
 import { resolveRecord } from "@/lib/command/records";
@@ -77,9 +78,14 @@ export default function TodayPage() {
 
     // LIFEOS-026 — Continue Thinking, Reflection Prompts, and Living Memory,
     // all pure projections over the same state.
+    //
+    // The graph is built ONCE here and threaded into the two engines that read
+    // it; each used to build its own identical copy on every render of this
+    // page. Same state in, same graph out — this changes cost, not meaning.
+    const graph = buildGraph(state);
     const continueThinking = buildContinueThinking(state).slice(0, 5);
-    const reflectionPrompts = buildReflectionPrompts(state, { limit: 3 });
-    const memory = buildLivingMemory(state, { limit: 4 });
+    const reflectionPrompts = buildReflectionPrompts(state, { limit: 3, graph });
+    const memory = buildLivingMemory(state, { limit: 4, graph });
 
     return { activeRecs, highRecs, proposals, openDialogues, openTensions, activeResearch, staleBeliefs, duePractices, recentCaptures, openDecisions, completed, continueThinking, reflectionPrompts, memory };
   }, [state]);

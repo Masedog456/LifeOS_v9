@@ -10,6 +10,7 @@
  */
 
 import type { Recommendation, StoreState } from "@/types/mvp";
+import { buildGraph } from "@/lib/graph";
 import type { RecommendationProposal, Scanner } from "@/lib/orchestrator/types";
 import { beliefScanner } from "@/lib/orchestrator/scanners/belief";
 import { researchScanner } from "@/lib/orchestrator/scanners/research";
@@ -35,9 +36,13 @@ export const SCANNERS: { name: string; scan: Scanner }[] = [
 /** Run every scanner over the store and collect their proposals (deterministic). */
 export function runScanners(state: StoreState): RecommendationProposal[] {
   const all: RecommendationProposal[] = [];
+  // Built ONCE for this pass. Two scanners read the graph and each used to build
+  // its own identical copy; the graph is a pure function of `state`, which does
+  // not change during a scan, so one build is exactly equivalent to N builds.
+  const graph = buildGraph(state);
   for (const s of SCANNERS) {
     try {
-      all.push(...s.scan(state));
+      all.push(...s.scan(state, graph));
     } catch {
       // A misbehaving scanner must never take down the orchestrator.
     }

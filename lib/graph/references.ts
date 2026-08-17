@@ -54,44 +54,44 @@ export function buildGraphEdges(state: StoreState): GraphEdge[] {
     for (const to of tos ?? []) push(from, fromKind, to, relation, label);
   };
 
-  for (const c of state.captures) push(c.id, "capture", c.sourceId, "derived_from", "captured from source");
-  for (const p of state.proposals) push(p.id, "proposal", p.captureId, "derived_from", "proposed from capture");
-  for (const b of state.beliefs) {
+  for (const c of state.captures ?? []) push(c.id, "capture", c.sourceId, "derived_from", "captured from source");
+  for (const p of state.proposals ?? []) push(p.id, "proposal", p.captureId, "derived_from", "proposed from capture");
+  for (const b of state.beliefs ?? []) {
     push(b.id, "belief", b.captureId, "derived_from", "formed from capture");
     push(b.id, "belief", b.proposalId, "derived_from", "formed from proposal");
   }
-  for (const c of state.comparisons) {
+  for (const c of state.comparisons ?? []) {
     many(c.id, "comparison", c.sourceIds, "references");
     many(c.id, "comparison", c.beliefIds, "references");
   }
-  for (const i of state.inquiries) {
+  for (const i of state.inquiries ?? []) {
     many(i.id, "inquiry", i.sourceIds, "references");
     many(i.id, "inquiry", i.beliefIds, "references");
     many(i.id, "inquiry", i.comparisonIds, "references");
   }
-  for (const t of state.megathreads) {
-    for (const m of t.members) push(t.id, "megathread", m.id, "mentioned_in", `thread member (${m.type})`);
+  for (const t of state.megathreads ?? []) {
+    for (const m of t.members ?? []) push(t.id, "megathread", m.id, "mentioned_in", `thread member (${m.type})`);
   }
-  for (const r of state.reflections) {
+  for (const r of state.reflections ?? []) {
     many(r.id, "reflection", r.beliefIds, "mentioned_in");
     many(r.id, "reflection", r.threadIds, "mentioned_in");
     many(r.id, "reflection", r.sourceIds, "mentioned_in");
   }
-  for (const p of state.practices) {
-    many(p.id, "practice", p.derivedFrom.beliefIds, "derived_from");
-    many(p.id, "practice", p.derivedFrom.threadIds, "derived_from");
-    many(p.id, "practice", p.derivedFrom.inquiryIds, "derived_from");
+  for (const p of state.practices ?? []) {
+    many(p.id, "practice", p.derivedFrom?.beliefIds, "derived_from");
+    many(p.id, "practice", p.derivedFrom?.threadIds, "derived_from");
+    many(p.id, "practice", p.derivedFrom?.inquiryIds, "derived_from");
   }
-  for (const r of state.reviews) {
+  for (const r of state.reviews ?? []) {
     many(r.id, "review", r.reflectionIds, "references");
     for (const h of r.synthesis?.highlights ?? []) many(r.id, "review", h.recordIds, "cites");
   }
-  for (const q of state.reasonings) for (const e of q.evidence) push(q.id, "reasoning", e.id, "cites");
-  for (const d of state.decisions) {
-    for (const e of d.evidence) push(d.id, "decision", e.id, "cites");
+  for (const q of state.reasonings ?? []) for (const e of q.evidence ?? []) push(q.id, "reasoning", e.id, "cites");
+  for (const d of state.decisions ?? []) {
+    for (const e of d.evidence ?? []) push(d.id, "decision", e.id, "cites");
     many(d.id, "decision", d.seedRefs, "references");
   }
-  for (const f of state.formationSessions) {
+  for (const f of state.formationSessions ?? []) {
     many(f.id, "formation", f.linkedBeliefs, "references");
     many(f.id, "formation", f.linkedDecisions, "references");
     many(f.id, "formation", f.linkedThreads, "references");
@@ -99,9 +99,9 @@ export function buildGraphEdges(state: StoreState): GraphEdge[] {
     many(f.id, "formation", f.linkedSources, "references");
     many(f.id, "formation", f.linkedPractices, "references");
     many(f.id, "formation", f.linkedReflections, "references");
-    for (const e of f.evidence) push(f.id, "formation", e.id, "cites");
+    for (const e of f.evidence ?? []) push(f.id, "formation", e.id, "cites");
   }
-  for (const c of state.concepts) {
+  for (const c of state.concepts ?? []) {
     many(c.id, "concept", c.relatedBeliefs, "references");
     many(c.id, "concept", c.relatedThreads, "references");
     many(c.id, "concept", c.relatedSources, "references");
@@ -110,39 +110,41 @@ export function buildGraphEdges(state: StoreState): GraphEdge[] {
   }
   // Concept↔concept semantics come ONLY from approved relationships (avoids
   // double-counting the denormalized parent/child/related/opposing arrays).
-  for (const r of state.conceptRelationships) {
+  for (const r of state.conceptRelationships ?? []) {
     if (!r.approved) continue;
     const rel: RefRelation = r.type === "supports" ? "supports" : r.type === "contradicts" ? "contradicts" : r.type === "part_of" || r.type === "contains" ? "part_of" : "related_to";
     push(r.fromConceptId, "concept", r.toConceptId, rel, r.type);
   }
-  for (const p of state.principles) {
+  for (const p of state.principles ?? []) {
     many(p.id, "principle", p.conceptIds, "references");
     many(p.id, "principle", p.beliefIds, "supports");
   }
-  for (const f of state.frameworks) {
+  for (const f of state.frameworks ?? []) {
     many(f.id, "framework", f.conceptIds, "references", "organizes");
     many(f.id, "framework", f.principleIds, "references", "organizes");
   }
-  for (const k of state.knowledgeProjects) {
+  for (const k of state.knowledgeProjects ?? []) {
     for (const id of assemblyIds(k.assembly)) push(k.id, "knowledge_project", id, "authored_from");
-    for (const s of k.sections) for (const pa of s.paragraphs) many(k.id, "knowledge_project", pa.citations, "cites");
+    for (const s of k.sections ?? []) for (const pa of s.paragraphs ?? []) many(k.id, "knowledge_project", pa.citations, "cites");
   }
-  for (const rp of state.researchProjects) {
+  for (const rp of state.researchProjects ?? []) {
     for (const id of assemblyIds(rp.assembly)) push(rp.id, "research_project", id, "investigated_by");
-    for (const h of rp.hypotheses) {
+    for (const h of rp.hypotheses ?? []) {
       many(rp.id, "research_project", h.supportingEvidence, "supports");
       many(rp.id, "research_project", h.contradictingEvidence, "contradicts");
     }
-    for (const n of rp.argumentNodes) push(rp.id, "research_project", n.recordId, "cites");
+    for (const n of rp.argumentNodes ?? []) push(rp.id, "research_project", n.recordId, "cites");
     push(rp.id, "research_project", rp.seededProjectId, "authored_from", "seeded authoring project");
   }
   return edges;
 }
 
-function assemblyIds(a: import("@/types/mvp").ProjectAssembly): string[] {
+function assemblyIds(a: import("@/types/mvp").ProjectAssembly | undefined): string[] {
+  if (!a) return [];
   return [
-    ...a.sourceIds, ...a.beliefIds, ...a.conceptIds, ...a.threadIds, ...a.reasoningIds,
-    ...a.frameworkIds, ...a.principleIds, ...a.formationIds, ...a.decisionIds,
+    ...(a.sourceIds ?? []), ...(a.beliefIds ?? []), ...(a.conceptIds ?? []), ...(a.threadIds ?? []),
+    ...(a.reasoningIds ?? []), ...(a.frameworkIds ?? []), ...(a.principleIds ?? []),
+    ...(a.formationIds ?? []), ...(a.decisionIds ?? []),
   ];
 }
 
