@@ -3515,3 +3515,74 @@ connectors require repeated beta demand **and** stable API support, both.
   **Durable lesson.** Attaching a token is not the same as attaching a *valid*
   token. Any future client that authenticates a cost-bearing call must check
   freshness, not merely presence.
+
+---
+
+## FUTURE / POST-BETA — Living Constitution & Personal Observatory
+
+**Not implemented. Not scheduled. Recorded so the direction survives.**
+
+Full study: `LIVING_CONSTITUTION_ARCHITECTURE.md` (architecture study only — no
+code, no migration, no production change was made for it).
+
+**The finding that matters.** Most of the Observatory already exists; it was built
+for knowledge and never pointed at life. The provenance contract
+(`lib/provenance`), the unified activity index (`lib/insights/activity.ts`), the
+non-judgmental attention and dormancy views, the coverage discloser, the
+candidate→evidence→user-decision lifecycle (`Recommendation`, and in a better
+storage shape `DuplicateCandidate`), and the reference-derived graph
+(`lib/graph`) together supply almost everything the experience needs.
+
+**One genuinely new noun: `ConstitutionElement`** — a statement of how the user
+intends to live, explicitly adopted, that *references* rather than duplicates the
+practices, protocols, actions and projects making it real. Purpose, Value,
+Principle, Standard, Boundary, Identity, Aspiration and Question share one row
+shape and become a `kind`; Rule collapses into Protocol or Standard; **a Life Area
+is a Workspace** (same argument as Topic in `lib/notes/topics.ts`). Plus one
+append-only `ConstitutionRevision` log — no snapshot table, versions derived by
+replay.
+
+**Two collisions to resolve first.** (1) `types/lifeos.ts` already specifies
+`ConstitutionEntry`, but nothing imports it except `SourceType` — it is a paper
+ontology, not an implementation. (2) `/constitution` currently renders the
+**Belief Ledger** (`app/constitution/page.tsx`); the Belief Ledger must move to
+`/beliefs` before the word is available.
+
+**Verified gap.** `buildGraph` registers no `nextActions`, `notes`, `protocols`,
+`workspaces`, `goals`, `projects` or `documents` — it is a knowledge graph, not a
+life graph. Any Living Map requires extending `buildNodes`/`buildGraphEdges`, not
+adding a graph engine.
+
+**Ordering change from the founder's brief:** operational links move *ahead* of
+the Life Architecture Interview. Eight of ten map views and the whole
+Constitution-vs-Reality surface depend on links existing, links are the cheapest
+item in the plan, and the Interview is the highest AI-authority surface — it
+should follow a model that has already survived real use.
+
+**Zero-migration finding.** An Attention River and the Constitution-vs-Reality
+comparison both run entirely on the existing activity index, attention/dormancy
+views and coverage disclosures. No schema change is required for either.
+
+**Kill list (not "later" — not built):** any Constitution health score or
+alignment percentage; streaks and adherence rates; developmental
+level/altitude; personality typology; spiritual maturity; automatic
+classification of leisure as waste; inferred emotional states; a Protocol trigger
+engine; contradiction inferred from the wording of two values; punitive-structure
+detection; device/app usage tracking; a second graph engine; visualization-only
+records; a Constitution snapshot table; separate tables per element kind;
+background AI reading the Constitution.
+
+**Smallest first sprint after beta (LIFEOS-056 candidate):** rename the Belief
+Ledger off `/constitution`; one migration for `constitution_elements` +
+`constitution_revisions`; five kinds; explicit adoption (`adoptedAt`); retire via
+`supersedesId`, never delete; `linkedRefs`; an `excludeFromAi` flag shipped up
+front because retrofitting it would mean a backfill decision on already-sensitive
+rows; graph registration; a revision-history view. **No AI anywhere in it.**
+
+**Durable lesson recorded now, before the data exists.** The wording discipline
+already written into `dormancyPhrase` ("No recorded activity in 90 days", never
+"neglected") and `buildCoverage` ("includes locally available synced records") is
+not decoration — it is the only thing that keeps an observatory from becoming a
+scoreboard. Any comparison between what a person says matters and what their
+records contain must state the period, show the evidence, disclose what it cannot
+see, and make "this doesn't need attention" exactly as easy as "plan something."
