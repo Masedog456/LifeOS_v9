@@ -37,6 +37,12 @@ export default function AuthControl() {
       >
         Get started
       </button>
+      {/* An initialization failure must be visible, not silently rendered as
+          "Saved locally" with no way in (LIFEOS-055U). The button above still
+          works, so the person can always act. */}
+      {auth.phase === "idle" && auth.error && (
+        <p className="mt-1 max-w-56 text-[10px] text-amber-700 dark:text-amber-300">{auth.error}</p>
+      )}
 
       {open && (
         <div className="absolute right-0 z-10 mt-2 w-72 rounded-xl border border-black/[.10] bg-white p-4 shadow-lg dark:border-white/[.12] dark:bg-zinc-900">
