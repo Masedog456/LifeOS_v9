@@ -184,6 +184,9 @@ beta earns it — one generic lens table and one pattern-decision table.
 
 ## 2. Proposed domain model
 
+> **Superseded in part by §20.** The kind list below is narrowed to four in
+> §20.2, and the deletion semantics are made explicit in §20.3.
+
 ### 2.1 `ConstitutionElement` — the one new noun
 
 ```
@@ -272,6 +275,10 @@ sync").
 ---
 
 ## 3. Relationship model
+
+> **Superseded by §20.1**, which audits the three relationship mechanisms that
+> already exist and specifies the shared reader that keeps `linkedRefs` from
+> becoming a fourth island.
 
 **Rule: the Constitution references; it never owns.**
 
@@ -371,6 +378,9 @@ honour a rewrite."* The Constitution inherits that rule unchanged.
 ---
 
 ## 5. Versioning
+
+> **Extended by §20.3**, which separates historical retirement from true deletion
+> and gives deletion a cascade guarantee.
 
 **Do not snapshot the Constitution.**
 
@@ -974,6 +984,8 @@ Not "later." **Not built.**
 
 ## 17. Explicit answers
 
+> **Answers 2, 4 and 6 are revised by §20.** Where they differ, §20 governs.
+
 **1. One entity or many?**
 **One** — `ConstitutionElement` with a `kind` discriminator, plus an append-only
 `ConstitutionRevision` log. Eight of the brief's thirteen concepts share an
@@ -1113,3 +1125,401 @@ comparison is worth building at all.
 | **Rest is not failure** | `rest` and `recreation` are first-class labels; "wasted" is absent from the vocabulary; the system never labels an interval. |
 | **Absence of data is not absence from life** | `buildCoverage` disclosures attached to every observation; the zero-link case is its own message, not a low score. |
 | **Every pattern must explain itself** | A candidate without `evidence`, `period`, `why` and `limitations` is not renderable. |
+
+---
+
+# Part 20 — Pre-LIFEOS-056 architecture resolution
+
+> **This part supersedes §2.1 (kinds), §3 (relationship model), §5 (retirement)
+> and answers 2, 4 and 6 in §17 wherever they differ.** It was written after a
+> second audit specifically targeting relationship storage, kind vocabulary and
+> deletion guarantees. Still analysis only — no code, no schema, no migration.
+
+## 20.1 Relationship storage — audit
+
+### What actually exists
+
+The repository has **three** relationship mechanisms, not one:
+
+| # | Mechanism | Where | Covers |
+|---|---|---|---|
+| 1 | **Derived reference index** — edges computed from typed id fields | `lib/graph/references.ts` `buildGraphEdges` | 18 `RecordKind`s, all knowledge-side |
+| 2 | **Embedded typed refs** — `RecordRefLite[]` stored on the row | `linkedEntityRefs` on Capture/NextAction/Note; `members`/`pinned` on Workspace; `linkedWorkspaces`/`linkedKnowledge` on Goal; ~30 sites total | any kind (`kind` is a free string) |
+| 3 | **First-class edge tables** | `ConceptRelationship` (concept↔concept), `ActionDependency` (action↔action) | one pair each |
+
+Plus `Citation` (document→record) and single-ref fields (`PlanningAssignment.ref`,
+`MaintenanceEvent.ref`, `FocusSession.ref`).
+
+### The three findings that decide this
+
+**Finding 1 — `RecordKind` cannot name six of the seven targets we need.**
+
+```
+lib/graph/references.ts:14
+  "source" | "capture" | "proposal" | "belief" | "comparison" | "inquiry"
+| "megathread" | "reflection" | "practice" | "review" | "reasoning"
+| "decision" | "formation" | "concept" | "principle" | "framework"
+| "knowledge_project" | "research_project"
+```
+
+Of the Constitution's intended targets — Practice, Protocol, Action, Project,
+Note, Workspace, Reading document — **only `practice` is present.** The graph is
+a knowledge graph. It is not able to represent a life today.
+
+**Finding 2 — the islands already exist, and embedding is not what caused them.**
+
+`NextAction.linkedEntityRefs` and `Note.linkedEntityRefs` are the *same field
+shape*. Actions got a bespoke reverse lookup:
+
+```
+lib/actions/relationships.ts:39
+  /** Actions that reference a given record (any kind) via linkedEntityRefs. */
+  (state.nextActions ?? []).filter((a) => (a.linkedEntityRefs ?? [])
+    .some((r) => r.kind === kind && r.id === id))
+```
+
+Notes got nothing. Neither is visible to `buildGraphEdges`, which never reads
+`state.nextActions` or `state.notes` at all. So an Action↔Note link is
+representable, storable, syncable, exportable — and completely invisible to every
+graph consumer.
+
+**The island is not caused by embedding. It is caused by the absence of a shared
+reader.** Adding a fourth mechanism would not fix that; adding a shared reader
+would fix it for the Constitution *and* retroactively for Actions and Notes.
+
+**Finding 3 — `GraphEdge.to` is an untyped bare string.**
+
+```
+lib/graph/references.ts:26
+  export interface GraphEdge { from: string; fromKind: RecordKind; to: string; … }
+```
+
+Target kind is recovered by looking the id up in `graph.nodes`. That works only
+because ids are globally unique UUIDs, and it fails *silently* — an edge to an
+unregistered kind becomes a `brokenReferences` entry in `graphIntegrity` rather
+than an edge. This is why extending `RecordKind` is a precondition, not an
+optional nicety.
+
+### Answers
+
+**A. Can the relationships be represented cleanly with existing infrastructure?**
+
+**Representation: yes. Traversal: no.**
+`RecordRefLite { kind: string; id: string }` already names every target we need
+and is the established convention at ~30 sites. But nothing reads those refs
+generically, and `RecordKind` cannot name six of the seven targets, so no
+existing consumer could traverse a Constitution link.
+
+**B. Should `ConstitutionElement` avoid an embedded `linkedRefs` field?**
+
+**No — keep it embedded, and add the missing reader.** Embedding is right here:
+
+- It matches the convention already used by the three most life-adjacent records
+  (Capture, NextAction, Note).
+- It sync-merges correctly with machinery that already exists —
+  `lib/actions/merge-rules.ts:53` unions `linkedEntityRefs` across base/local/remote
+  with `uniqRefs`, so a link added on two devices converges rather than conflicts.
+- It exports and deletes with the row, so §20.3's deletion guarantee needs no
+  cascade reasoning for links.
+- It requires **zero** relationship migrations.
+
+**C. Would `linkedRefs` create another entity-specific island?**
+
+**Only if it ships without a shared reader — and that is the actual risk to
+close.** Mitigation is a single declarative table plus one generic pass in
+`buildGraphEdges`:
+
+```
+REF_SOURCES: { collection, kind, field }[]      // ~12 entries, data not code
+  constitutionElements · constitution_element · linkedRefs
+  nextActions          · action                · linkedEntityRefs   ← existing island, fixed
+  notes                · note                  · linkedEntityRefs   ← existing island, fixed
+  captures             · capture               · linkedEntityRefs
+  workspaces           · workspace             · members / pinned
+  goals                · goal                  · linkedWorkspaces / linkedKnowledge
+  …
+```
+
+One loop consumes it. `lib/actions/relationships.ts:39` then becomes a thin
+wrapper over `backReferences` instead of a bespoke scan.
+
+**D. Smallest generic typed relationship representation without a graph rewrite?**
+
+**Do not add a `relationships` table. Add three small things to what exists:**
+
+1. **Extend `RecordKind`** with the missing life kinds: `action`, `note`,
+   `protocol`, `workspace`, `goal`, `project`, `document`,
+   `constitution_element`. (`buildNodes` needs matching registrations.)
+2. **Carry `toKind` on `GraphEdge`** where the source knows it — which a
+   `RecordRefLite` always does. Bare-string targets stay valid for the existing
+   17 typed-id call sites; nothing is rewritten.
+3. **One generic `REF_SOURCES` pass** over embedded `RecordRefLite[]` fields.
+
+That is roughly 40 lines and zero migrations. It is explicitly **not** a graph
+platform: no query language, no inference, no edge metadata, no traversal engine
+beyond the `dependencyChain` that already exists.
+
+### Explicitly rejected
+
+- **A generic `relationships` table** (the `Relationship` type in
+  `types/lifeos.ts`). It would become the *fourth* mechanism, would need its own
+  migration, RLS, tombstones, export domain, merge policy and deletion cascade,
+  and would leave mechanisms 1–3 in place — strictly more islands, not fewer.
+- **Edge metadata on constitution links** (`reason`, `confidence`, `approved`, as
+  `ConceptRelationship` carries). Speculative now. `RecordRefLite` lives in
+  `jsonb`, so enriching it later needs no migration.
+- **Migrating `linkedEntityRefs` on Action/Note into a new table.** Rewrites
+  working, tested, merge-safe code for no user-visible gain.
+
+---
+
+## 20.2 Final initial kind vocabulary
+
+**Recommendation: four kinds — `purpose`, `value`, `principle`, `standard`.**
+
+The test applied to each candidate: *does the user file it differently, **and**
+does the product behave differently?* A kind that fails the second half is a
+taxonomy the user must learn for nothing — the failure mode
+`lib/notes/topics.ts` already argues against at length.
+
+### Included
+
+| Kind | Why it earns a slot |
+|---|---|
+| **purpose** | Few, global, not area-scoped. Deliberately **not** expected to show daily observable representation, so §11 must treat it differently from conduct kinds. That behavioural difference is real. |
+| **value** | The word people actually reach for. Dropping it would leave the obvious slot missing and push everything into `principle`. |
+| **principle** | A sentence about how to act. The core conduct kind and the primary target of the §12 "aspirational but not operational" audit. |
+| **standard** | A checkable threshold ("I reply within 24 hours"). Distinct from a principle precisely because it is checkable, which changes what the audit can say about it. |
+
+### Excluded from the founder's proposed five
+
+| Kind | Verdict | Where it goes instead |
+|---|---|---|
+| **boundary** | **Wait.** A boundary is a standard stated negatively — "I don't take work calls after 7pm" is "I keep evenings free." The product behaves identically, so the kind buys a filing decision at every capture and nothing downstream. | `standard`. **Add it the moment beta users write negative standards and say the word "boundary" unprompted** — it is a one-line enum addition with no migration. |
+
+### Excluded from the comparison set
+
+| Kind | Verdict | Where it goes instead |
+|---|---|---|
+| **rule** | **Never a kind.** | Conditional → `Protocol` (exists, migration 0037, WHEN/IF → response). Unconditional → `standard`. Adding `rule` would duplicate a shipped record type. |
+| **commitment** | **Wait.** | A commitment to *do* something is a `NextAction` (with `dueDate`, 0036) or a `Goal`. The genuine residue — a standing commitment *to a person* — needs a `Person` entity that does not exist. Ship `Person` first or not at all. |
+| **aspiration** | **Wait, and be careful.** | An aspiration inside the Constitution makes the §12 "aspirational but not operational" audit meaningless — everything aspirational is *supposed* to be unoperationalized, so the audit would fire on correct data. Model as a `Goal` (which has `targetDate`) or as an element left at `status: draft`. |
+| **identity** | **Wait.** | "I am someone who keeps their word" is a grammatical variant of a value or principle. It also carries the highest risk of the product appearing to tell someone who they are — the exact failure the brief forbids. |
+| **question** | **Wait. This reverses §2.1 of this study.** | I previously recommended `question` in the initial five. On re-examination a standing question is already well served by a `Note`: a Note has no status, no lifecycle and no epistemic standing (`types/mvp.ts:2828`), which is exactly right for an open question. Revisit in Stage E, when the Interview starts generating questions at volume and the Note list stops being a good home. |
+
+**Net: five kinds deferred, four shipped, every deferral with a named home and a
+named trigger.**
+
+---
+
+## 20.3 Retirement vs deletion semantics
+
+### The risk being closed
+
+`ConstitutionRevision.previousValue` stores the **prior statement text**. Without
+an explicit rule, a user who deletes a sensitive element would leave that text
+sitting in the revision log — sensitive content made undeletable by the existence
+of history. That must not happen.
+
+### Two operations, two guarantees. No third.
+
+| | **A. Retire** | **B. Delete** |
+|---|---|---|
+| Means | "This was once part of my Constitution; I changed my mind." | "I do not want this stored anymore." |
+| Element row | kept, `status: retired` | **removed** |
+| Revisions | kept in full | **removed (cascade)** |
+| Statement text | preserved deliberately | **gone** |
+| Visible in | history views, version diffs, `supersedesId` chains | nothing |
+| Tombstoned | no | yes — under both domains |
+| Reversible | yes (re-adopt) | no |
+| Counts as constitutional | no (`status: retired` is excluded from every §10/§11 projection) | n/a |
+
+### The schema rules that enforce it
+
+```
+constitution_revisions.element_id
+    references constitution_elements(id) on delete cascade
+        -- deletion of an element destroys its history WITH it.
+        -- Retirement never deletes the row, so retirement never triggers this.
+
+constitution_elements.supersedes_id
+    references constitution_elements(id) on delete set null
+        -- deleting a superseded element must not delete its successor,
+        -- and must not leave the successor holding a dangling id.
+        -- Matches the existing `on delete set null` convention used for
+        -- workspace_id and source_capture_id in migration 0035.
+```
+
+Cascade-on-delete is what makes the guarantee real: there is no code path where
+the element is gone and its previous wording is not.
+
+### What survives a delete, and why that is correct
+
+- **A tombstone** — `{domain, recordId, deletedAt}` only. `lib/sync/tombstones.ts`
+  is explicit: *"Privacy-safe: a tombstone stores only `{domain, recordId,
+  deletedAt}` — never the deleted content."* It exists so a stale device cannot
+  resurrect the element, which is a deletion *guarantee*, not a leak.
+- **The user's own writing elsewhere.** If a Reflection quotes the element,
+  deleting the element cannot reach into the Reflection — and should not. That is
+  the user's own text in their own record. **It must be disclosed at delete
+  time**, using the existing `requestConfirm` + `buildImpact` machinery
+  (`lib/ux/confirmations.ts`), the same way every other destructive action in the
+  product already discloses its reach.
+- **Nothing else.** `evidenceRefs` on revisions are references, not copies, and
+  go with the cascade regardless.
+
+### Retirement does not substitute for deletion
+
+Both must be reachable from the element itself, labelled in the user's language
+("Retire — keep the history" / "Delete — remove it completely"), with delete never
+hidden behind retire. `lib/privacy/retention.ts` already commits to the honest
+disclosure this inherits, including the backup caveat: *"Database backups kept by
+the hosting provider are purged as they roll off; we cannot guarantee instant
+removal from backups."*
+
+---
+
+## 20.4 Confirmations
+
+All ten points are confirmed as stated, with these implementation notes:
+
+1. **`/constitution` becomes the Living Constitution; Belief Ledger moves to
+   `/beliefs`.** ✅ Confirmed — and it is a hard prerequisite, not a nicety.
+   `app/constitution/page.tsx` imports `Belief`, `affirmBelief`,
+   `questionBelief`, `reviseBelief` today.
+2. **`excludeFromAi` ships with the primitive.** ✅ Confirmed. Retrofitting it
+   later means a migration plus a backfill decision about rows that are already
+   sensitive.
+3. **Adoption is always explicit.** ✅ Confirmed, enforced by schema:
+   `adoptedAt IS NULL` ⇒ excluded from every projection.
+4. **AI output or source material cannot become adopted Constitution content
+   through a Save/transform.** ✅ Confirmed. Save is not adoption and adoption is
+   not authorship — `lib/provenance/index.ts:86` already states the rule for
+   text; `fromAiText` survives adoption unless the user rewrites the statement.
+5. **Elements reference operational objects; never duplicate them.** ✅ Confirmed
+   — via §20.1's embedded refs plus the shared reader.
+6. **Pattern stays derived + decision-persistence.** ✅ Confirmed (§9).
+7. **Integral stays a lens.** ✅ Confirmed (§7); `LensAssignment` is generic and
+   Integral is one vocabulary among any the user invents.
+8. **System vocabulary never classifies time as "wasted"; users may label their
+   own time.** ✅ Confirmed. `TimeInterpretation.label` has no `wasted` value; a
+   user's free-text `note` is theirs and is never parsed, scored, or aggregated.
+9. **Retirement does not substitute for deletion.** ✅ Confirmed (§20.3).
+10. **Relationships must not become per-entity islands.** ✅ Confirmed — and
+    §20.1 finds this is *already violated* by Action/Note `linkedEntityRefs`;
+    LIFEOS-056 should fix it rather than add to it.
+
+---
+
+## 20.5 Revised LIFEOS-056 scope
+
+**Title: Constitution elements — write it down, adopt it, link it.**
+
+### In scope
+
+**Prerequisite**
+1. Move the Belief Ledger `/constitution` → `/beliefs`: route, nav, internal
+   links, copy. No data change, no schema change.
+
+**Schema — one migration (`0038_constitution.sql`)**
+2. `constitution_elements` — `id, user_id, kind, statement, elaboration,
+   life_area_id → workspaces(id) on delete set null, status, adopted_at,
+   supersedes_id → self on delete set null, sort_order, linked_refs jsonb,
+   lineage jsonb, source_capture_id → captures(id) on delete set null,
+   from_ai_text, exclude_from_ai, tags text[], created_at, updated_at`.
+3. `constitution_revisions` — `id, user_id, element_id → elements(id)
+   **on delete cascade**, change_kind, previous_value jsonb, new_value jsonb,
+   reason, evidence_refs jsonb, actor, at`.
+4. RLS on both (select/insert/update/delete, `auth.uid() = user_id`), indexes,
+   `auth.uid()` defaults, rerunnable/idempotent — following 0035/0037 exactly.
+
+**Plumbing — the eight-box checklist (§14.3)**
+5. `StoreState` collections + `normalize()` defaults; adapter read/write;
+   tombstone registration under `constitution_elements` / `constitution_revisions`;
+   `EXPORT_DOMAINS`; `TABLE_REGISTRY`; account-deletion coverage; restore
+   round-trip test; merge rule reusing `uniqRefs` for `linked_refs`.
+
+**Behaviour**
+6. Four kinds: `purpose`, `value`, `principle`, `standard`.
+7. Create → `draft`; **adopt** → `active` + `adopted_at` + revision `added`.
+8. Retire (keeps history) and Delete (cascades) as two distinct, separately
+   labelled operations with `buildImpact` disclosure on delete.
+9. `linked_refs` picker → Practice, Protocol, NextAction, Project, Note.
+10. `exclude_from_ai` toggle.
+11. Revision-history view answering *"what changed in how I say I want to live?"*
+
+**Relationship reader (§20.1 D)**
+12. Extend `RecordKind` + `buildNodes` with `constitution_element`, `action`,
+    `note`, `protocol`, `workspace`, `goal`, `project`, `document`.
+13. Add `toKind` to `GraphEdge` where the source knows it.
+14. Add the declarative `REF_SOURCES` pass — which also brings existing
+    `NextAction`/`Note`/`Capture` `linkedEntityRefs` into the graph.
+15. Re-point `lib/actions/relationships.ts` at `backReferences`.
+
+### Migrations required
+
+**Exactly one:** `0038_constitution.sql`, two tables. Additive, idempotent,
+rerunnable, no destructive statements, no change to 0001–0037. The relationship
+work in items 12–15 requires **no migration at all**.
+
+### Explicit non-goals
+
+No AI anywhere in 056 · no Life Architecture Interview · no Integral, lenses, or
+`LensAssignment` · no patterns or detectors · no time model, `Event`, or Calendar
+· no Constitution-vs-Reality comparison · no structural audit · no visualization
+beyond a plain list · no `boundary`/`identity`/`aspiration`/`question`/`rule`/
+`commitment` kinds · no `Person` · no generic `relationships` table · no
+`constitution_editions` · no score, percentage, streak, or aggregate of any kind ·
+no migration of existing Beliefs, Principles or Practices into Constitution
+elements (historical intent is not inferred — the precedent is migration 0037,
+which migrated no existing practice for exactly this reason).
+
+---
+
+## 20.6 Architecture risks discovered
+
+**R1 — `buildGraph` is already at its performance budget, and 056 would make it
+heavier.** `buildGraph` is called at **14 sites**, several unmemoized: a single
+orchestrator run builds it at least twice (`scanners/belief.ts:21` and
+`scanners/graph.ts:33` each call it independently), and `buildLivingMemory`
+(`lib/memory/living.ts:96`) and `buildReflectionPrompts`
+(`lib/memory/prompts.ts:33`) each build it again. The memory suite's perf
+assertion — `perfMs < 1500` for a 300× store (`lib/memory/selftest.ts:313`) — is
+**currently failing at ~1565 ms on this container**, and it exercises exactly
+those paths. Adding 8 node kinds plus a generic reference pass will make it worse.
+**Mitigation:** thread a shared graph through the orchestrator (the
+`graph ?? buildGraph(state)` parameter already exists on
+`dialogue/context.ts`, `dialectic/tensions.ts`, `entities/entity.ts` and
+`memory/living.ts` — the scanners simply do not use it). Do this **in** 056, and
+measure with `lib/perf/profile.ts`, which already reports `graphBuildMs`.
+
+**R2 — `buildGraphEdges` reads collections without `?? []` guards.**
+`for (const c of state.captures)` and its siblings assume the collection exists,
+while `buildActivityIndex` uses `state.sessions ?? []` throughout. A new
+collection reached through a generic pass must be guarded, or a partially-restored
+store will throw inside a read-only query layer. `lib/graph/index.ts:33` already
+documents the intent — *"the graph is a read-only query layer and must never crash
+on imperfect store data"* — so this is a gap against a stated contract.
+
+**R3 — a `principle` kind and the `principles` table share a word.** The live
+`principles` table (migration 0013) organizes *knowledge*: `concept_ids`,
+`belief_ids`, `citations`. A constitutional `principle` governs *conduct*. They
+are different objects with the same name, and both are user-visible. This needs a
+copy decision before 056 ships, not after.
+
+**R4 — `Practice.constitutionEntryId` in the paper ontology is a required
+field.** `types/lifeos.ts:282` declares `Practice.constitutionEntryId: ID`
+(non-optional) and `ONTOLOGY.md` says a Practice *"implements one
+ConstitutionEntry."* The live `PracticeCandidate` has no such field, and 056 must
+**not** add one: making a Practice require a Constitution element would make the
+Constitution mandatory to use Practices. The link direction is
+element → practice, and only element → practice.
+
+**R5 — `EXPORT_DOMAINS` order is stable and load-bearing.** Two new domains must
+be **appended**, never inserted, or existing archives change meaning. The nine
+domains silently dropped before LIFEOS-052 are the standing evidence for why this
+checklist is not optional.
+
+**R6 — the `question` reversal is a genuine change of recommendation.** §2.1 and
+§17 of this study list `question` among the initial kinds; §20.2 defers it. Where
+the two disagree, **§20.2 governs.**

@@ -3572,6 +3572,38 @@ detection; device/app usage tracking; a second graph engine; visualization-only
 records; a Constitution snapshot table; separate tables per element kind;
 background AI reading the Constitution.
 
+**Pre-056 resolution (study Part 20).** Four points were resolved before
+implementation. (a) **Relationships:** the repo already has three mechanisms —
+a derived reference index (`buildGraphEdges`, 18 knowledge kinds), embedded
+`RecordRefLite[]` at ~30 sites, and two entity-pair edge tables
+(`ConceptRelationship`, `ActionDependency`). Islands already exist and embedding
+did not cause them: `NextAction.linkedEntityRefs` has a bespoke reverse lookup,
+the identical field on `Note` has none, and neither is visible to the graph. So
+keep `linkedRefs` embedded and add a **shared reader** — extend `RecordKind`
+with the missing life kinds, carry `toKind` on `GraphEdge`, and add one
+declarative `REF_SOURCES` pass that also brings Action/Note/Capture links into
+the graph. No relationships table; no graph platform; zero relationship
+migrations. (b) **Kinds: four** — `purpose`, `value`, `principle`, `standard`.
+`boundary` is a negatively-stated standard; `rule` is a Protocol or a standard;
+`commitment` needs a `Person` that does not exist; `aspiration` would make the
+"aspirational but not operational" audit fire on correct data; `identity` is a
+grammatical variant with identity-fixing risk; **`question` is deferred to a
+Note, reversing this study's own earlier recommendation.** (c) **Retire ≠
+delete:** two operations, two guarantees. Retire keeps the row and its full
+history; delete removes the element **and cascades to its revisions**, so a
+sensitive statement can never be made undeletable by the existence of history.
+`supersedes_id` uses `on delete set null`; only a content-free tombstone
+survives. (d) `/constitution` becomes the Living Constitution and the Belief
+Ledger moves to `/beliefs` — a hard prerequisite.
+
+**Risk found while resolving:** `buildGraph` is called at 14 sites, several
+unmemoized (one orchestrator run builds it at least twice), and the memory perf
+assertion `perfMs < 1500` for a 300× store is **already failing at ~1565 ms**
+on the CI container while exercising those paths. Adding node kinds plus a
+generic reference pass makes it worse, so 056 must thread a shared graph through
+the scanners — the `graph ?? buildGraph(state)` parameter already exists
+elsewhere and the scanners simply do not use it.
+
 **Smallest first sprint after beta (LIFEOS-056 candidate):** rename the Belief
 Ledger off `/constitution`; one migration for `constitution_elements` +
 `constitution_revisions`; five kinds; explicit adoption (`adoptedAt`); retire via
