@@ -18,6 +18,9 @@ import { entityActivity } from "@/lib/entities/activity";
 import { entityTimeline, relativeTime } from "@/lib/entities/timeline";
 import { entityPreview, entityNeighbors } from "@/lib/entities/preview";
 import { INSPECTOR_TABS } from "@/lib/entities/inspector";
+import { buildGraph, graphIntegrity } from "@/lib/graph";
+import { beliefScanner } from "@/lib/orchestrator/scanners/belief";
+import { graphScanner } from "@/lib/orchestrator/scanners/graph";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -136,6 +139,77 @@ export function runEntitySelfTests(): SelfTestReport {
   for (const bb of big.beliefs.slice(0, 200)) rel += relationshipCount(bctx, "belief", bb.id);
   const perfMs = Date.now() - p0;
   check(results, "perf: 400 relationship builds under budget", perfMs < 1500, `${perfMs}ms, ${rel} rels, graph ${big.beliefs.length} beliefs`);
+
+  // ---- Graph traversal hardening (pre-LIFEOS-056) ----
+  //
+  // Two pre-existing defects were repaired: `buildGraph`/`buildGraphEdges` read
+  // store collections without `?? []` guards despite the module's stated
+  // contract that it "must never crash on imperfect store data", and two
+  // orchestrator scanners each rebuilt an identical graph within one pass.
+  {
+    const full = richState();
+
+    // 1. Absent collections — an older, partial, or partially-restored store.
+    //    A read-only query layer must degrade, not throw.
+    const empties = [
+      { label: "completely empty object", st: {} as unknown as StoreState },
+      { label: "no beliefs/concepts", st: { ...full, beliefs: undefined, concepts: undefined } as unknown as StoreState },
+      { label: "no knowledge/research projects", st: { ...full, knowledgeProjects: undefined, researchProjects: undefined } as unknown as StoreState },
+      { label: "no megathreads/practices/reviews", st: { ...full, megathreads: undefined, practices: undefined, reviews: undefined } as unknown as StoreState },
+    ];
+    for (const { label, st } of empties) {
+      let threw = "";
+      try { const g = buildGraph(st); graphIntegrity(st, g); } catch (e) { threw = (e as Error).message; }
+      check(results, `graph-safety: ${label} does not crash`, threw === "", threw);
+    }
+    check(results, "graph-safety: an empty store yields an empty graph",
+      buildGraph({} as unknown as StoreState).nodes.size === 0);
+
+    // 2. A structurally invalid INDIVIDUAL record must not crash the layer —
+    //    but must still be visible to integrity reporting, never concealed.
+    const malformed = {
+      ...full,
+      practices: [{ id: "p-broken", title: "x", userWording: "" } as unknown as StoreState["practices"][number]],
+      megathreads: [{ id: "t-broken", title: "y" } as unknown as StoreState["megathreads"][number]],
+    } as StoreState;
+    let malformedThrew = "";
+    let malformedNodes = 0;
+    try {
+      const g = buildGraph(malformed);
+      malformedNodes = g.nodes.size;
+    } catch (e) { malformedThrew = (e as Error).message; }
+    check(results, "graph-safety: a record missing its ref arrays does not crash", malformedThrew === "", malformedThrew);
+    check(results, "graph-safety: the malformed records are still REGISTERED as nodes (not hidden)",
+      malformedNodes > 0 && buildGraph(malformed).nodes.has("p-broken") && buildGraph(malformed).nodes.has("t-broken"));
+    check(results, "graph-safety: integrity reporting still runs over a malformed store",
+      graphIntegrity(malformed).nodeCount > 0);
+
+    // 3. Determinism — the graph is a pure function of the state.
+    const g1 = buildGraph(full), g2 = buildGraph(full);
+    const fingerprint = (g: ReturnType<typeof buildGraph>) =>
+      g.edges.map((e) => `${e.fromKind}:${e.from}>${e.relation}>${e.to}`).join("|");
+    check(results, "graph-determinism: identical edge ordering across builds", fingerprint(g1) === fingerprint(g2));
+    check(results, "graph-determinism: identical node ordering across builds",
+      [...g1.nodes.keys()].join("|") === [...g2.nodes.keys()].join("|"));
+    check(results, "graph-determinism: identical integrity report",
+      JSON.stringify(graphIntegrity(full, g1)) === JSON.stringify(graphIntegrity(full, g2)));
+
+    // 4. Shared-graph reuse changes COST, not MEANING. A scanner handed an
+    //    already-built graph must produce byte-identical proposals to one that
+    //    builds its own — this is the whole safety property of the repair.
+    const shared = buildGraph(full);
+    check(results, "graph-reuse: beliefScanner output identical with a shared graph",
+      JSON.stringify(beliefScanner(full)) === JSON.stringify(beliefScanner(full, shared)));
+    check(results, "graph-reuse: graphScanner output identical with a shared graph",
+      JSON.stringify(graphScanner(full)) === JSON.stringify(graphScanner(full, shared)));
+    check(results, "graph-reuse: a scanner given NO graph still works standalone",
+      Array.isArray(beliefScanner(full)) && Array.isArray(graphScanner(full)));
+    // A scanner must not mutate the graph it was handed.
+    const beforeEdges = shared.edges.length, beforeNodes = shared.nodes.size;
+    beliefScanner(full, shared); graphScanner(full, shared);
+    check(results, "graph-reuse: a shared graph is not mutated by its consumers",
+      shared.edges.length === beforeEdges && shared.nodes.size === beforeNodes);
+  }
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

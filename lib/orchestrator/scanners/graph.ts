@@ -8,7 +8,7 @@
  */
 
 import type { Concept, StoreState } from "@/types/mvp";
-import { backReferences, buildGraph } from "@/lib/graph";
+import { backReferences, buildGraph, type KnowledgeGraph } from "@/lib/graph";
 import { proposal, type RecommendationProposal, type Scanner } from "@/lib/orchestrator/types";
 
 const ELEVATE_THRESHOLD = 4;
@@ -26,11 +26,11 @@ function refCount(state: StoreState, graph: ReturnType<typeof buildGraph>, id: s
   return ids.size;
 }
 
-export const graphScanner: Scanner = (state: StoreState): RecommendationProposal[] => {
+export const graphScanner: Scanner = (state: StoreState, graph?: KnowledgeGraph): RecommendationProposal[] => {
   const out: RecommendationProposal[] = [];
   const active = state.concepts.filter((c) => c.status !== "archived" && c.status !== "merged");
   if (active.length === 0) return out;
-  const g = buildGraph(state);
+  const g = graph ?? buildGraph(state);
 
   // elevate_concept — well-connected but under-structured concepts.
   for (const c of active) {
