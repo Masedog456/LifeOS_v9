@@ -1478,20 +1478,21 @@ which migrated no existing practice for exactly this reason).
 
 ## 20.6 Architecture risks discovered
 
-**R1 — `buildGraph` is already at its performance budget, and 056 would make it
-heavier.** `buildGraph` is called at **14 sites**, several unmemoized: a single
-orchestrator run builds it at least twice (`scanners/belief.ts:21` and
-`scanners/graph.ts:33` each call it independently), and `buildLivingMemory`
-(`lib/memory/living.ts:96`) and `buildReflectionPrompts`
-(`lib/memory/prompts.ts:33`) each build it again. The memory suite's perf
-assertion — `perfMs < 1500` for a 300× store (`lib/memory/selftest.ts:313`) — is
-**currently failing at ~1565 ms on this container**, and it exercises exactly
-those paths. Adding 8 node kinds plus a generic reference pass will make it worse.
-**Mitigation:** thread a shared graph through the orchestrator (the
-`graph ?? buildGraph(state)` parameter already exists on
-`dialogue/context.ts`, `dialectic/tensions.ts`, `entities/entity.ts` and
-`memory/living.ts` — the scanners simply do not use it). Do this **in** 056, and
-measure with `lib/perf/profile.ts`, which already reports `graphBuildMs`.
+**R1 — WITHDRAWN. Graph expansion is not a performance risk.** ~~`buildGraph` is
+already at its performance budget, and 056 would make it heavier.~~
+
+This risk was asserted without measurement, and measurement disproved it. On the
+300× store `buildGraph` costs **1–7 ms of roughly 1000 ms (~0.6%)**, while
+`buildThemes` accounts for **88–92%** and never touches the graph at all. The
+memory suite's perf assertion is sensitive to container load, not to graph
+construction, so adding node kinds and a generic reference pass is not a
+meaningful cost. LIFEOS-056 shipped both and the full regression is green.
+
+What was real and worth doing anyway: two orchestrator scanners each rebuilt an
+identical graph inside one pass, and the Today page built one in
+`buildLivingMemory` and another in `buildReflectionPrompts` on every render. Both
+were fixed in the graph-hardening sprint (2 → 1 builds on each path). The
+remaining sensitivity is `buildThemes`, which is outside the Constitution work.
 
 **R2 — `buildGraphEdges` reads collections without `?? []` guards.**
 `for (const c of state.captures)` and its siblings assume the collection exists,
