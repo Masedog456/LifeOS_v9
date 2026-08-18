@@ -27,6 +27,7 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:reading", title: "Open Reading", group: "Navigate", kind: "navigate", href: "/reading", icon: "❧", keywords: ["documents", "books", "read", "library"] },
   { id: "nav:world", title: "Open World Model", group: "Navigate", kind: "navigate", href: "/world", icon: "◍", keywords: ["concepts", "graph"] },
   { id: "nav:beliefs", title: "Open Beliefs", group: "Navigate", kind: "navigate", href: "/beliefs", icon: "§", keywords: ["belief", "ledger", "claims"] },
+  { id: "nav:constitution-practice", title: "Open Constitution in Practice", group: "Navigate", kind: "navigate", href: "/constitution/reflection", icon: "◇", keywords: ["recorded", "evidence", "practice", "constitution in practice"] },
   { id: "nav:constitution", title: "Open Constitution", group: "Navigate", kind: "navigate", href: "/constitution", icon: "◆", keywords: ["constitution", "purpose", "value", "guiding principle", "standard", "how i intend to live"] },
   { id: "nav:compare", title: "Open Compare", group: "Navigate", kind: "navigate", href: "/compare", icon: "⇌" },
   { id: "nav:inquiry", title: "Open Inquiry", group: "Navigate", kind: "navigate", href: "/inquiry", icon: "?", keywords: ["questions"] },

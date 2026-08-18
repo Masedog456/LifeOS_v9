@@ -31,6 +31,12 @@ import {
 import { classifyStatementChange, requiresReason } from "@/lib/constitution/revision";
 import { CONSTITUTION_KIND_LABEL, CONSTITUTION_KIND_HINT } from "@/types/mvp";
 import type { ConstitutionElement, ConstitutionKind, RecordRefLite } from "@/types/mvp";
+import { buildConstitutionEvidence } from "@/lib/constitution/evidence";
+import { buildActivityIndex } from "@/lib/insights/activity";
+import { resolveRange } from "@/lib/insights/range";
+import { todayKey, addDays } from "@/lib/reviews/dates";
+import EvidenceBlock from "@/components/constitution/ConstitutionEvidence";
+import Link from "next/link";
 import { requestConfirm } from "@/components/ux/ConfirmDialog";
 import { toast } from "@/lib/ux/feedback";
 
@@ -138,6 +144,17 @@ function ElementCard({ element, highlight }: { element: ConstitutionElement; hig
   const [mode, setMode] = useState<"edited" | "revised">("edited");
   const [modeTouched, setModeTouched] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+
+  // Computed ONLY when the section is open. The Constitution page stays a
+  // document; evidence is secondary and opt-in, so the default render does no
+  // activity-index work at all.
+  const evidence = useMemo(() => {
+    if (!showEvidence || element.status !== "active") return undefined;
+    const today = todayKey();
+    const range = resolveRange("custom", { today, customStart: addDays(today, -29), customEnd: today });
+    return buildConstitutionEvidence(state, element, range, { index: buildActivityIndex(state) });
+  }, [showEvidence, element, state]);
 
   const suggestion = useMemo(
     () => (draft.trim() && draft.trim() !== element.statement ? classifyStatementChange(element.statement, draft.trim()) : null),
@@ -284,6 +301,11 @@ function ElementCard({ element, highlight }: { element: ConstitutionElement; hig
                 className="text-zinc-600 underline underline-offset-2 dark:text-zinc-400">
                 {element.excludeFromAi ? "Allow AI to see this" : "Hide from AI"}
               </button>
+              {element.status === "active" && (
+                <button type="button" onClick={() => setShowEvidence((v) => !v)} className="text-zinc-600 underline underline-offset-2 dark:text-zinc-400">
+                  {showEvidence ? "Hide recorded life" : "Recorded life"}
+                </button>
+              )}
               {element.status !== "retired" && (
                 <button type="button" onClick={confirmRetire} className="text-zinc-600 underline underline-offset-2 dark:text-zinc-400">Retire</button>
               )}
@@ -292,6 +314,10 @@ function ElementCard({ element, highlight }: { element: ConstitutionElement; hig
           )}
 
           {linking && <LinkPicker element={element} onClose={() => setLinking(false)} />}
+
+          {showEvidence && evidence && (
+            <EvidenceBlock evidence={evidence} onLink={() => { setShowEvidence(false); setLinking(true); }} />
+          )}
 
           <details className="mt-3">
             <summary className="cursor-pointer text-xs text-zinc-500">History</summary>
@@ -333,6 +359,11 @@ export default function ConstitutionPage({ initialId }: { initialId?: string }) 
           What you have consciously adopted as part of how you intend to live. You write it; Conqify
           remembers it, links it to what you actually do, and keeps every version you have held.
           Nothing here is scored, and nothing becomes part of it unless you say so.
+        </p>
+        <p className="mt-2 text-xs">
+          <Link href="/constitution/reflection" className="text-zinc-500 underline underline-offset-2">
+            See it against what Conqify has recorded →
+          </Link>
         </p>
       </header>
 

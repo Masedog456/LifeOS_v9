@@ -29,6 +29,18 @@ import { canGroundSource, canGroundSelf } from "@/lib/provenance";
 import { STORE_DOMAINS } from "@/lib/ux/backup";
 import { EXPORT_DOMAINS } from "@/lib/backup/versioning";
 import { makeTombstone } from "@/lib/sync/tombstones";
+import {
+  buildConstitutionEvidence, buildConstitutionEvidenceMap, buildEvidenceCoverage,
+  EVIDENCE_CAPABILITY, EVIDENCE_KIND_LABEL, describeEvent,
+} from "@/lib/constitution/evidence";
+import {
+  evidenceHeadline, evidenceComparison, evidenceSituation, evidenceKindPhrase,
+  domainSummaryPhrase, lastRecordedPhrase, untouchedElementPhrase, untouchedLinksPhrase,
+  violatesWordingContract, FORBIDDEN_EVIDENCE_WORDS,
+} from "@/lib/constitution/copy";
+import { buildActivityIndex } from "@/lib/insights/activity";
+import { resolveRange, rangeDays } from "@/lib/insights/range";
+import { addDays } from "@/lib/reviews/dates";
 import { EXPECTED_MIGRATION_VERSION } from "@/lib/security/schema-compatibility";
 import { registryEntry } from "@/lib/security/authorization-audit";
 import type {
@@ -557,6 +569,273 @@ export function runConstitutionSelfTests(): SelfTestReport {
     for (const kind of ["created", "adopted", "edited", "relinked", "retired", "readopted"] as const) {
       const r = rev({ id: `x-${kind}`, elementId: "A", changeKind: kind });
       ok(`13.29 a '${kind}' event records no successor`, r.successorId === undefined);
+    }
+  }
+
+  // ============ 14. Constitution in Practice — evidence (LIFEOS-057) ============
+  //
+  // The bridge between "what I said matters" and "what Conqify recorded". Its
+  // whole risk is language: one careless verb turns an observation into a
+  // verdict on a person. These assertions pin the three permanently-distinct
+  // situations, the wording contract, and the absence-is-not-evidence rule.
+  {
+    const TODAY = "2026-05-20";
+    const range30 = resolveRange("custom", { today: TODAY, customStart: addDays(TODAY, -29), customEnd: TODAY });
+    const range7 = resolveRange("custom", { today: TODAY, customStart: addDays(TODAY, -6), customEnd: TODAY });
+    const range90 = resolveRange("custom", { today: TODAY, customStart: addDays(TODAY, -89), customEnd: TODAY });
+    const iso = (day: string) => `${day}T12:00:00.000Z`;
+
+    const mk = (): StoreState => {
+      const st = emptyState();
+      st.practices = [{ id: "pr1", title: "Evening reading", description: "", rationale: "", derivedFrom: {}, status: "accepted", source: "user", history: [], createdAt: iso("2026-05-10"), updatedAt: iso("2026-05-10") } as PracticeCandidate];
+      st.protocols = [{ id: "pt1", trigger: "I notice scrolling", response: "stop", status: "active", createdAt: iso("2026-01-01"), updatedAt: iso("2026-01-01") } as Protocol];
+      st.notes = [{ id: "nt1", title: "Why attention matters", body: "x", linkedEntityRefs: [], tags: [], createdAt: iso("2026-05-18"), updatedAt: iso("2026-05-18") } as Note];
+      st.nextActions = [{
+        id: "ac1", title: "Charge phone outside bedroom", description: "", notes: "", status: "completed",
+        linkedEntityRefs: [], tags: [], estimatedSize: "unspecified", energy: "unspecified", order: 0,
+        createdAt: iso("2026-05-15"), updatedAt: iso("2026-05-16"),
+        history: [{ id: "h1", at: iso("2026-05-16"), action: "completed" }],
+      } as unknown as NextAction];
+      return st;
+    };
+
+    // ---- 1. linked records WITH recorded activity ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({
+        id: "E1", kind: "principle", statement: "Direct my attention deliberately",
+        linkedRefs: [{ kind: "practice", id: "pr1" }, { kind: "action", id: "ac1" }, { kind: "note", id: "nt1" }],
+      })];
+      const ev = buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: buildActivityIndex(st) });
+      ok("14.1 every linked record is projected", ev.directRelations.length === 3);
+      ok("14.2 a linked Action contributes event evidence",
+        ev.directRelations.find((r) => r.ref.id === "ac1")!.observations.length > 0);
+      ok("14.3 a linked Practice contributes its own timestamps",
+        ev.directRelations.find((r) => r.ref.id === "pr1")!.observations.some((o) => o.source === "record_timestamp"));
+      ok("14.4 a linked Note contributes its own timestamps",
+        ev.directRelations.find((r) => r.ref.id === "nt1")!.observations.length > 0);
+      ok("14.5 the situation is 'links with records'", evidenceSituation(ev) === "links_with_records");
+      ok("14.6 recorded activity is a plain count", ev.recordedActivity > 0 && Number.isInteger(ev.recordedActivity));
+      ok("14.7 evidence is grouped by kind", ev.evidenceByKind.length === 3);
+      ok("14.8 a last-recorded instant is reported", !!ev.lastRecordedAt);
+      ok("14.9 the projection is not persisted anywhere",
+        !(STORE_DOMAINS as string[]).some((d) => d.toLowerCase().includes("evidence")));
+      ok("14.10 recomputing gives an identical result",
+        JSON.stringify(buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: buildActivityIndex(st) })) === JSON.stringify(ev));
+    }
+
+    // ---- 2. NO LINKS: the most dangerous case ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({ id: "E2", kind: "value", statement: "Be present with my family", linkedRefs: [] })];
+      const ev = buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: buildActivityIndex(st) });
+      ok("14.11 no links ⇒ its own situation", evidenceSituation(ev) === "no_links");
+      const head = evidenceHeadline(ev);
+      ok("14.12 the headline reports a RELATIONSHIP gap, not a life gap",
+        head.includes("not yet connected to records Conqify can use"), head);
+      // THE philosophical invariant.
+      ok("14.13 it NEVER says the user has not been present",
+        !/have not been|haven't been|you have not/i.test(head), head);
+      ok("14.14 it does not claim zero activity", !/no activity|no related activity/i.test(head), head);
+      ok("14.15 the reasons explain the gap honestly",
+        ev.reasons.some((r) => r.includes("have not linked any records")));
+      ok("14.16 coverage still states the outside-Conqify limit",
+        ev.coverage.some((c) => c.includes("outside Conqify")));
+    }
+
+    // ---- 3. LINKS BUT NO RECORDS IN RANGE ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({
+        id: "E3", kind: "standard", statement: "I protect focused work",
+        linkedRefs: [{ kind: "protocol", id: "pt1" }],
+      })];
+      const ev = buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: buildActivityIndex(st) });
+      ok("14.17 links with nothing recorded ⇒ its own situation", evidenceSituation(ev) === "links_without_records");
+      const head = evidenceHeadline(ev);
+      ok("14.18 it says nothing was recorded IN CONQIFY",
+        head.includes("recorded in Conqify") && head.includes("during this period"), head);
+      ok("14.19 it does not say the user failed or neglected anything",
+        violatesWordingContract(head).length === 0, violatesWordingContract(head).join(","));
+      ok("14.20 coverage discloses that protocols carry no ongoing activity",
+        ev.coverage.some((c) => c.includes("does not record ongoing activity")));
+      // The three situations must never be the same sentence.
+      const stNo = mk(); stNo.constitutionElements = [el({ id: "z", statement: "x", linkedRefs: [] })];
+      const evNo = buildConstitutionEvidence(stNo, stNo.constitutionElements[0], range30, { index: [] });
+      ok("14.21 'no links' and 'no records' produce DIFFERENT sentences",
+        evidenceHeadline(evNo) !== head);
+    }
+
+    // ---- 4. TIME WINDOWS ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({ id: "E4", statement: "s", linkedRefs: [{ kind: "note", id: "nt1" }] })];
+      const idx = buildActivityIndex(st);
+      const e7 = buildConstitutionEvidence(st, st.constitutionElements[0], range7, { index: idx });
+      const e30 = buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: idx });
+      const e90 = buildConstitutionEvidence(st, st.constitutionElements[0], range90, { index: idx });
+      ok("14.22 a 7-day window is 7 days", rangeDays(range7) === 7);
+      ok("14.23 a 30-day window is 30 days", rangeDays(range30) === 30);
+      ok("14.24 a 90-day window is 90 days", rangeDays(range90) === 90);
+      ok("14.25 the note (2026-05-18) is inside the 7-day window", e7.recordedActivity > 0);
+      ok("14.26 wider windows never lose evidence",
+        e90.recordedActivity >= e30.recordedActivity && e30.recordedActivity >= e7.recordedActivity);
+      // A record outside every window contributes nothing.
+      const old = mk();
+      old.notes = [{ id: "ntOld", body: "x", linkedEntityRefs: [], tags: [], createdAt: iso("2020-01-01"), updatedAt: iso("2020-01-01") } as Note];
+      old.constitutionElements = [el({ id: "E4b", statement: "s", linkedRefs: [{ kind: "note", id: "ntOld" }] })];
+      ok("14.27 a record outside the window contributes nothing",
+        buildConstitutionEvidence(old, old.constitutionElements[0], range30, { index: [] }).recordedActivity === 0);
+      // Ranges are DayKey-based and deterministic — no host-clock dependence.
+      ok("14.28 the same window resolves identically twice",
+        JSON.stringify(resolveRange("custom", { today: TODAY, customStart: addDays(TODAY, -29), customEnd: TODAY })) === JSON.stringify(range30));
+    }
+
+    // ---- 5. RETIRED elements are out of the current comparison ----
+    {
+      const st = mk();
+      st.constitutionElements = [
+        el({ id: "act", statement: "active one" }),
+        el({ id: "ret", statement: "retired one", status: "retired", retiredAt: AT }),
+      ];
+      const map = buildConstitutionEvidenceMap(st, activeConstitution(st), range30, { index: buildActivityIndex(st) });
+      ok("14.29 a retired element is not in the current comparison", !map.has("ret"));
+      ok("14.30 an active element is", map.has("act"));
+    }
+
+    // ---- 6. DELETION removes the evidence association ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({ id: "E5", statement: "s", linkedRefs: [{ kind: "note", id: "nt1" }] })];
+      const after = { ...st, constitutionElements: [] } as StoreState;
+      const map = buildConstitutionEvidenceMap(after, activeConstitution(after), range30, { index: buildActivityIndex(after) });
+      ok("14.31 a deleted element leaves no ghost evidence", map.size === 0);
+      ok("14.32 the linked record itself survives deletion", (after.notes ?? []).some((n) => n.id === "nt1"));
+      // A link to a record that no longer exists is reported, not hidden.
+      const dangling = mk();
+      dangling.constitutionElements = [el({ id: "E6", statement: "s", linkedRefs: [{ kind: "note", id: "missing" }] })];
+      const evD = buildConstitutionEvidence(dangling, dangling.constitutionElements[0], range30, { index: [] });
+      ok("14.33 a link to a missing record is marked as not existing",
+        evD.directRelations[0].exists === false);
+      ok("14.34 and disclosed in coverage rather than silently dropped",
+        evD.coverage.some((c) => c.includes("no longer present")));
+    }
+
+    // ---- 7. EXPLAINABILITY ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({ id: "E7", kind: "principle", statement: "Direct my attention deliberately", linkedRefs: [{ kind: "action", id: "ac1" }] })];
+      const ev = buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: buildActivityIndex(st) });
+      const joined = ev.reasons.join(" ");
+      ok("14.35 the explanation names the element", joined.includes("Direct my attention deliberately"));
+      ok("14.36 the explanation names the period", joined.includes(range30.label) || joined.includes("30 days"));
+      ok("14.37 the explanation names the linked record", joined.includes("Charge phone outside bedroom"));
+      ok("14.38 the explanation states the rule used",
+        joined.includes("records you linked yourself") && joined.includes("Nothing here is inferred"));
+      ok("14.39 every observation carries a timestamp and a source",
+        ev.directRelations.every((r) => r.observations.every((o) => !!o.at && (o.source === "event" || o.source === "record_timestamp"))));
+      ok("14.40 event descriptions are literal, not interpretive",
+        describeEvent({ at: AT, type: "action_completed", recordKind: "action", recordId: "x" }) === "Action completed");
+    }
+
+    // ---- 8. THE WORDING CONTRACT, over every sentence the layer can emit ----
+    {
+      const st = mk();
+      st.constitutionElements = [
+        el({ id: "W1", statement: "with records", linkedRefs: [{ kind: "action", id: "ac1" }, { kind: "note", id: "nt1" }] }),
+        el({ id: "W2", statement: "no links", linkedRefs: [] }),
+        el({ id: "W3", statement: "silent links", linkedRefs: [{ kind: "protocol", id: "pt1" }] }),
+      ];
+      const idx = buildActivityIndex(st);
+      const sentences: string[] = [];
+      for (const e of st.constitutionElements) {
+        for (const r of [range7, range30, range90]) {
+          const ev = buildConstitutionEvidence(st, e, r, { index: idx });
+          sentences.push(evidenceHeadline(ev));
+          const cmp = evidenceComparison(ev); if (cmp) sentences.push(cmp);
+          const last = lastRecordedPhrase(ev, Date.parse(iso(TODAY))); if (last) sentences.push(last);
+          sentences.push(...ev.evidenceByKind.map(evidenceKindPhrase));
+          sentences.push(...ev.coverage, ...ev.reasons);
+        }
+      }
+      sentences.push(domainSummaryPhrase("Guiding Principle", 8), domainSummaryPhrase("Purpose", 1));
+      sentences.push(untouchedElementPhrase(90), untouchedLinksPhrase(90), untouchedLinksPhrase(undefined));
+      const offenders = sentences.flatMap((x) => violatesWordingContract(x).map((w) => `${w} in: ${x}`));
+      ok(`14.41 ${sentences.length} generated sentences contain NO forbidden word`, offenders.length === 0, offenders.slice(0, 3).join(" | "));
+      for (const w of ["neglect", "failed", "aligned", "misaligned", "adherence", "compliance", "score", "streak"]) {
+        ok(`14.42 the contract bans '${w}'`, FORBIDDEN_EVIDENCE_WORDS.some((f) => f.includes(w) || w.includes(f)));
+      }
+      ok("14.43 the contract detector actually fires", violatesWordingContract("You neglected this").length > 0);
+      ok("14.44 a neutral sentence passes", violatesWordingContract("3 entries were recorded.").length === 0);
+      ok("14.45 no sentence contains a percentage", !sentences.some((x) => /\d\s*%/.test(x)));
+      ok("14.46 no sentence uses a traffic-light word",
+        !sentences.some((x) => /\b(green|red|amber)\b/i.test(x)));
+    }
+
+    // ---- 9. THE ZERO-SCORE INVARIANT, over the projection's own shape ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({ id: "Z", statement: "s", linkedRefs: [{ kind: "action", id: "ac1" }] })];
+      const ev = buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: buildActivityIndex(st) });
+      const keys = JSON.stringify(ev).toLowerCase();
+      for (const banned of ["score", "percent", "aligned", "adherence", "compliance", "rating", "grade", "streak", "virtue"]) {
+        ok(`14.47 the projection has no '${banned}' field`, !keys.includes(`"${banned}`), banned);
+      }
+      ok("14.48 every numeric field is a count or a timestamp",
+        Number.isInteger(ev.recordedActivity) && Number.isInteger(ev.activeRelations) && Number.isInteger(ev.priorRecordedActivity));
+      ok("14.49 there is no aggregate across elements",
+        !("total" in (ev as unknown as Record<string, unknown>)) && !("overall" in (ev as unknown as Record<string, unknown>)));
+    }
+
+    // ---- 10. period comparison is a literal count comparison, or nothing ----
+    {
+      const st = mk();
+      st.constitutionElements = [el({ id: "C1", statement: "s", linkedRefs: [{ kind: "note", id: "nt1" }] })];
+      const ev = buildConstitutionEvidence(st, st.constitutionElements[0], range30, { index: buildActivityIndex(st) });
+      const cmp = evidenceComparison(ev);
+      // The real property: a comparison exists exactly when at least one of the
+      // two windows recorded something. It is a literal count statement, never
+      // a trend read off an empty period.
+      ok("14.50 a comparison is offered exactly when there is something to compare",
+        (cmp !== undefined) === (ev.recordedActivity > 0 || ev.priorRecordedActivity > 0), String(cmp));
+      ok("14.50b the comparison names the preceding period of equal length",
+        cmp === undefined || cmp.includes("preceding period of equal length"), String(cmp));
+      const empty = buildConstitutionEvidence(
+        { ...st, notes: [] } as StoreState,
+        el({ id: "C2", statement: "s", linkedRefs: [] }), range30, { index: [] },
+      );
+      ok("14.51 two empty periods produce NO trend claim", evidenceComparison(empty) === undefined);
+    }
+
+    // ---- 11. capability table is honest about instrumentation ----
+    {
+      ok("14.52 actions are event-instrumented", EVIDENCE_CAPABILITY.action === "events");
+      ok("14.53 documents are event-instrumented", EVIDENCE_CAPABILITY.document === "events");
+      ok("14.54 practices are NOT event-instrumented", EVIDENCE_CAPABILITY.practice === "timestamps_only");
+      ok("14.55 protocols are NOT event-instrumented", EVIDENCE_CAPABILITY.protocol === "timestamps_only");
+      ok("14.56 notes are NOT event-instrumented", EVIDENCE_CAPABILITY.note === "timestamps_only");
+      ok("14.57 every capability kind has a user-facing label",
+        Object.keys(EVIDENCE_CAPABILITY).every((k) => !!EVIDENCE_KIND_LABEL[k]));
+      const cov = buildEvidenceCoverage(
+        [{ ref: { kind: "practice", id: "p" }, title: "t", exists: true, capability: "timestamps_only", observations: [] }],
+        range30,
+      );
+      ok("14.58 coverage names the sources it used", cov.some((c) => c.includes("practices")));
+      ok("14.59 coverage always ends with the outside-Conqify limit",
+        cov[cov.length - 1].includes("outside Conqify"));
+    }
+
+    // ---- 12. dormancy: two DIFFERENT observations, never merged ----
+    {
+      ok("14.60 'element not revisited' and 'no linked activity' are different sentences",
+        untouchedElementPhrase(90) !== untouchedLinksPhrase(90));
+      ok("14.61 the element sentence is about editing the element",
+        untouchedElementPhrase(90).includes("edited this element"));
+      ok("14.62 the links sentence is about recorded activity",
+        untouchedLinksPhrase(90).includes("linked activity has been recorded"));
+      ok("14.63 neither sentence blames the user",
+        violatesWordingContract(untouchedElementPhrase(90)).length === 0
+        && violatesWordingContract(untouchedLinksPhrase(90)).length === 0);
     }
   }
 
