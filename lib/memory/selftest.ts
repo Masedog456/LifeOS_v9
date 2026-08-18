@@ -50,6 +50,8 @@ function emptyState(): StoreState {
     syntheses: [], recommendations: [], documents: [], citations: [], workspaces: [], sessions: [], goals: [], projects: [], dailyReviews: [], nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [], maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [],
     notes: [],
     protocols: [],
+    constitutionElements: [],
+    constitutionRevisions: [],
   };
 }
 
@@ -199,7 +201,7 @@ function richState(): StoreState {
     recommendation({
       id: "rec-1", type: "review_belief", subsystem: "belief", confidence: "high",
       rationale: "not reviewed in months", affected: [{ kind: "belief", id: "b-discipline", label: "Discipline is the foundation of freedom." }],
-      createdAt: iso(1), actionHref: "/constitution",
+      createdAt: iso(1), actionHref: "/beliefs",
     }),
   ];
 

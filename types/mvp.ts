@@ -2760,6 +2760,151 @@ export interface StoreState {
   savedInsightViews: SavedInsightView[];
   notes: Note[];
   protocols: Protocol[];
+  constitutionElements: ConstitutionElement[];
+  constitutionRevisions: ConstitutionRevision[];
+}
+
+// ---------- Living Constitution (LIFEOS-056) ----------
+
+/**
+ * The four kinds of constitutional statement.
+ *
+ * They differ in **prompt and presentation, not in structure** — every one is a
+ * sentence the user wrote, that the user adopted, that may point at real
+ * records. Eight separate tables would mean eight identical schemas, eight sets
+ * of RLS policies, eight export domains and eight places to forget a tombstone,
+ * for zero representational gain (`Note` in LIFEOS-052 is the precedent for
+ * refusing structure that earns nothing).
+ *
+ * `boundary`, `rule`, `identity`, `aspiration`, `question` and `commitment` are
+ * deliberately absent. A boundary is a negatively-stated `standard`; a rule is a
+ * `Protocol` (conditional) or a `standard` (unconditional); the rest are
+ * deferred until beta evidence, each with a named home. Adding a kind later is
+ * additive — this list is the smallest that behaves differently downstream.
+ */
+export type ConstitutionKind = "purpose" | "value" | "principle" | "standard";
+
+export const CONSTITUTION_KINDS: readonly ConstitutionKind[] = ["purpose", "value", "principle", "standard"];
+
+/**
+ * User-facing names. `principle` reads as **"Guiding Principle"** so it is never
+ * confused with the knowledge-side `Principle` (migration 0013), which organizes
+ * concepts and beliefs rather than governing conduct. Two different objects, and
+ * both are user-visible.
+ */
+export const CONSTITUTION_KIND_LABEL: Record<ConstitutionKind, string> = {
+  purpose: "Purpose",
+  value: "Value",
+  principle: "Guiding Principle",
+  standard: "Standard",
+};
+
+/** One-line explanations, so the difference is legible without ontology docs. */
+export const CONSTITUTION_KIND_HINT: Record<ConstitutionKind, string> = {
+  purpose: "What this life is for. There are usually very few.",
+  value: "What matters to you.",
+  principle: "How you intend to act.",
+  standard: "A specific bar you hold yourself to.",
+};
+
+/**
+ * `draft` — written, NOT yet adopted. Excluded from the Constitution entirely.
+ * `active` — explicitly adopted (`adoptedAt` is set).
+ * `retired` — no longer adopted; the element and its history are preserved.
+ */
+export type ConstitutionStatus = "draft" | "active" | "retired";
+
+/**
+ * A statement of how the user intends to live, which the user has **explicitly
+ * adopted**, and which REFERENCES rather than duplicates the practices,
+ * protocols, actions and projects that make it real.
+ *
+ * This is the normative layer of Conqify. It is not a Belief (what is true), not
+ * a Practice (what is done), not a Goal (what is wanted), not a Protocol (a
+ * conditional intention), and never source authority or AI output.
+ *
+ * **`adoptedAt` is the load-bearing field.** A row with `adoptedAt` unset is not
+ * part of the Constitution, is excluded from every projection, and is never
+ * described to the user as something they hold. That is the schema-level
+ * enforcement of *AI proposes; the user adopts* — saving something is not
+ * adopting it.
+ */
+export interface ConstitutionElement {
+  id: string;
+  kind: ConstitutionKind;
+  /** The user's own words. Never rewritten by the system. */
+  statement: string;
+  /** Optional "why this matters to me". Never generated. */
+  note?: string;
+  status: ConstitutionStatus;
+  /** Set ONLY by an explicit adopt action. Unset ⇒ not constitutional. */
+  adoptedAt?: ISO;
+  /** Set when retired; the element and its revisions are preserved. */
+  retiredAt?: ISO;
+  /** When this element replaces a prior one, it points at it — never deletes it. */
+  supersedesId?: string;
+  /** Optional Life Area. A Life Area IS a Workspace (LIFEOS-052 precedent). */
+  workspaceId?: string;
+  /**
+   * References to the operational records that make this real — practices,
+   * protocols, actions, projects, notes, documents. References, never copies:
+   * the Constitution never duplicates an object that already exists.
+   */
+  linkedRefs: RecordRefLite[];
+  /** The capture this came from, when it came from one. */
+  sourceCaptureId?: string;
+  /**
+   * True when the statement text originated as machine prose the user kept.
+   * Adoption is NOT authorship: confirming or filing AI text never clears this.
+   * Rewriting the statement in the user's own words does (LIFEOS-050A/050B).
+   */
+  fromAiText?: boolean;
+  /**
+   * Withhold this element from every AI request. Shipped with the primitive
+   * rather than retrofitted, because adding it later would mean a backfill
+   * decision about rows that are already sensitive.
+   */
+  excludeFromAi?: boolean;
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+/**
+ * What a revision records.
+ *
+ * `edited` is deliberately distinct from `revised`: fixing a typo is not a
+ * change of position, and a product that logs every keystroke as a philosophical
+ * revision makes the history worthless. See `lib/constitution/revision.ts` for
+ * the deterministic rule that separates them.
+ */
+export type ConstitutionChangeKind =
+  | "created"    // the element was written (not yet adopted)
+  | "adopted"    // the user explicitly adopted it
+  | "edited"     // wording corrected; the position is unchanged
+  | "revised"    // the position itself changed
+  | "relinked"   // linked records changed
+  | "retired"    // no longer adopted; history preserved
+  | "readopted"; // brought back out of retirement
+
+/**
+ * One append-only entry in an element's history. Immutable, and never deleted
+ * on its own — but it IS destroyed when its element is truly deleted, which is
+ * what keeps a sensitive statement from being made undeletable by the mere
+ * existence of history (see `deleteConstitutionElement`).
+ */
+export interface ConstitutionRevision {
+  id: string;
+  elementId: string;
+  changeKind: ConstitutionChangeKind;
+  /** The wording before this change; absent on `created`. */
+  previousStatement?: string;
+  /** The wording after this change, when the statement changed. */
+  newStatement?: string;
+  /** The user's own reason for the change. Never generated. */
+  reason?: string;
+  /** Records that informed the change — references, never copies. */
+  evidenceRefs: RecordRefLite[];
+  at: ISO;
 }
 
 // ---------- Capture classification (LIFEOS-054) ----------

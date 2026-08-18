@@ -56,6 +56,19 @@ function buildNodes(state: StoreState): Map<string, GraphNode> {
   for (const f of state.frameworks ?? []) add(f.id, "framework", f.name);
   for (const k of state.knowledgeProjects ?? []) add(k.id, "knowledge_project", k.title);
   for (const rp of state.researchProjects ?? []) add(rp.id, "research_project", rp.title);
+  // Life-side records (LIFEOS-056). Registering them is what makes a
+  // Constitution → Practice/Action/Note link RESOLVE rather than land in
+  // `brokenReferences`. Constitution elements are registered in every status:
+  // a retired element still has real history and real links, and hiding it
+  // would turn its edges into silent garbage — exactly what a graph must not do.
+  for (const e of state.constitutionElements ?? []) add(e.id, "constitution_element", e.statement);
+  for (const a of state.nextActions ?? []) add(a.id, "action", a.title);
+  for (const n of state.notes ?? []) add(n.id, "note", n.title || n.body);
+  for (const p of state.protocols ?? []) add(p.id, "protocol", `When ${p.trigger} → ${p.response}`);
+  for (const w of state.workspaces ?? []) add(w.id, "workspace", w.name);
+  for (const g of state.goals ?? []) add(g.id, "goal", g.title);
+  for (const pr of state.projects ?? []) add(pr.id, "project", pr.title);
+  for (const d of state.documents ?? []) add(d.id, "document", d.title);
   return nodes;
 }
 
@@ -156,6 +169,9 @@ export function graphIntegrity(state: StoreState, graph?: KnowledgeGraph): Graph
   const orphanRecords: GraphNode[] = [];
   for (const node of g.nodes.values()) {
     if (node.kind === "capture" || node.kind === "proposal") continue;
+    // A Constitution element with no links is not a defect — it is an element
+    // the user has not operationalized yet, which is a normal and honest state.
+    if (node.kind === "constitution_element") continue;
     if (!g.byFrom.has(node.id) && !g.byTo.has(node.id)) orphanRecords.push(node);
   }
 

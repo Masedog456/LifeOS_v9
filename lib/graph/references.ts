@@ -15,18 +15,37 @@ export type RecordKind =
   | "source" | "capture" | "proposal" | "belief" | "comparison" | "inquiry"
   | "megathread" | "reflection" | "practice" | "review" | "reasoning"
   | "decision" | "formation" | "concept" | "principle" | "framework"
-  | "knowledge_project" | "research_project";
+  | "knowledge_project" | "research_project"
+  // Life-side kinds (LIFEOS-056). Until now this was a KNOWLEDGE graph: an
+  // action, a note or a protocol could be referenced but never named, so a link
+  // to one resolved to nothing. These are exactly the kinds the Constitution's
+  // `linkedRefs` can target, plus the two that already stored typed references
+  // of their own (`nextActions` and `notes`) and were invisible for the same
+  // reason. Nothing speculative is added — every kind here is reachable today.
+  | "constitution_element" | "action" | "note" | "protocol"
+  | "workspace" | "goal" | "project" | "document";
 
 export type RefRelation =
   | "references" | "used_in" | "investigated_by" | "authored_from"
   | "mentioned_in" | "supports" | "contradicts" | "related_to"
   | "derived_from" | "cites" | "part_of";
 
-/** A single explicit reference: `from` (the record that stores the id) → `to`. */
+/**
+ * A single explicit reference: `from` (the record that stores the id) → `to`.
+ *
+ * `toKind` is present when the SOURCE knew the target's kind — which a
+ * `RecordRefLite` always does. It is absent for the seventeen long-standing
+ * typed-id fields, where the target kind is recovered by looking the id up in
+ * the node registry. That lookup works only because ids are globally unique, and
+ * it fails silently when a kind is unregistered, so carrying the kind is
+ * strictly better wherever it is actually known (LIFEOS-056).
+ */
 export interface GraphEdge {
   from: string;
   fromKind: RecordKind;
   to: string;
+  /** The target's kind, when the referencing record recorded one. */
+  toKind?: RecordKind;
   relation: RefRelation;
   label?: string;
 }
@@ -42,6 +61,50 @@ export interface BackReferences {
   contradicts: GraphEdge[];
   relatedTo: GraphEdge[];
 }
+
+/**
+ * Every store field that holds embedded `RecordRefLite[]` values, declared as
+ * DATA rather than as another hand-written loop.
+ *
+ * ## Why this exists
+ *
+ * `NextAction.linkedEntityRefs` and `Note.linkedEntityRefs` are the same field
+ * shape. Actions got a bespoke reverse lookup (`lib/actions/relationships.ts`);
+ * Notes got nothing; and neither was ever read here — so an Action↔Note link was
+ * storable, syncable and exportable while being invisible to every graph
+ * consumer. That island was not caused by embedding the references; it was
+ * caused by nothing reading them. One shared reader closes it for the
+ * Constitution and for the two records that already had the problem.
+ *
+ * Deliberately NOT a relationship platform: no query language, no inference, no
+ * edge metadata, no new table. Just a list of places references already live.
+ */
+const REF_SOURCES: readonly {
+  collection: keyof StoreState;
+  kind: RecordKind;
+  field: string;
+  relation: RefRelation;
+  label?: string;
+}[] = [
+  { collection: "constitutionElements", kind: "constitution_element", field: "linkedRefs", relation: "references", label: "serves" },
+  { collection: "nextActions", kind: "action", field: "linkedEntityRefs", relation: "references" },
+  { collection: "notes", kind: "note", field: "linkedEntityRefs", relation: "references" },
+  { collection: "captures", kind: "capture", field: "linkedEntityRefs", relation: "references" },
+];
+
+/** Is this a usable typed reference? */
+function isRef(v: unknown): v is { kind: string; id: string } {
+  return !!v && typeof v === "object"
+    && typeof (v as { kind?: unknown }).kind === "string"
+    && typeof (v as { id?: unknown }).id === "string";
+}
+
+const KNOWN_KINDS = new Set<string>([
+  "source", "capture", "proposal", "belief", "comparison", "inquiry", "megathread",
+  "reflection", "practice", "review", "reasoning", "decision", "formation", "concept",
+  "principle", "framework", "knowledge_project", "research_project",
+  "constitution_element", "action", "note", "protocol", "workspace", "goal", "project", "document",
+]);
 
 /** Build every explicit edge in the store. Deterministic ordering. */
 export function buildGraphEdges(state: StoreState): GraphEdge[] {
@@ -135,6 +198,27 @@ export function buildGraphEdges(state: StoreState): GraphEdge[] {
     }
     for (const n of rp.argumentNodes ?? []) push(rp.id, "research_project", n.recordId, "cites");
     push(rp.id, "research_project", rp.seededProjectId, "authored_from", "seeded authoring project");
+  }
+
+  // The shared reference reader, appended LAST so every pre-existing edge keeps
+  // its exact position in the output — ordering is part of the graph's contract.
+  for (const src of REF_SOURCES) {
+    const rows = (state[src.collection] ?? []) as unknown as Record<string, unknown>[];
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const id = typeof row?.id === "string" ? row.id : "";
+      if (!id) continue;
+      const refs = row[src.field];
+      if (!Array.isArray(refs)) continue;
+      for (const r of refs) {
+        if (!isRef(r) || !r.id || r.id === id) continue;
+        // An unrecognized kind is dropped rather than guessed: an edge whose
+        // target kind we cannot name is exactly the silent-garbage case this
+        // change exists to prevent.
+        if (!KNOWN_KINDS.has(r.kind)) continue;
+        edges.push({ from: id, fromKind: src.kind, to: r.id, toKind: r.kind as RecordKind, relation: src.relation, label: src.label });
+      }
+    }
   }
   return edges;
 }

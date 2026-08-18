@@ -86,7 +86,7 @@ export default function Home() {
             {resurfaced.text}
           </p>
           <a
-            href="/constitution"
+            href="/beliefs"
             className="mt-3 inline-block text-sm text-zinc-500 underline-offset-4 hover:underline"
           >
             Does this still feel true? →

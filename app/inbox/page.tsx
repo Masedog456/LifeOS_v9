@@ -49,7 +49,7 @@ export default function InboxPage() {
           </Link>
         ) : (
           <Link
-            href="/constitution"
+            href="/beliefs"
             className="rounded-full bg-zinc-900 px-6 py-2.5 text-sm font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900"
           >
             See them in your beliefs →

@@ -390,7 +390,7 @@ export default function ReaderPage() {
               <ul className="mt-2 flex flex-col gap-1.5">
                 {related.map((b) => (
                   <li key={b.id} className="text-sm text-zinc-700 dark:text-zinc-300">
-                    <Link href="/constitution" className="underline-offset-4 hover:underline">
+                    <Link href="/beliefs" className="underline-offset-4 hover:underline">
                       {b.text}
                     </Link>
                     <span className="ml-2 text-xs text-zinc-400">({b.status})</span>

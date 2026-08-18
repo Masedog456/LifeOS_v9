@@ -2,21 +2,21 @@
   "release": {
     "releaseTag": "v1.0.0-rc1",
     "appVersion": "1.0.0-rc1",
-    "migrationVersion": 37,
-    "migrationCount": 37,
+    "migrationVersion": 38,
+    "migrationCount": 38,
     "stateVersion": 1,
     "exportArchiveVersion": 1,
     "backupSchemaVersion": 1,
     "supportedMigrationRange": [
       20,
-      37
+      38
     ],
     "supportedArchiveRange": [
       1,
       1
     ]
   },
-  "routeCount": 22,
+  "routeCount": 23,
   "productionRoutes": [
     "/today",
     "/",
@@ -32,6 +32,7 @@
     "/document",
     "/world",
     "/constitution",
+    "/beliefs",
     "/research",
     "/maintenance",
     "/insights",
@@ -41,7 +42,7 @@
     "/privacy",
     "/security"
   ],
-  "dataDomainCount": 42,
+  "dataDomainCount": 44,
   "dataDomains": [
     "captures",
     "proposals",
@@ -84,9 +85,11 @@
     "duplicateCandidates",
     "savedInsightViews",
     "notes",
-    "protocols"
+    "protocols",
+    "constitutionElements",
+    "constitutionRevisions"
   ],
-  "migrationCount": 37,
+  "migrationCount": 38,
   "tableCountNote": "55 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
   "preferenceBlocks": [
     "onboarding",
@@ -284,7 +287,8 @@
     "0034_reading_chunk_embeddings.sql",
     "0035_notes.sql",
     "0036_action_due_date.sql",
-    "0037_protocols.sql"
+    "0037_protocols.sql",
+    "0038_constitution.sql"
   ],
-  "tableCount": 58
+  "tableCount": 60
 }

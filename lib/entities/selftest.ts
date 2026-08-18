@@ -36,6 +36,8 @@ function emptyState(): StoreState {
     researchProjects: [], dialogueSessions: [], tensions: [], syntheses: [], recommendations: [], documents: [], citations: [], workspaces: [], sessions: [], goals: [], projects: [], dailyReviews: [], nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [], maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [],
     notes: [],
     protocols: [],
+    constitutionElements: [],
+    constitutionRevisions: [],
   };
 }
 const belief =(p: Partial<Belief> & { id: string; text: string }): Belief => ({ captureId: "", proposalId: "", status: "accepted", createdAt: iso(40), updatedAt: iso(40), revisions: [], judgments: [], ...p });
@@ -75,7 +77,7 @@ export function runEntitySelfTests(): SelfTestReport {
 
   // ---- Context description ----
   const b = describeEntity(ctx, "belief", "b-attn");
-  check(results, "entity: describes a belief (title/summary/exists)", b.ref.exists && b.ref.title.includes("Attention") && b.ref.href === "/constitution");
+  check(results, "entity: describes a belief (title/summary/exists)", b.ref.exists && b.ref.title.includes("Attention") && b.ref.href === "/beliefs");
   check(results, "entity: tags from theme", b.tags.includes("attention"));
   check(results, "entity: deleted record → exists=false", describeEntity(ctx, "belief", "ghost").ref.exists === false);
   check(results, "entity: resolves a document", entityRef(ctx, "document", "doc-1").href === "/document/doc-1");

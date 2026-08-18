@@ -9,6 +9,7 @@
 
 import { useSyncExternalStore } from "react";
 import type {
+  ConstitutionElement, ConstitutionRevision, ConstitutionKind, ConstitutionChangeKind,
   Belief,
   Capture,
   Comparison,
@@ -161,6 +162,10 @@ import { makeEvent, appendHistory } from "@/lib/inbox/history";
 import { deferKeyFor, returnDueDefers, type DeferOption } from "@/lib/inbox/defer";
 import { titleFromText, type ConversionTargetKey } from "@/lib/inbox/conversion";
 import { normalizeNewNote, noteDisplayTitle, type NewNoteInput } from "@/lib/notes/notes";
+import {
+  normalizeNewElement, isAdoptable, dedupeRefs, refsEqual, type NewElementInput,
+} from "@/lib/constitution/constitution";
+import { classifyStatementChange } from "@/lib/constitution/revision";
 import { extractConditional } from "@/lib/capture/classify";
 import { type NotePromotionKey } from "@/lib/notes/promotion";
 import { planSplit } from "@/lib/inbox/split";
@@ -231,6 +236,8 @@ const EMPTY_STATE: StoreState = {
   savedInsightViews: [],
   notes: [],
   protocols: [],
+  constitutionElements: [],
+  constitutionRevisions: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -580,6 +587,8 @@ export function hydrate() {
         savedInsightViews: asArray<SavedInsightView>(parsed.savedInsightViews),
         notes: asArray<Note>(parsed.notes),
         protocols: asArray<Protocol>(parsed.protocols),
+        constitutionElements: asArray<ConstitutionElement>(parsed.constitutionElements),
+        constitutionRevisions: asArray<ConstitutionRevision>(parsed.constitutionRevisions),
       };
       // Deferred captures whose local date has arrived return to the inbox
       // (LIFEOS-035, Feature 9) — deterministic, no background workers.
@@ -647,7 +656,7 @@ export function resetStore() {
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
     workspaces: [], sessions: [], goals: [], projects: [],
     nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [],
-    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [], notes: [], protocols: [],
+    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [], notes: [], protocols: [], constitutionElements: [], constitutionRevisions: [],
   });
 }
 
@@ -4082,6 +4091,224 @@ export function setProtocolStatus(protocolId: string, status: ProtocolStatus): v
 /** Permanently remove a protocol. */
 export function deleteProtocol(protocolId: string): void {
   setState({ ...state, protocols: (state.protocols ?? []).filter((p) => p.id !== protocolId) });
+}
+
+// ------------------------------------------------ living constitution ----
+//
+// The normative layer (LIFEOS-056). Two invariants are enforced HERE, in the
+// only code that can write these records:
+//
+//   1. Nothing but `adoptConstitutionElement` can set `adoptedAt`. Creation
+//      always produces a draft, so no save, import, or promotion can make
+//      something constitutional by accident.
+//   2. Deleting an element destroys its revisions with it, so a sensitive
+//      statement can never be made undeletable by the existence of history.
+
+/**
+ * Write a new element. **Always a draft** — never adopted, never constitutional
+ * until a person explicitly adopts it.
+ */
+export function createConstitutionElement(input: NewElementInput): string {
+  const at = now();
+  const el = normalizeNewElement(input, id(), at);
+  const rev: ConstitutionRevision = {
+    id: id(), elementId: el.id, changeKind: "created",
+    newStatement: el.statement, evidenceRefs: [], at,
+  };
+  setState({
+    ...state,
+    constitutionElements: [el, ...(state.constitutionElements ?? [])],
+    constitutionRevisions: [...(state.constitutionRevisions ?? []), rev],
+  });
+  return el.id;
+}
+
+/**
+ * The adoption gate. The ONLY function that can set `adoptedAt`, and it is only
+ * ever reached from an explicit user action — "Add to Constitution".
+ *
+ * Adoption is not authorship: `fromAiText` is deliberately untouched, so machine
+ * prose the user adopted is still readable as machine prose.
+ */
+export function adoptConstitutionElement(elementId: string): void {
+  const at = now();
+  const el = (state.constitutionElements ?? []).find((e) => e.id === elementId);
+  if (!el || !isAdoptable(el)) return;
+  const rev: ConstitutionRevision = {
+    id: id(), elementId, changeKind: el.retiredAt ? "readopted" : "adopted",
+    newStatement: el.statement, evidenceRefs: [], at,
+  };
+  setState({
+    ...state,
+    constitutionElements: (state.constitutionElements ?? []).map((e) =>
+      e.id === elementId ? { ...e, status: "active", adoptedAt: e.adoptedAt ?? at, retiredAt: undefined, updatedAt: at } : e),
+    constitutionRevisions: [...(state.constitutionRevisions ?? []), rev],
+  });
+}
+
+/**
+ * Change an element's wording or notes.
+ *
+ * `changeKind` is supplied by the caller because only the author knows whether a
+ * rewording changed what they meant; `classifyStatementChange` suggests a
+ * default and the UI lets them override it. A typo fix must not be recorded as a
+ * change of position.
+ */
+export function updateConstitutionElement(
+  elementId: string,
+  patch: { statement?: string; note?: string; workspaceId?: string; kind?: ConstitutionKind },
+  opts?: { changeKind?: Extract<ConstitutionChangeKind, "edited" | "revised">; reason?: string; evidenceRefs?: RecordRefLite[] },
+): void {
+  const at = now();
+  const before = (state.constitutionElements ?? []).find((e) => e.id === elementId);
+  if (!before) return;
+  const nextStatement = patch.statement !== undefined ? patch.statement.trim() : before.statement;
+  const statementChanged = nextStatement !== before.statement;
+
+  const revisions = [...(state.constitutionRevisions ?? [])];
+  if (statementChanged) {
+    revisions.push({
+      id: id(), elementId,
+      changeKind: opts?.changeKind ?? classifyStatementChange(before.statement, nextStatement).suggested,
+      previousStatement: before.statement,
+      newStatement: nextStatement,
+      reason: opts?.reason?.trim() || undefined,
+      evidenceRefs: dedupeRefs(opts?.evidenceRefs ?? []),
+      at,
+    });
+  }
+
+  setState({
+    ...state,
+    constitutionElements: (state.constitutionElements ?? []).map((e) => {
+      if (e.id !== elementId) return e;
+      const next: ConstitutionElement = { ...e, statement: nextStatement, updatedAt: at };
+      if (patch.note !== undefined) next.note = patch.note.trim() || undefined;
+      if (patch.workspaceId !== undefined) next.workspaceId = patch.workspaceId || undefined;
+      if (patch.kind !== undefined) next.kind = patch.kind;
+      // A rewrite in the user's own words IS an authoring act — that is exactly
+      // when authorship transfers (lib/provenance/index.ts).
+      if (statementChanged && e.fromAiText) next.fromAiText = undefined;
+      return next;
+    }),
+    constitutionRevisions: revisions,
+  });
+}
+
+/**
+ * Replace an element with a consciously changed position.
+ *
+ * The prior element is RETIRED, never deleted, and the successor points back at
+ * it — so "what changed in how I say I want to live?" stays answerable.
+ */
+export function reviseConstitutionElement(
+  elementId: string,
+  statement: string,
+  opts?: { reason?: string; evidenceRefs?: RecordRefLite[] },
+): string | undefined {
+  const at = now();
+  const prior = (state.constitutionElements ?? []).find((e) => e.id === elementId);
+  if (!prior) return undefined;
+  const successor: ConstitutionElement = {
+    ...prior,
+    id: id(),
+    statement: statement.trim(),
+    status: "active",
+    adoptedAt: at,
+    retiredAt: undefined,
+    supersedesId: prior.id,
+    // The successor is the user's own wording, by definition of this action.
+    fromAiText: undefined,
+    createdAt: at,
+    updatedAt: at,
+  };
+  const revs: ConstitutionRevision[] = [
+    { id: id(), elementId: prior.id, changeKind: "revised", previousStatement: prior.statement, newStatement: successor.statement, reason: opts?.reason?.trim() || undefined, evidenceRefs: dedupeRefs(opts?.evidenceRefs ?? []), at },
+    { id: id(), elementId: successor.id, changeKind: "created", newStatement: successor.statement, evidenceRefs: [], at },
+    { id: id(), elementId: successor.id, changeKind: "adopted", newStatement: successor.statement, evidenceRefs: [], at },
+  ];
+  setState({
+    ...state,
+    constitutionElements: [
+      successor,
+      ...(state.constitutionElements ?? []).map((e) =>
+        e.id === elementId ? { ...e, status: "retired" as const, retiredAt: at, updatedAt: at } : e),
+    ],
+    constitutionRevisions: [...(state.constitutionRevisions ?? []), ...revs],
+  });
+  return successor.id;
+}
+
+/** Replace an element's linked operational records (references, never copies). */
+export function setConstitutionLinks(elementId: string, refs: RecordRefLite[]): void {
+  const at = now();
+  const before = (state.constitutionElements ?? []).find((e) => e.id === elementId);
+  if (!before) return;
+  const next = dedupeRefs(refs);
+  if (refsEqual(before.linkedRefs ?? [], next)) return;
+  setState({
+    ...state,
+    constitutionElements: (state.constitutionElements ?? []).map((e) =>
+      e.id === elementId ? { ...e, linkedRefs: next, updatedAt: at } : e),
+    constitutionRevisions: [...(state.constitutionRevisions ?? []), {
+      id: id(), elementId, changeKind: "relinked", evidenceRefs: [], at,
+    }],
+  });
+}
+
+/**
+ * RETIRE — "I no longer adopt this, but I want its history preserved."
+ *
+ * The element stays, its wording stays, its revisions stay. This is deliberately
+ * NOT deletion, and it must never be offered as a substitute for it.
+ */
+export function retireConstitutionElement(elementId: string, reason?: string): void {
+  const at = now();
+  setState({
+    ...state,
+    constitutionElements: (state.constitutionElements ?? []).map((e) =>
+      e.id === elementId ? { ...e, status: "retired" as const, retiredAt: at, updatedAt: at } : e),
+    constitutionRevisions: [...(state.constitutionRevisions ?? []), {
+      id: id(), elementId, changeKind: "retired", reason: reason?.trim() || undefined, evidenceRefs: [], at,
+    }],
+  });
+}
+
+/** Withhold (or restore) this element from AI requests. */
+export function setConstitutionAiExclusion(elementId: string, excluded: boolean): void {
+  const at = now();
+  setState({
+    ...state,
+    constitutionElements: (state.constitutionElements ?? []).map((e) =>
+      e.id === elementId ? { ...e, excludeFromAi: excluded ? true : undefined, updatedAt: at } : e),
+  });
+}
+
+/**
+ * DELETE — "I do not want this stored anymore."
+ *
+ * Real deletion, with three deliberate properties:
+ *
+ *  1. **Revisions cascade.** They hold `previousStatement`, so leaving them
+ *     would leave the sensitive wording behind. There is no code path where the
+ *     element is gone and its previous wording is not.
+ *  2. **Successors are not orphaned.** Any element that superseded this one has
+ *     its `supersedesId` cleared, matching the `on delete set null` convention
+ *     used for `workspace_id` and `source_capture_id` since migration 0035. The
+ *     chain honestly ends rather than dangling.
+ *  3. **Unrelated user writing is untouched.** A Reflection that quotes this
+ *     statement is the user's own text in the user's own record; deletion does
+ *     not reach into it. The UI discloses that before the click.
+ */
+export function deleteConstitutionElement(elementId: string): void {
+  const at = now();
+  setState({
+    ...state,
+    constitutionElements: (state.constitutionElements ?? [])
+      .filter((e) => e.id !== elementId)
+      .map((e) => (e.supersedesId === elementId ? { ...e, supersedesId: undefined, updatedAt: at } : e)),
+    constitutionRevisions: (state.constitutionRevisions ?? []).filter((r) => r.elementId !== elementId),
+  });
 }
 
 // ---------------------------------------------------------------- notes ----

@@ -42,7 +42,7 @@ export function buildInsightTimeline(state: StoreState, opts?: { limit?: number 
   };
 
   for (const b of state.beliefs) {
-    const href = "/constitution";
+    const href = "/beliefs";
     const ev: MemoryRecordRef[] = [{ kind: "belief", id: b.id, label: b.text, href }];
     // Belief formed (first accepted revision, or creation).
     push(`bf:${b.id}`, b.createdAt, "belief_formed", "Belief formed", snip(b.text), ev);

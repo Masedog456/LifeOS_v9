@@ -74,7 +74,7 @@ export function buildTheme(state: StoreState, concept: Concept): Theme {
     const ref = concept.relatedBeliefs.includes(b.id);
     if ((ref || mentions(b.text)) && !seen.b.has(b.id)) {
       seen.b.add(b.id);
-      beliefs.push({ kind: "belief", id: b.id, label: b.text, href: "/constitution", at: b.createdAt, via: ref ? "reference" : "mention" });
+      beliefs.push({ kind: "belief", id: b.id, label: b.text, href: "/beliefs", at: b.createdAt, via: ref ? "reference" : "mention" });
     }
   }
   const captures: ThemeConnection[] = [];

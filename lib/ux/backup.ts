@@ -38,7 +38,7 @@ export const STORE_DOMAINS: (keyof StoreState)[] = [
   "recommendations", "documents", "citations", "workspaces", "sessions", "goals", "projects",
   "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments",
   "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews",
-  "notes", "protocols",
+  "notes", "protocols", "constitutionElements", "constitutionRevisions",
 ];
 
 export interface LifeOSBackup {

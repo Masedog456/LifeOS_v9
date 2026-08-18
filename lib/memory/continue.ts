@@ -43,9 +43,9 @@ export function buildContinueThinking(state: StoreState, opts?: { now?: number }
   }
   for (const b of state.beliefs) {
     if (b.status === "accepted" && daysSince(b.updatedAt, now) >= STALE_BELIEF_DAYS)
-      out.push({ id: `b:${b.id}`, kind: "belief_review", title: b.text, reason: `unreviewed ${daysSince(b.updatedAt, now)} days`, href: "/constitution", at: b.updatedAt });
+      out.push({ id: `b:${b.id}`, kind: "belief_review", title: b.text, reason: `unreviewed ${daysSince(b.updatedAt, now)} days`, href: "/beliefs", at: b.updatedAt });
     if (b.status === "questioned")
-      out.push({ id: `bq:${b.id}`, kind: "belief_review", title: b.text, reason: "you flagged it as questioned", href: "/constitution", at: b.updatedAt });
+      out.push({ id: `bq:${b.id}`, kind: "belief_review", title: b.text, reason: "you flagged it as questioned", href: "/beliefs", at: b.updatedAt });
   }
   for (const s of state.syntheses) {
     if (s.status === "candidate")

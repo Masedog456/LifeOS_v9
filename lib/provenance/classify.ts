@@ -23,6 +23,12 @@ import type { PracticeCandidate } from "@/types/mvp";
 const USER_AUTHORED_KINDS = new Set([
   "capture", "annotation", "reflection", "note", "highlight_note",
   "document_note", "section_note", "processing_note",
+  // A constitutional statement is something the user wrote and then explicitly
+  // adopted (LIFEOS-056). Structurally user-authored — but note the ordering in
+  // `classifyOrigin`: `fromAiText` and an attribution marker are BOTH checked
+  // first, so machine prose kept as a Constitution element is still reported as
+  // machine prose. Adoption is not authorship.
+  "constitution_element",
 ]);
 
 /** Record kinds that are always extracted source material. */

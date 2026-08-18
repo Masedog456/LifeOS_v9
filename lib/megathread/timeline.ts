@@ -88,7 +88,7 @@ export function buildTimeline(state: StoreState, thread: Megathread): TimelineIt
       title: `Belief formed: ${snippet(b.text, 80)}`,
       origin: "human",
       beliefId: b.id,
-      href: "/constitution",
+      href: "/beliefs",
       relation: "a belief in this thread",
     });
     b.revisions.forEach((r, i) => {
@@ -100,7 +100,7 @@ export function buildTimeline(state: StoreState, thread: Megathread): TimelineIt
         title: `Belief ${r.reason}: ${snippet(r.text, 80)}`,
         origin: "human",
         beliefId: b.id,
-        href: "/constitution",
+        href: "/beliefs",
         relation: "how this belief changed",
       });
     });
@@ -113,7 +113,7 @@ export function buildTimeline(state: StoreState, thread: Megathread): TimelineIt
         title: `You ${j.decision} this belief`,
         origin: "human",
         beliefId: b.id,
-        href: "/constitution",
+        href: "/beliefs",
         relation: "a judgment on this belief",
       });
     });

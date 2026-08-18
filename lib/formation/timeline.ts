@@ -54,7 +54,7 @@ export function buildFormationTimeline(state: StoreState, limit = 200): Formatio
         at: rev.at,
         title: `Belief ${rev.reason}`,
         detail: snippet(rev.text),
-        href: "/constitution",
+        href: "/beliefs",
       });
     }
   }
