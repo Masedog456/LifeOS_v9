@@ -3515,3 +3515,53 @@ connectors require repeated beta demand **and** stable API support, both.
   **Durable lesson.** Attaching a token is not the same as attaching a *valid*
   token. Any future client that authenticates a cost-bearing call must check
   freshness, not merely presence.
+
+- **LIFEOS-055U — A fresh visitor had no way to sign in (live defect).**
+
+  **Symptom.** A first-ever Incognito load of `app.conqify.com` rendered no
+  "Get started" button, no email field, and no error — just a header reading
+  *"Saved locally."* Nothing indicated a fault. The founder had already proven
+  this was **not** a missing environment variable: the shipped client bundle
+  contained the correct Supabase project URL, a compiled anon key, and
+  `isSupabaseConfigured()` folded to `true`.
+
+  **Traced path.** `RootLayout` → `StoreHydrator` → `PersistenceBootstrap`
+  (mounted, `app/layout.tsx`) → `initPersistence` → `getSupabaseClient()` →
+  `onAuthStateChange` → `handleSession` → `applySession` → `AuthControl` /
+  `SyncStatus`. Ruled out by inspection: a single cached Supabase singleton is
+  shared by `authStore`, `persistence` and the token helper; there is no second
+  client and no storage-key mismatch.
+
+  **Root cause: the app waited for an event it never asked for.** In the
+  *configured* path, `applySession()` was the only function that could clear
+  `loading`, and it was reachable only from the `onAuthStateChange` callback.
+  `getSession()` appeared nowhere in startup. So the entire signed-out UI hung
+  on an `INITIAL_SESSION` event arriving — with no timeout, no fallback, and
+  `void initPersistence(...)` swallowing any rejection. If that event was slow
+  or never arrived, the store stayed at `configured: true, loading: true`
+  forever; `AuthControl` renders `…` in exactly that state, so there was no
+  sign-in control, and health stayed local — *"Saved locally."* That is the
+  reported symptom exactly.
+
+  **Repair (smallest that closes it).** Startup now registers the listener
+  first, then **asks** for the session with `getSession()` under an 8-second
+  timeout. `setAuthUnavailable()` ends `loading` without claiming to know the
+  session, so a failed check renders the sign-in control *plus* an honest note
+  instead of a silent dead end, and `PersistenceBootstrap` no longer discards a
+  rejection. Because the same startup session can now arrive twice, exactly one
+  of {`INITIAL_SESSION`, the explicit read} is allowed to drive adoption, and
+  session handling is serialized — two overlapping `migrateOrAdopt` runs would
+  race their `replaceState` calls. Public Early Access
+  (`shouldCreateUser: true`) and the 055S/055T AI auth boundary are untouched.
+
+  **Diagnostics.** `lib/security/auth-bootstrap.ts` records booleans and short
+  opaque phase labels only (`supabaseConfigured`, `bootstrapStarted`,
+  `listenerRegistered`, `initialSessionReceived`, `sessionPresent`,
+  `resolvedByFallback`). `isSafeDiagnostic` rejects any failure string that is
+  long, non-slug, or contains `@`, so no key, token, email or user content can
+  reach a log.
+
+  **Durable lesson.** A UI state that can only be exited by an inbound event is
+  a hang waiting to happen. Startup must *request* what it needs, bound the
+  wait, and have a state that means "we could not find out" — distinct from
+  both "signed out" and "still checking."

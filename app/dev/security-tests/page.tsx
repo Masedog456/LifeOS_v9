@@ -6,11 +6,11 @@
  * summaries at `#security-selftest-summary` and `#backup-selftest-summary`.
  */
 
-import { useMemo, useSyncExternalStore } from "react";
-import { runSecuritySelfTests } from "@/lib/security/selftest";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { runSecuritySelfTests, type SelfTestReport } from "@/lib/security/selftest";
 import { runBackupSelfTests } from "@/lib/backup/selftest";
 
-function Summary({ id, title, report }: { id: string; title: string; report: ReturnType<typeof runSecuritySelfTests> }) {
+function Summary({ id, title, report }: { id: string; title: string; report: SelfTestReport }) {
   return (
     <section className="mb-8">
       <h2 className="mb-3 text-lg font-semibold tracking-tight">{title}</h2>
@@ -33,7 +33,16 @@ function Summary({ id, title, report }: { id: string; title: string; report: Ret
 
 export default function SecurityTestsPage() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
-  const security = useMemo(() => (mounted ? runSecuritySelfTests() : null), [mounted]);
+  // The security suite became async in LIFEOS-055U: it exercises the real auth
+  // bootstrap timeout, which can only be observed by awaiting it. Resolve it in
+  // an effect so SSR stays untouched.
+  const [security, setSecurity] = useState<SelfTestReport | null>(null);
+  useEffect(() => {
+    if (!mounted) return;
+    let live = true;
+    void runSecuritySelfTests().then((r) => { if (live) setSecurity(r); });
+    return () => { live = false; };
+  }, [mounted]);
   const backup = useMemo(() => (mounted ? runBackupSelfTests() : null), [mounted]);
   if (!security || !backup) return <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10"><h1 className="text-2xl font-semibold tracking-tight">Security self-tests</h1><p className="mt-2 text-sm text-zinc-400">Running…</p></main>;
 
@@ -41,7 +50,7 @@ export default function SecurityTestsPage() {
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Security &amp; backup self-tests</h1>
-        <p className="mt-1 text-sm text-zinc-500">Safe URLs, input limits, redaction, error sanitization, schema compatibility, storage resilience, multi-tab locks, CSP/headers, dev-route exclusion, RLS/ownership audit, threat model, auth boundaries, health, diagnostics sanitization, XSS hardening; export manifest/checksums, verification, import preview, restore safety, recovery.</p>
+        <p className="mt-1 text-sm text-zinc-500">Safe URLs, input limits, redaction, error sanitization, schema compatibility, storage resilience, multi-tab locks, CSP/headers, dev-route exclusion, RLS/ownership audit, threat model, auth boundaries, health, diagnostics sanitization, XSS hardening, public AI cost boundary, token freshness, auth bootstrap; export manifest/checksums, verification, import preview, restore safety, recovery.</p>
       </header>
       <Summary id="security-selftest-summary" title="Security" report={security} />
       <Summary id="backup-selftest-summary" title="Backup / export / restore" report={backup} />

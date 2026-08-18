@@ -64,6 +64,23 @@ export function setUnconfigured(): void {
 export function setConfigured(): void {
   set({ configured: true });
 }
+/**
+ * End the loading state WITHOUT claiming to know the session (LIFEOS-055U).
+ *
+ * Before this existed, `applySession` was the only thing that could clear
+ * `loading` in the configured path — and it was reachable only from the
+ * `onAuthStateChange` callback. If that event was slow or never arrived, the app
+ * sat in `loading: true` forever, rendering neither the sign-in control nor an
+ * error. A user saw an empty header and no way in.
+ *
+ * The UI treats this as "signed out, and we had trouble checking" — the sign-in
+ * control renders, so the person can always act, and `error` says why the check
+ * did not complete.
+ */
+export function setAuthUnavailable(message: string): void {
+  set({ loading: false, email: null, phase: "idle", error: message });
+}
+
 export function applySession(session: { user?: { email?: string | null } } | null): void {
   set({ loading: false, email: session?.user?.email ?? null, phase: "idle", error: undefined });
 }

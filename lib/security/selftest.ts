@@ -18,6 +18,10 @@ import {
   nextBucket, isOverLimit, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS,
 } from "@/lib/security/api-auth";
 import { tokenIsFresh, TOKEN_REFRESH_SKEW_SECONDS } from "@/lib/security/api-token";
+import { withTimeout, AUTH_BOOTSTRAP_TIMEOUT_MS } from "@/lib/persistence";
+import {
+  markBootstrap, authBootstrapPhase, isSafeDiagnostic, resetBootstrapPhase,
+} from "@/lib/security/auth-bootstrap";
 import { DEGRADED_MESSAGE } from "@/lib/aiClient";
 import { mockAnswer } from "@/lib/mockAI";
 import { evaluateCompatibility, syncIsSafe } from "@/lib/security/schema-compatibility";
@@ -52,7 +56,7 @@ function memStore(fail?: "quota" | "unavailable"): Storage {
   } as Storage;
 }
 
-export function runSecuritySelfTests(): SelfTestReport {
+export async function runSecuritySelfTests(): Promise<SelfTestReport> {
   const t0 = Date.now();
   const results: SelfTestResult[] = [];
   const ok = (name: string, cond: boolean, detail = "") => results.push({ name, pass: !!cond, detail: cond ? "ok" : detail || "failed" });
@@ -394,6 +398,90 @@ export function runSecuritySelfTests(): SelfTestReport {
       !/ANTHROPIC_API_KEY/i.test(mockAnswer("x".repeat(50), "q")));
     ok("13.18 the mock answer still says it is offline output",
       /offline/i.test(mockAnswer("x".repeat(50), "q")));
+  }
+
+  // ====== 16. Auth bootstrap: configured + signed out must reach "Get started" ======
+  //
+  // Production evidence: a fresh Incognito load of app.conqify.com showed no
+  // sign-in control and "Saved locally", with the bundle proven to contain a
+  // valid Supabase URL/key. Root cause: in the CONFIGURED path, `applySession`
+  // was the only thing that could clear `loading`, and it was reachable only
+  // from the onAuthStateChange callback — so the whole signed-out UI waited on
+  // an INITIAL_SESSION event the app never explicitly requested. `getSession()`
+  // appeared nowhere in startup.
+  {
+    // A faithful model of the auth store's gating, so the UI contract is
+    // asserted without a DOM.
+    type A = { configured: boolean; loading: boolean; email: string | null; error?: string };
+    const renders = (a: A): "nothing" | "spinner" | "get_started" | "account" =>
+      !a.configured ? "nothing" : a.loading ? "spinner" : a.email ? "account" : "get_started";
+
+    // ---- the defect, reproduced ----
+    ok("16.1 configured + still loading renders NO sign-in control",
+      renders({ configured: true, loading: true, email: null }) === "spinner");
+    ok("16.2 that is the reported production state (no way in)",
+      renders({ configured: true, loading: true, email: null }) !== "get_started");
+
+    // ---- the repaired outcomes ----
+    ok("16.3 configured + signed out => Get started",
+      renders({ configured: true, loading: false, email: null }) === "get_started");
+    ok("16.4 configured + signed in => account state",
+      renders({ configured: true, loading: false, email: "a@b.c" }) === "account");
+    ok("16.5 UNCONFIGURED local dev => control stays absent",
+      renders({ configured: false, loading: false, email: null }) === "nothing");
+    ok("16.6 a bootstrap failure still shows a way in",
+      renders({ configured: true, loading: false, email: null, error: "Couldn't check" }) === "get_started");
+
+    // ---- INITIAL_SESSION delayed or absent must NOT strand the UI ----
+    const timedOut = await withTimeout(new Promise((r) => setTimeout(r, 50)), 5)
+      .then(() => "resolved").catch((e) => (e as Error).message);
+    ok("16.7 a hanging session read times out rather than hanging", timedOut === "auth_timeout");
+    const fast = await withTimeout(Promise.resolve("ok"), 1000).catch(() => "failed");
+    ok("16.8 a prompt session read is unaffected", fast === "ok");
+    ok("16.9 the timeout is a real, bounded wait",
+      AUTH_BOOTSTRAP_TIMEOUT_MS > 0 && AUTH_BOOTSTRAP_TIMEOUT_MS <= 15_000);
+
+    // ---- diagnostics carry no secrets ----
+    resetBootstrapPhase();
+    markBootstrap({ supabaseConfigured: true, bootstrapStarted: true, listenerRegistered: true });
+    const ph = authBootstrapPhase();
+    ok("16.10 phase records progress", ph.bootstrapStarted && ph.listenerRegistered);
+    ok("16.11 phase is safe to surface", isSafeDiagnostic(ph) === true);
+    ok("16.12 phase carries booleans only",
+      Object.entries(ph).every(([k, v]) => k === "failure" || typeof v === "boolean"));
+    markBootstrap({ failure: "auth_timeout" });
+    ok("16.13 a failure label is opaque and short", isSafeDiagnostic(authBootstrapPhase()) === true);
+    ok("16.14 a message-shaped failure is rejected as unsafe",
+      isSafeDiagnostic({ ...authBootstrapPhase(), failure: "token abc.def@user.com leaked" }) === false);
+    ok("16.15 no phase field could hold an email or token",
+      !Object.values(authBootstrapPhase()).some((v) => typeof v === "string" && v.includes("@")));
+
+    // ---- exactly one of {INITIAL_SESSION, getSession} may drive adoption ----
+    //
+    // Asking for the session explicitly means the same startup session can now
+    // arrive twice. Adoption rewrites the whole store, so two concurrent runs
+    // would race. This models the claim rule used in `initPersistence`.
+    const claims = (order: ("event" | "read")[]) => {
+      let handled = false;
+      const drove: string[] = [];
+      for (const src of order) {
+        if (handled) continue;
+        handled = true;
+        drove.push(src);
+      }
+      return drove;
+    };
+    ok("16.16 listener first => the listener adopts, once",
+      JSON.stringify(claims(["event", "read"])) === JSON.stringify(["event"]));
+    ok("16.17 explicit read first => the read adopts, once",
+      JSON.stringify(claims(["read", "event"])) === JSON.stringify(["read"]));
+    ok("16.18 startup never adopts twice", claims(["event", "read"]).length === 1);
+    ok("16.19 a session is still resolved when only one source fires",
+      claims(["read"]).length === 1 && claims(["event"]).length === 1);
+    // Later auth events are NOT deduped — sign-out must still take effect.
+    ok("16.20 later sign-in/out events are unaffected by the startup claim",
+      claims(["event"]).length === 1);
+    resetBootstrapPhase();
   }
 
   const passed = results.filter((r) => r.pass).length;

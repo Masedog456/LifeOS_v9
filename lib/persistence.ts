@@ -18,6 +18,7 @@ import { SupabasePersistenceAdapter } from "@/lib/adapters/supabaseAdapter";
 import type { PersistenceHealth } from "@/lib/adapters/types";
 import { reconcileAdoption } from "@/lib/persistence-reconcile";
 import * as authStore from "@/lib/authStore";
+import { markBootstrap } from "@/lib/security/auth-bootstrap";
 
 const STORAGE_KEY = "lifeos.mvp.v1";
 const MIGRATED_KEY = "lifeos.migrated.v1";
@@ -349,6 +350,8 @@ export async function retrySync(): Promise<void> {
 // ---------------- init + auth-driven remote enable/disable ----------------
 
 let listenerSet = false;
+/** Startup resolves the session exactly once — see `initPersistence`. */
+let initialSessionHandled = false;
 
 /**
  * Called once client-side after local hydration. Configures the auth
@@ -360,6 +363,8 @@ let listenerSet = false;
 export async function initPersistence(
   replaceState: (s: StoreState) => void,
 ): Promise<void> {
+  markBootstrap({ bootstrapStarted: true });
+
   if (!isSupabaseConfigured()) {
     authStore.setUnconfigured();
     setHealth({ mode: "local", state: "disabled" });
@@ -372,12 +377,86 @@ export async function initPersistence(
     return;
   }
   authStore.setConfigured();
+  markBootstrap({ supabaseConfigured: true });
 
   if (listenerSet) return;
   listenerSet = true;
-  // Fires INITIAL_SESSION immediately, then on every sign-in/out.
-  client.auth.onAuthStateChange((_event, session) => {
-    void handleSession(session, replaceState);
+
+  // 1. Register the listener FIRST, so a sign-in that completes while we are
+  //    reading the current session cannot slip between the two steps.
+  //
+  //    `INITIAL_SESSION` and the explicit read below describe the SAME startup
+  //    session, so exactly one of them may drive adoption — running
+  //    `migrateOrAdopt` twice over one sign-in would race two `replaceState`
+  //    calls against each other. Whichever arrives first claims it; later
+  //    sign-in / sign-out / refresh events are unaffected.
+  client.auth.onAuthStateChange((event, session) => {
+    markBootstrap({ initialSessionReceived: true, sessionPresent: !!session });
+    if (event === "INITIAL_SESSION") {
+      if (initialSessionHandled) return;
+      initialSessionHandled = true;
+    }
+    void queueSession(session, replaceState);
+  });
+  markBootstrap({ listenerRegistered: true });
+
+  // 2. Then ASK for the session explicitly.
+  //
+  //    This is the repair. Previously the only thing that could ever clear
+  //    `loading` in the configured path was `applySession`, reachable only from
+  //    the callback above — so the entire signed-out UI depended on an
+  //    `INITIAL_SESSION` event the app never actually requested. When that event
+  //    was slow or never arrived, the header sat in `loading` forever: no "Get
+  //    started", no email field, no error. `getSession()` is the smallest
+  //    supported way to resolve the current session deterministically, and it
+  //    introduces no second identity system.
+  try {
+    const { data, error } = await withTimeout(client.auth.getSession(), AUTH_BOOTSTRAP_TIMEOUT_MS);
+    if (error) throw new Error("getSession_error");
+    markBootstrap({ initialSessionReceived: true, sessionPresent: !!data?.session });
+    if (initialSessionHandled) {
+      // The listener got there first; just wait for its work to finish.
+      await sessionChain;
+    } else {
+      initialSessionHandled = true;
+      await queueSession(data?.session ?? null, replaceState);
+    }
+  } catch (e) {
+    // 3. Fail HONESTLY rather than sitting silently in "Saved locally". The
+    //    sign-in control still renders, so the person can always act.
+    const label = e instanceof Error && e.message === "auth_timeout" ? "auth_timeout" : "getsession_failed";
+    markBootstrap({ resolvedByFallback: true, failure: label });
+    authStore.setAuthUnavailable("Couldn't check your sign-in status. You can still sign in.");
+    setHealth({ mode: "local", state: "disabled" });
+  }
+}
+
+/** Startup must never hang on a network call; the UI has to resolve. */
+export const AUTH_BOOTSTRAP_TIMEOUT_MS = 8_000;
+
+/**
+ * Session handling is serialized. Two overlapping `migrateOrAdopt` runs would
+ * interleave their `replaceState` calls, so each session is applied in turn.
+ * A rejection is absorbed here because `handleSession` already records failures
+ * in health; it must not break the chain for the next event.
+ */
+let sessionChain: Promise<void> = Promise.resolve();
+function queueSession(
+  session: Session | null,
+  replaceState: (s: StoreState) => void,
+): Promise<void> {
+  sessionChain = sessionChain.then(() => handleSession(session, replaceState)).catch(() => {});
+  return sessionChain;
+}
+
+/** Reject with `auth_timeout` if a promise does not settle in time. */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("auth_timeout")), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); },
+    );
   });
 }
 
