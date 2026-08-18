@@ -4222,8 +4222,14 @@ export function reviseConstitutionElement(
     createdAt: at,
     updatedAt: at,
   };
+  // The transition row is owned by the PREDECESSOR but carries the SUCCESSOR's
+  // wording, so it records `successorId` too. That is what lets deletion of the
+  // successor reach this row (LIFEOS-056D). The successor object is built above,
+  // so its id exists before the row referencing it is written — the state is
+  // committed in one `setState` below, so no dangling successorId is ever
+  // persisted.
   const revs: ConstitutionRevision[] = [
-    { id: id(), elementId: prior.id, changeKind: "revised", previousStatement: prior.statement, newStatement: successor.statement, reason: opts?.reason?.trim() || undefined, evidenceRefs: dedupeRefs(opts?.evidenceRefs ?? []), at },
+    { id: id(), elementId: prior.id, changeKind: "revised", successorId: successor.id, previousStatement: prior.statement, newStatement: successor.statement, reason: opts?.reason?.trim() || undefined, evidenceRefs: dedupeRefs(opts?.evidenceRefs ?? []), at },
     { id: id(), elementId: successor.id, changeKind: "created", newStatement: successor.statement, evidenceRefs: [], at },
     { id: id(), elementId: successor.id, changeKind: "adopted", newStatement: successor.statement, evidenceRefs: [], at },
   ];
@@ -4289,9 +4295,14 @@ export function setConstitutionAiExclusion(elementId: string, excluded: boolean)
  *
  * Real deletion, with three deliberate properties:
  *
- *  1. **Revisions cascade.** They hold `previousStatement`, so leaving them
- *     would leave the sensitive wording behind. There is no code path where the
- *     element is gone and its previous wording is not.
+ *  1. **Revisions cascade on BOTH paths.** A revision holds wording, so leaving
+ *     one behind leaves the sensitive text behind. Rows are removed when they
+ *     are OWNED by this element (`elementId`) *and* when they are the transition
+ *     that PRODUCED it (`successorId`) — because that row, owned by the
+ *     predecessor, carries this element's statement in `newStatement`. Missing
+ *     the second path was the LIFEOS-056 deletion-privacy defect: deleting a
+ *     revised element left its wording readable in its predecessor's history.
+ *     There is no code path where the element is gone and its wording is not.
  *  2. **Successors are not orphaned.** Any element that superseded this one has
  *     its `supersedesId` cleared, matching the `on delete set null` convention
  *     used for `workspace_id` and `source_capture_id` since migration 0035. The
@@ -4307,7 +4318,9 @@ export function deleteConstitutionElement(elementId: string): void {
     constitutionElements: (state.constitutionElements ?? [])
       .filter((e) => e.id !== elementId)
       .map((e) => (e.supersedesId === elementId ? { ...e, supersedesId: undefined, updatedAt: at } : e)),
-    constitutionRevisions: (state.constitutionRevisions ?? []).filter((r) => r.elementId !== elementId),
+    constitutionRevisions: (state.constitutionRevisions ?? []).filter(
+      (r) => r.elementId !== elementId && r.successorId !== elementId,
+    ),
   });
 }
 

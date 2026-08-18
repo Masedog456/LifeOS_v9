@@ -78,7 +78,7 @@ export const TABLE_REGISTRY: readonly TableAudit[] = [
   // stores the prior wording: leaving them would make a sensitive statement
   // undeletable merely because history exists. Tombstones carry no content.
   { table: "constitution_elements", migration: "0038", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "constitutionElements" },
-  { table: "constitution_revisions", migration: "0038", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "constitutionRevisions" },
+  { table: "constitution_revisions", migration: "0038/0039", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "constitutionRevisions" },
 ];
 
 export interface PolicyPresence {
