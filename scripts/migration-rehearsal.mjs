@@ -5,7 +5,7 @@
  * Stands up a throwaway PostgreSQL 16 cluster and rehearses the complete
  * migration chain against it:
  *
- *   - clean apply 0001 -> 0038 in order
+ *   - clean apply 0001 -> 0039 in order
  *   - repeated application (idempotency) x3 on the same database
  *   - upgrade from every representative checkpoint (pre-reading ... current)
  *   - constraint + index + RLS survival after the full chain
@@ -116,13 +116,13 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 38, `found ${files.length} migration files, expected 38`);
+  ok("migration files present", files.length === 39, `found ${files.length} migration files, expected 39`);
 
-  // 1) Clean apply 0001 -> 0038 on a fresh database.
+  // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
   applyChain("rc_clean", files);
   const tableCount = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("clean apply 0001->0038 (60 public tables)", tableCount === 60, `got ${tableCount} public tables`);
+  ok("clean apply 0001->0039 (60 public tables)", tableCount === 60, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
@@ -155,7 +155,7 @@ function run() {
   const checkpoints = [
     ["pre-reading", 20], ["pre-workspaces", 21], ["pre-actions", 26],
     ["pre-planning", 27], ["pre-maintenance", 28], ["pre-security", 30],
-    ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["pre-constitution", 37],
+    ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["pre-constitution", 37], ["pre-successor-cascade", 38],
   ];
   for (const [id, through] of checkpoints) {
     const db = `rc_cp_${through}`;
@@ -196,6 +196,52 @@ function run() {
   // A still sees exactly its own row.
   const aSees = psql("rc_clean", `set role rc_app; set app.uid='${A}'; select count(*) from public.captures;`).trim();
   ok("isolation: A still sees its own row", aSees === "1", `A saw ${aSees} rows`);
+  // 7b) LIFEOS-056D — the Constitution deletion-privacy cascade, probed against
+  //     real Postgres. A conceptual revision spans two elements: the transition
+  //     row is OWNED by the predecessor but carries the SUCCESSOR's wording.
+  //     Deleting the successor must take that row with it, or the deleted
+  //     statement survives in the predecessor's history.
+  {
+    const EA = "aaaaaaaa-0000-0000-0000-00000000000a";  // predecessor
+    const EB = "bbbbbbbb-0000-0000-0000-00000000000b";  // successor
+    const SECRET = "SECRET SUCCESSOR WORDING";
+    const asA = (sql) => psql("rc_clean", `set role rc_app; set app.uid='${A}'; ${sql}`);
+    asA(`
+      insert into public.constitution_elements(id, kind, statement, status, adopted_at)
+        values ('${EA}', 'principle', 'Original constitutional wording', 'retired', now());
+      insert into public.constitution_elements(id, kind, statement, status, adopted_at, supersedes_id)
+        values ('${EB}', 'principle', '${SECRET}', 'active', now(), '${EA}');
+      -- unrelated predecessor history that must survive
+      insert into public.constitution_revisions(id, element_id, change_kind, new_statement)
+        values (gen_random_uuid(), '${EA}', 'created', 'Original constitutional wording');
+      -- the transition: owned by A, carries B's wording, points at B
+      insert into public.constitution_revisions(id, element_id, successor_id, change_kind, previous_statement, new_statement)
+        values (gen_random_uuid(), '${EA}', '${EB}', 'revised', 'Original constitutional wording', '${SECRET}');
+      -- the successor's own history
+      insert into public.constitution_revisions(id, element_id, change_kind, new_statement)
+        values (gen_random_uuid(), '${EB}', 'adopted', '${SECRET}');
+    `);
+    const before = asA(`select count(*) from public.constitution_revisions where new_statement like '%SECRET SUCCESSOR%';`).trim();
+    ok("056D: the successor's wording is present before deletion", before === "2", `found ${before} rows`);
+
+    asA(`delete from public.constitution_elements where id = '${EB}';`);
+
+    const bGone = asA(`select count(*) from public.constitution_elements where id = '${EB}';`).trim();
+    ok("056D: the successor row is gone", bGone === "0", `${bGone} rows remain`);
+    const leaked = asA(`select count(*) from public.constitution_revisions where new_statement like '%SECRET SUCCESSOR%';`).trim();
+    ok("056D: NO deleted wording remains in constitution_revisions", leaked === "0", `${leaked} row(s) still hold it`);
+    const bySuccessor = asA(`select count(*) from public.constitution_revisions where successor_id = '${EB}';`).trim();
+    ok("056D: the transition cascaded via successor_id", bySuccessor === "0", `${bySuccessor} rows remain`);
+    const aAlive = asA(`select count(*) from public.constitution_elements where id = '${EA}';`).trim();
+    ok("056D: the predecessor survives", aAlive === "1", `${aAlive} rows`);
+    const aHistory = asA(`select count(*) from public.constitution_revisions where element_id = '${EA}';`).trim();
+    ok("056D: the predecessor's unrelated history survives", aHistory === "1", `${aHistory} rows`);
+    // Deleting the predecessor must still take its own history with it.
+    asA(`delete from public.constitution_elements where id = '${EA}';`);
+    const aHistAfter = asA(`select count(*) from public.constitution_revisions where element_id = '${EA}';`).trim();
+    ok("056D: deleting the predecessor cascades its own history", aHistAfter === "0", `${aHistAfter} rows`);
+  }
+
   // Every user-owned policy references auth.uid() (isolation is by policy, not luck).
   const weakPolicies = psql("rc_clean", `select distinct tablename from pg_policies where schemaname='public' and coalesce(qual,'')||coalesce(with_check,'') not like '%uid%' order by 1;`).trim();
   ok("every policy scopes to auth.uid()", weakPolicies === "", `policies not scoped by uid: ${weakPolicies.replace(/\n/g, ", ")}`);

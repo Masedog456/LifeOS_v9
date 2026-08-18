@@ -361,7 +361,7 @@ export function runConstitutionSelfTests(): SelfTestReport {
       restored.constitutionElements[0].status === "active" && restored.constitutionElements[0].adoptedAt === AT);
     ok("9.11 revision history survives restore", restored.constitutionRevisions.length === 1);
     // Schema + ownership registration.
-    ok("9.12 the expected migration version advanced to 0038", EXPECTED_MIGRATION_VERSION === 38);
+    ok("9.12 the expected migration version advanced to 0039", EXPECTED_MIGRATION_VERSION === 39);
     const regEl = registryEntry("constitution_elements");
     const regRev = registryEntry("constitution_revisions");
     ok("9.13 elements are registered as user-owned with full RLS",
@@ -424,6 +424,139 @@ export function runConstitutionSelfTests(): SelfTestReport {
     const serialized = JSON.stringify(st.constitutionElements[0]);
     for (const forbidden of ["score", "percent", "rating", "streak", "compliance", "health", "alignment", "progress"]) {
       ok(`12.x an element carries no '${forbidden}' field`, !serialized.toLowerCase().includes(forbidden));
+    }
+  }
+
+  // =========== 13. Deletion privacy across a supersession (LIFEOS-056D) ===========
+  //
+  // THE DEFECT FOUNDER ACCEPTANCE FOUND, AND THE ONE SECTION 6 MISSED.
+  //
+  // A conceptual revision spans TWO elements: the transition row is owned by the
+  // predecessor but its `newStatement` is the SUCCESSOR's wording. Section 6
+  // modelled a single element's history, so deleting the successor looked clean
+  // while its text sat in the predecessor's row — visible in the UI, persisted,
+  // exported and synced.
+  //
+  // These assertions model `reviseConstitutionElement` and
+  // `deleteConstitutionElement` exactly as the store performs them.
+  {
+    const SECRET = "SECRET SUCCESSOR WORDING";
+    const ORIGINAL = "Original constitutional wording";
+
+    // --- A adopted, edited once (unrelated history), then revised into B ---
+    const A: ConstitutionElement = el({ id: "A", statement: ORIGINAL, kind: "principle" });
+    const B: ConstitutionElement = el({
+      id: "B", statement: SECRET, kind: "principle", supersedesId: "A",
+    });
+    const elements: ConstitutionElement[] = [
+      { ...B },
+      { ...A, status: "retired", retiredAt: AT },
+    ];
+    const revisions: ConstitutionRevision[] = [
+      rev({ id: "r-created", elementId: "A", changeKind: "created", newStatement: ORIGINAL }),
+      rev({ id: "r-adopted", elementId: "A", changeKind: "adopted", newStatement: ORIGINAL }),
+      // unrelated earlier history that MUST survive
+      rev({ id: "r-edited", elementId: "A", changeKind: "edited", previousStatement: "Orignal constitutional wording", newStatement: ORIGINAL }),
+      // the transition: owned by A, carries B's wording, points at B
+      rev({ id: "r-revised", elementId: "A", changeKind: "revised", successorId: "B", previousStatement: ORIGINAL, newStatement: SECRET, reason: "changed my mind" }),
+      rev({ id: "r-bcreated", elementId: "B", changeKind: "created", newStatement: SECRET }),
+      rev({ id: "r-badopted", elementId: "B", changeKind: "adopted", newStatement: SECRET }),
+    ];
+
+    const before = emptyState();
+    before.constitutionElements = elements;
+    before.constitutionRevisions = revisions;
+    before.notes = [{ id: "nt", body: "an unrelated note", linkedEntityRefs: [], tags: [], createdAt: AT, updatedAt: AT } as Note];
+
+    // ---- state BEFORE deletion ----
+    ok("13.1 the predecessor is retired", elementById(before, "A")?.status === "retired");
+    ok("13.2 the successor is active", elementById(before, "B")?.status === "active");
+    const transition = revisionsFor(before, "A").find((r) => r.changeKind === "revised");
+    ok("13.3 a revised transition row exists on the predecessor", !!transition);
+    ok("13.4 the transition records WHICH successor it produced", transition?.successorId === "B");
+    ok("13.5 the transition carries the successor's wording", transition?.newStatement === SECRET);
+    ok("13.6 that wording is therefore present before deletion",
+      JSON.stringify(before).includes(SECRET));
+
+    // ---- delete the successor, exactly as the store does ----
+    const del = (state: StoreState, id: string): StoreState => ({
+      ...state,
+      constitutionElements: (state.constitutionElements ?? [])
+        .filter((e) => e.id !== id)
+        .map((e) => (e.supersedesId === id ? { ...e, supersedesId: undefined } : e)),
+      constitutionRevisions: (state.constitutionRevisions ?? []).filter(
+        (r) => r.elementId !== id && r.successorId !== id,
+      ),
+    });
+    const after = del(before, "B");
+    const serialized = JSON.stringify(after);
+
+    // ---- THE GUARANTEE: zero occurrences, anywhere ----
+    ok("13.7 the deleted wording appears ZERO times in the whole state",
+      (serialized.match(new RegExp(SECRET, "g")) ?? []).length === 0);
+    ok("13.8 …not in constitutionElements",
+      !JSON.stringify(after.constitutionElements).includes(SECRET));
+    ok("13.9 …not in constitutionRevisions",
+      !JSON.stringify(after.constitutionRevisions).includes(SECRET));
+    ok("13.10 …not in the serialized local store", !serialized.includes(SECRET));
+    // The export is the same domain list, so prove it over the export shape too.
+    const exported = JSON.stringify(
+      Object.fromEntries((EXPORT_DOMAINS as readonly string[]).map((d) => [d, (after as unknown as Record<string, unknown>)[d] ?? []])),
+    );
+    ok("13.11 …not in a normal export", !exported.includes(SECRET));
+
+    // ---- and the predecessor keeps everything the user did NOT delete ----
+    ok("13.12 the predecessor still exists", !!elementById(after, "A"));
+    ok("13.13 the predecessor's own wording is untouched", elementById(after, "A")?.statement === ORIGINAL);
+    const keptA = revisionsFor(after, "A").map((r) => r.id);
+    ok("13.14 the predecessor's unrelated history survives",
+      keptA.includes("r-created") && keptA.includes("r-adopted") && keptA.includes("r-edited"), keptA.join(","));
+    ok("13.15 ONLY the transition row was removed from the predecessor",
+      !keptA.includes("r-revised") && keptA.length === 3, keptA.join(","));
+    ok("13.16 the successor's own revision rows are gone",
+      !(after.constitutionRevisions ?? []).some((r) => r.elementId === "B"));
+    ok("13.17 the deleted element's id appears nowhere", !serialized.includes('"B"'));
+    ok("13.18 an unrelated linked record survives", (after.notes ?? []).some((n) => n.id === "nt"));
+
+    // ---- graph: no live node or relationship for the deleted element ----
+    const g = buildGraph(after);
+    ok("13.19 the graph has no node for the deleted element", !g.nodes.has("B"));
+    ok("13.20 the graph has no edge from or to the deleted element",
+      (g.byFrom.get("B") ?? []).length === 0 && (g.byTo.get("B") ?? []).length === 0);
+    ok("13.21 no surviving element still points at the deleted one",
+      !(after.constitutionElements ?? []).some((e) => e.supersedesId === "B"));
+
+    // ---- tombstones stay content-free ----
+    const tomb = makeTombstone("constitutionElements", "B", AT);
+    ok("13.22 the tombstone carries no statement text", !JSON.stringify(tomb).includes(SECRET));
+
+    // ---- deleting the PREDECESSOR instead must also remove the transition ----
+    const afterA = del(before, "A");
+    ok("13.23 deleting the predecessor removes its own history",
+      !(afterA.constitutionRevisions ?? []).some((r) => r.elementId === "A"));
+    ok("13.24 deleting the predecessor leaves the successor intact",
+      !!elementById(afterA, "B") && elementById(afterA, "B")?.statement === SECRET);
+    ok("13.25 the successor's dangling supersedesId is cleared",
+      elementById(afterA, "B")?.supersedesId === undefined);
+
+    // ---- rows written before 056D carry no successorId, and still work ----
+    const legacy = emptyState();
+    legacy.constitutionElements = [el({ id: "L", statement: "legacy" })];
+    legacy.constitutionRevisions = [
+      rev({ id: "r-legacy", elementId: "L", changeKind: "revised", previousStatement: "old", newStatement: "legacy" }),
+    ];
+    ok("13.26 a pre-056D revision row loads with no successorId",
+      revisionsFor(legacy, "L")[0].successorId === undefined);
+    const legacyAfter = del(legacy, "L");
+    ok("13.27 deleting its owner still removes a legacy row",
+      (legacyAfter.constitutionRevisions ?? []).length === 0);
+    ok("13.28 a legacy row is never mistaken for a transition to some other element",
+      !(legacy.constitutionRevisions ?? []).some((r) => r.successorId !== undefined));
+
+    // ---- non-supersession events must NOT claim a successor ----
+    for (const kind of ["created", "adopted", "edited", "relinked", "retired", "readopted"] as const) {
+      const r = rev({ id: `x-${kind}`, elementId: "A", changeKind: kind });
+      ok(`13.29 a '${kind}' event records no successor`, r.successorId === undefined);
     }
   }
 
