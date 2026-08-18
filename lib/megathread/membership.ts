@@ -159,7 +159,7 @@ export function resolveMember(
     }
     case "belief": {
       const b = state.beliefs.find((x) => x.id === ref.id);
-      return b ? { label: snippet(b.text, 80), sublabel: b.status, date: b.updatedAt, href: "/constitution" } : undefined;
+      return b ? { label: snippet(b.text, 80), sublabel: b.status, date: b.updatedAt, href: "/beliefs" } : undefined;
     }
     case "proposal": {
       const p = state.proposals.find((x) => x.id === ref.id);

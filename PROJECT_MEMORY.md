@@ -3516,6 +3516,86 @@ connectors require repeated beta demand **and** stable API support, both.
   token. Any future client that authenticates a cost-bearing call must check
   freshness, not merely presence.
 
+- **LIFEOS-056 — The Living Constitution (implemented).**
+
+  The normative layer: *what have I consciously adopted as part of how I intend
+  to live?* Not a belief (what is true), not a practice (what is done), not a
+  goal (what is wanted), not a protocol (a conditional intention), and never
+  source authority or AI output. **No AI was added in this sprint.**
+
+  **Route semantics corrected first.** `/constitution` rendered the Belief
+  Ledger (`app/constitution/page.tsx` imported `Belief`, `affirmBelief`,
+  `questionBelief`, `reviseBelief`). The ledger moved to `/beliefs` — 36 code
+  references rewritten, nav, command palette, route inventory and release route
+  list updated — and the Constitution now owns `/constitution`. No legacy
+  redirect was kept: the repository showed no compatibility need, and the
+  product is pre-public.
+
+  **One new primitive, two tables.** `ConstitutionElement` with exactly four
+  kinds — `purpose · value · principle · standard` — plus an append-only
+  `ConstitutionRevision` log (migration `0038_constitution.sql`, 60 public
+  tables). `principle` is shown as **"Guiding Principle"** so it is never
+  confused with the knowledge-side `principles` table (0013), which organizes
+  concepts rather than governing conduct. `boundary`, `rule`, `identity`,
+  `aspiration`, `question` and `commitment` were deliberately NOT shipped; each
+  has a named home (a boundary is a negatively-stated standard; a rule is a
+  Protocol or a standard; a question is a Note; the rest await beta evidence).
+
+  **`adoptedAt` is the load-bearing field.** `normalizeNewElement` can only ever
+  produce a draft — there is no creation input that yields an adopted element,
+  and a test asserts exactly that. Only `adoptConstitutionElement`, reached from
+  an explicit "Add to Constitution", sets it. Adoption is also not authorship:
+  `fromAiText` survives adoption, and `classifyOrigin` checks it *before*
+  structural authorship, so machine prose kept as a constitutional statement is
+  still read back as machine prose and can never ground a source claim.
+
+  **Edit ≠ revise.** `classifyStatementChange` is a deterministic rule (same
+  reasoning as the capture classifier: instant, free, offline, no model drifting
+  between releases). A typo fix is an `edited`; a replaced meaningful word is a
+  `revised`. It only ever SUGGESTS — the UI lets the author overrule it, because
+  only they know whether a rewording changed what they meant. The bias is
+  deliberate: mislabelling a revision as an edit silently loses history, so it
+  fails toward keeping history.
+
+  **Retire ≠ delete, enforced in the foreign keys.** Retiring keeps the row, the
+  wording and the whole revision log. Deleting removes the element and
+  **cascades its revisions** (`on delete cascade`), because a revision stores
+  `previous_statement` — any other choice would leave sensitive wording behind
+  and make it undeletable merely because history exists. `supersedes_id` uses
+  `on delete set null`, so a successor is never orphaned and never dangles.
+  Unrelated user writing is untouched, and the delete confirmation says so.
+
+  **Relationships without a new island.** `linkedRefs: RecordRefLite[]` embedded
+  on the element, plus the shared reader the pre-056 audit specified:
+  `RecordKind` gained the life-side kinds, `GraphEdge` now carries `toKind` where
+  the source knows it, and one declarative `REF_SOURCES` pass reads embedded
+  reference fields. That closed the **pre-existing** Action/Note island as a side
+  effect — `NextAction.linkedEntityRefs` and `Note.linkedEntityRefs` were
+  storable and syncable but invisible to every graph consumer. No relationships
+  table, no edge metadata, no graph rewrite, zero relationship migrations.
+
+  **`excludeFromAi` shipped with the primitive**, not retrofitted. Audit finding:
+  every AI call takes an explicit `text` argument built from Reading passages
+  (`lib/reading/study.ts` → `askQuestion`); **no path assembles `StoreState` into
+  an AI packet**, so a Constitution element cannot leak merely by existing in
+  state. `aiVisibleElements` exists so the first path that ever wants one has an
+  obviously-correct thing to call. An excluded element still lists, searches,
+  graphs, versions and exports — exclusion is from AI, not from its own author.
+
+  **Correction to the pre-056 risk note (R1).** That note claimed graph
+  expansion was a meaningful performance risk. **Measurement disproved it:** on
+  the 300× store `buildGraph` costs 1–7 ms of ~1000 ms (~0.6%), while
+  `buildThemes` accounts for 88–92% and never touches the graph at all. Graph
+  expansion is not a performance concern for this or any following sprint. The
+  memory suite's sensitivity is `buildThemes` under container load, which remains
+  out of scope.
+
+  **Durable lesson.** The gate that makes "AI proposes; the user adopts" real is
+  a *field*, not a UI convention. Because `adoptedAt` is unset by construction
+  and settable from exactly one function, no future importer, promotion path, or
+  AI surface can make something constitutional by accident — it would have to
+  call the adopt action deliberately, which is exactly the act we want a human to
+  perform.
 - **LIFEOS-055U — A fresh visitor had no way to sign in (live defect).**
 
   **Symptom.** A first-ever Incognito load of `app.conqify.com` rendered no

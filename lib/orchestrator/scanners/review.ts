@@ -35,7 +35,7 @@ export const reviewScanner: Scanner = (state: StoreState): RecommendationProposa
       subsystem: "review",
       rationale: `You've held “${b.text}” for about ${months} month(s) without reviewing it. A belief unexamined for that long is worth revisiting.`,
       suggestedAction: "Review the belief in your Constitution.",
-      actionHref: `/constitution`,
+      actionHref: `/beliefs`,
       affected: [{ kind: "belief", id: b.id, label: b.text }],
     }));
   }

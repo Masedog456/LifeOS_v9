@@ -8,8 +8,8 @@
  * module holds the deterministic expectations that both the rehearsal and the
  * release self-test check against, so the two can never disagree.
  *
- * Historical migrations are never modified. The current head is 0037
- * (`0037_protocols.sql`, the LIFEOS-054 conditional intention). A demonstrated
+ * Historical migrations are never modified. The current head is 0038
+ * (`0038_constitution.sql`, the LIFEOS-056 Living Constitution). A demonstrated
  * release-blocking database defect would add exactly one narrowly-scoped
  * `0038_v1_release_fix.sql` beyond it.
  */
@@ -37,7 +37,8 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-reading-ingestion", label: "Before native reading upload", throughVersion: 31 },
   { id: "pre-reading-originals", label: "Before reading-file persistence", throughVersion: 32 },
   { id: "pre-reading-semantic", label: "Before the reading semantic index", throughVersion: 33 },
-  { id: "current", label: "Current production head", throughVersion: 37 },
+  { id: "pre-constitution", label: "Before the Living Constitution", throughVersion: 37 },
+  { id: "current", label: "Current production head", throughVersion: 38 },
 ];
 
 export interface MigrationListReport {
@@ -78,7 +79,7 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  * A demonstrated release-blocking migration fix may add exactly this file, and
  * nothing else. The audit rejects any new migration beyond it.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0038_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0039_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

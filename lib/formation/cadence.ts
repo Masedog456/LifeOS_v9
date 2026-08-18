@@ -66,7 +66,7 @@ export function buildCadenceReview(state: StoreState, period: CadencePeriod): Ca
       section: "What changed",
       title: snippet(b.text),
       invitation: `You revised this ${new Date(b.updatedAt).toLocaleDateString()}. Does the new wording still feel true?`,
-      href: "/constitution",
+      href: "/beliefs",
     });
   }
 
@@ -124,7 +124,7 @@ export function buildCadenceReview(state: StoreState, period: CadencePeriod): Ca
         section: "Beliefs you haven't revisited",
         title: snippet(b.text),
         invitation: `You haven't returned to this in ${d} days. Still yours, as written?`,
-        href: "/constitution",
+        href: "/beliefs",
       });
     }
   }

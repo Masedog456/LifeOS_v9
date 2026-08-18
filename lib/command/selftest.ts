@@ -36,6 +36,8 @@ function emptyState(): StoreState {
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [], workspaces: [], sessions: [], goals: [], projects: [], dailyReviews: [], nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [], maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [],
     notes: [],
     protocols: [],
+    constitutionElements: [],
+    constitutionRevisions: [],
   };
 }
 const CONF = { factual: "moderate", logical: "moderate", evidential: "moderate", experiential: "moderate" } as const;

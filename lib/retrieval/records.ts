@@ -135,7 +135,7 @@ export function buildRecords(state: StoreState): RetrievalRecord[] {
       concepts: b.theme ? [b.theme] : undefined,
       createdAt: b.createdAt,
       updatedAt: b.updatedAt,
-      href: "/constitution",
+      href: "/beliefs",
     });
     // Earlier wordings as revision records.
     for (let i = 0; i < b.revisions.length - 1; i++) {
@@ -148,7 +148,7 @@ export function buildRecords(state: StoreState): RetrievalRecord[] {
         beliefId: b.id,
         status: b.status,
         createdAt: r.at,
-        href: "/constitution",
+        href: "/beliefs",
       });
     }
   }

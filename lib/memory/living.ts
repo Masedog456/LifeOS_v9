@@ -133,7 +133,7 @@ export function buildLivingMemory(state: StoreState, opts?: { now?: number; gene
   // ---- Beliefs: not_revisited (+ related recent captures + related open dialogue) ----
   for (const b of state.beliefs) {
     if (b.status === "rejected") continue;
-    const href = "/constitution";
+    const href = "/beliefs";
     const self: MemoryRecordRef = { kind: "belief", id: b.id, label: b.text, href };
     const age = daysSince(beliefLastTouched(b), now);
     if (b.status === "accepted" && age >= STALE_DAYS) {
@@ -229,7 +229,7 @@ export function buildLivingMemory(state: StoreState, opts?: { now?: number; gene
     if (y === null) return;
     touch(kind, id, title, href, "anniversary", { rule: "anniversary", label: `${y} year${y === 1 ? "" : "s"} ago today` }, [{ kind, id, label: title, href }]);
   };
-  for (const b of state.beliefs) if (b.status !== "rejected") anni("belief", b.id, b.text, "/constitution", b.createdAt);
+  for (const b of state.beliefs) if (b.status !== "rejected") anni("belief", b.id, b.text, "/beliefs", b.createdAt);
   for (const c of state.captures) anni("capture", c.id, c.text, "/", c.createdAt);
   for (const d of state.decisions) anni("decision", d.id, d.title, `/decisions/${d.id}`, d.createdAt);
 

@@ -78,7 +78,7 @@ export function buildDailyReview(state: StoreState): ReviewSurfacedItem[] {
       refId: questioned.id,
       title: questioned.text,
       reason: `You marked this questioned on ${new Date(questioned.updatedAt).toLocaleDateString()}.`,
-      href: "/constitution",
+      href: "/beliefs",
     });
   }
 
@@ -142,7 +142,7 @@ export function buildDailyReview(state: StoreState): ReviewSurfacedItem[] {
       refId: stale.id,
       title: stale.text,
       reason: `You haven't revisited this in ${d} day${d === 1 ? "" : "s"}.`,
-      href: "/constitution",
+      href: "/beliefs",
     });
   }
 

@@ -24,7 +24,7 @@ import type { StoreState } from "@/types/mvp";
 
 /** A minimal empty StoreState (all 41 domains as empty arrays) for pure tests. */
 function emptyStore(): StoreState {
-  const domains = ["captures", "proposals", "beliefs", "sources", "feedback", "comparisons", "inquiries", "megathreads", "reflections", "practices", "reviews", "reasonings", "embeddings", "decisions", "formationSessions", "concepts", "conceptRelationships", "principles", "frameworks", "knowledgeProjects", "researchProjects", "dialogueSessions", "tensions", "syntheses", "recommendations", "documents", "citations", "workspaces", "sessions", "goals", "projects", "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments", "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews", "notes", "protocols"];
+  const domains = ["captures", "proposals", "beliefs", "sources", "feedback", "comparisons", "inquiries", "megathreads", "reflections", "practices", "reviews", "reasonings", "embeddings", "decisions", "formationSessions", "concepts", "conceptRelationships", "principles", "frameworks", "knowledgeProjects", "researchProjects", "dialogueSessions", "tensions", "syntheses", "recommendations", "documents", "citations", "workspaces", "sessions", "goals", "projects", "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments", "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews", "notes", "protocols", "constitutionElements", "constitutionRevisions"];
   const s: Record<string, unknown[]> = {};
   for (const d of domains) s[d] = [];
   return s as unknown as StoreState;

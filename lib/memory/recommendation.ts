@@ -12,7 +12,7 @@ import type { Recommendation, StoreState } from "@/types/mvp";
 import { explain, type MemoryExplanation, type MemoryRecordRef } from "@/lib/memory/explanation";
 
 const HREF: Record<string, (id: string) => string> = {
-  belief: () => "/constitution",
+  belief: () => "/beliefs",
   concept: (id) => `/world/concept/${id}`,
   dialogue: (id) => `/dialogue/${id}`,
   tension: () => "/dialogue",

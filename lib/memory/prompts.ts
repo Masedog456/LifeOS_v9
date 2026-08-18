@@ -42,7 +42,7 @@ export function buildReflectionPrompts(state: StoreState, opts?: { graph?: Knowl
         text: `You have changed your view on “${snip(b.theme || b.text, 48)}” ${changes.length} times.`,
         explanation: explain({
           triggers: [{ rule: "changed_view", label: `${changes.length} recorded revisions` }],
-          evidence: [{ kind: "belief", id: b.id, label: b.text, href: "/constitution", note: `revised ${changes.length}×` }],
+          evidence: [{ kind: "belief", id: b.id, label: b.text, href: "/beliefs", note: `revised ${changes.length}×` }],
         }),
       });
     }
@@ -60,7 +60,7 @@ export function buildReflectionPrompts(state: StoreState, opts?: { graph?: Knowl
         text: `The belief “${snip(b.text, 52)}” has never been challenged.`,
         explanation: explain({
           triggers: [{ rule: "never_challenged", label: "no contradiction, dialogue, or questioning on record" }],
-          evidence: [{ kind: "belief", id: b.id, label: b.text, href: "/constitution" }],
+          evidence: [{ kind: "belief", id: b.id, label: b.text, href: "/beliefs" }],
         }),
       });
     }
@@ -111,8 +111,8 @@ export function buildReflectionPrompts(state: StoreState, opts?: { graph?: Knowl
           explanation: explain({
             triggers: [{ rule: "hidden_link", label: `both connect to the concept “${c.name}”, with no direct link between them` }],
             evidence: [
-              { kind: "belief", id: a, label: ba.text, href: "/constitution" },
-              { kind: "belief", id: bb, label: bj.text, href: "/constitution" },
+              { kind: "belief", id: a, label: ba.text, href: "/beliefs" },
+              { kind: "belief", id: bb, label: bj.text, href: "/beliefs" },
               { kind: "concept", id: c.id, label: c.name, href: `/world/concept/${c.id}` },
             ],
           }),

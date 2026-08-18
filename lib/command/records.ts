@@ -9,6 +9,7 @@
  */
 
 import { noteDisplayTitle } from "@/lib/notes/notes";
+import { CONSTITUTION_KIND_LABEL } from "@/types/mvp";
 import type { StoreState } from "@/types/mvp";
 import type { SearchEntry } from "@/lib/command/types";
 
@@ -81,7 +82,7 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
   for (const c of state.captures) add("capture", c.id, c.workingText ?? c.text, { body: `${c.text} ${c.workingText ?? ""} ${(c.tags ?? []).join(" ")}`, aliases: c.tags, status: c.processingStatus ?? "inbox", updatedAt: c.createdAt, href: "/" });
   for (const b of state.beliefs) {
     if (b.status === "rejected") continue;
-    add("belief", b.id, b.text, { body: `${b.text} ${b.theme ?? ""}`, aliases: b.theme ? [b.theme] : [], status: b.status, updatedAt: b.updatedAt, href: "/constitution" });
+    add("belief", b.id, b.text, { body: `${b.text} ${b.theme ?? ""}`, aliases: b.theme ? [b.theme] : [], status: b.status, updatedAt: b.updatedAt, href: "/beliefs" });
   }
   for (const c of state.concepts) {
     if (c.status === "archived" || c.status === "merged") continue;
@@ -148,6 +149,24 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
     if (p.status === "retired") continue;
     add("protocol", p.id, `When ${p.trigger} → ${p.response}`, { body: `${p.trigger} ${p.response} ${p.reason ?? ""}`, status: p.status, updatedAt: p.updatedAt, href: `/protocols?protocol=${p.id}` });
   }
+  // Constitution elements join the SAME command index — no Constitution-specific
+  // search system (LIFEOS-056). Drafts are excluded: they are not part of the
+  // Constitution, so surfacing them as one would misrepresent what the user
+  // holds. Retired elements are excluded from search but remain fully readable
+  // on the Constitution surface itself. An AI-excluded element is still
+  // searchable — excluding it from AI is not hiding it from its own author.
+  for (const e of state.constitutionElements ?? []) {
+    if (e.status !== "active") continue;
+    add("constitution_element", e.id, e.statement, {
+      body: `${e.statement} ${e.note ?? ""} ${CONSTITUTION_KIND_LABEL[e.kind]}`,
+      // The kind label is an alias so searching "guiding principle" finds it and
+      // it is never confused with the knowledge-side Principle.
+      aliases: [CONSTITUTION_KIND_LABEL[e.kind]],
+      status: CONSTITUTION_KIND_LABEL[e.kind],
+      updatedAt: e.updatedAt,
+      href: `/constitution?element=${e.id}`,
+    });
+  }
   for (const doc of state.documents) {
     const sectionNotes = doc.sections.map((s) => s.note ?? "").join(" ");
     add("document", doc.id, doc.title, {
@@ -179,9 +198,10 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
 export function resolveRecord(state: StoreState, kind: string, id: string): { title: string; href: string; status?: string } | undefined {
   switch (kind) {
     case "protocol": { const p = (state.protocols ?? []).find((x) => x.id === id); return p && { title: `When ${p.trigger} → ${p.response}`, href: `/protocols?protocol=${p.id}`, status: p.status }; }
+    case "constitution_element": { const e = (state.constitutionElements ?? []).find((x) => x.id === id); return e && { title: e.statement, href: `/constitution?element=${e.id}`, status: CONSTITUTION_KIND_LABEL[e.kind] }; }
     case "note": { const n = (state.notes ?? []).find((x) => x.id === id); return n && { title: noteDisplayTitle(n), href: `/notes?note=${n.id}` }; }
     case "capture": { const c = state.captures.find((x) => x.id === id); return c && { title: snip(c.workingText ?? c.text, 60), href: "/", status: c.processingStatus ?? "inbox" }; }
-    case "belief": { const b = state.beliefs.find((x) => x.id === id); return b && { title: snip(b.text, 60), href: "/constitution", status: b.status }; }
+    case "belief": { const b = state.beliefs.find((x) => x.id === id); return b && { title: snip(b.text, 60), href: "/beliefs", status: b.status }; }
     case "concept": { const c = state.concepts.find((x) => x.id === id); return c && { title: c.name, href: `/world/concept/${c.id}`, status: c.status }; }
     case "theme": { const c = state.concepts.find((x) => x.id === id); return c && { title: c.name, href: `/themes/${c.id}`, status: c.status }; }
     case "dialogue": { const d = state.dialogueSessions.find((x) => x.id === id); return d && { title: d.title, href: `/dialogue/${d.id}`, status: d.status }; }

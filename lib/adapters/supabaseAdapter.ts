@@ -14,6 +14,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  ConstitutionElement, ConstitutionRevision,
   Belief,
   Capture,
   Comparison,
@@ -171,6 +172,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const savedInsightViews = await this.loadInsightViews();
     const notes = await this.loadNotes();
     const protocols = await this.loadProtocols();
+    const constitutionElements = await this.loadConstitutionElements();
+    const constitutionRevisions = await this.loadConstitutionRevisions();
 
     return {
       sources: (sources.data ?? []).map((r: any) =>
@@ -224,6 +227,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       savedInsightViews,
       notes,
       protocols,
+      constitutionElements,
+      constitutionRevisions,
     };
   }
 
@@ -346,6 +351,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("savedInsightViews")) await this.syncInsightViews(state.savedInsightViews ?? [], base?.savedInsightViews ?? []);
     if (w("notes")) await this.syncNotes(state.notes ?? [], base?.notes ?? []);
     if (w("protocols")) await this.syncProtocols(state.protocols ?? [], base?.protocols ?? []);
+    if (w("constitutionElements")) await this.syncConstitutionElements(state.constitutionElements ?? [], base?.constitutionElements ?? []);
+    if (w("constitutionRevisions")) await this.syncConstitutionRevisions(state.constitutionRevisions ?? [], base?.constitutionRevisions ?? []);
     this.lastState = "synced";
     this.lastError = undefined;
   }
@@ -536,6 +543,45 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       const res = await this.client.from("protocols").select("*").order("updated_at", { ascending: false });
       if (res.error) return [];
       return (res.data ?? []).map(rowToProtocol);
+    } catch { return []; }
+  }
+
+  /**
+   * Row-level upsert/delete for constitution elements (LIFEOS-056).
+   *
+   * Deleting an element cascades its revisions IN THE DATABASE (0038), so the
+   * local revision rows are dropped by the store at the same time and the two
+   * stay consistent. The tombstone carries only `{domain, recordId, deletedAt}`
+   * — never the statement text.
+   */
+  private async syncConstitutionElements(current: ConstitutionElement[], base: ConstitutionElement[]): Promise<void> {
+    const d = diffById<ConstitutionElementRow>(current.map(constitutionElementToRow), base.map(constitutionElementToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("constitution_elements").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("constitution_elements").delete().in("id", d.deleteIds)); await this.writeTombstones("constitutionElements", d.deleteIds); }
+  }
+
+  /** Row-level upsert/delete for constitution revisions (LIFEOS-056). */
+  private async syncConstitutionRevisions(current: ConstitutionRevision[], base: ConstitutionRevision[]): Promise<void> {
+    const d = diffById<ConstitutionRevisionRow>(current.map(constitutionRevisionToRow), base.map(constitutionRevisionToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("constitution_revisions").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("constitution_revisions").delete().in("id", d.deleteIds)); await this.writeTombstones("constitutionRevisions", d.deleteIds); }
+  }
+
+  /** Load constitution elements, resilient to the 0038 table being absent. */
+  private async loadConstitutionElements(): Promise<ConstitutionElement[]> {
+    try {
+      const res = await this.client.from("constitution_elements").select("*").order("updated_at", { ascending: false });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToConstitutionElement);
+    } catch { return []; }
+  }
+
+  /** Load constitution revisions, resilient to the 0038 table being absent. */
+  private async loadConstitutionRevisions(): Promise<ConstitutionRevision[]> {
+    try {
+      const res = await this.client.from("constitution_revisions").select("*").order("at", { ascending: true });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToConstitutionRevision);
     } catch { return []; }
   }
 
@@ -2162,6 +2208,62 @@ function rowToNote(r: any): Note {
     fromAiText: r.from_ai_text ? true : undefined,
     archived: r.archived ? true : undefined,
     createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+interface ConstitutionElementRow {
+  id: string; user_id?: string; kind: string; statement: string; note: string | null;
+  status: string; adopted_at: string | null; retired_at: string | null;
+  supersedes_id: string | null; workspace_id: string | null;
+  linked_refs: unknown; source_capture_id: string | null;
+  from_ai_text: boolean; exclude_from_ai: boolean;
+  created_at: string; updated_at: string;
+}
+function constitutionElementToRow(e: ConstitutionElement): ConstitutionElementRow {
+  return {
+    id: e.id, kind: e.kind, statement: e.statement ?? "", note: e.note ?? null,
+    status: e.status, adopted_at: e.adoptedAt ?? null, retired_at: e.retiredAt ?? null,
+    supersedes_id: e.supersedesId ?? null, workspace_id: e.workspaceId ?? null,
+    linked_refs: e.linkedRefs ?? [], source_capture_id: e.sourceCaptureId ?? null,
+    // Both are stored FACTS, not display flags — they must round-trip exactly.
+    from_ai_text: !!e.fromAiText, exclude_from_ai: !!e.excludeFromAi,
+    created_at: e.createdAt, updated_at: e.updatedAt,
+  };
+}
+function rowToConstitutionElement(r: any): ConstitutionElement {
+  return {
+    id: r.id, kind: (r.kind ?? "value") as ConstitutionElement["kind"],
+    statement: r.statement ?? "", note: r.note ?? undefined,
+    status: (r.status ?? "draft") as ConstitutionElement["status"],
+    adoptedAt: r.adopted_at ?? undefined, retiredAt: r.retired_at ?? undefined,
+    supersedesId: r.supersedes_id ?? undefined, workspaceId: r.workspace_id ?? undefined,
+    linkedRefs: Array.isArray(r.linked_refs) ? r.linked_refs : [],
+    sourceCaptureId: r.source_capture_id ?? undefined,
+    fromAiText: r.from_ai_text ? true : undefined,
+    excludeFromAi: r.exclude_from_ai ? true : undefined,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+interface ConstitutionRevisionRow {
+  id: string; user_id?: string; element_id: string; change_kind: string;
+  previous_statement: string | null; new_statement: string | null;
+  reason: string | null; evidence_refs: unknown; at: string;
+}
+function constitutionRevisionToRow(r: ConstitutionRevision): ConstitutionRevisionRow {
+  return {
+    id: r.id, element_id: r.elementId, change_kind: r.changeKind,
+    previous_statement: r.previousStatement ?? null, new_statement: r.newStatement ?? null,
+    reason: r.reason ?? null, evidence_refs: r.evidenceRefs ?? [], at: r.at,
+  };
+}
+function rowToConstitutionRevision(r: any): ConstitutionRevision {
+  return {
+    id: r.id, elementId: r.element_id, changeKind: (r.change_kind ?? "edited") as ConstitutionRevision["changeKind"],
+    previousStatement: r.previous_statement ?? undefined, newStatement: r.new_statement ?? undefined,
+    reason: r.reason ?? undefined,
+    evidenceRefs: Array.isArray(r.evidence_refs) ? r.evidence_refs : [],
+    at: r.at,
   };
 }
 

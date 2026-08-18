@@ -51,7 +51,7 @@ export function crossReferences(state: StoreState, project: KnowledgeProject, se
   for (const bId of citedIds) {
     const b = state.beliefs.find((x) => x.id === bId);
     if (b && b.status === "questioned") {
-      out.push({ id: `xr:contra:${section.id}:${b.id}`, kind: "contradiction", title: b.text.slice(0, 60), detail: "You're citing a belief you've marked questioned — make sure the section reflects that.", refs: [b.id], href: "/constitution" });
+      out.push({ id: `xr:contra:${section.id}:${b.id}`, kind: "contradiction", title: b.text.slice(0, 60), detail: "You're citing a belief you've marked questioned — make sure the section reflects that.", refs: [b.id], href: "/beliefs" });
     }
   }
   const citedConcepts = [...citedIds].map((id) => state.concepts.find((c) => c.id === id)).filter(Boolean) as typeof state.concepts;

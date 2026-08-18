@@ -5,7 +5,7 @@
  * Stands up a throwaway PostgreSQL 16 cluster and rehearses the complete
  * migration chain against it:
  *
- *   - clean apply 0001 -> 0037 in order
+ *   - clean apply 0001 -> 0038 in order
  *   - repeated application (idempotency) x3 on the same database
  *   - upgrade from every representative checkpoint (pre-reading ... current)
  *   - constraint + index + RLS survival after the full chain
@@ -116,19 +116,19 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 37, `found ${files.length} migration files, expected 37`);
+  ok("migration files present", files.length === 38, `found ${files.length} migration files, expected 38`);
 
-  // 1) Clean apply 0001 -> 0037 on a fresh database.
+  // 1) Clean apply 0001 -> 0038 on a fresh database.
   createDbWithAuth("rc_clean");
   applyChain("rc_clean", files);
   const tableCount = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("clean apply 0001->0037 (58 public tables)", tableCount === 58, `got ${tableCount} public tables`);
+  ok("clean apply 0001->0038 (60 public tables)", tableCount === 60, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
   applyChain("rc_clean", files);
   const tableCount3 = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("idempotent x3 (stable table count)", tableCount3 === 58, `after 3x got ${tableCount3}`);
+  ok("idempotent x3 (stable table count)", tableCount3 === 60, `after 3x got ${tableCount3}`);
 
   // 3) RLS enabled on every public table + each has policies.
   const noRls = psql("rc_clean", `select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity=false order by 1;`).trim();
@@ -151,11 +151,11 @@ function run() {
   }
 
   // 6) Checkpoint upgrades: for each checkpoint, apply through N on a fresh DB,
-  //    then apply the remainder — must reach 58 tables cleanly.
+  //    then apply the remainder — must reach 60 tables cleanly.
   const checkpoints = [
     ["pre-reading", 20], ["pre-workspaces", 21], ["pre-actions", 26],
     ["pre-planning", 27], ["pre-maintenance", 28], ["pre-security", 30],
-    ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["current", 37],
+    ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["pre-constitution", 37],
   ];
   for (const [id, through] of checkpoints) {
     const db = `rc_cp_${through}`;
@@ -165,10 +165,10 @@ function run() {
     applyChain(db, first);
     applyChain(db, rest);
     const c = Number(psql(db, "select count(*) from pg_tables where schemaname='public';").trim());
-    // 58, not 56: LIFEOS-052 added `notes` (0035) and LIFEOS-054 added
-    // `protocols` (0037). The property under test is unchanged — an upgraded
+    // 60, not 58: LIFEOS-056 added `constitution_elements` and
+    // `constitution_revisions` (0038). The property under test is unchanged — an upgraded
     // database must reach exactly the same table count as a clean install.
-    ok(`checkpoint upgrade ${id} (through ${through})`, c === 58, `reached ${c} tables`);
+    ok(`checkpoint upgrade ${id} (through ${through})`, c === 60, `reached ${c} tables`);
     psql("postgres", `drop database if exists ${db} with (force);`);
   }
 

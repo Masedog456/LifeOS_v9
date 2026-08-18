@@ -70,6 +70,15 @@ export const TABLE_REGISTRY: readonly TableAudit[] = [
   // Reading semantic index (LIFEOS-049) — one embedding per retrieval chunk.
   // Stores numbers + a chunk id, never document text; scoped per user + document.
   { table: "reading_chunk_embeddings", migration: "0034", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "cascade-from-user" },
+  // Notes (LIFEOS-052) and Protocols (LIFEOS-054).
+  { table: "notes", migration: "0035", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "notes" },
+  { table: "protocols", migration: "0037", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "protocols" },
+  // The Living Constitution (LIFEOS-056) — the most sensitive user content in
+  // the product. Deleting an element CASCADES its revisions, because a revision
+  // stores the prior wording: leaving them would make a sensitive statement
+  // undeletable merely because history exists. Tombstones carry no content.
+  { table: "constitution_elements", migration: "0038", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "constitutionElements" },
+  { table: "constitution_revisions", migration: "0038", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "constitutionRevisions" },
 ];
 
 export interface PolicyPresence {
