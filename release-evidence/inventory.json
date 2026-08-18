@@ -2,14 +2,14 @@
   "release": {
     "releaseTag": "v1.0.0-rc1",
     "appVersion": "1.0.0-rc1",
-    "migrationVersion": 38,
-    "migrationCount": 38,
+    "migrationVersion": 39,
+    "migrationCount": 39,
     "stateVersion": 1,
     "exportArchiveVersion": 1,
     "backupSchemaVersion": 1,
     "supportedMigrationRange": [
       20,
-      38
+      39
     ],
     "supportedArchiveRange": [
       1,
@@ -89,7 +89,7 @@
     "constitutionElements",
     "constitutionRevisions"
   ],
-  "migrationCount": 38,
+  "migrationCount": 39,
   "tableCountNote": "55 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
   "preferenceBlocks": [
     "onboarding",
@@ -288,7 +288,8 @@
     "0035_notes.sql",
     "0036_action_due_date.sql",
     "0037_protocols.sql",
-    "0038_constitution.sql"
+    "0038_constitution.sql",
+    "0039_constitution_revision_successor.sql"
   ],
   "tableCount": 60
 }

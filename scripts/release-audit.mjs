@@ -32,18 +32,20 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 38", files.length === 38, `found ${files.length}`);
+ok("migration count == 39", files.length === 39, `found ${files.length}`);
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
-// Head is 0038 (0038_constitution.sql, LIFEOS-056). A release-blocking DB defect
-// would add exactly one narrowly-scoped 0039_v1_release_fix.sql beyond it.
-const beyond38 = files.filter((f) => Number(f.slice(0, 4)) > 38);
-ok("no migration beyond 0038 except allowed 0039 fix", beyond38.every((f) => f === "0039_v1_release_fix.sql"), `unexpected: ${beyond38.join(", ")}`);
+// Head is 0039 (0039_constitution_revision_successor.sql, LIFEOS-056D). A
+// release-blocking DB defect would add exactly one narrowly-scoped
+// 0040_v1_release_fix.sql beyond it.
+const beyond39 = files.filter((f) => Number(f.slice(0, 4)) > 39);
+ok("no migration beyond 0039 except allowed 0040 fix", beyond39.every((f) => f === "0040_v1_release_fix.sql"), `unexpected: ${beyond39.join(", ")}`);
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");
 const createTable = (allSql.match(/create table if not exists/gi) || []).length;
-// 60, not 58: LIFEOS-056 added constitution_elements + constitution_revisions (0038).
+// 60, not 58: LIFEOS-056 added constitution_elements + constitution_revisions
+// (0038). 0039 adds a COLUMN, not a table, so this count is unchanged.
 ok("60 CREATE TABLE IF NOT EXISTS", createTable === 60, `found ${createTable}`);
 const userOwned = (allSql.match(/user_id\s+uuid\s+not null\s+default\s+auth\.uid\(\)/gi) || []).length;
 ok("user-owned tables default user_id to auth.uid()", userOwned >= 40, `found ${userOwned}`);

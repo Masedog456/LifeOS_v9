@@ -2247,12 +2247,15 @@ function rowToConstitutionElement(r: any): ConstitutionElement {
 
 interface ConstitutionRevisionRow {
   id: string; user_id?: string; element_id: string; change_kind: string;
+  /** The successor a `revised` transition produced (LIFEOS-056D). */
+  successor_id: string | null;
   previous_statement: string | null; new_statement: string | null;
   reason: string | null; evidence_refs: unknown; at: string;
 }
 function constitutionRevisionToRow(r: ConstitutionRevision): ConstitutionRevisionRow {
   return {
     id: r.id, element_id: r.elementId, change_kind: r.changeKind,
+    successor_id: r.successorId ?? null,
     previous_statement: r.previousStatement ?? null, new_statement: r.newStatement ?? null,
     reason: r.reason ?? null, evidence_refs: r.evidenceRefs ?? [], at: r.at,
   };
@@ -2260,6 +2263,9 @@ function constitutionRevisionToRow(r: ConstitutionRevision): ConstitutionRevisio
 function rowToConstitutionRevision(r: any): ConstitutionRevision {
   return {
     id: r.id, elementId: r.element_id, changeKind: (r.change_kind ?? "edited") as ConstitutionRevision["changeKind"],
+    // Absent on pre-056D rows and on every non-supersession event — undefined is
+    // the correct, lossless representation of "this produced no successor".
+    successorId: r.successor_id ?? undefined,
     previousStatement: r.previous_statement ?? undefined, newStatement: r.new_statement ?? undefined,
     reason: r.reason ?? undefined,
     evidenceRefs: Array.isArray(r.evidence_refs) ? r.evidence_refs : [],

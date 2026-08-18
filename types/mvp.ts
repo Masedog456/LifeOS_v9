@@ -2896,6 +2896,25 @@ export interface ConstitutionRevision {
   id: string;
   elementId: string;
   changeKind: ConstitutionChangeKind;
+  /**
+   * For a `revised` transition, the SUCCESSOR element this wording produced
+   * (LIFEOS-056D).
+   *
+   * A conceptual revision spans two elements: the row is owned by the
+   * predecessor (`elementId`) but its `newStatement` is the SUCCESSOR's text.
+   * Without an explicit pointer, deleting the successor left its statement
+   * sitting in the predecessor's history — visible, persisted, exported and
+   * synced — which broke the product's deletion guarantee.
+   *
+   * Making the relationship explicit gives the transition two deletion paths:
+   * deleting the predecessor removes it via `elementId`, and deleting the
+   * successor removes it via `successorId`. Both are intended. Text matching or
+   * timestamp heuristics were rejected: a deletion guarantee must not depend on
+   * guessing which row happens to contain the deleted words.
+   *
+   * `undefined` on every other change kind, and on rows written before 056D.
+   */
+  successorId?: string;
   /** The wording before this change; absent on `created`. */
   previousStatement?: string;
   /** The wording after this change, when the statement changed. */
