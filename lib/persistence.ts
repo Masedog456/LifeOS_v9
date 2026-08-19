@@ -19,6 +19,7 @@ import type { PersistenceHealth } from "@/lib/adapters/types";
 import { reconcileAdoption } from "@/lib/persistence-reconcile";
 import * as authStore from "@/lib/authStore";
 import { markBootstrap } from "@/lib/security/auth-bootstrap";
+import { INTERVIEW_STORAGE_KEY } from "@/lib/interview/session";
 
 const STORAGE_KEY = "lifeos.mvp.v1";
 const MIGRATED_KEY = "lifeos.migrated.v1";
@@ -195,6 +196,12 @@ export function clearState(): void {
     try {
       window.localStorage.removeItem(STORAGE_KEY);
       window.localStorage.removeItem(MIGRATED_KEY);
+      // The Constitution Builder keeps its in-flight answers in their own local
+      // key rather than in StoreState (LIFEOS-058) — deliberately, so they are
+      // never synced or exported. That decision only holds if wiping local data
+      // takes them too: an unfinished answer about someone's marriage or faith
+      // must not outlive the account on this machine.
+      window.localStorage.removeItem(INTERVIEW_STORAGE_KEY);
     } catch {
       // no-op
     }

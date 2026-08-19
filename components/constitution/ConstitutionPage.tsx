@@ -367,6 +367,22 @@ export default function ConstitutionPage({ initialId }: { initialId?: string }) 
         </p>
       </header>
 
+      {/* The guided route in (LIFEOS-058). Deliberately an invitation, not an
+          onboarding step: it never starts on its own, and the page below works
+          perfectly well for someone who would rather just write. */}
+      <section className="mb-8 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
+        <h2 className="text-sm font-medium">Not sure what to write?</h2>
+        <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+          The Constitution Builder asks you about what matters, what is hard, and how you want to act, then
+          suggests wording you can accept, change, or throw away. Conqify may suggest wording, but nothing
+          becomes part of your Constitution until you choose it.
+        </p>
+        <Link href="/constitution/build"
+          className="mt-3 inline-block rounded-full border border-black/[.12] px-4 py-1.5 text-xs dark:border-white/[.15]">
+          Build my Constitution
+        </Link>
+      </section>
+
       {/* ---- write ---- */}
       <section className="mb-8 rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
         <div className="mb-3 flex flex-wrap gap-1.5">

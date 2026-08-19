@@ -3717,3 +3717,101 @@ connectors require repeated beta demand **and** stable API support, both.
   comparison from quietly becoming a scoreboard — and the hardest case is
   absence, where the honest answer is about the product's blind spot rather than
   the person's life.
+
+- **LIFEOS-058 — Life Architecture Interview & Constitution Builder (implemented).**
+  The guided route into a Constitution for someone who does not already have one
+  written: a calm, one-question-at-a-time interview that proposes wording, and
+  a review screen where every proposal must be accepted, altered, shelved, or
+  thrown away individually.
+
+  **The durable chain, and the rule that it never collapses.** Each arrow below
+  is a separate step on a separate surface, and no code path skips one:
+
+      USER EXPERIENCE -> USER ANSWER -> AI INTERPRETATION -> PROPOSAL
+        -> EXPLICIT HUMAN ADOPTION -> CONSTITUTION -> OPERATIONAL LINKS
+        -> RECORDED LIFE
+
+  Restated as the invariant the sprint was built around: an INTERVIEW ANSWER is
+  not a Constitution, an AI SYNTHESIS is not a Constitution, and a PROPOSAL is
+  not a Constitution. Only an explicit human adoption creates an element.
+
+  **Zero migrations, deliberately.** In-flight session state lives in ONE
+  browser-local key (`conqify.interview.v1`), outside `StoreState`: not synced,
+  not exported, not in a backup, not in a tombstone ledger. These answers can
+  contain religion, sexuality, addiction, money, trauma and family conflict, and
+  an `interview_sessions` table would have put all of it on a server permanently
+  in exchange for a convenience the browser already provides. `clearState()`
+  removes the key, so signing out takes the interview with it. The only durable
+  artifacts are what the user chose: an adopted or kept-as-draft element, and —
+  strictly opt-in — their answers saved as an ordinary Note.
+
+  **Proposals never touch the store.** A proposal is session-local until the user
+  acts. Dismiss writes nothing at all, because there was never anything there to
+  remove. Adopt is `createConstitutionElement` followed by
+  `adoptConstitutionElement` — the SAME single gate from 056, called from a click
+  handler. No second adoption mechanism was written.
+
+  **Adoption is not authorship, and editing a proposal is not either.**
+  `updateConstitutionElement` clears `fromAiText` on any statement change,
+  because for an element the user already owns, editing is authoring. On the
+  proposal path the rule is stricter: `fromAiText` survives unless fewer than
+  half the model's meaning-bearing words do, measured against the ORIGINAL
+  wording so a chain of small edits cannot creep past it. Fixing one word in a
+  sentence the model wrote must not launder it into user-authored provenance.
+  The bias is the safe direction: over-attributing to the machine costs a label,
+  under-attributing costs the product its central guarantee.
+
+  **Four independent layers stop prompt injection**, so any one failing leaves
+  the others standing: (1) source text is defused before packing, so it cannot
+  emit the delimiters or headers that would forge a band boundary; (2) the output
+  schema has no verbs — no field can express a state change; (3) the validator
+  rejects instruction-shaped prose, unknown kinds, forbidden fields, invented
+  answer ids, and source refs the user never attached; (4) the store gate is
+  reachable only from a click. The adversarial tests assert the OUTCOME (nothing
+  adopted), not that any single layer caught it.
+
+  **The model gets less than the user does.** `aiVisibleElements` withholds every
+  `excludeFromAi` element from the context, and the disclosure says how many were
+  withheld — but the deterministic duplicate check runs locally over ALL active
+  elements, including the hidden ones. So the user is warned they already have
+  something similar while the model never learns that element exists.
+
+  **Skipping means forgetting.** Skipping a section deletes the answers already
+  given in it, and the context builder filters skipped domains a second time
+  independently. A skip that left the answer in place, still sendable, would make
+  the skip a lie.
+
+  **Philosophy vs. operations.** `classifyStatement` routes conditional
+  ("when X, I will Y") toward Protocol, errands toward Action, and quantified
+  outcomes toward Goal — as an OFFER with the Constitution still available, never
+  a block. A Constitution that fills up with to-dos is a document that expires.
+
+  **Literal arithmetic only.** The feasibility check sums durations the user
+  actually stated and counts, without estimating, the commitments that named
+  none. "About 7 hours before sleep, meals, transportation, or other
+  responsibilities" is a fact about sentences; "you lack discipline" is a verdict,
+  and there is no feasibility score.
+
+  **Cost.** Two call sites, both after a batch of answers: one follow-up call per
+  completed domain, one synthesis at review. Never on keystroke, blur, timer, or
+  in the background. Measured: ~682 tokens (short) to ~2,618 tokens (14 domains,
+  40 stored elements); follow-up calls omit the Constitution entirely.
+
+  **Validation.** Interview suite 255/255; full regression 2165/2165 across 26
+  suites; integration 64/64; migration rehearsal 46/46 (unchanged — no new
+  migration); founder browser smoke 49/49; failure-mode smoke 22/22 covering
+  provider failure, malformed output, prompt-injected source text, and a skipped
+  sensitive section.
+
+  **Two defects the browser smoke caught that the unit tests could not.** The
+  start button did nothing, because the disclosure branch also matched whenever
+  the session was null; and interview position was an index into a derived,
+  mutable queue, so "Back" could land on a question the user had never seen.
+  Position is now tracked by question id. Both were invisible to pure tests
+  because both were about a real sequence of clicks.
+
+  **Durable lesson.** The safest place for sensitive data is nowhere. Asking
+  "does this need to persist?" before "what table does this need?" turned a
+  migration, a sync path, an export domain and a deletion story into one
+  localStorage key — and made the privacy guarantee something a user can verify
+  rather than something they have to trust.
