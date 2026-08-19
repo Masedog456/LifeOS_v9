@@ -25,7 +25,7 @@ import { HELP_SECTIONS } from "@/lib/onboarding/education";
  */
 const DATA_BEARING = new Set<string>([
   "/today", "/", "/process", "/workspaces", "/goals", "/projects", "/actions",
-  "/plan", "/focus", "/daily", "/reading", "/document", "/world", "/beliefs", "/constitution", "/constitution/reflection",
+  "/plan", "/focus", "/daily", "/reading", "/document", "/world", "/beliefs", "/constitution", "/constitution/reflection", "/constitution/build",
   "/research", "/maintenance", "/insights", "/backup", "/recovery", "/privacy", "/security",
 ]);
 
@@ -86,7 +86,7 @@ export function validateRoutes(): RouteAuditReport {
   // Help coverage: every non-utility data surface should be discoverable in Help.
   // Utility/selector and record-detail surfaces reachable from a parent that
   // does have help coverage; not each individually enumerated in Help.
-  const helpExempt = new Set(["/document", "/world", "/beliefs", "/constitution", "/constitution/reflection", "/constitution/reflection", "/research", "/search", "/workspaces", "inspector"]);
+  const helpExempt = new Set(["/document", "/world", "/beliefs", "/constitution", "/constitution/reflection", "/constitution/build", "/research", "/search", "/workspaces", "inspector"]);
   const missingHelp = audited.filter((r) => r.route.startsWith("/") && !r.hasHelp && !helpExempt.has(r.route));
   for (const r of missingHelp) problems.push(`${r.route} has no help coverage`);
 

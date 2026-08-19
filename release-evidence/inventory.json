@@ -16,7 +16,7 @@
       1
     ]
   },
-  "routeCount": 24,
+  "routeCount": 25,
   "productionRoutes": [
     "/today",
     "/",
@@ -33,6 +33,7 @@
     "/world",
     "/constitution",
     "/constitution/reflection",
+    "/constitution/build",
     "/beliefs",
     "/research",
     "/maintenance",

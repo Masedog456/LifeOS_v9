@@ -26,6 +26,8 @@ import { mockWorld } from "@/lib/mockWorld";
 import { mockOutlines, mockSectionDraft } from "@/lib/mockAuthoring";
 import type { DraftTransform, EvidenceItem, ProjectEvidence } from "@/types/mvp";
 import { authedJsonHeaders } from "@/lib/security/api-token";
+import { mockFollowups, mockInterviewSynthesis } from "@/lib/mockInterview";
+import type { ContextItem } from "@/lib/interview/context";
 
 export type AiSource = "ai" | "mock";
 export type { ChunkMap } from "@/lib/mockAI";
@@ -300,5 +302,36 @@ export function draftSection(args: { evidence: ProjectEvidence[]; heading: strin
   return call<unknown>(
     { task: "section_draft", evidence: projectToWire(args.evidence), draft: JSON.stringify(context) },
     () => mockSectionDraft({ evidence: projectToWire(args.evidence), context: { heading: args.heading, purpose: args.purpose, transform: args.transform } }),
+  );
+}
+
+// ---------- Life Architecture Interview (LIFEOS-058) ----------
+
+/**
+ * Both interview calls send the SAME banded context shape, and both return RAW
+ * objects that `lib/interview/proposals.ts` must validate before anything
+ * reaches session state. Nothing here interprets model output — that separation
+ * is what keeps the validator the single place where trust is granted.
+ *
+ * The `items` are already defused and privacy-filtered by
+ * `lib/interview/context.ts`; this function only puts them on the wire.
+ */
+function interviewWire(items: readonly ContextItem[]) {
+  return items.map((i) => ({ id: i.id, group: i.group, kind: i.kind, text: i.text }));
+}
+
+/** Up to two targeted follow-up questions about the most recent answer. One call. */
+export function interviewFollowups(items: readonly ContextItem[]) {
+  return call<unknown>(
+    { task: "interview_followups", evidence: interviewWire(items) },
+    () => mockFollowups(items),
+  );
+}
+
+/** One synthesis pass: answers → Constitution candidates + possible tensions. */
+export function interviewSynthesis(items: readonly ContextItem[]) {
+  return call<unknown>(
+    { task: "interview_synthesis", evidence: interviewWire(items) },
+    () => mockInterviewSynthesis(items),
   );
 }
