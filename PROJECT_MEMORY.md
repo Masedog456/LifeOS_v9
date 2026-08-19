@@ -3740,10 +3740,11 @@ connectors require repeated beta demand **and** stable API support, both.
   not exported, not in a backup, not in a tombstone ledger. These answers can
   contain religion, sexuality, addiction, money, trauma and family conflict, and
   an `interview_sessions` table would have put all of it on a server permanently
-  in exchange for a convenience the browser already provides. `clearState()`
-  removes the key, so signing out takes the interview with it. The only durable
+  in exchange for a convenience the browser already provides. The only durable
   artifacts are what the user chose: an adopted or kept-as-draft element, and —
-  strictly opt-in — their answers saved as an ordinary Note.
+  strictly opt-in — their answers saved as an ordinary Note. (This paragraph
+  originally claimed sign-out took the interview with it. It did not; see
+  LIFEOS-058A below, which made that true.)
 
   **Proposals never touch the store.** A proposal is session-local until the user
   acts. Dismiss writes nothing at all, because there was never anything there to
@@ -3815,3 +3816,62 @@ connectors require repeated beta demand **and** stable API support, both.
   migration, a sync path, an export domain and a deletion story into one
   localStorage key — and made the privacy guarantee something a user can verify
   rather than something they have to trust.
+
+- **LIFEOS-058A — Interview session privacy truthfulness hotfix (implemented).**
+  Founder acceptance of the merged 058 found that its pre-consent disclosure told
+  the user *"Signing out or clearing your data deletes them"* — and sign-out did
+  not delete them. Every automated gate had passed.
+
+  **How a green build shipped a false privacy promise.** The cleanup was real:
+  `clearInterviewSession()` worked, and `clearState()` called it. But
+  `clearState()` is reached only from `resetStore()`, and sign-out never goes
+  near it — `handleSession(null)` deliberately keeps local data, because Conqify
+  is local-first and the app must keep working signed out. So the sentence and
+  the code were each defensible on their own, and nothing in the test suite
+  joined them. The claim lived in JSX; the cleanup lived in a different module.
+
+  **The seam: the ACTION, not the resulting state.** `authStore.signOut()` now
+  calls `clearInterviewSession()`. That function has exactly one caller — the
+  "Sign out" button — so it cannot fire for `INITIAL_SESSION`, a bootstrap
+  timeout, a provider error, or simply loading the app signed out, all of which
+  surface as the same null session. Hooking `handleSession(null)` would have
+  deleted a signed-out person's interview the moment their own app loaded.
+
+  **Cleanup runs before the provider call.** A privacy action must not be
+  contingent on a network round-trip. The browser smoke proves the point by
+  aborting the provider host: the answers are gone anyway.
+
+  **Only the interview key.** Ordinary local data still survives sign-out —
+  Notes, Constitution elements and Actions are asserted present afterwards. The
+  interview is the one exception because it is scaffolding holding answers the
+  user has not yet chosen to keep. Anything they DID keep is an ordinary record.
+
+  **Copy is now code.** `lib/interview/disclosure.ts` holds the bullets and a
+  `DELETION_PATHS` list pairing every path the copy names with the function that
+  performs it, following `lib/constitution/copy.ts`. A test asserts the pairing,
+  and that the exact original sentence would now fail. `"clearing your data"` is
+  banned outright — no control is called that.
+
+  **A second false statement, pre-dating 058.** `lib/privacy/retention.ts` said
+  local device data stays "until you clear it or sign out". Corrected, with the
+  interview's stricter policy stated as its own row rather than blurred into the
+  general one.
+
+  **A control that could not be reached.** `ResetLocalData` sat below `/beliefs`'
+  empty-state early return, so someone who had only used the Constitution
+  Builder — who therefore has no beliefs — could not reach the one general
+  control that clears local data. It now renders in both branches. An empty
+  belief ledger says nothing about whether there is local data to reset.
+
+  **Validation.** Interview suite 290/290 (255 → 290, +35 privacy assertions);
+  full regression 2200/2200 across 26 suites; integration 64/64; rehearsal 46/46
+  (no migration); tsc clean; eslint 0 errors; build compiled; audit:security and
+  release:audit PASS. Browser: 058A smoke 21/21 driving the REAL "Sign out"
+  button, plus the four earlier suites re-run green (49/49, 22/22, 24/24, 18/18).
+  Storage scanned end-to-end for a disposable phrase: zero occurrences.
+
+  **Durable lesson.** A privacy promise is a claim about a code path, so it needs
+  a test that traverses that path. Copy sitting in a component is unfalsifiable
+  by construction — the fix was not better wording but moving the sentence
+  somewhere a test could reach it, and pinning each promise to the function that
+  keeps it.

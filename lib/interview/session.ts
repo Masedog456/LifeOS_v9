@@ -23,9 +23,24 @@
  * preferences (`lib/prefs.ts`) and the quick-capture draft all keep their own
  * local keys for exactly this reason.
  *
- * `clearInterviewSession()` is wired into `clearState()` in `lib/persistence.ts`
- * so signing out or wiping local data takes the interview with it. An answer
- * about someone's marriage must not outlive the account on the machine.
+ * ## Every path that destroys it (LIFEOS-058A)
+ *
+ *   Discard / Finish   the Builder calls `clearInterviewSession()` directly
+ *   Skip a section     that section's answers are deleted immediately
+ *   Sign out           `authStore.signOut()` calls it — see the note there for
+ *                      why the ACTION is the seam and not `handleSession(null)`
+ *   Reset local data   `clearState()` in `lib/persistence.ts` calls it
+ *
+ * The sign-out path is a DELIBERATE exception to the product's local-first
+ * retention rule. Ordinary Conqify local data survives sign-out on purpose; an
+ * unfinished interview does not, because it holds answers about faith, health,
+ * money and family that the user was told would not outlive the session. An
+ * answer about someone's marriage must not outlive the account on the machine.
+ *
+ * The original 058 wiring reached `clearState()` only, which is not on the
+ * sign-out path at all — so the disclosure promised a deletion that never
+ * happened. Anything the user CHOSE to keep (an adopted element, a draft, a
+ * saved Note) is ordinary local data and is untouched by all of this.
  *
  * ## What is durable, then?
  *

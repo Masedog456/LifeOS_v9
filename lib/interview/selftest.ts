@@ -46,6 +46,13 @@ import { canGroundSource, canGroundSelf } from "@/lib/provenance";
 import { CONSTITUTION_KINDS, CONSTITUTION_KIND_LABEL } from "@/types/mvp";
 import type { ConstitutionElement, Note, StoreState, RecordRefLite, KnowledgeSource } from "@/types/mvp";
 import { STORE_DOMAINS } from "@/lib/ux/backup";
+import { saveInterviewSession, loadInterviewSession, clearInterviewSession } from "@/lib/interview/session";
+import { signOut, applySession, setAuthUnavailable } from "@/lib/authStore";
+import { clearState } from "@/lib/persistence";
+import {
+  INTERVIEW_DISCLOSURE, INTERVIEW_DISCLOSURE_INTRO, DELETION_PATHS, violatesDisclosureContract,
+} from "@/lib/interview/disclosure";
+import { RETENTION_RULES } from "@/lib/privacy/retention";
 import { EXPORT_DOMAINS } from "@/lib/backup/versioning";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
@@ -75,7 +82,7 @@ function seeded(): InterviewSession {
   return s;
 }
 
-export function runInterviewSelfTests(): SelfTestReport {
+export async function runInterviewSelfTests(): Promise<SelfTestReport> {
   const started = Date.now();
   const results: SelfTestResult[] = [];
   const ok = (name: string, pass: boolean, detail?: string) => results.push({ name, pass, detail });
@@ -757,6 +764,139 @@ export function runInterviewSelfTests(): SelfTestReport {
       (QUESTION_BY_ID["spirituality.traditions"]?.help ?? "").toLowerCase().includes("skippable"));
     ok("11.5 no question asks the user to rate themselves",
       !QUESTION_BANK.some((q) => /\b(rate|score|scale of)\b/i.test(q.text)));
+  }
+
+  // ========= 12. THE PRIVACY PROMISE IS KEPT (LIFEOS-058A) ==============
+  //
+  // 058 shipped a disclosure claiming sign-out deleted these answers. It did
+  // not: `clearInterviewSession()` was reachable only through `clearState()`,
+  // which sign-out never calls. Every gate passed, because the claim lived in
+  // JSX and the cleanup lived somewhere else, and nothing joined them.
+  //
+  // These assertions join them. They are deliberately about BEHAVIOUR at the
+  // seam, not about the copy alone — a truthful sentence over a broken code
+  // path is the same defect wearing better words.
+
+  {
+    // A minimal browser-storage shim, so the real read/write/clear functions
+    // can be exercised in Node exactly as they run in a browser.
+    const store = new Map<string, string>();
+    const g = globalThis as unknown as { window?: unknown; localStorage?: unknown };
+    const hadWindow = "window" in g;
+    const fakeStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => { store.set(k, String(v)); },
+      removeItem: (k: string) => { store.delete(k); },
+      get length() { return store.size; },
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+      clear: () => store.clear(),
+    };
+    g.window = { localStorage: fakeStorage };
+    g.localStorage = fakeStorage;
+
+    const SECRET = "ZZQTEST-disposable-sensitive-phrase";
+    const seed = () => {
+      store.clear();
+      let s = startSession("friction", AT, AT);
+      s = recordAnswer(s, "friction.wrong", "character", `Something private: ${SECRET}.`, AT);
+      saveInterviewSession(s);
+      // A stand-in for ordinary Conqify local data, which must SURVIVE sign-out.
+      store.set("lifeos.mvp.v1", JSON.stringify({ notes: [{ id: "n1", body: "an ordinary note" }] }));
+    };
+    const dump = () => Array.from(store.entries()).map(([k, v]) => `${k}=${v}`).join("\n");
+
+    // 1–3. Explicit sign-out clears the interview and NOTHING else.
+    seed();
+    ok("12.1 the interview is stored before sign-out", dump().includes(SECRET));
+    ok("12.2 ordinary local data is stored before sign-out", dump().includes("an ordinary note"));
+    await signOut();
+    ok("12.3 explicit sign-out clears the interview session", loadInterviewSession() === null);
+    ok("12.4 explicit sign-out removes the sensitive phrase from storage", !dump().includes(SECRET), dump().slice(0, 200));
+    ok("12.5 explicit sign-out does NOT clear ordinary StoreState",
+      dump().includes("an ordinary note"), dump().slice(0, 200));
+    ok("12.6 sign-out removes ONLY the interview key",
+      store.has("lifeos.mvp.v1") && !store.has(INTERVIEW_STORAGE_KEY));
+
+    // 4. Being signed out is NOT the same as signing out. The persistence
+    // facade calls `applySession(null)` for INITIAL_SESSION, for a plain
+    // signed-out load, and for a provider hiccup — none of which is a user
+    // deciding to end their session.
+    seed();
+    applySession(null);
+    ok("12.7 applying a null session does NOT clear the interview",
+      loadInterviewSession() !== null);
+    ok("12.8 a signed-out load leaves the sensitive phrase alone", dump().includes(SECRET));
+
+    // 5. Nor does auth bootstrap failing.
+    seed();
+    setAuthUnavailable("Couldn't check your sign-in status.");
+    ok("12.9 auth bootstrap failure does NOT clear the interview",
+      loadInterviewSession() !== null);
+    ok("12.10 a bootstrap failure leaves the sensitive phrase alone", dump().includes(SECRET));
+
+    // 6/7. The Builder's own exits still work — they are what "discarding" and
+    // "finishing" in the disclosure refer to.
+    seed();
+    clearInterviewSession();
+    ok("12.11 Discard/Finish still clears the interview", loadInterviewSession() === null);
+    ok("12.12 Discard/Finish removes the sensitive phrase", !dump().includes(SECRET));
+    ok("12.13 Discard/Finish leaves ordinary local data alone", dump().includes("an ordinary note"));
+
+    // 8. And the reset path still reaches it. `clearState()` owns removing the
+    // StoreState key as well, so both are gone here — that is reset's job.
+    seed();
+    clearState();
+    ok("12.14 resetting local data clears the interview", loadInterviewSession() === null);
+    ok("12.15 resetting local data removes the sensitive phrase", !dump().includes(SECRET), dump().slice(0, 200));
+
+    store.clear();
+    if (!hadWindow) { delete g.window; delete g.localStorage; }
+  }
+
+  {
+    // 9. The disclosure names only paths that really delete.
+    const named = INTERVIEW_DISCLOSURE.join(" ").toLowerCase();
+    for (const p of DELETION_PATHS) {
+      const head = p.label.split(" ")[0].replace(/ing$/, "");
+      ok(`12.16 the disclosure names the "${p.label}" path`, named.includes(head),
+        `looking for "${head}" in the copy`);
+    }
+    ok("12.17 every named deletion path records the function that performs it",
+      DELETION_PATHS.every((p) => p.via.includes("clearInterviewSession")));
+    ok("12.18 sign-out is one of the recorded deletion paths",
+      DELETION_PATHS.some((p) => p.label.includes("signing out") && p.via.includes("authStore.signOut")));
+
+    // The exact sentence that was false must not come back.
+    ok("12.19 the disclosure never claims a control called 'clearing your data'",
+      INTERVIEW_DISCLOSURE.every((l) => violatesDisclosureContract(l).length === 0),
+      INTERVIEW_DISCLOSURE.find((l) => violatesDisclosureContract(l).length > 0));
+    ok("12.20 the banned-phrase check actually catches the original wording",
+      violatesDisclosureContract("Signing out or clearing your data deletes them.").length > 0);
+    ok("12.21 the disclosure still states where the answers live",
+      named.includes("stay in this browser"));
+    ok("12.22 the disclosure still states they are not synced or exported",
+      named.includes("not synced") && named.includes("not exported"));
+    ok("12.23 the disclosure still discloses AI involvement", named.includes("ai is involved"));
+    ok("12.24 the disclosure still states adoption is explicit", named.includes("explicit"));
+    ok("12.25 the intro promises nothing is adopted without a choice",
+      INTERVIEW_DISCLOSURE_INTRO.toLowerCase().includes("until you choose it"));
+
+    // 10. The general retention copy no longer claims sign-out deletes ordinary
+    // local data, and the interview's stricter policy is stated separately.
+    const local = RETENTION_RULES.find((r) => r.subject === "Local device data");
+    ok("12.26 the local-data retention row exists", !!local);
+    ok("12.27 it no longer claims sign-out deletes ordinary local data",
+      !!local && !/until you clear it or sign out/i.test(local.retention), local?.retention);
+    ok("12.28 it says plainly that signing out keeps ordinary local data",
+      !!local && /signing out keeps it/i.test(local.retention), local?.retention);
+    const interviewRule = RETENTION_RULES.find((r) => r.subject.toLowerCase().includes("interview"));
+    ok("12.29 the interview has its own retention row", !!interviewRule);
+    ok("12.30 that row names sign-out as a deletion path",
+      !!interviewRule && /sign out/i.test(interviewRule.retention), interviewRule?.retention);
+    ok("12.31 that row states it is never synced, exported or backed up",
+      !!interviewRule && /never synced, exported or backed up/i.test(interviewRule.retention));
+    ok("12.32 no retention row claims instant erasure from backups",
+      RETENTION_RULES.every((r) => !/instantly (removed|erased|deleted) from backups/i.test(r.retention)));
   }
 
   const total = results.length;
