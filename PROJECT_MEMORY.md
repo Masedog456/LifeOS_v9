@@ -3645,3 +3645,75 @@ connectors require repeated beta demand **and** stable API support, both.
   a hang waiting to happen. Startup must *request* what it needs, bound the
   wait, and have a state that means "we could not find out" — distinct from
   both "signed out" and "still checking."
+
+- **LIFEOS-057 — Constitution in Practice (implemented).**
+
+  The smallest deterministic bridge between *what I said matters* and *what
+  Conqify has recorded*. **No AI, no migration, no new persisted domain.**
+
+  **The durable distinction this sprint establishes.**
+
+  - **CONSTITUTION** = what the user has consciously adopted.
+  - **RECORDED LIFE** = what Conqify has evidence for.
+  - **COMPARISON** = an observation over those two sets.
+  - It is **not** a judgment of the person, and Conqify does not observe a life —
+    only what was entered into Conqify.
+
+  **Evidence is derived, never stored.** `buildConstitutionEvidence(state,
+  element, range, { index })` projects an element against the existing activity
+  index; `buildConstitutionEvidenceMap` projects many over ONE shared index.
+  Nothing is persisted, so a stale number can never be shown as current — the
+  rule `SavedInsightView` already follows. `EXPORT_DOMAINS` is unchanged.
+
+  **Only explicit links count.** Evidence comes from `element.linkedRefs`. No
+  text similarity, no keyword matching, no embeddings. A statement about family
+  never acquires evidence because a note happens to mention family.
+
+  **Honest instrumentation, disclosed.** `buildActivityIndex` emits timestamped
+  events for actions, documents, sessions and captures — and **none at all** for
+  practices, protocols or notes. For those, the only recorded facts are the
+  record's own `createdAt`/`updatedAt`, reported as "Created"/"Updated" rather
+  than as activity. `EVIDENCE_CAPABILITY` encodes the difference and the coverage
+  line states it, so a zero against a protocol reads as *"Conqify records no
+  ongoing activity for these"* rather than implying nothing happened.
+
+  **Three permanently distinct situations, never collapsed.**
+
+  | Situation | What is said |
+  |---|---|
+  | no links | "This element is not yet connected to records Conqify can use as evidence." |
+  | links, nothing recorded | "No related activity was recorded in Conqify during this period." |
+  | links with records | "N linked records. M recorded K entries during this period." |
+
+  The first is the one that matters most: an element with no links is
+  **unobservable, not unlived**. Saying "no activity" there would be the single
+  most damaging sentence the feature could produce, and a test asserts it never
+  appears.
+
+  **The wording contract is code.** `lib/constitution/copy.ts` produces every
+  user-facing sentence from counts and dates, and `FORBIDDEN_EVIDENCE_WORDS`
+  bans two families for the same reason — moral verdicts ("neglected",
+  "failing") judge the person, and disguised verdicts ("score", "adherence",
+  "aligned") smuggle the same judgment in behind a number. A test generates 99
+  real sentences across three elements x three windows and asserts none contains
+  a forbidden word, no percentage, and no traffic-light colour.
+
+  **Two observations kept separate** (they can differ): "you have not edited this
+  element in N days" is about the Constitution; "no linked activity has been
+  recorded in N days" is about the records. Merging them would state something
+  neither fact supports.
+
+  **Performance.** One activity index per page, threaded into every projection:
+  60 elements x 8 links over a 500-action store costs 45 ms shared vs 88 ms
+  rebuilding per element. The Constitution page itself computes nothing unless
+  the user opens "Recorded life" — the document stays a document.
+
+  **Product finding for beta.** The link picker excludes completed actions, so a
+  finished action cannot be linked after the fact — evidence only accrues when
+  the link precedes the work. Recorded as an observation, not fixed here.
+
+  **Durable lesson.** The dangerous half of an observation is the sentence, not
+  the number. Putting every sentence behind a tested contract is what keeps a
+  comparison from quietly becoming a scoreboard — and the hardest case is
+  absence, where the honest answer is about the product's blind spot rather than
+  the person's life.
