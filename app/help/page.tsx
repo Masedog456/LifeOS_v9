@@ -3,6 +3,7 @@
 import HelpDrawer from "@/components/design/HelpDrawer";
 import SecurityErrorBoundary from "@/components/security/SecurityErrorBoundary";
 import FeedbackLink from "@/components/FeedbackLink";
+import BetaFeedbackPanel from "@/components/beta/BetaFeedbackPanel";
 export default function HelpPage() {
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
@@ -12,6 +13,7 @@ export default function HelpPage() {
         work of living thoughtfully. It&apos;s built to strengthen your own judgment, not replace it: everything here
         helps you think, and nothing decides for you.
       </p>
+      <BetaFeedbackPanel />
       <FeedbackLink />
       <SecurityErrorBoundary surface="help"><HelpDrawer /></SecurityErrorBoundary>
     </main>

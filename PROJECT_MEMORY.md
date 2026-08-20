@@ -3875,3 +3875,110 @@ connectors require repeated beta demand **and** stable API support, both.
   by construction — the fix was not better wording but moving the sentence
   somewhere a test could reach it, and pinning each promise to the function that
   keeps it.
+
+- **LIFEOS-058 — FINAL ACCEPTANCE: ACCEPTED WITH NON-BLOCKING OBSERVABILITY GAPS.**
+  Recorded here because an acceptance that lives only in a chat transcript is not
+  an acceptance record. The evidence divides into three buckets that must not be
+  blurred:
+
+  **MACHINE-VERIFIED** — deterministic suites (2200 assertions across 26 suites at
+  the time of acceptance, on `3705edc`); four browser suites driving real
+  Chromium; migration rehearsal 46/46; security and release gates; local
+  request-construction capture proving `excludeFromAi` wording and ids never
+  reach the wire, and that hostile source text cannot forge a prompt band.
+
+  **FOUNDER-OBSERVED LIVE** — human observation on the deployed product at
+  `app.conqify.com`, not machine capture, with no transcripts or token telemetry
+  behind it: Constitution Builder entry flow; struggle-mode follow-up quality;
+  philosophy-vs-operations routing; hostile-source authority boundary;
+  `excludeFromAi` behavioural secrecy. All five PASS.
+
+  **NOT YET OBSERVED LIVE** — exact provider token/call counts; production
+  request/response bodies; transport-level production capture for
+  `excludeFromAi`; live Anthropic timeout/retry; take-stock mode breadth;
+  per-proposal synthesis rubric grading.
+
+  **Why the gaps do not block.** None touches user authority, privacy,
+  provenance, silent mutation, model autonomy, data integrity, or core
+  usability. The structural point: take-stock and struggle mode share ONE
+  model-facing path — same `buildInterviewContext`, same `interview_synthesis`
+  task, same validator, same adoption gate — differing only in which questions
+  are asked first. So live take-stock would exercise no authority or privacy
+  surface that live struggle mode did not. What remains unknown is proposal
+  QUALITY across more domains, and quality is not a safety property here: a weak
+  proposal costs a click, because Dismiss writes nothing to the store.
+
+  **Durable lesson.** "Was every condition instrumented?" is the wrong
+  acceptance question and produces indefinite delay. "Is it safe, coherent,
+  user-controlled, and ready to gather real evidence?" is answerable, and the
+  honest way to close it is to name the gaps in the record rather than to claim
+  a completeness that does not exist.
+
+- **LIFEOS-059 — Closed-beta evidence loop (implemented).**
+  Makes the beta capable of producing product evidence without turning Conqify
+  into a surveillance product. Zero migrations, zero new store domains, zero new
+  life nouns.
+
+  **The guarantee is structural, not editorial.** `lib/security/redaction.ts`
+  established a key allowlist so callers "physically cannot attach content".
+  That is not quite enough: a key allowlist still lets prose through under an
+  approved key. So `lib/beta/events.ts` constrains every field by VALUE —
+  numeric fields are clamped, every string field has a closed enum, `fp` must
+  match `/^[0-9a-f]{8}$/`. **There is no field in the schema in which a sentence
+  can be stored.** A test throws real interview answers, Constitution wording,
+  emails and URLs at every field and asserts none survives.
+
+  **A test that was measuring the wrong thing.** The first version asserted "no
+  field NAME suggests content", and it failed on `questionsAnswered` (contains
+  "answer") and `contextChars` (contains "text") — both counts. Name-matching
+  was the wrong instrument. Replaced with the actual invariant, asserted
+  directly via an exported `FIELD_KINDS` map: no field accepts a free string.
+  `promptChars` was still renamed to `contextChars`, because a field whose name
+  reads like content is a trap for a future reader even when it holds a number.
+
+  **The silent-adoption canary has three verdicts, not two.** `clean` /
+  `inconclusive` / `violation`. A binary check would cry wolf: an element can
+  legitimately appear with no local record because it predates instrumentation,
+  or because it arrived by sync from another device. Both are excluded
+  explicitly — `state_replaced { reason: "remote_adoption" }` marks the sync
+  windows — so only a genuinely unexplained element produces the stop-the-line
+  banner. A false STOP-THE-LINE would train people to ignore the real one. The
+  check is a pure read: it never deletes, never backfills, never self-heals.
+
+  **Evidence is subordinate to the product.** Every write is best-effort and
+  swallowed. Quota exhaustion, a corrupt log, disabled storage — all absorbed,
+  and the user's action proceeds. `record()` returns a boolean purely so tests
+  can assert the failure was absorbed; no product code branches on it.
+
+  **Heavy-edit signal reuses the provenance rule.** `classifyEdit` wraps
+  `userRewroteProposal` — the same function that decides whether adoption
+  preserves `fromAiText`. One rule for both means the evidence cannot drift from
+  the behaviour it reports on: a proposal recorded `substantial` is exactly one
+  the product treated as the user's own words. No similarity engine.
+
+  **Copy is code again.** `lib/beta/disclosure.ts` pairs every promise with the
+  module that keeps it, and bans the vague phrasings ("usage data", "to improve
+  the experience") that sound reassuring while describing nothing checkable —
+  the 058A lesson applied before the same mistake, not after it.
+
+  **Two defects the pure tests could not see.** The browser smoke found both.
+  (1) The founder evidence page seeded its state from `localStorage` in a
+  `useState` initializer, which runs on the server too — so the first client
+  render disagreed with the server HTML and React discarded the tree
+  (hydration error #418). The page still looked right, which is exactly why a
+  DOM assertion passed over it. Fixed by moving both logs behind
+  `useSyncExternalStore` with an explicit server snapshot, the pattern the rest
+  of the app already uses for local-first reads. (2) A header comment cited
+  `lib/beta/ai-boundary.ts`, a file that does not exist, for the claim that
+  feedback never reaches the model — and the test beside it stated the claim in
+  a comment instead of asserting it. Replaced with §6.12–6.14: build the
+  interview context with feedback stored and with the key empty, assert the two
+  are byte-identical.
+
+  **Validation.** Beta suite 315/315; full regression 2515/2515 across 27
+  suites; integration 64/64; browser smoke 47/47 (A–J) with no page errors;
+  migration rehearsal 46/46 with no migration added.
+
+  **Durable lesson.** The strongest privacy guarantee is one the schema enforces
+  rather than one the reviewer enforces. "No caller passes prose" is a promise
+  about people; "no field can hold prose" is a property of the type.

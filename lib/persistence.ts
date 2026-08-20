@@ -20,6 +20,8 @@ import { reconcileAdoption } from "@/lib/persistence-reconcile";
 import * as authStore from "@/lib/authStore";
 import { markBootstrap } from "@/lib/security/auth-bootstrap";
 import { INTERVIEW_STORAGE_KEY } from "@/lib/interview/session";
+import { clearEvidence } from "@/lib/beta/store";
+import { clearFeedback } from "@/lib/beta/feedback";
 
 const STORAGE_KEY = "lifeos.mvp.v1";
 const MIGRATED_KEY = "lifeos.migrated.v1";
@@ -202,6 +204,10 @@ export function clearState(): void {
       // takes them too: an unfinished answer about someone's marriage or faith
       // must not outlive the account on this machine.
       window.localStorage.removeItem(INTERVIEW_STORAGE_KEY);
+      // Beta evidence and feedback are local-only and the disclosure promises
+      // resetting removes them, so they go with everything else (LIFEOS-059).
+      clearEvidence();
+      clearFeedback();
     } catch {
       // no-op
     }

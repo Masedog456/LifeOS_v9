@@ -54,6 +54,7 @@ import { buildInterviewContext, citableIds, citableRefs, contextDisclosure } fro
 import { validateFollowups, validateProposals, validateTensions } from "@/lib/interview/proposals";
 import { answersAsNoteBody } from "@/lib/interview/adopt";
 import { INTERVIEW_DISCLOSURE, INTERVIEW_DISCLOSURE_INTRO } from "@/lib/interview/disclosure";
+import { record as recordBeta } from "@/lib/beta/store";
 import { toast } from "@/lib/ux/feedback";
 import { requestConfirm } from "@/components/ux/ConfirmDialog";
 import InterviewReview from "@/components/interview/InterviewReview";
@@ -168,6 +169,7 @@ export default function ConstitutionBuilder() {
       const res = await interviewFollowups(ctx.items);
       const valid = validateFollowups(res.result);
       setDegraded(res.degradedReason ?? null);
+      recordBeta("ai_call", { task: "interview_followups", source: res.source, degraded: res.degradedReason, contextChars: ctx.charCount });
       return addFollowups(countAiCall(s), domain, lastAnswerId, valid.value);
     } finally {
       setBusy(false);
@@ -184,6 +186,7 @@ export default function ConstitutionBuilder() {
       const proposals = validateProposals(res.result, vctx);
       const tensions = validateTensions(res.result, vctx);
       setDegraded(res.degradedReason ?? null);
+      recordBeta("ai_call", { task: "interview_synthesis", source: res.source, degraded: res.degradedReason, contextChars: ctx.charCount });
       let next = mergeProposals(countAiCall(s), proposals.value);
       next = {
         ...next,
@@ -208,6 +211,7 @@ export default function ConstitutionBuilder() {
     setSession(mode === "friction" && opening.trim() ? { ...s, opening: opening.trim() } : s);
     setCurrentId(buildQueue(s)[0]?.id ?? null);
     setPhase("questions");
+    recordBeta("interview_started", { mode: mode === "friction" ? "struggle" : "stocktake" });
   };
 
   const saveAndNext = async () => {
@@ -247,8 +251,20 @@ export default function ConstitutionBuilder() {
 
   const openReview = async () => {
     if (!session) return;
-    setSession(await requestSynthesis(session));
+    const next = await requestSynthesis(session);
+    setSession(next);
     setPhase("review");
+    // Counts only: how far they got, how much was offered. Never an answer.
+    recordBeta("interview_review_opened", {
+      mode: next.mode === "friction" ? "struggle" : "stocktake",
+      questionsAnswered: next.answers.length,
+      domainsVisited: new Set(next.answers.map((a) => a.domain)).size,
+      domainsSkipped: next.skippedDomains.length,
+      followupsShown: next.followups.length,
+      proposalsProduced: next.proposals.length,
+      aiCalls: next.aiCalls,
+      early: buildQueue(next).length > next.answers.length,
+    });
   };
 
   /** Both exits destroy the local answers; only the wording differs. */
@@ -266,6 +282,13 @@ export default function ConstitutionBuilder() {
       },
       confirmLabel: verb,
       onConfirm: () => {
+        const outcomes = Object.values(session.outcomes);
+        recordBeta(verb.startsWith("Finish") ? "interview_finished" : "interview_discarded", {
+          questionsAnswered: session.answers.length,
+          adopted: outcomes.filter((o) => o === "adopted").length,
+          keptDraft: outcomes.filter((o) => o === "kept_draft").length,
+          dismissed: outcomes.filter((o) => o === "dismissed").length,
+        });
         clearInterviewSession();
         setSessionState(null);
         setPhase("disclosure");

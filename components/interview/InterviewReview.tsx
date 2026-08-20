@@ -45,6 +45,8 @@ import { planFromProposal, planToInput } from "@/lib/interview/adopt";
 import { findDuplicate, duplicateNotice } from "@/lib/interview/duplicates";
 import { classifyStatement, routeOffer } from "@/lib/interview/routing";
 import { totalDailyTime, timeObservation, timeCoverageNote } from "@/lib/interview/feasibility";
+import { record as recordBeta } from "@/lib/beta/store";
+import { classifyEdit } from "@/lib/beta/edit";
 import { toast } from "@/lib/ux/feedback";
 
 /** A stable band header, so the three kinds of text never blur together. */
@@ -121,6 +123,13 @@ function ProposalCard({
       adoptConstitutionElement(elementId);
       onAdopted(elementId, proposal.statement);
     }
+    // The decision, its kind, and how much of the model's wording survived —
+    // reusing the SAME rule that decided provenance above (LIFEOS-059 §10).
+    recordBeta("proposal_decision", {
+      decision: adopt ? "adopt" : "draft",
+      kind: proposal.kind,
+      edit: classifyEdit(original, proposal.statement),
+    });
     onSession(setOutcome(session, proposal.id, adopt ? "adopted" : "kept_draft"));
     toast({
       kind: "success",
@@ -222,7 +231,15 @@ function ProposalCard({
         <button type="button" onClick={() => commit(false)} className="text-zinc-600 underline underline-offset-2 dark:text-zinc-400">
           Keep as draft
         </button>
-        <button type="button" onClick={() => onSession(setOutcome(session, proposal.id, "dismissed"))}
+        <button type="button"
+          onClick={() => {
+            recordBeta("proposal_decision", {
+              decision: "dismiss",
+              kind: proposal.kind,
+              edit: classifyEdit(original, proposal.statement),
+            });
+            onSession(setOutcome(session, proposal.id, "dismissed"));
+          }}
           className="text-zinc-500 underline underline-offset-2">
           Dismiss
         </button>

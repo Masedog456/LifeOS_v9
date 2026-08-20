@@ -173,6 +173,10 @@ import { planMerge } from "@/lib/inbox/merge";
 import type { CaptureProcessingStatus, RecordRefLite as RefLite, Note, Protocol, ProtocolStatus } from "@/types/mvp";
 import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
 import { clearRollback, setRecovery } from "@/lib/sync/status-store";
+// Closed-beta evidence (LIFEOS-059). Every call is best-effort and content-free;
+// see lib/beta/store.ts for why nothing here may branch on the result.
+import { record as recordBeta } from "@/lib/beta/store";
+import { fingerprint } from "@/lib/beta/events";
 // Next actions & commitments (LIFEOS-036).
 import { makeAction, inheritFromMilestone, inheritFromProject, inheritFromCapture, type NewActionInput } from "@/lib/actions/action";
 import { makeEvent as makeActionEvent, appendHistory as appendActionHistory, type ActionEventKind } from "@/lib/actions/history";
@@ -686,6 +690,10 @@ export function replaceState(next: StoreState) {
   state = next;
   saveLocalOnly(next);
   emit();
+  // Marks the window in which elements can legitimately appear without a local
+  // create action, so the canary reports "inconclusive" rather than crying wolf
+  // at data adopted from another device (LIFEOS-059 §8).
+  recordBeta("state_replaced", { reason: "remote_adoption" });
 }
 
 // ---------- Subscription plumbing ----------
@@ -4120,6 +4128,13 @@ export function createConstitutionElement(input: NewElementInput): string {
     constitutionElements: [el, ...(state.constitutionElements ?? [])],
     constitutionRevisions: [...(state.constitutionRevisions ?? []), rev],
   });
+  // The silent-adoption canary's mutation seam (LIFEOS-059 §8). A fingerprint,
+  // a kind, and where it came from — never the statement.
+  recordBeta("constitution_created", {
+    fp: fingerprint(el.id),
+    kind: el.kind,
+    origin: input.fromAiText ? "builder" : "direct",
+  });
   return el.id;
 }
 
@@ -4144,6 +4159,7 @@ export function adoptConstitutionElement(elementId: string): void {
       e.id === elementId ? { ...e, status: "active", adoptedAt: e.adoptedAt ?? at, retiredAt: undefined, updatedAt: at } : e),
     constitutionRevisions: [...(state.constitutionRevisions ?? []), rev],
   });
+  recordBeta("constitution_adopted", { fp: fingerprint(elementId), kind: el.kind });
 }
 
 /**
@@ -4282,6 +4298,8 @@ export function retireConstitutionElement(elementId: string, reason?: string): v
 
 /** Withhold (or restore) this element from AI requests. */
 export function setConstitutionAiExclusion(elementId: string, excluded: boolean): void {
+  // Whether the control is used, never what was hidden (LIFEOS-059 §9).
+  recordBeta("ai_exclusion_changed", { enabled: excluded });
   const at = now();
   setState({
     ...state,
@@ -4322,6 +4340,7 @@ export function deleteConstitutionElement(elementId: string): void {
       (r) => r.elementId !== elementId && r.successorId !== elementId,
     ),
   });
+  recordBeta("constitution_deleted", { fp: fingerprint(elementId) });
 }
 
 // ---------------------------------------------------------------- notes ----

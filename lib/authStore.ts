@@ -13,6 +13,8 @@
 import { useSyncExternalStore } from "react";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { clearInterviewSession } from "@/lib/interview/session";
+import { clearEvidence } from "@/lib/beta/store";
+import { clearFeedback } from "@/lib/beta/feedback";
 
 export type AuthPhase = "idle" | "sending" | "sent" | "error";
 
@@ -142,6 +144,11 @@ export async function signInWithEmail(email: string): Promise<void> {
  */
 export async function signOut(): Promise<void> {
   clearInterviewSession();
+  // The beta disclosure says signing out deletes the beta record too. Same
+  // reasoning as the interview session, and the same clear-first ordering: a
+  // privacy promise must not depend on a network call succeeding.
+  clearEvidence();
+  clearFeedback();
   const client = getSupabaseClient();
   if (!client) return;
   await client.auth.signOut();
