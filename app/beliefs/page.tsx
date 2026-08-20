@@ -276,6 +276,12 @@ export default function BeliefsPage() {
         >
           Capture your first thought →
         </Link>
+        {/* Also rendered here (LIFEOS-058A). This is the only control that
+            reaches `clearState()`, and it used to sit below this early return —
+            so a person with local data but no BELIEFS (someone who has only used
+            the Constitution Builder, say) had no way to reach it. An empty
+            ledger says nothing about whether there is local data to reset. */}
+        <ResetLocalData />
       </main>
     );
   }

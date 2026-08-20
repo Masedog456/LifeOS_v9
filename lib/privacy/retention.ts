@@ -20,7 +20,18 @@ export const RETENTION_RULES: readonly RetentionRule[] = [
   { subject: "import_history", retention: "Metadata only (timestamp, mode, counts). Kept 1 year.", onAccountDeletion: "Deleted with the account (cascade)." },
   { subject: "account_deletion_requests", retention: "Kept as an audit record of the deletion request itself.", onAccountDeletion: "Marked complete; retained as a minimal security log (no content)." },
   { subject: "Database backups", retention: "The hosting provider (Supabase/Postgres) may retain point-in-time backups per its policy.", onAccountDeletion: "Purged as those backups roll off; we cannot guarantee instant removal from backups." },
-  { subject: "Local device data", retention: "Stays on your device until you clear it or sign out.", onAccountDeletion: "Cleared on this device at deletion; other devices clear on next sign-in." },
+  // LIFEOS-058A: this used to read "until you clear it or sign out", which was
+  // not true. Conqify is local-first — signing out detaches remote sync and
+  // deliberately KEEPS local records, so the app still works signed out. Saying
+  // otherwise invited people to treat sign-out as a wipe on a shared machine.
+  { subject: "Local device data", retention: "Stays on your device until you reset local data or delete your account. Signing out keeps it, so the app still works offline.", onAccountDeletion: "Cleared on this device at deletion; other devices clear on next sign-in." },
+  // The one deliberate exception, and why it is one: an unfinished Constitution
+  // Builder interview holds answers about faith, health, money and family that
+  // the user has not yet chosen to keep. It is scaffolding, not a record, so it
+  // does not get the local-first treatment above. Anything they DID adopt, keep
+  // as a draft, or save as a Note is an ordinary record and is covered by the
+  // row above.
+  { subject: "In-progress Constitution Builder interview", retention: "Stays in this browser only — never synced, exported or backed up. Deleted when you discard or finish the interview, sign out, or reset local data.", onAccountDeletion: "Removed with local data on this device; it was never sent anywhere else." },
 ];
 
 /** The honest disclosure shown during account deletion. */

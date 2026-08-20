@@ -53,6 +53,7 @@ import type { InterviewSession } from "@/lib/interview/session";
 import { buildInterviewContext, citableIds, citableRefs, contextDisclosure } from "@/lib/interview/context";
 import { validateFollowups, validateProposals, validateTensions } from "@/lib/interview/proposals";
 import { answersAsNoteBody } from "@/lib/interview/adopt";
+import { INTERVIEW_DISCLOSURE, INTERVIEW_DISCLOSURE_INTRO } from "@/lib/interview/disclosure";
 import { toast } from "@/lib/ux/feedback";
 import { requestConfirm } from "@/components/ux/ConfirmDialog";
 import InterviewReview from "@/components/interview/InterviewReview";
@@ -320,16 +321,14 @@ export default function ConstitutionBuilder() {
         {header}
         <section className="rounded-2xl border border-black/[.08] p-5 dark:border-white/[.10]">
           <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-            This process helps you think through what matters, what is difficult, and how you want to
-            live. Conqify may suggest wording, but nothing becomes part of your Constitution until you
-            choose it.
+            {INTERVIEW_DISCLOSURE_INTRO}
           </p>
+          {/* Rendered from `lib/interview/disclosure.ts`, never written inline.
+              058 shipped a bullet claiming sign-out deleted these answers when
+              it did not; a sentence in JSX is a sentence no test can hold to a
+              contract, and this is the sentence people consent on (058A). */}
           <ul className="mt-4 space-y-1.5 text-xs text-zinc-500">
-            <li>· AI is involved. Your answers are sent to a model to generate questions and suggestions.</li>
-            <li>· Your answers may contain sensitive things. Every question is optional and every section can be skipped.</li>
-            <li>· Anything Conqify proposes is a draft. Adoption is always an explicit, separate choice.</li>
-            <li>· Your answers stay in this browser. They are not synced, not exported, and not backed up.</li>
-            <li>· Signing out or clearing your data deletes them.</li>
+            {INTERVIEW_DISCLOSURE.map((line) => <li key={line}>· {line}</li>)}
           </ul>
           <div className="mt-5 flex flex-wrap items-center gap-4">
             <button type="button" onClick={() => setPhase("mode")}
