@@ -3875,3 +3875,56 @@ connectors require repeated beta demand **and** stable API support, both.
   by construction — the fix was not better wording but moving the sentence
   somewhere a test could reach it, and pinning each promise to the function that
   keeps it.
+
+- **LIFEOS-059 — Internal product review (analysis only, no product code).**
+  The closed-beta evidence loop (PR #61) was built and then closed unmerged: it
+  answered a question nobody was asking, because there are no external testers.
+  Replaced with a review of the product itself, from three user lenses, against
+  the code on `main`. Full findings in `INTERNAL_PRODUCT_REVIEW_059.md`.
+
+  **Diagnosis.** Conqify is an excellent instrument for thinking about a life and
+  a weak one for running it. Organization **2/4**, Understanding **3/4**,
+  Guidance **2/4**. Understanding is overbuilt; Organization — specifically
+  *intake* and *time* — is underbuilt. The data model for tasks is good; the path
+  in and the vocabulary of *when* are not.
+
+  **The evidence that settled it.** The capture classifier was executed against
+  the ten torture-test sentences: 4 clean, 2 partial, **4 outright failures**,
+  and three of the four failures are about time (`Dentist Tuesday at 2:30` and
+  `Every Sunday refill my medication box` both degrade silently to notes). The
+  classifier performs **no date extraction at all**, so `dueDate` exists and
+  nothing populates it. Separately, 5 of 9 time cases are unrepresentable.
+
+  **The centre-of-gravity finding.** "This is PKM pretending to be life
+  management" is TRUE AS EXPERIENCED, FALSE AS BUILT. The life-management
+  machinery exists — actions, dependencies, horizons, due handling — but the
+  primary capture surface turns what you type into *belief proposals*, the badged
+  inbox is the belief inbox, and Learn+Reflect+Thinking is 16 nav destinations
+  against Work's 5. Getting a task in takes five steps through two different
+  inboxes.
+
+  **On the Constitution.** Keep it; stop putting it early. The mechanism is sound
+  (adoption gated on `adoptedAt`, revisions preserved, references not duplicates)
+  but it is setup-heavy and return-light: Today never mentions it, and Protocols
+  are deliberately never surfaced, so both are write-only in daily practice. It
+  is currently an onboarding gate; it should be an earned destination.
+
+  **Next three sprints, all Organization.** (1) capture lands where it belongs —
+  inline classification, one-tap confirm, deterministic date extraction, and
+  plain Capture made local-only; (2) a model of time — an Event with a datetime
+  and a recurrence rule materialising only the next occurrence, no calendar sync,
+  no notifications; (3) who owes me what — broader waiting detection and a
+  `waitingOnPerson` grouping string, explicitly not a People record.
+
+  **Lessons carried forward from the closed PR, without its code.** Privacy
+  claims belong where a test can hold them to behaviour. Evidence must stay
+  strictly subordinate to product behaviour. Silent Constitution mutation is a
+  stop-the-line invariant. Feedback must never silently become AI context.
+  Local-first privacy remains the default.
+
+  **Durable lesson.** Every noun in this product was justified when it was added
+  and the total was never re-examined — 44 store domains, 40 nav destinations,
+  three Inboxes, two Principles, three words for how you intend to behave. A
+  well-documented codebase makes each local addition easy to defend, which is
+  exactly what lets the global cost accumulate unchallenged. Sprint scope should
+  occasionally be spent on subtraction.
