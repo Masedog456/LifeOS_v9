@@ -167,6 +167,7 @@ import {
 } from "@/lib/constitution/constitution";
 import { classifyStatementChange } from "@/lib/constitution/revision";
 import { extractConditional } from "@/lib/capture/classify";
+import type { CommitCandidate } from "@/lib/capture/commit";
 import { type NotePromotionKey } from "@/lib/notes/promotion";
 import { planSplit } from "@/lib/inbox/split";
 import { planMerge } from "@/lib/inbox/merge";
@@ -4033,6 +4034,126 @@ export function convertCapture(captureId: string, target: ConversionTargetKey, o
     makeEvent({ action: "convert", at: now(), fromStatus: captureStatus(c), toStatus, targets: [ref!], detail: `→ ${target}` }),
   ));
   return ref;
+}
+
+// ---------------------------------------------- universal capture (060) ----
+
+/**
+ * Create records from confirmed capture candidates (LIFEOS-060 §1, §14).
+ *
+ * ## What this replaces
+ *
+ * The five-step path LIFEOS-059 measured: Capture → Process inbox → open the
+ * capture → convert tab → confirm, with "Create next action" then navigating to
+ * a THIRD page. One capture could only ever become one record, so the three
+ * errands in "call the advisor, finish the dashboard, buy dog food" became one.
+ *
+ * This takes the whole confirmed set at once, on the surface the user is already
+ * looking at.
+ *
+ * ## Guarantees
+ *
+ * - **The raw capture survives.** It is created first, every record links back
+ *   to it via `sourceCaptureId`, and its text is never rewritten. A cleaned
+ *   title lives on the ACTION; the sentence the user typed stays on the capture.
+ * - **Provenance is not laundered.** `classifyOrigin` reads the capture text,
+ *   exactly as `convertCapture` does. Machine prose kept from a capture reads
+ *   back as `conqify_ai`, whether it arrives through the old door or this one.
+ *   Confirming a machine-suggested STRUCTURE still does not make the user the
+ *   author of machine WORDS (LIFEOS-050A/050B).
+ * - **No belief, no Constitution element.** Not by a check here — by the fact
+ *   that `CandidateKind` has no member for them. There is no argument this
+ *   function accepts that would produce one.
+ * - **Dates are only ever what the deterministic parser resolved.** This
+ *   function does not parse; it stores what it is given.
+ */
+export function commitCapture(
+  rawText: string,
+  candidates: readonly CommitCandidate[],
+): { captureId: string; created: RefLite[] } {
+  // The raw capture first, and always — even if every candidate is rejected
+  // below, what the user typed is safe before anything else is attempted.
+  const captureId = addCapture(rawText);
+  const origin = classifyOrigin({ kind: "capture", text: rawText });
+  const fromAi = origin === "conqify_ai";
+  const created: RefLite[] = [];
+
+  for (const c of candidates) {
+    const title = (c.title ?? "").trim();
+    const body = (c.body ?? "").trim();
+    switch (c.kind) {
+      case "action":
+      case "waiting": {
+        if (!title) break;
+        const actionId = createActionFromCapture(captureId, {
+          title,
+          projectId: c.projectId,
+          goalId: c.goalId,
+          workspaceId: c.workspaceId,
+        });
+        if (c.dueDate) setActionDueDate(actionId, c.dueDate);
+        // A waiting item enters `waiting` immediately — that IS its state, and
+        // making the user set it afterwards was the friction LIFEOS-059 found.
+        if (c.kind === "waiting") markActionWaiting(actionId, c.waitingOn ?? "", c.dueDate);
+        created.push({ kind: "action", id: actionId });
+        break;
+      }
+      case "note": {
+        const text = body || title;
+        if (!text) break;
+        created.push({ kind: "note", id: createNote({ body: text, sourceCaptureId: captureId, workspaceId: c.workspaceId, fromAiText: fromAi }) });
+        break;
+      }
+      case "protocol": {
+        const trigger = (c.trigger ?? "").trim();
+        const response = (c.response ?? "").trim();
+        if (!trigger || !response) break;
+        created.push({ kind: "protocol", id: createProtocol({ trigger, response, sourceCaptureId: captureId, fromAiText: fromAi }) });
+        break;
+      }
+      case "reflection": {
+        const text = body || title;
+        if (!text) break;
+        created.push({ kind: "formation", id: addReflection({ prompt: titleFromText(text), response: text }) });
+        break;
+      }
+      case "project": {
+        if (!title) break;
+        created.push({ kind: "project", id: createProject({ title, goalId: c.goalId, workspaceId: c.workspaceId }) });
+        break;
+      }
+      case "goal": {
+        if (!title) break;
+        created.push({ kind: "goal", id: createGoal({ title }) });
+        break;
+      }
+    }
+  }
+
+  // Link everything back to the capture and mark it handled, in one history
+  // event rather than one per record — the user did one thing.
+  if (created.length > 0) {
+    const at = now();
+    bumpCapture(captureId, (x) => appendHistory(
+      {
+        ...x,
+        linkedEntityRefs: [...(x.linkedEntityRefs ?? []), ...created],
+        processingStatus: "processed",
+        processedAt: at,
+        processedByAction: "capture:interpreted",
+      },
+      makeEvent({
+        action: "convert",
+        at,
+        fromStatus: "inbox",
+        toStatus: "processed",
+        targets: created,
+        detail: `→ ${created.length} record${created.length === 1 ? "" : "s"}`,
+      }),
+    ));
+  }
+
+  return { captureId, created };
 }
 
 // ------------------------------------------------------------ protocols ----

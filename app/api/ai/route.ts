@@ -9,6 +9,7 @@
  *   task "question"       -> { result: string, source }
  *   task "map"            -> { result: ChunkMap, source }        (one chunk → structured)
  *   task "reduce_summary" -> { result: string, source }          (chunk summaries → one)
+ *   task "capture_interpret" -> { result: RawCandidate[], source }  (LIFEOS-060 escalation)
  *
  * If ANTHROPIC_API_KEY is set, makes exactly one Anthropic call for the
  * task. Otherwise — or on any failure — returns deterministic mock output
@@ -37,6 +38,7 @@ import { mockFormationSynthesis, type MockFormationContext } from "@/lib/mockFor
 import { mockWorld } from "@/lib/mockWorld";
 import { mockOutlines, mockSectionDraft, type MockOutlineContext, type MockSectionContext } from "@/lib/mockAuthoring";
 import { mockFollowups, mockInterviewSynthesis } from "@/lib/mockInterview";
+import { mockCaptureCandidates } from "@/lib/mockCapture";
 import { guardCostBearingRoute, rateLimit } from "@/lib/security/api-auth";
 
 export const maxDuration = 30;
@@ -67,7 +69,8 @@ type Task =
   | "outline_generate"
   | "section_draft"
   | "interview_followups"
-  | "interview_synthesis";
+  | "interview_synthesis"
+  | "capture_interpret";
 
 const ALLOWED_TASKS = new Set<Task>([
   "beliefs",
@@ -95,6 +98,7 @@ const ALLOWED_TASKS = new Set<Task>([
   "section_draft",
   "interview_followups",
   "interview_synthesis",
+  "capture_interpret",
 ]);
 
 const MAX_INPUT_CHARS = 50_000;
@@ -132,6 +136,14 @@ interface AiInput {
   coverageNote: string;
   /** The draft comparison result to review (compare_verify only). */
   draft: string;
+  /**
+   * Project TITLES only, for `capture_interpret` (LIFEOS-060 §12).
+   *
+   * Titles and nothing else — no ids, no descriptions, no notes, no other
+   * records. The smallest context that lets the model attribute a segment to a
+   * project the local matcher missed.
+   */
+  projectTitles: string[];
 }
 
 function rawText(data: AnthropicResponse): string {
@@ -628,6 +640,44 @@ function interviewBands(evidence: CompareEvidence[]): string {
   ].join("\n");
 }
 
+/**
+ * Capture escalation (LIFEOS-060 §11).
+ *
+ * Called only when the deterministic pass could not place a segment. The model's
+ * job is narrow on purpose: find the everyday obligations the rules missed, and
+ * nothing else.
+ *
+ * The prompt forbids the two failure modes that would matter. It may not return
+ * a date — `lib/capture/dates.ts` owns dates, and a model that turns "October"
+ * into a day defeats the no-date-lies rule in one field. And it may not return
+ * anything normative: beliefs, values, principles and life decisions are not on
+ * the menu, and the client-side validator drops them regardless.
+ */
+function captureInterpretPrompt(input: AiInput): string {
+  const projects = input.projectTitles.length > 0
+    ? `\nThe person has projects named: ${input.projectTitles.join(", ")}.\n`
+    : "";
+  return [
+    "A person typed one messy sentence into a personal capture box. Deterministic",
+    "rules already extracted what they could. Your only job is to find EVERYDAY",
+    "OBLIGATIONS the rules missed, so nothing the person said gets dropped.",
+    "",
+    "RULES:",
+    '- Return ONLY a JSON array. Each element: { "kind": "action" | "waiting" | "note", "title": string, "reason": string }',
+    '- "waiting" may also carry "waitingOn": a short name.',
+    "- Use the person's own words. Do not improve, reword, or expand them.",
+    "- Do NOT return dates, times, or recurrence in any field. Those are handled elsewhere.",
+    "- Do NOT return beliefs, values, principles, goals, projects, protocols, or",
+    "  statements about who the person is or should be. Those are theirs to write.",
+    "- If the rules already covered everything, return an empty array. That is a",
+    "  correct and common answer — do not invent work to justify the call.",
+    "- No preamble, no explanation outside the JSON.",
+    projects,
+    "THE CAPTURE:",
+    input.text.slice(0, 2_000),
+  ].join("\n");
+}
+
 function interviewFollowupsPrompt(input: AiInput): string {
   return [
     "You are helping a person articulate how they intend to live. Your only job",
@@ -784,6 +834,8 @@ function promptFor(input: AiInput): string {
       return outlinePrompt(input);
     case "section_draft":
       return sectionPrompt(input);
+    case "capture_interpret":
+      return captureInterpretPrompt(input);
     case "interview_followups":
       return interviewFollowupsPrompt(input);
     case "interview_synthesis":
@@ -892,6 +944,11 @@ function mockFor(input: AiInput): unknown {
       return mockOutlines({ evidence: input.evidence, context: parseOutlineContext(input.draft) });
     case "section_draft":
       return mockSectionDraft({ evidence: input.evidence, context: parseSectionContext(input.draft) });
+    case "capture_interpret":
+      // Deliberately empty. See lib/mockCapture.ts — the deterministic
+      // candidates already stand, and inventing more offline would put a
+      // fabrication in front of the user labelled as a suggestion.
+      return mockCaptureCandidates();
     case "interview_followups":
       return mockFollowups(input.evidence);
     case "interview_synthesis":
@@ -914,6 +971,11 @@ function parseFor(input: AiInput, raw: string): unknown {
     case "quotes":
     case "concepts":
       return parseStringArray(raw);
+    case "capture_interpret":
+      // A JSON array. Every element is re-validated client-side against the
+      // constrained candidate contract (lib/capture/escalation.ts), so a
+      // malformed or over-reaching element is dropped rather than trusted.
+      return JSON.parse(jsonSlice(raw, "["));
     case "map":
       return parseMap(raw, input.text);
     case "compare":
@@ -955,6 +1017,8 @@ function maxTokensFor(task: Task): number {
   // Follow-ups are two questions. A small ceiling is a real guard here: it is
   // the difference between the model asking and the model lecturing.
   if (task === "interview_followups") return 512;
+  // A short list of short items. A small ceiling keeps it a parse, not an essay.
+  if (task === "capture_interpret") return 768;
   return 1024;
 }
 
@@ -1015,6 +1079,7 @@ export async function POST(request: Request) {
       text?: unknown;
       question?: unknown;
       summaries?: unknown;
+      projectTitles?: unknown;
       evidence?: unknown;
       title?: unknown;
       sourcesCompared?: unknown;
@@ -1056,6 +1121,9 @@ export async function POST(request: Request) {
         : [],
       coverageNote: (typeof body.coverageNote === "string" ? body.coverageNote : "").slice(0, 500).trim(),
       draft: (typeof body.draft === "string" ? body.draft : "").slice(0, MAX_INPUT_CHARS),
+      projectTitles: Array.isArray(body.projectTitles)
+        ? body.projectTitles.filter((s): s is string => typeof s === "string").map((s) => s.trim().slice(0, 120)).slice(0, 40)
+        : [],
     };
   } catch {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
