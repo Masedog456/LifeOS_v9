@@ -44,7 +44,7 @@
 import { addDays, type DayKey } from "@/lib/reviews/dates";
 
 /** Why a temporal phrase could not become a `dueDate`. */
-export type UnresolvedReason = "time_of_day" | "recurrence" | "month_only" | "vague" | "past";
+export type UnresolvedReason = "time_of_day" | "recurrence" | "month_only" | "vague" | "past" | "occasion";
 
 export const UNRESOLVED_LABEL: Record<UnresolvedReason, string> = {
   time_of_day: "Time of day isn't stored yet",
@@ -52,6 +52,7 @@ export const UNRESOLVED_LABEL: Record<UnresolvedReason, string> = {
   month_only: "No specific day given",
   vague: "Too vague to pin to a day",
   past: "Refers to the past",
+  occasion: "Occasions and timed events aren't supported yet",
 };
 
 /** One temporal phrase found in the text. Exactly one of `dueDate`/`reason` is set. */
@@ -71,6 +72,48 @@ export interface TemporalResult {
   dueDate?: DayKey;
   /** Findings that could not be stored. Surfaced in the UI, never dropped. */
   unresolved: TemporalFinding[];
+}
+
+/**
+ * Occasion nouns — a date that RECURS and that nobody completes.
+ *
+ * "I need to remember Mom's birthday" is the case that survived LIFEOS-060's
+ * first pass as an Action, which reproduces the original LIFEOS-059 defect in a
+ * new place: an Action has completion semantics, and a birthday has none. Ticking
+ * it off would be meaningless, and leaving it open makes it permanent debris in
+ * the Next list — the exact failure that makes people abandon task systems.
+ *
+ * Until LIFEOS-061 gives occasions a home, the honest answer is to say so.
+ */
+const OCCASION_NOUNS =
+  /\b(birthday|anniversary|wedding|graduation|funeral|memorial|reunion|christening|baptism|bar mitzvah|bat mitzvah|retirement party|baby shower)\b/i;
+
+/** Remembrance openers — "remember X", "don't forget X", "remind me about X". */
+const REMEMBRANCE =
+  /^(?:i\s+(?:need|have|want|ought)\s+to\s+)?(?:remember|recall|not\s+forget|don'?t\s+forget|remind\s+me(?:\s+(?:about|of))?)\b/i;
+
+/** Verbs that make an occasion sentence a DOABLE step rather than the occasion itself. */
+const OCCASION_ACTION_LEAD =
+  /^(?:i\s+(?:need|have|want|ought)\s+to\s+)?(?:call|text|email|message|send|buy|order|book|wish|visit|plan|organi[sz]e|schedule|bake|make|write|get|pick\s+up|rsvp)\b/i;
+
+/**
+ * Detect an occasion the product cannot yet represent.
+ *
+ * Fires only when the sentence is ABOUT the occasion, not about a step around
+ * it. "Call Mom on her birthday" leads with an action verb and stays an action —
+ * calling someone is a thing you finish. "Remember Mom's birthday" and a bare
+ * "Mom's birthday" do not name a step, so there is nothing to complete.
+ *
+ * Returns the matched occasion word, or `null`.
+ */
+export function detectOccasion(text: string): string | null {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  const m = OCCASION_NOUNS.exec(t);
+  if (!m) return null;
+  if (REMEMBRANCE.test(t)) return m[0];
+  if (OCCASION_ACTION_LEAD.test(t)) return null;
+  return m[0];
 }
 
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -287,6 +330,11 @@ export function extractTemporal(text: string, today: DayKey): TemporalResult {
 
   // 6. Time of day — orthogonal, and always unresolved in this sprint.
   scan(TIME_RE, (m) => ({ phrase: m[0].trim(), reason: "time_of_day" }));
+
+  // 7. An occasion the product cannot represent. Recorded LAST so it never
+  //    displaces a real resolvable date, and always as unresolved.
+  const occasion = detectOccasion(src);
+  if (occasion) push(findings, { phrase: occasion, reason: "occasion" });
 
   const resolved = findings.find((f) => f.dueDate);
   return {

@@ -3992,8 +3992,18 @@ connectors require repeated beta demand **and** stable API support, both.
   would have stored it without "Tuesday" — a silent drop of exactly the kind §19
   forbids, introduced by the date-stripping meant to serve it.
 
-  **Validation.** Capture suite 160/160; full regression 2360/2360 across 27
-  suites; integration 64/64; browser smoke 47/47 (A–F) with no page errors;
+  **An occasion is not a task (acceptance patch).** "I need to remember Mom's
+  birthday" first shipped as an Action, which reproduced the LIFEOS-059 defect in
+  a new place: an Action carries completion semantics and a birthday has none, so
+  ticking it off is meaningless and leaving it open makes it permanent debris in
+  Next. It now routes to a Note, unticked, reporting `occasion` as unresolved and
+  saying plainly that timed events are not supported yet. No date is invented and
+  no Event noun was added — the fix was to fail truthfully, not to build early.
+  The rule fires on the occasion itself, not the word: "Call Mom on her birthday"
+  is still an Action, because calling someone is a thing you finish.
+
+  **Validation.** Capture suite 176/176; full regression 2376/2376 across 27
+  suites; integration 64/64; browser smoke 57/57 (A–G) with no page errors;
   rehearsal 46/46 with no migration; interpretation 0.69ms worst case against a
   store of 200 projects / 2000 notes / 2000 actions.
 

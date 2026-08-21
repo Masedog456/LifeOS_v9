@@ -44,7 +44,7 @@
 import { classifyOne, extractConditional, type ClassificationConfidence } from "@/lib/capture/classify";
 import { decompose, type Segment } from "@/lib/capture/decompose";
 import { detectWaiting, waitingTitle } from "@/lib/capture/waiting";
-import { extractTemporal, stripResolvedTemporal, type TemporalFinding } from "@/lib/capture/dates";
+import { detectOccasion, extractTemporal, stripResolvedTemporal, type TemporalFinding } from "@/lib/capture/dates";
 import { matchRecords, NO_MATCH, type MatchResult } from "@/lib/capture/match";
 import { authorityFor, type AuthorityLevel, type CandidateKind } from "@/lib/capture/authority";
 import type { StoreState } from "@/types/mvp";
@@ -114,6 +114,11 @@ function seg(text: string): Segment {
   return { text, start: 0, end: text.length };
 }
 
+/** A display title from raw text, without stripping anything meaning-bearing. */
+function titleOf(text: string): string {
+  return (text ?? "").replace(/\s+/g, " ").trim().replace(/[.,;:]+$/, "").trim();
+}
+
 /**
  * Interpret ONE segment.
  *
@@ -166,7 +171,35 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     };
   }
 
-  // 3. "I want to learn Spanish" is a GOAL, not a next action (§7).
+  // 3. An OCCASION is not a task.
+  //
+  //    "I need to remember Mom's birthday" reads as an action to every rule in
+  //    `classify.ts`, and filing it as one reproduces the LIFEOS-059 defect in a
+  //    new place: an Action carries completion semantics and a birthday has
+  //    none. Ticking it off is meaningless; leaving it open makes it permanent
+  //    debris in the Next list.
+  //
+  //    Conqify cannot represent an occasion until LIFEOS-061, so it says so
+  //    rather than pretending. A note keeps the sentence, the limitation is
+  //    stated in the user's own words, and no date is invented. Checked BEFORE
+  //    the action rules for the same reason protocols are: the sentence contains
+  //    the shape that would otherwise capture it.
+  const occasion = detectOccasion(text);
+  if (occasion) {
+    return {
+      ...base,
+      kind: "note",
+      fields: { body: text, title: titleOf(text), dueDate: temporal.dueDate },
+      confidence: "possible",
+      reason:
+        "This sounds like a date or occasion. Conqify can keep it as a note for now, but timed events aren't supported yet.",
+      // Never pre-ticked: the user should see the limitation before agreeing to it.
+      authority: authorityFor("note", "possible"),
+      alternates: ALTERNATES.note,
+    };
+  }
+
+  // 4. "I want to learn Spanish" is a GOAL, not a next action (§7).
   //
   //    `classifyOne` reads it as an action because "I want to" shares a rule with
   //    "I need to", and LIFEOS-059 measured the cost: "learn Spanish" lands in the
@@ -195,7 +228,7 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     }
   }
 
-  // 4. Everything else goes through the existing, proven classifier.
+  // 5. Everything else goes through the existing, proven classifier.
   const classified = classifyOne(text);
   const titled = stripResolvedTemporal(classified.extracted?.title ?? text, temporal) || text;
 

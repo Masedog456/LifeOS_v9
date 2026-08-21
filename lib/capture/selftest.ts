@@ -10,7 +10,7 @@
  * their behaviour, so a future change to any rule has to face them again.
  */
 
-import { extractTemporal, stripResolvedTemporal, UNRESOLVED_LABEL } from "@/lib/capture/dates";
+import { detectOccasion, extractTemporal, stripResolvedTemporal, UNRESOLVED_LABEL } from "@/lib/capture/dates";
 import { decompose, hasOwnIntent, isMultiIntent } from "@/lib/capture/decompose";
 import { detectWaiting, waitingTitle } from "@/lib/capture/waiting";
 import { interpret, wholeCaptureAsNote, dateNotKept, PARSER_VERSION, type Candidate } from "@/lib/capture/interpret";
@@ -105,7 +105,8 @@ export function runCaptureSelfTests(): SelfTestReport {
     ok("2.12 an impossible date is not rolled into a real one",
       extractTemporal("due February 31", TODAY).dueDate === undefined);
     ok("2.13 every unresolved reason has a user-facing label",
-      (["time_of_day", "recurrence", "month_only", "vague", "past"] as const).every((r) => !!UNRESOLVED_LABEL[r]));
+      (["time_of_day", "recurrence", "month_only", "vague", "past", "occasion"] as const).every((r) => !!UNRESOLVED_LABEL[r]));
+    ok("2.13a and no label is missing from the map", Object.keys(UNRESOLVED_LABEL).length === 6);
     ok("2.14 no time-of-day is ever stored as a date",
       extractTemporal("meeting at 11", TODAY).dueDate === undefined);
   }
@@ -250,8 +251,46 @@ export function runCaptureSelfTests(): SelfTestReport {
     const t1 = run("I need to call my dentist.");
     eq("9.1 call my dentist → action", kindsOf(t1.candidates), ["action"]);
 
+    // ---- The LIFEOS-060 acceptance patch ----
+    // An occasion has no completion semantics. Filing it as an Action reproduces
+    // the LIFEOS-059 defect: it can never be ticked off truthfully, and it becomes
+    // permanent debris in Next. Until LIFEOS-061, fail truthfully instead.
     const t2 = run("I need to remember Mom's birthday.");
-    eq("9.2 remember Mom's birthday → action", kindsOf(t2.candidates), ["action"]);
+    // 1. does not persist an Action by default
+    eq("9.2a remember Mom's birthday → note, NOT an action", kindsOf(t2.candidates), ["note"]);
+    ok("9.2b and is NOT pre-ticked", !preselected(t2.candidates[0].authority));
+    // 2. raw capture survives
+    eq("9.2c the raw capture is carried unchanged", t2.raw, "I need to remember Mom's birthday.");
+    ok("9.2d and the note body keeps the whole sentence",
+      (t2.candidates[0].fields.body ?? "").includes("Mom's birthday"), JSON.stringify(t2.candidates[0].fields));
+    // 3. no fabricated date
+    ok("9.2e NO date is invented", t2.candidates[0].fields.dueDate === undefined);
+    ok("9.2f and the occasion limit is reported",
+      t2.candidates[0].unresolved.some((u) => u.reason === "occasion"), JSON.stringify(t2.candidates[0].unresolved));
+    // 4. the user can keep it as a Note — it already IS one, and note is committable
+    ok("9.2g it is committable as a note", isCommittable(toCommitCandidate(t2.candidates[0])));
+    // 5. no Event or new persisted type
+    ok("9.2h no Event kind exists", !(CANDIDATE_KINDS as readonly string[]).includes("event"));
+    // Pinned rather than pattern-matched: `maintenanceEvents` has been a domain
+    // since LIFEOS-038 and has nothing to do with calendar events, so a regex on
+    // "event" tests the wrong thing. What matters is that NO domain was added.
+    eq("9.2i the store still has exactly 44 domains", STORE_DOMAINS.length, 44);
+    ok("9.2i2 and none of them is a calendar/occasion noun",
+      !(STORE_DOMAINS as string[]).some((d) => ["events", "occasions", "appointments", "calendar", "reminders"].includes(d)));
+    // The copy states the limitation in words the user can act on.
+    ok("9.2j the limitation is stated plainly",
+      /occasion/i.test(t2.candidates[0].reason) && /not supported yet|aren't supported yet/i.test(t2.candidates[0].reason),
+      t2.candidates[0].reason);
+
+    // A doable STEP around an occasion is still an action — the rule fires on the
+    // occasion itself, not on every sentence containing the word.
+    eq("9.2k 'call Mom on her birthday' is still an action",
+      kindsOf(run("Call Mom on her birthday").candidates), ["action"]);
+    eq("9.2l 'buy a birthday present' is still an action",
+      kindsOf(run("Buy a birthday present for Dad").candidates), ["action"]);
+    eq("9.2m a bare occasion is a note", kindsOf(run("Mom's birthday").candidates), ["note"]);
+    ok("9.2n detectOccasion returns the matched word", detectOccasion("remember our anniversary") === "anniversary");
+    ok("9.2o and nothing for ordinary text", detectOccasion("call the dentist") === null);
 
     const t3 = run("Marcus still owes me the document.");
     eq("9.3 Marcus owes me → waiting (was note)", kindsOf(t3.candidates), ["waiting"]);
