@@ -157,7 +157,17 @@ export function runCaptureSelfTests(): SelfTestReport {
     eq("5.3 hasn't sent", detectWaiting("Sarah still hasn't sent the file")?.waitingOn, "Sarah");
     eq("5.4 hasn't replied", detectWaiting("the clinic hasn't replied")?.waitingOn, "clinic");
     eq("5.5 supposed to send", detectWaiting("Dave was supposed to send the draft")?.waitingOn, "Dave");
-    eq("5.6 waiting on", detectWaiting("waiting on Marcus for the file")?.waitingOn, "Marcus for the file");
+    // LIFEOS-066 §10, §32. This assertion used to pin the swallowing: the whole
+    // phrase went into `waitingOn`, so two waits on the same person were two
+    // different subjects as far as any grouping was concerned. It now asserts
+    // the split that replaced it — the person and the thing are separate facts,
+    // and the sentence itself is still kept whole as the title (5.9).
+    eq("5.6 'waiting on X for Y' names the PERSON",
+      detectWaiting("waiting on Marcus for the file")?.waitingOn, "Marcus");
+    eq("5.6b …and what is being waited FOR, separately",
+      detectWaiting("waiting on Marcus for the file")?.waitingFor, "file");
+    eq("5.6c a wait with no stated object leaves it empty rather than guessing",
+      detectWaiting("waiting on Marcus")?.waitingFor, undefined);
     eq("5.7 follow up with", detectWaiting("follow up with Marcus about the invoice")?.waitingOn, "Marcus");
     eq("5.8 hear back from", detectWaiting("still need to hear back from the bank")?.waitingOn, "bank");
     ok("5.9 the original phrasing is kept as the title",

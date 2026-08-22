@@ -34,6 +34,16 @@
 export interface WaitingFinding {
   /** The subject, when the sentence names it unambiguously. May be empty. */
   waitingOn: string;
+  /**
+   * WHAT is being waited for, when the sentence separates it from the subject.
+   *
+   * LIFEOS-066 §10. "Waiting on Priya for the quote" used to put the whole
+   * phrase in `waitingOn`, so two waits on Priya were two different people as
+   * far as any grouping was concerned. The subject and the object are different
+   * facts and the grammar usually separates them; when it does not, this stays
+   * empty rather than guessing.
+   */
+  waitingFor?: string;
   /** A short, plain reason for the UI. Never a regex. */
   reason: string;
 }
@@ -54,6 +64,9 @@ function subject(s: string): string {
   // "Marcus from the office still" → "Marcus from the office"
   const cleaned = t.replace(/\s+(?:still|yet|again|ever)$/i, "").trim();
   // A subject longer than a short phrase is almost certainly a mis-parse.
+  // Kept at six words so a title and a full name survive intact —
+  // "Dr. Sarah Chen" and "the advisor at the clinic" are both real answers to
+  // "who are you waiting on?" (§10).
   const words = cleaned.split(" ");
   return words.length <= 6 ? cleaned : "";
 }
@@ -62,23 +75,35 @@ function subject(s: string): string {
  * Patterns, in priority order. Each names the capture group holding the subject,
  * or `0` when the shape does not expose one.
  */
-const PATTERNS: Array<{ re: RegExp; group: number; reason: string }> = [
-  // The original two shapes, kept identical so nothing that worked stops working.
-  { re: /^(?:i'?m\s+|i\s+am\s+)?wait(?:ing)?\s+(?:for|on)\s+(.+)$/i, group: 1, reason: "Describes waiting on someone or something." },
-  { re: /^need\s+(.+?)\s+to\s+(?:respond|reply|get back|send|confirm)\b/i, group: 1, reason: "Describes waiting on someone or something." },
+const PATTERNS: Array<{ re: RegExp; group: number; objectGroup?: number; reason: string }> = [
+  // The original two shapes, with the OBJECT split off where the grammar marks
+  // it. "Waiting on Priya for the quote" is one person and one thing, not a
+  // six-word person (§10).
+  //
+  // A leading "still" is allowed everywhere it can appear. LIFEOS-063 found
+  // that one word defeated the whole detector — "Still waiting on Priya" became
+  // a note — which is the most common way anyone says this out loud.
+  // "waiting for Finance to approve it" — the subject ends where the thing they
+  // owe you begins, and "to <verb>" marks that boundary as clearly as "for" does.
+  { re: /^(?:still\s+)?(?:i'?m\s+|i\s+am\s+)?(?:still\s+)?wait(?:ing)?\s+(?:for|on)\s+(.+?)\s+to\s+(\w+.*)$/i, group: 1, objectGroup: 2, reason: "Describes waiting on someone or something." },
+  { re: /^(?:still\s+)?(?:i'?m\s+|i\s+am\s+)?(?:still\s+)?wait(?:ing)?\s+(?:for|on)\s+(.+?)(?:\s+(?:for|about|on|re|regarding)\s+(.+))?$/i, group: 1, objectGroup: 2, reason: "Describes waiting on someone or something." },
+  { re: /^(?:i\s+)?(?:still\s+)?need\s+(.+?)\s+to\s+(?:respond|reply|get back|send|confirm|approve)\b(?:\s+(.+))?$/i, group: 1, objectGroup: 2, reason: "Describes waiting on someone or something." },
+  // "Still haven't heard from the dealer" / "Need to hear back from the landlord"
+  { re: /^(?:still\s+)?(?:i\s+)?(?:still\s+)?(?:haven'?t|have\s+not|need\s+to)\s+hear(?:d)?\s+(?:back\s+)?from\s+(.+?)(?:\s+(?:about|re|regarding)\s+(.+))?$/i, group: 1, objectGroup: 2, reason: "You're waiting to hear back." },
 
   // "Marcus still owes me the document" / "he owes me a reply"
-  { re: /^(.+?)\s+(?:still\s+)?owes?\s+me\b/i, group: 1, reason: "Someone owes you something." },
-  // "Marcus still hasn't sent the file" / "Sarah hasn't replied"
-  { re: /^(.+?)\s+(?:still\s+)?(?:hasn'?t|haven'?t|has\s+not|have\s+not)\s+(?:sent|replied|responded|gotten\s+back|got\s+back|answered|confirmed|returned|delivered|shared)\b/i, group: 1, reason: "Someone hasn't come back to you yet." },
+  { re: /^(.+?)\s+(?:still\s+)?owes?\s+me\s*(.*)$/i, group: 1, objectGroup: 2, reason: "Someone owes you something." },
+  // "Marcus still hasn't sent the file" / "Sarah hasn't replied" /
+  // "Alex never sent the document" / "The advisor hasn't gotten back to me"
+  { re: /^(.+?)\s+(?:still\s+)?(?:hasn'?t|haven'?t|has\s+not|have\s+not|never)\s+(?:sent|replied|responded|gotten\s+back|got\s+back|answered|confirmed|returned|delivered|shared|come\s+back)\s*(?:to\s+me\s*)?(?:about\s+|with\s+)?(.*)$/i, group: 1, objectGroup: 2, reason: "Someone hasn't come back to you yet." },
   // "Marcus was supposed to send the draft"
   { re: /^(.+?)\s+(?:was|were|is|are)\s+supposed\s+to\s+(?:send|reply|respond|get\s+back|confirm|deliver|share|return)\b/i, group: 1, reason: "Someone owed you a response." },
   // "still waiting to hear back from Marcus"
   { re: /\b(?:hear|hearing)\s+back\s+from\s+(.+)$/i, group: 1, reason: "You're waiting to hear back." },
   // "follow up with Marcus about the invoice"
-  { re: /^follow\s+up\s+(?:with|on)\s+(.+?)(?:\s+(?:about|re|regarding)\b.*)?$/i, group: 1, reason: "A follow-up with someone." },
+  { re: /^follow\s+up\s+(?:with|on)\s+(.+?)(?:\s+(?:about|re|regarding)\s+(.+))?$/i, group: 1, objectGroup: 2, reason: "A follow-up with someone." },
   // "chase up the invoice" — a follow-up whose subject is a thing, not a person.
-  { re: /^(?:chase|chasing)\s+(?:up\s+)?(.+)$/i, group: 1, reason: "A follow-up." },
+  { re: /^(?:chase|chasing)\s+(?:up\s+)?(.+?)(?:\s+(?:about|for|re|regarding)\s+(.+))?$/i, group: 1, objectGroup: 2, reason: "A follow-up." },
   // Bare "still no word from the clinic"
   { re: /^still\s+no\s+(?:word|reply|response|answer)\s+from\s+(.+)$/i, group: 1, reason: "No response yet." },
   // "pending Marcus's approval"
@@ -94,11 +119,12 @@ const PATTERNS: Array<{ re: RegExp; group: number; reason: string }> = [
 export function detectWaiting(text: string): WaitingFinding | null {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t) return null;
-  for (const { re, group, reason } of PATTERNS) {
+  for (const { re, group, objectGroup, reason } of PATTERNS) {
     const m = re.exec(t);
     if (!m) continue;
     const raw = group > 0 ? (m[group] ?? "") : "";
-    return { waitingOn: subject(raw), reason };
+    const object = objectGroup ? tidy(m[objectGroup] ?? "") : "";
+    return { waitingOn: subject(raw), waitingFor: object || undefined, reason };
   }
   return null;
 }

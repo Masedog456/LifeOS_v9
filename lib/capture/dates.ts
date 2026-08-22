@@ -382,7 +382,14 @@ export function stripResolvedTemporal(text: string, result: TemporalResult): str
     // Scoped to the word immediately before the removed phrase on purpose. A
     // blanket trailing-preposition strip would turn "Turn the heating on" into
     // "Turn the heating"; here "on" is only ever removed when a date followed it.
-    const withPreposition = new RegExp(`\\s*\\b(?:by|before|on|at|until|til|till|due)\\s+${escaped}\\b`, "i");
+    //
+    // LIFEOS-066 §13 adds the copulas for the same reason. "Mom's birthday is
+    // August 14" left "Mom's birthday is" as the Event title — the exact shape
+    // §13 asks Capture to get right — and the dangling word then travelled to
+    // every surface the event appears on. Same scoping rule: `is` is removed
+    // only when a resolved date followed it, so "The house is on fire" keeps
+    // every word it started with.
+    const withPreposition = new RegExp(`\\s*\\b(?:by|before|on|at|until|til|till|due|is|are|was|were)\\s+${escaped}\\b`, "i");
     out = withPreposition.test(out)
       ? out.replace(withPreposition, " ")
       : out.replace(new RegExp(`\\s*\\b${escaped}\\b`, "i"), " ");
