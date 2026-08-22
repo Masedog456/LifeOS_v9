@@ -4260,3 +4260,82 @@ connectors require repeated beta demand **and** stable API support, both.
   pass asking "and WHY is that wrong?" removed two false ones before they reached
   the report. Running the thing is necessary and not sufficient — explaining the
   output is the other half.
+
+- **LIFEOS-064 — Week in Review (autobiographical memory, read-only).** The gap
+  LIFEOS-063 named — *"Conqify has a present tense and no past tense"* — closed
+  as a **projection**, not a store. `buildAutobiographicalTimeline(state, range)`
+  and `buildWeekReview(state, rangeKind)` in `lib/memory/week.ts`, surfaced on
+  `/memory`. **Zero migrations. Zero new store domains. Zero new nav
+  destinations. Zero new user-facing nouns. No AI.**
+
+  **Confirmed principles.**
+  - *Autobiographical memory is a projection over recorded life.* Deriving it
+    rather than storing it means deleting a source removes its memory for free,
+    editing one updates it for free, and a derived sentence can never be
+    mistaken for something the user wrote. All three are asserted.
+  - *Created ≠ completed.* Separate kinds, never merged, never summed. Ten
+    actions created and never touched appear in Added and in nothing else.
+  - *Scheduled ≠ attended.* The kind is `event_scheduled`; there is no
+    `event_happened`, because no attendance field exists anywhere in the schema.
+    The section is headed "On the calendar" and states the limitation.
+  - *Touched ≠ progressed.* `Project` carries `createdAt`/`updatedAt` and **no
+    history at all**, so a project line counts dated linked records and the
+    section says Conqify keeps no history of project changes.
+  - *Derived memory ≠ user authorship.* Every line carries the provenance of its
+    source; a note with `fromAiText` is recorded in the timeline but never
+    presented under "In your own words".
+  - *No record ≠ nothing happened.* The empty state says nothing was **recorded**,
+    and `FORBIDDEN_REVIEW_WORDS` is asserted against everything the product
+    writes — but never against the user's own text.
+  - *Week review works with no AI, offline, with no key, transmitting nothing.*
+
+  **The §4 evidence audit, which decided the architecture.** `buildActivityIndex`
+  already flattens action and capture history — including `action_completed`,
+  `action_deferred` (with its target day) and `action_waiting` (with the person).
+  So **§12's open question resolved positively: the deferral transition IS
+  recorded**, and "deferred this week" is a fact rather than a guess from the
+  current `deferredUntil`. What the index does NOT carry: **events, notes and
+  projects — zero entries for all three**, because it predates LIFEOS-060 and
+  -061. Those are read directly here rather than added to the shared index,
+  because extending it would change what `dormancyView`, `periodSummary` and
+  Today's Return card consider a record.
+
+  **Recurring completions are distinguished by their detail.** `completeOccurrence`
+  writes a `completed` history entry whose `detail` is the OCCURRENCE DATE.
+  Reading it as an ordinary completion would claim a standing responsibility had
+  ended; the timeline splits `recurring_completion` from `completed_action` on
+  exactly that field.
+
+  **Two bugs found by printing real output rather than reasoning about it.**
+  (1) The deterministic summary counted `added`, which is CAPPED for readability
+  — so the headline number would silently become "added 12 actions" for a week
+  with thirty. It now counts the timeline; the section is a bounded view, the
+  sentence is the fact. (2) Current state leaked into past ranges: a wait that
+  began after the period, and actions created after it, both appeared under
+  "last week". Both are now filtered by the range end, and the residue — status
+  is *current* status — is stated as a limitation rather than silently wrong.
+
+  **Language rules apply to the product, not the person.** The torture week
+  deliberately contains a user reflection reading *"Good week for sleep."* The
+  review must neither adopt that language itself nor censor the user for using
+  it, and the browser smoke asserts both halves.
+
+  **Product-claim retest (LIFEOS-063 §28).** *"What happened this week?"*
+  **FAIL → PASS**. *"What did I accomplish?"*, *"What remains open?"*, *"What am
+  I waiting on?"* all **PASS**. *"What changed?"* stays **PARTIAL**: additions,
+  deferrals, completions and new waits are reported; what an edit changed is not,
+  because notes and projects carry no edit log.
+
+  **Validation.** Full regression **2799/2799 across 31 suites** (week review
+  90/90, dogfood 81/81); integration 64/64; browser smokes 58/58 (064), 30/30
+  (063), 46/46 (062), 43/44 (061 — the same clock-dependent assertion that fails
+  identically on unmodified main), 57/57 (060); rehearsal 63/63 with **no
+  migration**; tsc clean; eslint 0 errors; build compiled; audit:security PASS;
+  release:audit PASS 17/17. Performance at a year of data (1096 actions, 183
+  events, 183 notes, 100 projects): index 2.0ms, one week **2.6ms**, one year
+  3.7ms for 2249 autobiographical events.
+
+  **Durable lesson.** A summary sentence and the section beneath it must be
+  computed from different things: the section is bounded for readability, the
+  sentence is the fact. Counting the rendered list is how a headline number
+  quietly becomes a cap.
