@@ -15,6 +15,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   ConstitutionElement, ConstitutionRevision,
+  LifeEvent, RecurrenceCompletion,
   Belief,
   Capture,
   Comparison,
@@ -63,6 +64,7 @@ import type {
   Protocol,
 } from "@/types/mvp";
 import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
+import { readRule } from "@/lib/time/recurrence";
 import {
   allDocumentRows, citationToRow, diffById, documentToImportPayload, newDocumentIds, rowsToDocuments,
   type AnnotationRow, type CitationRow, type DocumentRow, type HighlightRow, type PassageRow, type SectionRow,
@@ -172,6 +174,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const savedInsightViews = await this.loadInsightViews();
     const notes = await this.loadNotes();
     const protocols = await this.loadProtocols();
+    const events = await this.loadEvents();
+    const recurrenceCompletions = await this.loadRecurrenceCompletions();
     const constitutionElements = await this.loadConstitutionElements();
     const constitutionRevisions = await this.loadConstitutionRevisions();
 
@@ -227,6 +231,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       savedInsightViews,
       notes,
       protocols,
+      events,
+      recurrenceCompletions,
       constitutionElements,
       constitutionRevisions,
     };
@@ -351,6 +357,8 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (w("savedInsightViews")) await this.syncInsightViews(state.savedInsightViews ?? [], base?.savedInsightViews ?? []);
     if (w("notes")) await this.syncNotes(state.notes ?? [], base?.notes ?? []);
     if (w("protocols")) await this.syncProtocols(state.protocols ?? [], base?.protocols ?? []);
+    if (w("events")) await this.syncEvents(state.events ?? [], base?.events ?? []);
+    if (w("recurrenceCompletions")) await this.syncRecurrenceCompletions(state.recurrenceCompletions ?? [], base?.recurrenceCompletions ?? []);
     if (w("constitutionElements")) await this.syncConstitutionElements(state.constitutionElements ?? [], base?.constitutionElements ?? []);
     if (w("constitutionRevisions")) await this.syncConstitutionRevisions(state.constitutionRevisions ?? [], base?.constitutionRevisions ?? []);
     this.lastState = "synced";
@@ -543,6 +551,44 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       const res = await this.client.from("protocols").select("*").order("updated_at", { ascending: false });
       if (res.error) return [];
       return (res.data ?? []).map(rowToProtocol);
+    } catch { return []; }
+  }
+
+  /** Row-level upsert/delete for events (LIFEOS-061). */
+  private async syncEvents(current: LifeEvent[], base: LifeEvent[]): Promise<void> {
+    const d = diffById<EventRow>(current.map(eventToRow), base.map(eventToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("events").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("events").delete().in("id", d.deleteIds)); await this.writeTombstones("events", d.deleteIds); }
+  }
+
+  /** Load events, resilient to the 0040 table being absent. */
+  private async loadEvents(): Promise<LifeEvent[]> {
+    try {
+      const res = await this.client.from("events").select("*").order("date", { ascending: true });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToEvent);
+    } catch { return []; }
+  }
+
+  /**
+   * Row-level upsert/delete for recurrence completions (LIFEOS-061).
+   *
+   * `(action_id, occurrence_date)` is unique in the database, so a duplicate
+   * upsert from a racing device is rejected by the constraint rather than
+   * creating a second record of the same Sunday.
+   */
+  private async syncRecurrenceCompletions(current: RecurrenceCompletion[], base: RecurrenceCompletion[]): Promise<void> {
+    const d = diffById<RecurrenceCompletionRow>(current.map(completionToRow), base.map(completionToRow));
+    if (d.upsert.length) await this.throwing(this.client.from("recurrence_completions").upsert(d.upsert));
+    if (d.deleteIds.length) { await this.throwing(this.client.from("recurrence_completions").delete().in("id", d.deleteIds)); await this.writeTombstones("recurrenceCompletions", d.deleteIds); }
+  }
+
+  /** Load completion history, resilient to the 0040 table being absent. */
+  private async loadRecurrenceCompletions(): Promise<RecurrenceCompletion[]> {
+    try {
+      const res = await this.client.from("recurrence_completions").select("*").order("occurrence_date", { ascending: false });
+      if (res.error) return [];
+      return (res.data ?? []).map(rowToCompletion);
     } catch { return []; }
   }
 
@@ -2181,6 +2227,61 @@ function rowToProtocol(r: any): Protocol {
     fromAiText: r.from_ai_text ? true : undefined,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
+}
+
+// ---------------------------------------------- time foundation (061) ----
+
+interface EventRow {
+  id: string; user_id?: string; title: string; date: string;
+  start_time: string | null; end_time: string | null; all_day: boolean;
+  notes: string; recurrence: unknown | null; linked_entity_refs: unknown;
+  source_capture_id: string | null; from_ai_text: boolean;
+  created_at: string; updated_at: string;
+}
+
+function eventToRow(e: LifeEvent): EventRow {
+  return {
+    id: e.id, title: e.title, date: e.date,
+    start_time: e.startTime ?? null, end_time: e.endTime ?? null,
+    all_day: !!e.allDay, notes: e.notes ?? "",
+    recurrence: e.recurrence ?? null,
+    linked_entity_refs: e.linkedEntityRefs ?? [],
+    source_capture_id: e.sourceCaptureId ?? null,
+    from_ai_text: !!e.fromAiText,
+    created_at: e.createdAt, updated_at: e.updatedAt,
+  };
+}
+
+/**
+ * A remote row becomes an event.
+ *
+ * `recurrence` arrives as untrusted JSONB — hand-edited, written by an older
+ * client, or corrupted. `readRule` returns null for anything malformed, so a bad
+ * rule loses its SCHEDULE and keeps its EVENT rather than taking down the load
+ * path (§9 of the continuation brief). It is never repaired: a guessed rule
+ * would replace the user's data with ours and then look like theirs.
+ */
+function rowToEvent(r: any): LifeEvent {
+  return {
+    id: r.id, title: r.title ?? "", date: r.date,
+    startTime: r.start_time ?? undefined, endTime: r.end_time ?? undefined,
+    allDay: r.all_day ? true : undefined, notes: r.notes ?? "",
+    recurrence: readRule(r.recurrence) ?? undefined,
+    linkedEntityRefs: Array.isArray(r.linked_entity_refs) ? r.linked_entity_refs : [],
+    sourceCaptureId: r.source_capture_id ?? undefined,
+    fromAiText: r.from_ai_text ? true : undefined,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+interface RecurrenceCompletionRow {
+  id: string; user_id?: string; action_id: string; occurrence_date: string; completed_at: string;
+}
+function completionToRow(c: RecurrenceCompletion): RecurrenceCompletionRow {
+  return { id: c.id, action_id: c.actionId, occurrence_date: c.occurrenceDate, completed_at: c.completedAt };
+}
+function rowToCompletion(r: any): RecurrenceCompletion {
+  return { id: r.id, actionId: r.action_id, occurrenceDate: r.occurrence_date, completedAt: r.completed_at };
 }
 
 interface NoteRow {

@@ -23,7 +23,10 @@ export type RecordKind =
   // of their own (`nextActions` and `notes`) and were invisible for the same
   // reason. Nothing speculative is added — every kind here is reachable today.
   | "constitution_element" | "action" | "note" | "protocol"
-  | "workspace" | "goal" | "project" | "document";
+  | "workspace" | "goal" | "project" | "document"
+  // Time foundation (LIFEOS-061). An Event participates in the SAME reference
+  // reader as everything else — no second relationship system.
+  | "event";
 
 export type RefRelation =
   | "references" | "used_in" | "investigated_by" | "authored_from"

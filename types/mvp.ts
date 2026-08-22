@@ -2499,6 +2499,23 @@ export interface NextAction {
    *  - planning horizon — the user's chosen attention band, never a deadline
    */
   dueDate?: string;
+  /**
+   * Wall-clock time the action is due (LIFEOS-061). INVALID without `dueDate` —
+   * a time with no day names no moment.
+   *
+   * Distinct from `Event.startTime` and never a substitute for it: this is when
+   * something must be FINISHED BY, not when something HAPPENS. "Submit the
+   * assignment by midnight" and "dinner at 7" are different shapes, and
+   * collapsing them would put a checkbox on dinner.
+   */
+  dueTime?: LocalTime;
+  /**
+   * Recurrence rule (LIFEOS-061). A recurring Action is a standing SOURCE:
+   * completing one occurrence writes a `RecurrenceCompletion` and NEVER sets
+   * this action to `done`. The source stays active until recurrence is stopped
+   * or the action is deleted.
+   */
+  recurrence?: RecurrenceRule;
   /** Local day key (yyyy-mm-dd) an action returns to "Next" on. */
   deferredUntil?: string;
   /** Free text: what/who this action is waiting on. */
@@ -2762,6 +2779,9 @@ export interface StoreState {
   protocols: Protocol[];
   constitutionElements: ConstitutionElement[];
   constitutionRevisions: ConstitutionRevision[];
+  /** Time foundation (LIFEOS-061). Appended last — domain order is a contract. */
+  events: LifeEvent[];
+  recurrenceCompletions: RecurrenceCompletion[];
 }
 
 // ---------- Living Constitution (LIFEOS-056) ----------
@@ -2986,6 +3006,107 @@ export interface Protocol {
   fromAiText?: boolean;
   createdAt: ISO;
   updatedAt: ISO;
+}
+
+// ---------- Time foundation (LIFEOS-061) ----------
+
+/**
+ * A wall-clock time of day, `HH:mm`, 24-hour. See `lib/time/localtime.ts`.
+ *
+ * NOT an instant. Never converted to UTC, never combined with a date to make a
+ * `Date`, never adjusted for DST. An appointment at 2:30 is at 2:30 wherever you
+ * are — that is the correct model for a local-first personal product, not a
+ * limitation awaiting a timezone layer.
+ */
+export type LocalTime = string;
+
+/**
+ * Something that HAPPENS at a time. Not a task.
+ *
+ * The distinction is the whole point of the record existing. An Action has
+ * completion semantics — you finish it, and finishing is the outcome. An Event
+ * has none: it happens, then it has happened. LIFEOS-060 could only offer Note
+ * for "Dentist Tuesday at 2:30", which lost the time entirely; filing it as an
+ * Action instead would have produced a checkbox nobody can honestly tick.
+ *
+ * Deliberately minimal. No attendees, no organizer, no location, no external
+ * calendar id, no invite state, no free/busy. Those belong to a calendar
+ * product, and this is a clock.
+ *
+ * Named `LifeEvent` rather than `Event` on purpose: a type called `Event` shadows
+ * the DOM global in every file that imports it, and a mis-resolved `Event` in a
+ * component is a confusing failure far from its cause. The DOMAIN is still
+ * "events" everywhere a user or a table can see it.
+ */
+export interface LifeEvent {
+  id: string;
+  title: string;
+  /** Local day key (yyyy-mm-dd). For a recurring Event this is the ANCHOR. */
+  date: string;
+  /** Wall-clock start. Absent for an all-day event. */
+  startTime?: LocalTime;
+  /** Wall-clock end. Must be >= startTime on the same day; overnight is unsupported. */
+  endTime?: LocalTime;
+  allDay?: boolean;
+  notes: string;
+  /**
+   * Recurrence rule (`lib/time/recurrence.ts`). Occurrences are DERIVED from
+   * this — no future rows are ever written.
+   */
+  recurrence?: RecurrenceRule;
+  linkedEntityRefs: RecordRefLite[];
+  /** The capture this came from, when it came from one. */
+  sourceCaptureId?: string;
+  /**
+   * True when the title originated as AI-generated prose the user kept.
+   * Confirming a machine-suggested STRUCTURE never sets this (LIFEOS-050A/050B).
+   */
+  fromAiText?: boolean;
+  createdAt: ISO;
+  updatedAt: ISO;
+}
+
+export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
+
+/**
+ * The whole recurrence model — four fields, on purpose.
+ *
+ * Months lacking `dayOfMonth` are SKIPPED, never clamped. Yearly February 29
+ * occurs only in leap years, and does not slide. See `lib/time/recurrence.ts`
+ * for why clamping is treated as a lie rather than a convenience.
+ *
+ * No exclusion dates, no "third Thursday", no "end after N occurrences".
+ */
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency;
+  /** Every N periods. Positive integer; 2 gives "every other". */
+  interval: number;
+  /** `weekly` only: 0 = Sunday. */
+  weekdays?: number[];
+  /** `monthly` and `yearly`: 1-31. */
+  dayOfMonth?: number;
+  /** `yearly` only: 0 = January. */
+  month?: number;
+}
+
+/**
+ * One recorded completion of one occurrence of a recurring Action.
+ *
+ * The ONLY durable artefact of a recurring action's history, and the reason the
+ * schedule needs no stored cursor: the next occurrence is derived from the rule
+ * minus what is already here. `(actionId, occurrenceDate)` is unique, so a
+ * double completion is a no-op rather than a duplicate.
+ *
+ * Cascades with its Action on delete. That is a deliberate privacy position —
+ * deleting a recurring action must actually delete the history derived solely
+ * from it, so autobiographical memory can never outrank a deletion.
+ */
+export interface RecurrenceCompletion {
+  id: string;
+  actionId: string;
+  /** The occurrence completed. Half of the canonical identity. */
+  occurrenceDate: string;
+  completedAt: ISO;
 }
 
 // ---------- Notes (LIFEOS-052) ----------

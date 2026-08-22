@@ -18,8 +18,8 @@
  * day key (`yyyy-mm-dd`). That means:
  *
  *   - a day        → resolvable
- *   - a time of day → NOT storable (`time_of_day`) — LIFEOS-061
- *   - a recurrence  → NOT storable (`recurrence`)  — LIFEOS-061
+ *   - a time of day → storable since LIFEOS-061 (`lib/capture/schedule.ts`)
+ *   - a recurrence  → storable since LIFEOS-061, EXCEPT ambiguous patterns
  *   - a bare month  → NOT storable (`month_only`)
  *   - "soon", "end of week", "next month" → NOT storable (`vague`)
  *
@@ -44,15 +44,23 @@
 import { addDays, type DayKey } from "@/lib/reviews/dates";
 
 /** Why a temporal phrase could not become a `dueDate`. */
-export type UnresolvedReason = "time_of_day" | "recurrence" | "month_only" | "vague" | "past" | "occasion";
+export type UnresolvedReason = "time_of_day" | "recurrence" | "recurrence_ambiguous" | "month_only" | "vague" | "past" | "occasion";
 
 export const UNRESOLVED_LABEL: Record<UnresolvedReason, string> = {
   time_of_day: "Time of day isn't stored yet",
-  recurrence: "Repeating schedules aren't stored yet",
+  // LIFEOS-061 made most repeating schedules storable, so this label narrowed to
+  // the ones that still are not. Leaving the old wording would have been the
+  // easy change and a false one.
+  recurrence: "That repeating pattern isn't supported yet",
+  recurrence_ambiguous: "Conqify can't tell which days you mean",
   month_only: "No specific day given",
   vague: "Too vague to pin to a day",
   past: "Refers to the past",
-  occasion: "Occasions and timed events aren't supported yet",
+  // LIFEOS-061 made timed events representable, so this label narrowed to what
+  // is ACTUALLY missing: a date. Leaving the old wording would have been the
+  // easy change and a false one — the product would be apologising for a
+  // limitation it no longer has, next to a feature that now works.
+  occasion: "No date given, so there's nothing to schedule",
 };
 
 /** One temporal phrase found in the text. Exactly one of `dueDate`/`reason` is set. */
@@ -83,7 +91,10 @@ export interface TemporalResult {
  * it off would be meaningless, and leaving it open makes it permanent debris in
  * the Next list — the exact failure that makes people abandon task systems.
  *
- * Until LIFEOS-061 gives occasions a home, the honest answer is to say so.
+ * LIFEOS-061 gave occasions a home when a DATE is known: "Mom's birthday is
+ * August 14" becomes a yearly Event. This detector now fires only for the case
+ * that remains unrepresentable — an occasion with no date anywhere in the
+ * sentence, where the only alternative would be to invent one.
  */
 const OCCASION_NOUNS =
   /\b(birthday|anniversary|wedding|graduation|funeral|memorial|reunion|christening|baptism|bar mitzvah|bat mitzvah|retirement party|baby shower)\b/i;

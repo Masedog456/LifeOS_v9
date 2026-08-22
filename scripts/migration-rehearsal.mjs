@@ -116,19 +116,20 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 39, `found ${files.length} migration files, expected 39`);
+  ok("migration files present", files.length === 40, `found ${files.length} migration files, expected 40`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
   applyChain("rc_clean", files);
   const tableCount = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("clean apply 0001->0039 (60 public tables)", tableCount === 60, `got ${tableCount} public tables`);
+  // 62 since LIFEOS-061 added exactly two: `events` and `recurrence_completions`.
+  ok("clean apply 0001->0040 (62 public tables)", tableCount === 62, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
   applyChain("rc_clean", files);
   const tableCount3 = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("idempotent x3 (stable table count)", tableCount3 === 60, `after 3x got ${tableCount3}`);
+  ok("idempotent x3 (stable table count)", tableCount3 === 62, `after 3x got ${tableCount3}`);
 
   // 3) RLS enabled on every public table + each has policies.
   const noRls = psql("rc_clean", `select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity=false order by 1;`).trim();
@@ -168,7 +169,7 @@ function run() {
     // 60, not 58: LIFEOS-056 added `constitution_elements` and
     // `constitution_revisions` (0038). The property under test is unchanged — an upgraded
     // database must reach exactly the same table count as a clean install.
-    ok(`checkpoint upgrade ${id} (through ${through})`, c === 60, `reached ${c} tables`);
+    ok(`checkpoint upgrade ${id} (through ${through})`, c === 62, `reached ${c} tables`);
     psql("postgres", `drop database if exists ${db} with (force);`);
   }
 
@@ -240,6 +241,74 @@ function run() {
     asA(`delete from public.constitution_elements where id = '${EA}';`);
     const aHistAfter = asA(`select count(*) from public.constitution_revisions where element_id = '${EA}';`).trim();
     ok("056D: deleting the predecessor cascades its own history", aHistAfter === "0", `${aHistAfter} rows`);
+  }
+
+  // 0040 — Time foundation (LIFEOS-061). The constraints and the cascade are
+  //        product guarantees, so they are proved against real Postgres rather
+  //        than trusted to the client that writes the rows.
+  {
+    const AID = "cccccccc-0000-0000-0000-00000000000c";
+    const asA = (sql) => psql("rc_clean", `set role rc_app; set app.uid='${A}'; ${sql}`);
+    const tryA = (sql) => {
+      try { psql("rc_clean", `set role rc_app; set app.uid='${A}'; ${sql}`); return true; }
+      catch { return false; }
+    };
+
+    asA(`insert into public.next_actions(id, title, due_date) values ('${AID}', 'Refill medication box', current_date);`);
+
+    // A due TIME needs a due DATE — the constraint, not just the TypeScript.
+    ok("061: due_time with a due_date is accepted",
+      tryA(`update public.next_actions set due_time = '09:00' where id = '${AID}';`));
+    ok("061: due_time WITHOUT a due_date is refused",
+      !tryA(`insert into public.next_actions(id, title, due_time) values (gen_random_uuid(), 'no day', '09:00');`));
+    ok("061: a malformed due_time is refused",
+      !tryA(`update public.next_actions set due_time = '25:99' where id = '${AID}';`));
+    ok("061: 24:00 is refused (it names a different day than 00:00)",
+      !tryA(`update public.next_actions set due_time = '24:00' where id = '${AID}';`));
+    ok("061: 23:59 is accepted",
+      tryA(`update public.next_actions set due_time = '23:59' where id = '${AID}';`));
+
+    // Occurrence identity: the anti-duplicate guarantee.
+    asA(`insert into public.recurrence_completions(id, action_id, occurrence_date) values (gen_random_uuid(), '${AID}', date '2026-08-23');`);
+    ok("061: a duplicate (action, occurrence) completion is refused",
+      !tryA(`insert into public.recurrence_completions(id, action_id, occurrence_date) values (gen_random_uuid(), '${AID}', date '2026-08-23');`));
+    const one = asA(`select count(*) from public.recurrence_completions where action_id = '${AID}';`).trim();
+    ok("061: exactly one completion row survives the duplicate attempt", one === "1", `${one} rows`);
+
+    // Deleting the source takes its derived history with it — the deliberate
+    // privacy position of §6 of the continuation brief.
+    asA(`delete from public.next_actions where id = '${AID}';`);
+    const after = asA(`select count(*) from public.recurrence_completions where action_id = '${AID}';`).trim();
+    ok("061: deleting a recurring action cascades its completion history", after === "0", `${after} rows`);
+
+    // Events: constraints, and a malformed rule that must still LOAD.
+    const EV = "dddddddd-0000-0000-0000-00000000000d";
+    ok("061: an event with a start and a later end is accepted",
+      tryA(`insert into public.events(id, title, date, start_time, end_time) values ('${EV}', 'Class', current_date, '09:00', '10:30');`));
+    ok("061: an overnight event is refused rather than reordered",
+      !tryA(`insert into public.events(id, title, date, start_time, end_time) values (gen_random_uuid(), 'Party', current_date, '23:00', '01:00');`));
+    ok("061: an all-day event with a start time is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, start_time) values (gen_random_uuid(), 'Holiday', current_date, true, '09:00');`));
+    ok("061: an end time with no start is refused",
+      !tryA(`insert into public.events(id, title, date, end_time) values (gen_random_uuid(), 'Dangling', current_date, '10:00');`));
+    // Malformed recurrence JSONB is a LOAD-PATH concern, not a write barrier:
+    // the row must be storable and readable so the client can ignore the rule
+    // and keep the event (§9 of the continuation brief).
+    ok("061: an event with a malformed recurrence rule still stores",
+      tryA(`insert into public.events(id, title, date, recurrence) values (gen_random_uuid(), 'Broken rule', current_date, '{"frequency":"fortnightly"}'::jsonb);`));
+    const loads = asA(`select count(*) from public.events;`).trim();
+    ok("061: and every event row still loads", Number(loads) >= 2, `${loads} rows`);
+    ok("061: a non-object recurrence is refused",
+      !tryA(`insert into public.events(id, title, date, recurrence) values (gen_random_uuid(), 'Bad type', current_date, '"weekly"'::jsonb);`));
+
+    // Two-user isolation on both new tables.
+    const asB = (sql) => psql("rc_clean", `set role rc_app; set app.uid='${B}'; ${sql}`);
+    const bSeesEvents = asB(`select count(*) from public.events;`).trim();
+    ok("061: user B sees none of user A's events", bSeesEvents === "0", `${bSeesEvents} rows`);
+    const bSeesCompletions = asB(`select count(*) from public.recurrence_completions;`).trim();
+    ok("061: user B sees none of user A's completion history", bSeesCompletions === "0", `${bSeesCompletions} rows`);
+
+    asA(`delete from public.events where id is not null;`);
   }
 
   // Every user-owned policy references auth.uid() (isolation is by policy, not luck).

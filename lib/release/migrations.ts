@@ -8,7 +8,7 @@
  * module holds the deterministic expectations that both the rehearsal and the
  * release self-test check against, so the two can never disagree.
  *
- * Historical migrations are never modified. The current head is 0039
+ * Historical migrations are never modified. The current head is 0040
  * (`0039_constitution_revision_successor.sql`, the LIFEOS-056D deletion-privacy
  * repair). A demonstrated
  * release-blocking database defect would add exactly one narrowly-scoped
@@ -40,7 +40,7 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-reading-semantic", label: "Before the reading semantic index", throughVersion: 33 },
   { id: "pre-constitution", label: "Before the Living Constitution", throughVersion: 37 },
   { id: "pre-successor-cascade", label: "Before the revision successor cascade", throughVersion: 38 },
-  { id: "current", label: "Current production head", throughVersion: 39 },
+  { id: "current", label: "Current production head", throughVersion: 40 },
 ];
 
 export interface MigrationListReport {
@@ -80,8 +80,14 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
 /**
  * A demonstrated release-blocking migration fix may add exactly this file, and
  * nothing else. The audit rejects any new migration beyond it.
+ *
+ * 0040 was reserved for an emergency fix and was never needed. LIFEOS-061 spent
+ * the number on the time foundation instead — a planned, reviewed schema change,
+ * not a hotfix — so the escape hatch moves to the next number rather than being
+ * removed. The point of the hatch is that exactly ONE unplanned migration may
+ * follow the head, and that remains true.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0040_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0041_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

@@ -14,7 +14,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   useStore, updateAction, startAction, completeAction, deferAction, markActionWaiting, setActionDueDate,
   pauseAction, cancelAction, restoreAction, reopenAction, duplicateAction,
-  deleteAction, linkActionRef, unlinkActionRef, addActionTag, removeActionTag,
+  deleteAction, deleteActionWithHistory, stopActionRecurrence, completionsFor,
+  linkActionRef, unlinkActionRef, addActionTag, removeActionTag,
 } from "@/lib/mvpStore";
 import { makeEntityContext, entityRef, entityKindLabel } from "@/lib/entities/entity";
 import { entityBacklinks } from "@/lib/entities/backlinks";
@@ -26,6 +27,7 @@ import { dependencyImpact } from "@/lib/actions/dependencies";
 import { useUnsavedGuard } from "@/lib/ux/dirty-state";
 import { dueLabel } from "@/lib/actions/due";
 import { toast } from "@/lib/ux/feedback";
+import { todayKey } from "@/lib/reviews/dates";
 import { writeActionMemory } from "@/lib/actions/memory";
 import EntityPicker from "@/components/reviews/EntityPicker";
 import ActionHistory from "@/components/actions/ActionHistory";
@@ -61,6 +63,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
   const [deferDate, setDeferDate] = useState("");
   const [dueDraft, setDueDraft] = useState(action?.dueDate ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const historyCount = action ? completionsFor(state, action.id).length : 0;
 
   if (action && seenId !== action.id) { setSeenId(action.id); setTitleDraft(action.title); setDescDraft(action.description); setNotesDraft(action.notes); }
   useEffect(() => { writeActionMemory({ activeActionId: actionId }); }, [actionId]);
@@ -193,8 +196,32 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Notes</label>
           <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} onBlur={saveEdits} rows={2} aria-label="Notes" className="w-full resize-y rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none dark:border-white/12" />
           <div className="mt-3">
-            {!confirmDelete ? <button type="button" onClick={() => setConfirmDelete(true)} className="text-[11px] text-zinc-400 hover:text-rose-500">Delete permanently…</button>
-              : <span className="flex items-center gap-2 text-xs"><span className="text-rose-600 dark:text-rose-400">Delete? {impact.removedEdges > 0 ? `Removes ${impact.removedEdges} dependency edge(s); ${impact.unblocks.length} action(s) become eligible.` : "This cannot be undone (cancel is reversible; delete is not)."}</span><button type="button" onClick={() => { deleteAction(action.id); toast({ kind: "info", message: "Deleted" }); router.push("/actions"); }} className="rounded-full bg-rose-600 px-3 py-1 font-medium text-white">Yes, delete</button><button type="button" onClick={() => setConfirmDelete(false)} className="text-zinc-400">No</button></span>}
+            {!confirmDelete ? <button type="button" data-delete-action onClick={() => setConfirmDelete(true)} className="text-[11px] text-zinc-400 hover:text-rose-500">Delete permanently…</button>
+              : <span className="flex items-center gap-2 text-xs">
+                {/* LIFEOS-061 §6: a recurring action's completion history is derived
+                    solely from it and is deleted WITH it. The copy says exactly
+                    that, in those words, before the button — vague wording here
+                    would make the deletion a surprise. STOPPING recurrence is the
+                    other door, and it keeps everything. */}
+                <span className="text-rose-600 dark:text-rose-400">
+                  {historyCount > 0
+                    ? `Delete this recurring action and its ${historyCount} recorded completion${historyCount === 1 ? "" : "s"}? This cannot be undone.`
+                    : `Delete? ${impact.removedEdges > 0 ? `Removes ${impact.removedEdges} dependency edge(s); ${impact.unblocks.length} action(s) become eligible.` : "This cannot be undone (cancel is reversible; delete is not)."}`}
+                </span>
+                <button type="button" data-confirm-delete onClick={() => {
+                  if (historyCount > 0) deleteActionWithHistory(action.id); else deleteAction(action.id);
+                  toast({ kind: "info", message: "Deleted" });
+                  router.push("/actions");
+                }} className="rounded-full bg-rose-600 px-3 py-1 font-medium text-white">Yes, delete</button>
+                <button type="button" onClick={() => setConfirmDelete(false)} className="text-zinc-400">No</button>
+              </span>}
+            {action.recurrence && !confirmDelete && (
+              <button type="button" data-stop-recurrence
+                onClick={() => { stopActionRecurrence(action.id, todayKey()); toast({ kind: "info", message: "Recurrence stopped. Your completion history is kept." }); }}
+                className="text-[11px] text-zinc-500 underline underline-offset-2">
+                Stop repeating (keeps history)
+              </button>
+            )}
           </div>
         </section>
       </div>

@@ -22,6 +22,8 @@ export const EXPORT_DOMAINS = [
   "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments",
   "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews",
   "notes", "protocols", "constitutionElements", "constitutionRevisions",
+  // Time foundation (LIFEOS-061). Appended, never reordered.
+  "events", "recurrenceCompletions",
 ] as const;
 
 export type ExportDomain = (typeof EXPORT_DOMAINS)[number];

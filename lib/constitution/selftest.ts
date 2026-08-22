@@ -357,9 +357,13 @@ export function runConstitutionSelfTests(): SelfTestReport {
     const idxRev = (EXPORT_DOMAINS as readonly string[]).indexOf("constitutionRevisions");
     ok("9.4 export order is append-only (notes < protocols < constitution)",
       idxNotes < idxProto && idxProto < idxEl && idxEl < idxRev);
-    ok("9.5 constitution domains are the LAST export domains",
-      idxRev === EXPORT_DOMAINS.length - 1);
-    ok("9.6 no export domain was removed", (EXPORT_DOMAINS as readonly string[]).length === 44, `${EXPORT_DOMAINS.length}`);
+    // LIFEOS-061 appended `events` and `recurrenceCompletions` AFTER these. What
+    // this assertion protects is that the constitution pair stayed contiguous and
+    // in order — export order is a wire contract for old archives — not that
+    // nothing may ever be appended again.
+    ok("9.5 the constitution domains remain adjacent and in order", idxRev === idxEl + 1);
+    ok("9.6 no export domain was removed", (EXPORT_DOMAINS as readonly string[]).length >= 44, `${EXPORT_DOMAINS.length}`);
+    ok("9.6a and the count matches the store exactly", EXPORT_DOMAINS.length === 46, `${EXPORT_DOMAINS.length}`);
     // A round-trip through the archive shape must not lose anything.
     const st = emptyState();
     st.constitutionElements = [el({ id: "e", statement: "keep me", excludeFromAi: true, linkedRefs: [{ kind: "note", id: "n" }] })];
@@ -373,7 +377,10 @@ export function runConstitutionSelfTests(): SelfTestReport {
       restored.constitutionElements[0].status === "active" && restored.constitutionElements[0].adoptedAt === AT);
     ok("9.11 revision history survives restore", restored.constitutionRevisions.length === 1);
     // Schema + ownership registration.
-    ok("9.12 the expected migration version advanced to 0039", EXPECTED_MIGRATION_VERSION === 39);
+    // 0039 was the constitution head; LIFEOS-061 advanced it to 0040. What this
+    // assertion protects is that the constitution tables shipped at or before the
+    // head, not that the head never moves again.
+    ok("9.12 the expected migration version is at or beyond the constitution head", EXPECTED_MIGRATION_VERSION >= 39);
     const regEl = registryEntry("constitution_elements");
     const regRev = registryEntry("constitution_revisions");
     ok("9.13 elements are registered as user-owned with full RLS",

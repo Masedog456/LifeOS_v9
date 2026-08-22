@@ -35,6 +35,8 @@ import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/ca
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
 import { authorityNote, preselected, type CandidateKind } from "@/lib/capture/authority";
 import { UNRESOLVED_LABEL } from "@/lib/capture/dates";
+import { formatLocalTime } from "@/lib/time/localtime";
+import { describeRule } from "@/lib/time/recurrence";
 import type { MatchOption } from "@/lib/capture/match";
 import { generateBeliefs, interpretCapture } from "@/lib/aiClient";
 import { todayKey, formatDayKey } from "@/lib/reviews/dates";
@@ -49,6 +51,7 @@ const KIND_LABEL: Record<CandidateKind, string> = {
   reflection: "Reflection",
   project: "Project",
   goal: "Goal",
+  event: "Event",
 };
 
 /** Hedge language matched to confidence — never a number (§17). */
@@ -279,7 +282,16 @@ export default function CaptureComposer() {
                     {/* Extracted fields, stated plainly. */}
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
                       {r.candidate.fields.dueDate && !dateNotKept(r.candidate) && (
-                        <span data-due>Due {formatDayKey(r.candidate.fields.dueDate)}</span>
+                        <span data-due>
+                          {/* An event happens ON a day; a task is due BY one. */}
+                          {r.candidate.kind === "event" ? "" : "Due "}{formatDayKey(r.candidate.fields.dueDate)}
+                        </span>
+                      )}
+                      {r.candidate.fields.time && (
+                        <span data-time>{formatLocalTime(r.candidate.fields.time)}</span>
+                      )}
+                      {r.candidate.fields.recurrence && (
+                        <span data-recurrence>{describeRule(r.candidate.fields.recurrence)}</span>
                       )}
                       {r.candidate.fields.waitingOn && (
                         <span data-waiting-on>Waiting on {r.candidate.fields.waitingOn}</span>

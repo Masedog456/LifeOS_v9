@@ -24,7 +24,7 @@ import {
 } from "@/lib/security/auth-bootstrap";
 import { DEGRADED_MESSAGE } from "@/lib/aiClient";
 import { mockAnswer } from "@/lib/mockAI";
-import { evaluateCompatibility, syncIsSafe } from "@/lib/security/schema-compatibility";
+import { EXPECTED_MIGRATION_VERSION, evaluateCompatibility, syncIsSafe } from "@/lib/security/schema-compatibility";
 import { probeStorage, readJson, writeJson } from "@/lib/security/storage-resilience";
 import { acquireLock, releaseLock } from "@/lib/security/multi-tab";
 import { securityHeaders, validateHeaders, cspDirectives, serializeCsp } from "@/lib/security/headers";
@@ -114,7 +114,10 @@ export async function runSecuritySelfTests(): Promise<SelfTestReport> {
   }
 
   // ---- 5. Schema compatibility ----
-  ok("5.1 compatible → ok+sync", (() => { const r = evaluateCompatibility({ localStateVersion: 1, remoteMigrationVersion: 39 }); return r.mode === "ok" && syncIsSafe(r); })());
+  // The remote must be AT the version this build expects. Pinned to the constant
+  // rather than a literal, so advancing the head does not silently make this test
+  // assert compatibility with a stale schema.
+  ok("5.1 compatible → ok+sync", (() => { const r = evaluateCompatibility({ localStateVersion: 1, remoteMigrationVersion: EXPECTED_MIGRATION_VERSION }); return r.mode === "ok" && syncIsSafe(r); })());
   ok("5.2 server ahead → read-only, no sync", (() => { const r = evaluateCompatibility({ localStateVersion: 1, remoteMigrationVersion: 99 }); return r.mode === "read-only" && !r.canSync && r.canExport; })());
   ok("5.3 local newer → blocked", evaluateCompatibility({ localStateVersion: 5 }).mode === "blocked");
   ok("5.4 local older → upgrade, no write", (() => { const r = evaluateCompatibility({ localStateVersion: 0 }); return r.mode === "upgrade" && !r.canWrite; })());

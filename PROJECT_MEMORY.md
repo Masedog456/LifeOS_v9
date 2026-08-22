@@ -4013,3 +4013,78 @@ connectors require repeated beta demand **and** stable API support, both.
   were individually right. What caught it was printing the actual output of all
   eleven torture sentences and reading them. Run the thing; do not reason about
   the thing.
+
+- **LIFEOS-061 — Time foundation.** Conqify learns WHEN. Migration 0040 adds
+  exactly two tables (`events`, `recurrence_completions`) and two nullable
+  columns (`next_actions.due_time`, `.recurrence`). Head advanced 0039 → 0040.
+
+  **Event ≠ Action.** An Action has completion semantics — you finish it, and
+  finishing is the outcome. An Event has none: it happens, then it has happened.
+  `events` has no status column, no `completed_at`, no checkbox anywhere in the
+  UI, asserted by both the suite and the browser smoke. Event vs Action is
+  decided by INTENT, never by the presence of a time: "Dinner with Mom Friday at
+  7" happens, "Send Mom the form Friday at 7" is a step. Getting it wrong toward
+  Action is the worse failure — it puts a checkbox on dinner.
+
+  **Time of day ≠ due date alone.** `LocalTime` is `HH:mm`, 24-hour, validated —
+  a WALL-CLOCK reading, never an instant. Chosen over minutes-since-midnight
+  because it sorts lexicographically (Today orders a day with a string compare),
+  is readable in a raw export, and invites no arithmetic that drifts toward
+  timezone logic. `24:00` is rejected rather than normalised: it and `00:00` name
+  different days. `dueTime` without `dueDate` is refused by a database CHECK, not
+  merely by TypeScript.
+
+  **Recurrence ≠ many future rows.** Occurrences are DERIVED from
+  `(rule, anchor, completions)`; nothing writes a future row. Two devices compute
+  the same value, so there is no materialization race, no dedupe pass, and no
+  cleanup job — **purity provides the uniqueness guarantee**. What is persisted
+  is what happened: one row per completion, `unique (action_id, occurrence_date)`.
+  A weekly action creates 0 future rows, not 52.
+
+  **Skipped, never clamped.** Monthly on the 31st SKIPS February and April.
+  Yearly February 29 occurs only in leap years and never slides to the 28th.
+  Clamping is the popular choice and it is a lie: it produces an obligation on a
+  date the user never named.
+
+  **A recurring source stays a source.** Completing one occurrence writes a
+  completion row and NEVER sets the action to done. Stopping recurrence keeps all
+  prior history and leaves an ordinary action carrying the one outstanding
+  occurrence. Deleting the source deletes the history derived solely from it — a
+  deliberate privacy position, stated in those words in the confirm copy, because
+  autobiographical memory must never outrank a deletion.
+
+  **Past events remain history.** No archive step, no status transition, no
+  cleanup. A past event leaves Today by not matching today's date; that is the
+  whole mechanism, and it is why it cannot be lost.
+
+  **Malformed recurrence costs the schedule, never the record.** `readRule`
+  returns null for anything malformed and NEVER repairs it — a guessed rule would
+  replace the user's data with ours and then look like theirs. The event still
+  loads and still appears on its own date. Sixteen hostile JSONB shapes are
+  asserted not to throw anywhere.
+
+  **Unsupported recurrence stays explicit.** "Twice a week" names a count with no
+  days; "third Thursday" names a pattern the model cannot express. Both are
+  refused with the user's own phrase quoted back, and the two failures are
+  reported separately because they are different.
+
+  **A defect the sprint's own copy nearly shipped.** With recurrence and timed
+  events now representable, three strings still said they were not — including
+  the LIFEOS-060 occasion label. A false apology beside a working feature is the
+  same class of defect as a false promise, and only running the OLD smoke against
+  the new build caught it.
+
+  **Performance.** The first implementation filtered the whole completion list
+  once per source: 280ms at 1000 sources / 12,000 completions, a global
+  historical scan per source. Indexing completions once brought it to 11.3ms.
+
+  **Validation.** Time suite 157/157; capture 178/178; full regression 2535/2536
+  across 28 suites; integration 64/64; migration rehearsal 63/63 including 17 new
+  0040 checks against real Postgres; browser smoke 44/44 (061) and 57/57 (060).
+  The single failure is a pre-existing marginal wall-clock budget in the memory
+  suite (1575ms vs 1500ms) that fails identically on unmodified main; it was not
+  weakened.
+
+  **Durable lesson.** A capability landing does not just add code — it invalidates
+  every sentence that apologised for its absence. Search for the old apology as
+  deliberately as you write the new feature.

@@ -37,7 +37,7 @@ function emptyState(): StoreState {
     notes: [],
     protocols: [],
     constitutionElements: [],
-    constitutionRevisions: [],
+    constitutionRevisions: [], events: [], recurrenceCompletions: [],
   };
 }
 const CONF = { factual: "moderate", logical: "moderate", evidential: "moderate", experiential: "moderate" } as const;
