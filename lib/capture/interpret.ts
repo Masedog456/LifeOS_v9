@@ -44,6 +44,7 @@
 import { classifyOne, extractConditional, type ClassificationConfidence } from "@/lib/capture/classify";
 import { decompose, type Segment } from "@/lib/capture/decompose";
 import { detectWaiting, waitingTitle } from "@/lib/capture/waiting";
+import { detectMissed, missedNoteReason } from "@/lib/capture/completion";
 import { detectOccasion, extractTemporal, stripResolvedTemporal, type TemporalFinding } from "@/lib/capture/dates";
 import { completeRule, extractRecurrence, extractTimeOfDay, looksLikeEvent } from "@/lib/capture/schedule";
 import { nextOccurrenceOnOrAfter, type RecurrenceRule } from "@/lib/time/recurrence";
@@ -62,6 +63,12 @@ export interface CandidateFields {
   trigger?: string;
   response?: string;
   waitingOn?: string;
+  /**
+   * LIFEOS-066 §10. WHAT is being waited for, when the sentence separates it
+   * from the person. Interpretation data, shown in the panel — the record still
+   * stores the user's whole sentence, so nothing here is a second copy of it.
+   */
+  waitingFor?: string;
   dueDate?: DayKey;
   /** LIFEOS-061: wall-clock time. On an action this is `dueTime`; on an event, `startTime`. */
   time?: string;
@@ -87,6 +94,16 @@ export interface Candidate {
   unresolved: TemporalFinding[];
   /** An existing record this could attach to. */
   association: MatchResult;
+  /**
+   * Something the user must SEE, regardless of how certain the routing is.
+   *
+   * `reason` is a hedge and the panel hides it when confidence is high — which
+   * is right for "starts with an action verb" and wrong for "nothing was marked
+   * complete". LIFEOS-066 §8 needs the second kind: a statement about what did
+   * NOT happen, on a candidate the parser is completely sure about. Rendered
+   * unconditionally, the same way an unstorable date is (§18).
+   */
+  disclosure?: string;
   /** Other kinds the user may switch this to without retyping. */
   alternates: CandidateKind[];
   producedBy: "deterministic" | "ai";
@@ -205,6 +222,10 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
       fields: {
         title: stripResolvedTemporal(waitingTitle(text), temporal) || waitingTitle(text),
         waitingOn: waiting.waitingOn || undefined,
+        // LIFEOS-066 §10. Who and what are separate facts now, and both are
+        // shown. The TITLE still carries the user's whole sentence — the object
+        // is surfaced beside it, never subtracted from what they wrote.
+        waitingFor: waiting.waitingFor,
         dueDate: temporal.dueDate,
         time: temporal.dueDate ? timeFinding?.time : undefined,
       },
@@ -215,7 +236,37 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     };
   }
 
-  const eventShaped = looksLikeEvent(text);
+  // 2c. NOT-DONE language (LIFEOS-066 §8).
+  //
+  //     "I didn't work out today." is a fact about a day. It is not a completion
+  //     and it is not a reschedule, so nothing here proposes either — the
+  //     sentence becomes an ordinary note, kept exactly as typed.
+  //
+  //     What it adds is a factual pointer: if an open Action matches those
+  //     words, the note says the Action is still open. That is the whole
+  //     association, and it is deliberately one-directional — the note mentions
+  //     the Action, the Action learns nothing about the note. No missed flag, no
+  //     broken streak, no judgment. Placed after WAITING so "I haven't heard back
+  //     from Marcus" keeps its correct reading.
+  const missed = detectMissed(text, state, today);
+  if (missed) {
+    return {
+      ...base2,
+      kind: "note",
+      fields: { body: text, title: titleOf(text) },
+      confidence: "high",
+      reason: "Kept as a note — a record of the day.",
+      // The routing is certain; what the user must see is what did NOT happen.
+      // That is a disclosure, not a hedge, so it does not live in `reason`.
+      disclosure: missedNoteReason(missed),
+      authority: authorityFor("note", "high"),
+      alternates: ALTERNATES.note,
+    };
+  }
+
+  // The bare-noun event path needs a clock: "Dentist Thursday at 2:30" names a
+  // moment, "Dentist Thursday" is a reminder to ring them (§4, §5).
+  const eventShaped = looksLikeEvent(text, !!timeFinding);
   if (eventShaped && (timeFinding || temporal.dueDate || rule)) {
     // A recurring event anchors to its FIRST ACTUAL occurrence. "Staff meeting
     // every Tuesday" captured on a Wednesday must not anchor to that Wednesday:

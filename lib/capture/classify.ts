@@ -85,7 +85,29 @@ const ACTION_VERBS = [
   // are ordinary nouns and a wrong action costs more than a right one gains.
   "finish", "complete", "update", "refill", "restock", "pack", "ship",
   "deliver", "apply", "draft", "unsubscribe", "reschedule",
+  // LIFEOS-066 §11. Everyday errand verbs the LIFEOS-063 dogfood proved
+  // missing. "Replace the kitchen tap washer" became a note, and four days
+  // later there was nothing to reschedule.
+  //
+  // Each was checked for a noun collision before being added. The ones that
+  // collide — `review`, `check`, `write`, `take`, `bring` — are here too, but
+  // they are gated by NOUN_PHRASE_RE below, because "review of the book" and
+  // "check-in time" are ordinary nouns and a wrong action costs more than a
+  // right one gains.
+  "replace", "swap", "collect", "post", "hang", "install", "assemble",
+  "review", "check", "write", "take", "bring", "sort out", "throw out",
+  "back up", "top up", "chase up", "look into", "sign up", "set up",
 ];
+
+/**
+ * Shapes where a leading verb is really the head of a NOUN phrase.
+ *
+ * "Review of the book" and "check-in at three" both start with a word on the
+ * verb list and neither is something to do. The discriminator is the word
+ * immediately after: a preposition ("of", "from") or a hyphen means the word is
+ * being used as a noun, and an ordinary imperative never reads that way.
+ */
+const NOUN_PHRASE_RE = /^(?:review|check|write|take|bring|post|swap|sign|set|back|top)\s*(?:-|of\b|from\b|for\s+the\s+(?:week|month|year)\b|notes\b|s\b)/i;
 
 /**
  * Outcome verbs implying a multi-step result rather than a single errand.
@@ -237,8 +259,31 @@ export function classifyOne(text: string): CaptureClassification {
   if (needTo) {
     return { suggestedType: "action", confidence: "high", reason: "Describes something you need to do.", extracted: { title: tidy(needTo[1]) } };
   }
+  // LIFEOS-066 §13. "Remember to X" is an errand wearing a memory word, and the
+  // errand is X — "call the dentist", not "remember to call the dentist". The
+  // word alone decides nothing: "Remember Mom's birthday" has no `to`, does not
+  // match here, and stays whatever the occasion rules make of it. That split is
+  // the entire point — a birthday given a checkbox is the LIFEOS-059 defect.
+  const rememberTo = /^(?:i\s+(?:need|have|want|ought)\s+to\s+)?remember\s+to\s+(.+)$/i.exec(raw);
+  if (rememberTo) {
+    const rest = tidy(rememberTo[1]);
+    // "Remember to give him space when he gets overwhelmed" is a PROTOCOL
+    // wearing a memory word — a response to a situation, not an errand with an
+    // end. A conditional anywhere in the remainder means the sentence keeps
+    // whatever reading the rules below give it, rather than gaining a checkbox
+    // it can never satisfy.
+    if (!extractConditional(rest)) {
+      return {
+        suggestedType: "action",
+        confidence: "high",
+        reason: "Describes something you want to remember to do.",
+        extracted: { title: rest },
+      };
+    }
+  }
+
   const verb = startsWithAny(lower, ACTION_VERBS);
-  if (verb) {
+  if (verb && !NOUN_PHRASE_RE.test(lower)) {
     return { suggestedType: "action", confidence: "high", reason: "Starts with an action verb.", extracted: { title: raw } };
   }
 

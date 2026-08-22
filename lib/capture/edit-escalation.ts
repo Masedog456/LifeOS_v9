@@ -30,7 +30,7 @@ import { isLocalTime, type LocalTime } from "@/lib/time/localtime";
 import { isLive } from "@/lib/actions/due";
 import { readRule } from "@/lib/time/recurrence";
 import {
-  EDIT_OPERATIONS, authorityFor,
+  EDIT_OPERATIONS, authorityFor, refusalFor,
   type EditOperation, type EditTarget, type TemporalEditIntent,
 } from "@/lib/capture/temporal-edit";
 
@@ -150,21 +150,34 @@ export function validateAiEdits(
     // An operation with nothing to apply is not a suggestion.
     if ((operation === "move_date" || operation === "change_time") && !date && !time) continue;
 
+    // LIFEOS-066 §19. A model may say WHICH open action a completion report is
+    // about; it may not say that an Event was completed, because no such thing
+    // exists. Structural, not advisory — the suggestion is dropped here rather
+    // than refused later, so it never reaches a Confirm button.
+    if (operation === "complete" && candidate.kind !== "action") continue;
+
     const target = resolveTarget(candidate, state);
     if (!target) continue;
 
     seen.add(targetId);
-    out.push({
+    const intent: TemporalEditIntent = {
       targetType: candidate.kind,
       targetQuery: candidate.title,
       operation,
-      proposedFields: { date, time },
+      // A completion names a DAY only for a repeating action, and the model does
+      // not get to invent one: it is the day it was given, or today.
+      proposedFields: { date: operation === "complete" ? (date ?? context.today) : date, time },
       sourceText: context.text,
       confidence: "possible",
       authority: authorityFor([target]),
       candidateMatches: [target],
       unresolved: [],
-    });
+    };
+    // The same refusals the deterministic path computes. A model-produced intent
+    // that reaches the panel with no refusal would show a Confirm button for a
+    // change the dispatcher is about to reject.
+    intent.refusal = refusalFor(intent, context.text);
+    out.push(intent);
   }
   return out;
 }

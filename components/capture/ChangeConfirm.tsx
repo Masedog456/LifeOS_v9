@@ -36,6 +36,10 @@ const OPERATION_LABEL: Record<string, string> = {
   cancel_event: "Remove event",
   change_recurrence: "Change schedule",
   stop_recurrence: "Stop repeating",
+  // LIFEOS-066 §21. Same panel, same confirmation, one more row of words. A
+  // second mutation surface for "I finished it" would mean two languages for
+  // changing the same record.
+  complete: "Mark complete",
 };
 
 function when(date?: string, time?: string, recurrence?: string): string {
@@ -49,8 +53,15 @@ function when(date?: string, time?: string, recurrence?: string): string {
 
 export interface ChangeConfirmProps {
   intents: TemporalEditIntent[];
-  /** Applies one confirmed change. Returns what to tell the user. */
-  onApply: (intent: TemporalEditIntent, target: EditTarget, destructive: boolean) => void;
+  /**
+   * Applies one confirmed change and returns what actually happened.
+   *
+   * The STRING matters (LIFEOS-066 §18): a store setter can refuse — a day
+   * already ticked, a schedule that will not parse — and a panel that printed
+   * "Updated" regardless would tell the user something untrue about their own
+   * records. Whatever the dispatcher reports is what appears here.
+   */
+  onApply: (intent: TemporalEditIntent, target: EditTarget, destructive: boolean) => string;
   onDismiss: () => void;
 }
 
@@ -137,6 +148,7 @@ export default function ChangeConfirm({ intents, onApply, onDismiss }: ChangeCon
                     <p className="text-sm text-zinc-900 dark:text-zinc-100">{proposal.target.title}</p>
                     <p data-change-summary className="mt-0.5 text-[11px] text-zinc-500">
                       {intent.operation === "cancel_event" || intent.operation === "defer"
+                        || intent.operation === "complete"
                         ? proposal.summary
                         : (
                           <>
@@ -166,8 +178,8 @@ export default function ChangeConfirm({ intents, onApply, onDismiss }: ChangeCon
                       type="button"
                       data-change-confirm-btn
                       onClick={() => {
-                        onApply(intent, proposal.target, destructive);
-                        setDone((p) => ({ ...p, [i]: `Updated “${proposal.target.title}”.` }));
+                        const said = onApply(intent, proposal.target, destructive);
+                        setDone((p) => ({ ...p, [i]: said || `Updated “${proposal.target.title}”.` }));
                       }}
                       className={`rounded-full px-4 py-1.5 text-sm font-medium ${
                         destructive
@@ -175,7 +187,7 @@ export default function ChangeConfirm({ intents, onApply, onDismiss }: ChangeCon
                           : "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                       }`}
                     >
-                      {destructive ? "Delete it" : "Confirm change"}
+                      {destructive ? "Delete it" : intent.operation === "complete" ? "Mark it done" : "Confirm change"}
                     </button>
                     {intent.candidateMatches.length > 1 && (
                       <button type="button" onClick={() => setChosen((p) => ({ ...p, [i]: "" }))}

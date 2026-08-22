@@ -39,6 +39,7 @@
 
 import { extractConditional, classifyOne } from "@/lib/capture/classify";
 import { detectWaiting } from "@/lib/capture/waiting";
+import { baseOfPast } from "@/lib/capture/morphology";
 
 /** One piece of a capture, with its position in the original text preserved. */
 export interface Segment {
@@ -74,6 +75,16 @@ const INTENT_PREFIXES = [
   "i'm noticing", "i am noticing", "looking back", "i wonder", "i'm wondering",
 ];
 
+/**
+ * Titles and initials whose full stop is not the end of a sentence.
+ *
+ * LIFEOS-066 found this the expensive way: "Dr. Sarah Chen hasn't replied about
+ * the paperwork" was cut after "Dr", and the waiting detector — which handles
+ * that sentence perfectly — never saw it. A two-character fragment then became
+ * a note titled "Dr".
+ */
+const ABBREVIATION_RE = /\b(?:dr|mr|mrs|ms|mx|prof|sr|jr|st|rev|hon|dept|approx|no|vs|etc|e\.g|i\.e|[a-z])\.$/i;
+
 /** Sentence-ish segmentation that keeps offsets. */
 function sentenceSpans(text: string): Segment[] {
   const out: Segment[] = [];
@@ -84,7 +95,15 @@ function sentenceSpans(text: string): Segment[] {
     const trimmed = raw.trim();
     if (!trimmed) continue;
     const lead = raw.length - raw.trimStart().length;
-    out.push({ text: trimmed, start: m.index + lead, end: m.index + lead + trimmed.length });
+    const seg = { text: trimmed, start: m.index + lead, end: m.index + lead + trimmed.length };
+    // An abbreviation's full stop belongs to the word, not to the sentence.
+    const prev = out[out.length - 1];
+    if (prev && ABBREVIATION_RE.test(prev.text)) {
+      prev.text = `${prev.text} ${seg.text}`;
+      prev.end = seg.end;
+      continue;
+    }
+    out.push(seg);
   }
   return out.length > 0 ? out : [{ text: text.trim(), start: 0, end: text.trim().length }];
 }
@@ -101,7 +120,22 @@ export function hasOwnIntent(fragment: string): boolean {
   // "and lift" / "then practice guitar" — a conjunction followed by an imperative.
   const stripped = lower.replace(/^(?:and|then|also|plus)\s+/, "");
   if (stripped !== lower && SPLIT_VERBS.some((v) => stripped === v || stripped.startsWith(v + " "))) return true;
+  // LIFEOS-066 §16. A PAST-tense verb is just as much an intent signal as an
+  // imperative — "Called the dentist and booked a haircut for Friday at 3" is
+  // two things, and reading it as one produced a single note that reported a
+  // completion and lost an appointment.
+  //
+  // Narrowed to bases this module already cuts on, so the split surface does not
+  // widen: "bread" is not a verb, "the chair to the garage" is not a verb, and
+  // "left a message" has no entry in the table, so all three still merge back.
+  if (startsWithPastVerb(stripped)) return true;
   return false;
+}
+
+/** Does this fragment open with a past-tense form of a verb we already cut on? */
+function startsWithPastVerb(lower: string): boolean {
+  const base = baseOfPast(lower.split(" ")[0] ?? "");
+  return !!base && SPLIT_VERBS.includes(base);
 }
 
 /** Remove a leading enumerating conjunction once a fragment stands alone. */
@@ -119,7 +153,12 @@ function splitSentence(sentence: Segment): Segment[] {
   if (cond?.leading) return [sentence];
 
   const parts: Segment[] = [];
-  const re = /,\s*(?:and\s+|then\s+|also\s+|plus\s+)?|;\s*|\s+and\s+then\s+/g;
+  // LIFEOS-066 §14–§16. A bare " and " joins two intents at least as often as a
+  // comma does — "I finished deployment and need to email my professor" is two
+  // things. It is safe to cut here ONLY because `hasOwnIntent` merges back any
+  // fragment that cannot stand alone, so "buy milk and bread" stays one action
+  // and "move the sofa and the chair to the garage" stays one sentence.
+  const re = /,\s*(?:and\s+|then\s+|also\s+|plus\s+)?|;\s*|\s+and\s+then\s+|\s+and\s+/g;
   let cursor = 0;
   let m: RegExpExecArray | null;
   const pieces: Segment[] = [];

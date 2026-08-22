@@ -41,6 +41,16 @@ export interface EditOps {
   }): boolean;
   stopEventRecurrence(eventId: string): void;
   deleteEvent(eventId: string): void;
+  /** LIFEOS-066 §6. Closes a one-time action. Already enforces its own history. */
+  completeAction(actionId: string): void;
+  /**
+   * LIFEOS-066 §6. Closes ONE occurrence of a repeating action.
+   *
+   * Returns false when the action does not repeat or that day is already
+   * recorded — the store is idempotent by `(actionId, day)` identity, and this
+   * dispatcher reports that rather than claiming a second completion happened.
+   */
+  completeOccurrence(actionId: string, occurrenceDate: DayKey): boolean;
 }
 
 export interface EditOutcome {
@@ -154,6 +164,34 @@ export function applyTemporalEdit(
       }
       ops.deleteEvent(target.id);
       return { applied: true, message: `Deleted “${target.title}”.`, ref };
+    }
+
+    /**
+     * LIFEOS-066 §6, §18.
+     *
+     * Nothing is created here. If the caller reached this case with no resolved
+     * target it would have been refused above, and there is deliberately no
+     * branch that makes an Action in order to tick it — a completion the user
+     * never had is history they never lived.
+     *
+     * A repeating action closes ONE DAY and keeps repeating. Marking the source
+     * action `completed` instead would turn a standing responsibility into a
+     * one-time task that then vanishes, which is the LIFEOS-061 contract this
+     * path must not break.
+     */
+    case "complete": {
+      if (target.kind !== "action") {
+        return { applied: false, message: "Events aren't checked off — they either happened or they didn't." };
+      }
+      if (target.recurrence) {
+        const day = after.date ?? today;
+        if (!ops.completeOccurrence(target.id, day)) {
+          return { applied: false, message: `That day is already marked done for “${target.title}”.` };
+        }
+        return { applied: true, message: `Marked “${target.title}” done for that day.`, ref };
+      }
+      ops.completeAction(target.id);
+      return { applied: true, message: `Marked “${target.title}” complete.`, ref };
     }
   }
 }

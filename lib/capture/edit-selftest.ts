@@ -149,6 +149,25 @@ function recordingOps(s: StoreState): { ops: EditOps; calls: string[] } {
         calls.push(`deleteEvent:${id}`);
         s.events = (s.events ?? []).filter((e) => e.id !== id);
       },
+      // LIFEOS-066. Mirrors the store: a one-time action closes; a repeating one
+      // records a day and keeps its status, idempotent by (action, day).
+      completeAction(id) {
+        calls.push(`completeAction:${id}`);
+        const a = findAction(id);
+        if (a) { a.status = "completed"; a.completedAt = `${MON}T12:00:00.000Z`; }
+      },
+      completeOccurrence(id, day) {
+        calls.push(`completeOccurrence:${id}:${day}`);
+        const a = findAction(id);
+        if (!a || !readRule(a.recurrence)) return false;
+        const rows = s.recurrenceCompletions ?? [];
+        if (rows.some((c) => c.actionId === id && c.occurrenceDate === day)) return false;
+        s.recurrenceCompletions = [
+          { id: `rc${rows.length + 1}`, actionId: id, occurrenceDate: day, completedAt: `${MON}T12:00:00.000Z` },
+          ...rows,
+        ];
+        return true;
+      },
     },
   };
 }
@@ -203,7 +222,12 @@ export async function runTemporalEditSelfTests(): Promise<SelfTestReport> {
     extractTargetQuery("Make the paper due Monday at noon", ["Monday", "at noon"]), "paper");
   eq("2.7 a preceding clause yields its subject", referentOf("I didn't work out today"), "work out");
   eq("2.8 …with negation and the day removed", referentOf("I never called the dentist yesterday"), "called dentist");
-  eq("2.9 every operation is in the enum", EDIT_OPERATIONS.length, 7);
+  // 7 from LIFEOS-065, plus `complete` from LIFEOS-066 §21 — which lives on this
+  // path deliberately, so completion inherits the same matching, the same
+  // confirmation panel and the same refusals rather than growing a second
+  // mutation language.
+  eq("2.9 every operation is in the enum", EDIT_OPERATIONS.length, 8);
+  ok("2.9b `complete` is one of them", (EDIT_OPERATIONS as readonly string[]).includes("complete"));
 
   // =============================== 3. mutations that must NOT happen (§8, §18)
 

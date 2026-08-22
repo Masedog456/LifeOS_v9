@@ -4420,3 +4420,106 @@ connectors require repeated beta demand **and** stable API support, both.
   that must not happen, and three of the five defects above were only visible
   because the torture cases were run before any UI existed to make them look
   plausible.
+
+- **LIFEOS-066 — Capture Coverage II.** Ordinary people should not have to
+  phrase life in Conqify's dialect. Seven language gaps the LIFEOS-063 dogfood
+  proved, closed without redesigning Universal Capture and without adding a
+  single record type. **Zero migrations. Zero new store domains. Zero new
+  user-facing nouns.**
+
+  **Confirmed principles.**
+  - *Expand understanding without expanding ontology.* Every gap was a PARSER
+    gap. Nothing here was solved by inventing a record type, and the one new
+    concept — a completion — is an operation on an Action that already exists.
+  - *Completion is an UPDATE, never a creation.* There is deliberately no path
+    that makes an Action called "finished deployment" in order to tick it. A
+    completion the user never had is history they never lived.
+  - *Strong shapes may ask; weak shapes must earn it.* "I finished the X" opens
+    the panel even when nothing matches, because the user should be told nothing
+    was ticked. "Called the dentist" only speaks when it names something open —
+    most past-tense sentences in a capture box are just notes about the day.
+  - *Not-done is not the inverse of done.* "I didn't work out today" is a fact
+    about a day: no completion, no reschedule, no flag, no streak, no moral
+    language. It becomes a note that says what did not change.
+  - *A narrow heuristic is the point, not a limitation.* An appointment head
+    plus a CLOCK is an Event; the same words without a time are a note. "Dentist
+    Thursday at 2:30" happens; "Dentist Thursday" is a reminder to ring them.
+  - *The word alone decides nothing.* "Remember to X" is the errand X; "Remember
+    Mom's birthday" is an occasion; "Remember to give him space when he gets
+    overwhelmed" is a conditional and keeps its protocol shape.
+  - *Confidence hides a hedge; it must not hide a disclosure.* See below.
+
+  **One panel, one dispatcher.** `complete` was added to LIFEOS-065's
+  `EditOperation` enum rather than given a mutation surface of its own, so it
+  inherits `matchEditTargets`, `authorityFor`, `ChangeConfirm` and
+  `applyTemporalEdit` unchanged — including "no recency tie-breaker": two open
+  actions called "Proposal" means two rows and a question, exactly as it does
+  for a reschedule. A wrong completion is worse than a wrong date change,
+  because the item simply stops appearing.
+
+  **A bounded morphology table, never a stemmer.** Suffix-stripping turns "need"
+  into "ne" and "red" into "r", silently, and then matches titles that share the
+  mangled prefix. `lib/capture/morphology.ts` writes out every past/base pair and
+  lives in its own module because `decompose` needs it to know where to CUT and
+  `completion` needs it to know what a sentence is ABOUT — importing one from the
+  other would be a cycle, and two copies would drift.
+
+  **Six defects found by printing real pipeline output before writing any UI.**
+  (1) `cleanObject` required leading whitespace before a trailing day word, so
+  "Worked out this morning" searched for "morning". (2) A weak past-tense shape
+  surfaced already-completed matches, opening a panel to announce that nothing
+  would happen. (3) The missed-work object kept its verb, so "I didn't finish
+  the proposal" never found "Proposal". (4) `decompose` could not cut on a
+  past-tense verb, so "Called the dentist and booked a haircut for Friday at 3"
+  was one note that reported a completion and lost an appointment. (5)
+  `stripResolvedTemporal` left a dangling copula — "Mom's birthday is" — on every
+  occasion Event. (6) `looksLikeMissed` did not accept "never got around to".
+
+  **The one the SMOKE found, which the selftests could not.** The missed-work
+  explanation was computed correctly and never rendered: `reason` is hidden when
+  confidence is high, and the routing here is certain. So the sentence a user
+  most needs to read — *"Nothing was marked complete and nothing was
+  rescheduled"* — was invisible on screen while 132 assertions passed. Fixed
+  with an explicit `disclosure` field rendered unconditionally, the same way an
+  unstorable date already is. **Confidence is a hedge about ROUTING; a statement
+  about what did not happen is not a hedge and must not share its visibility.**
+
+  **§32 gap transitions, documented rather than deleted.** Four LIFEOS-063
+  limitation assertions went red, which is what they were written to do. None was
+  removed or weakened: each was rewritten as the affirmative assertion of the
+  behaviour that replaced it, keeping its FR number so the friction ledger and
+  the test still point at each other — FR-4 (errand verbs), FR-5 (bare
+  appointments), FR-6 (leading "Still"), FR-12 (`waitingOn` swallowing its
+  object). FR-10 is untouched and still fails-on-close. The dogfood replay's
+  escape-hatch count dropped 3 → 1, and the remaining one is asserted exactly so
+  a future sprint closing it turns red the same way.
+
+  **Capture acceptance re-scored on the UNCHANGED §19 rubric: 1 → 2.** Six of
+  eight probe shapes now reach useful saved state in three interactions with no
+  taxonomy decision, up from four. B — *"Dentist Thursday at 2:30"*, which 063
+  called "among the most common things anyone types into a life-management app"
+  — went from a Note with its date disclosed and then dropped, to an Event with
+  the date AND the time. F and G still take four, and that is deliberate: a
+  reflection and a genuinely ambiguous phrase are offered unticked, never
+  assumed. The rubric was not altered.
+
+  **Validation.** Full regression **3053/3054 across 33 suites** (new capture
+  coverage suite 132/132, temporal editing 119/119, dogfood 82/82); browser
+  smokes 54/54 (066), 45/45 (065), 58/58 (064), 46/46 (062), 57/57 (060), and
+  29/30 (063) + 43/44 (061) — both failures being the same NOW-section assertion
+  whose fixtures seed morning event times, proven clock-dependent by seeding an
+  event still ahead on the clock and watching the section appear. tsc clean;
+  eslint 0 errors (2 pre-existing warnings); build compiled. Interpretation runs
+  on SUBMIT, not per keystroke: 0.40ms per sentence at 100 actions, 2.15ms at
+  1000, 10.08ms at 5000.
+
+  **Known pre-existing failure, not weakened.** `memory` "perf: all engines under
+  budget" reports ~1650ms against a 1500ms budget. Verified in a clean worktree
+  at the LIFEOS-065 base commit `653800f`: it fails there identically, at the
+  same magnitude. This container is slower than the one the budget was set on.
+  The budget was left alone.
+
+  **Durable lesson.** Selftests prove the parser; only the browser proves the
+  PRODUCT. A field can be parsed correctly, asserted correctly, and still never
+  reach the screen — and the assertion that would have caught it is the one that
+  reads what is actually rendered, not what the function returned.

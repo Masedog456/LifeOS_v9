@@ -47,11 +47,16 @@ export type EditOperation =
   | "defer"
   | "cancel_event"
   | "change_recurrence"
-  | "stop_recurrence";
+  | "stop_recurrence"
+  // LIFEOS-066 §6, §21. "I finished the deployment" changes an Action that
+  // already exists. It lives here rather than in a parallel mutation path so it
+  // inherits the whole matching and confirmation model unchanged — one panel,
+  // one dispatcher, one set of refusals.
+  | "complete";
 
 export const EDIT_OPERATIONS: readonly EditOperation[] = [
   "move_date", "change_time", "clear_time", "defer",
-  "cancel_event", "change_recurrence", "stop_recurrence",
+  "cancel_event", "change_recurrence", "stop_recurrence", "complete",
 ];
 
 /** §8. Who decides which record is meant. */
@@ -80,7 +85,11 @@ export interface EditRefusal {
     | "no_cancellation_state"
     | "no_date_to_shift"
     | "time_needs_a_day"
-    | "recurrence_unsupported";
+    | "recurrence_unsupported"
+    // LIFEOS-066 §18. Ticking something twice, and ticking something that has
+    // no tick to give.
+    | "already_complete"
+    | "not_completable";
   /** Said to the user, in their terms. Never a stack trace. */
   message: string;
 }
@@ -471,13 +480,29 @@ export function refusalFor(intent: TemporalEditIntent, text: string): EditRefusa
   }
 
   if (only?.blocked) {
-    return { code: "completed_action", message: only.blocked };
+    return {
+      code: intent.operation === "complete" ? "already_complete" : "completed_action",
+      message: only.blocked,
+    };
+  }
+
+  // LIFEOS-066 §18. An Event has no status — it happened or it didn't — so
+  // there is nothing to tick, and inventing one would be a new life noun (§35).
+  if (intent.operation === "complete" && only && only.kind !== "action") {
+    return {
+      code: "not_completable",
+      message: `“${only.title}” is an event — events aren't checked off, they either happened or they didn't.`,
+    };
   }
 
   // §15. LIFEOS-061 has no recurrence exceptions, so "Tuesday's staff meeting"
   // cannot be moved on its own. Pretending otherwise would either change every
   // Tuesday or quietly do nothing; both are worse than saying so.
-  if (only?.recurrence && OCCURRENCE_RE.test(text) && intent.operation !== "stop_recurrence") {
+  // `complete` is exempt: closing ONE occurrence of a repeating action is the
+  // one per-occurrence operation LIFEOS-061 does support (`completeOccurrence`),
+  // so refusing it here would deny a capability that exists.
+  if (only?.recurrence && OCCURRENCE_RE.test(text)
+      && intent.operation !== "stop_recurrence" && intent.operation !== "complete") {
     return {
       code: "occurrence_not_supported",
       message: `“${only.title}” repeats — ${describeRule(only.recurrence)}. Conqify can't move one occurrence on its own yet; it can change the whole schedule.`,
@@ -529,7 +554,7 @@ export interface EditProposal {
   target: EditTarget;
   operation: EditOperation;
   before: { date?: DayKey; time?: LocalTime; recurrence?: string };
-  after: { date?: DayKey; time?: LocalTime; recurrence?: string; deleted?: boolean; deferredUntil?: DayKey };
+  after: { date?: DayKey; time?: LocalTime; recurrence?: string; deleted?: boolean; deferredUntil?: DayKey; completed?: boolean };
   /** One line, in the user's terms, describing the change. */
   summary: string;
   refusal?: EditRefusal;
@@ -611,6 +636,19 @@ export function buildProposal(intent: TemporalEditIntent, target: EditTarget): E
     case "stop_recurrence": {
       after.recurrence = undefined;
       summary = `${before.recurrence ?? "repeating"} → stops repeating`;
+      break;
+    }
+    // LIFEOS-066 §6, §18. A recurring action does NOT close when one occurrence
+    // does — that is the LIFEOS-061 contract — so the two say different things,
+    // and the panel has to show which one is about to happen.
+    case "complete": {
+      after.completed = true;
+      // Only a repeating action has a per-day completion, so only there does the
+      // reported day mean anything. On a one-time action the date is untouched.
+      if (target.recurrence) after.date = p.date ?? before.date;
+      summary = target.recurrence
+        ? `${p.date ? formatDayKey(p.date) : "This"} occurrence → done · keeps repeating`
+        : `${target.status === "waiting" ? "Waiting" : "Open"} → Completed`;
       break;
     }
   }
