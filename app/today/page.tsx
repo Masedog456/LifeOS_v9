@@ -25,10 +25,7 @@ import { openQuickCapture } from "@/lib/command/events";
 import FirstRun from "@/components/ux/FirstRun";
 import TodayReviewCard from "@/components/reviews/TodayReviewCard";
 import TodayInboxCard from "@/components/inbox/TodayInboxCard";
-import TodayScheduleCard from "@/components/planning/TodayScheduleCard";
-import TodayDueCard from "@/components/planning/TodayDueCard";
-import TodayReturnCard from "@/components/planning/TodayReturnCard";
-import TodayActions from "@/components/actions/TodayActions";
+import TodayCommandCenter from "@/components/today/TodayCommandCenter";
 import TodayPlanCard from "@/components/planning/TodayPlanCard";
 import TodayInsightsCard from "@/components/insights/TodayInsightsCard";
 
@@ -98,10 +95,6 @@ export default function TodayPage() {
     return <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Loading your day…</p></main>;
   }
 
-  const empty =
-    state.captures.length === 0 && state.beliefs.length === 0 && state.sources.length === 0 &&
-    state.dialogueSessions.length === 0 && state.researchProjects.length === 0 &&
-    (state.events ?? []).length === 0 && (state.nextActions ?? []).length === 0;
   const showOnboardingInvite = !isOnboardingDone();
   // The collapsible "More from your notebook" only appears when it holds
   // something — an empty disclosure would be noise, not calm.
@@ -134,28 +127,27 @@ export default function TodayPage() {
         </div>
       )}
 
-      {empty && !showOnboardingInvite ? (
-        <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm text-zinc-500 dark:border-white/[.12]">
-          <p>Nothing here yet — LifeOS starts with a captured thought.</p>
-          <Link href="/" className="mt-2 inline-block rounded-full border border-black/[.12] px-4 py-2 text-sm text-zinc-700 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-200 dark:hover:bg-white/[.06]">Capture your first thought →</Link>
-        </div>
-      ) : !empty && (
+      {/* LIFEOS-062: the empty state belongs to `TodayCommandCenter`, which is
+          the only thing that knows whether the projection actually found
+          anything. The page used to keep its own `empty` check and render a
+          competing "Nothing here yet" panel — two empty states with different
+          copy, and the page-level one won, so the capture-focused prompt §29
+          asks for could never appear. */}
+      {(
         <div className="flex flex-col gap-4">
           {/* Daily review entry point (LIFEOS-034, Feature 12). */}
           <TodayReviewCard />
 
-          {/* What is happening today, and what repeats today (LIFEOS-061).
-              Placed above the due list because a fixed appointment is the one
-              thing on this page you cannot reschedule by deciding to. */}
-          <TodayScheduleCard />
+          {/* LIFEOS-062. ONE projection over ONE index pass, replacing the
+              schedule / due / return / actions cards. Those each derived their
+              own slice from the store — and two of them built the activity index
+              independently — so the page paid for the same work repeatedly and
+              no section could see what another had found. Suggested Next needs
+              all of it at once, so all of it is now computed at once. */}
+          <TodayCommandCenter />
 
           {/* Capture inbox entry point (LIFEOS-035, Feature 13). */}
-          <TodayDueCard />
           <TodayInboxCard />
-          <TodayReturnCard />
-
-          {/* Next actions entry point (LIFEOS-036, Feature 16). */}
-          <TodayActions />
 
           {/* Planning entry point (LIFEOS-037, Feature 16). */}
           <TodayPlanCard />
