@@ -4088,3 +4088,82 @@ connectors require repeated beta demand **and** stable API support, both.
   **Durable lesson.** A capability landing does not just add code — it invalidates
   every sentence that apologised for its absence. Search for the old apology as
   deliberately as you write the new feature.
+
+- **LIFEOS-062 — Today Intelligence.** Today becomes a restrained command center.
+  Zero migrations, zero new store domains, zero new nouns.
+
+  **Today is a projection, not storage.** `buildTodayIndexes` runs once and
+  `buildTodayView` reads it; every section renders from that single object. The
+  audit found `buildActivityIndex` running TWICE per render (Return card and
+  Insights card) with each card deriving its own slice — the shape that makes a
+  page slow without any one card being slow. Not one new scanner was written:
+  `buildActivityIndex`, `buildBlocksMap`, `buildBlockedByMap`, `completionIndex`,
+  `eventsOnDay`, `assignmentFor`, `returnSuggestion` and the whole of
+  `lib/actions/due.ts` are composed, not replaced.
+
+  **Suggested Next is derived, never persisted.** No id, no record, no store
+  domain. Completing it changes state, the store re-renders, and the
+  recommendation is recomputed from scratch — there is no cached suggestion to go
+  stale. Acting on it does not make it user-authored.
+
+  **Recommendations require an explanation.** `reasons` is never empty. If the
+  best candidate has no grounding fact, the function returns `NO_STANDOUT`
+  verbatim rather than a filler suggestion. A recommendation with nothing to say
+  for itself is indistinguishable from a guess.
+
+  **One recommendation, or none — never a ranking wall.** A leaderboard of five
+  is a second decision problem handed back to someone who opened the app because
+  they had one already.
+
+  **Observable urgency ≠ inferred importance.** The ordering is lexicographic —
+  nine yes/no facts compared in sequence, first difference wins — not a weighted
+  sum. `urgency * 0.37 + importance * 0.22` is a number nobody can defend and
+  nobody can explain. Overdue, due-today, follow-up-due, returned-today,
+  blocks-other, due-soon, planned-today, fits-before-event, then a stable
+  tie-breaker. **There is no priority rule at all:** `NextAction` has none, and
+  inheriting a Project's priority would let the ordering claim the user
+  prioritised THIS action when what they prioritised was its container.
+
+  **Waiting ≠ actionable. Blocked ≠ executable.** Both are excluded from
+  recommendation for the same reason — neither can be started, and telling
+  someone to do something they cannot do is worse than saying nothing. A blocked
+  item's BLOCKER is recommended instead; a waiting item surfaces in Waiting with
+  its follow-up flagged.
+
+  **Size claims only where the user sized it.** An explicitly `large` action is
+  not recommended into a 20-minute gap; an UNSIZED action makes no duration claim
+  in either direction rather than being guessed at.
+
+  **A genuine tie yields no recommendation.** The stable tie-breaker exists to
+  make the ORDER deterministic, not to manufacture a reason. When it is the only
+  thing separating two candidates, Today says nothing.
+
+  **No data ≠ no life activity.** `COVERAGE_NOTE` states that Today reflects what
+  was RECORDED. `FORBIDDEN_TODAY_WORDS` is asserted against every string the
+  projection produces and in the browser against the whole page.
+
+  **The Constitution is context, never rank.** An ADOPTED element that EXPLICITLY
+  links to an action contributes one sentence. It is never compared, weighted, or
+  used to order anything — a draft element contributes nothing, and a link never
+  outranks an observable fact.
+
+  **Three defects the rewrite introduced and the old smokes caught.** (1) The
+  page kept its own `empty` check and rendered a competing "Nothing here yet"
+  panel that always won, so the capture-focused empty state could never appear.
+  (2) An undated action captured thirty seconds ago had nowhere to land — not
+  due, not planned, not blocked — so `alsoToday` was added, bounded to
+  in-progress / planned-today / created-today so it can never become a backlog
+  dump. (3) The rewrite dropped the recurring-event schedule label, so a standing
+  meeting looked like a one-off. All three were found by re-running the LIFEOS-060
+  and LIFEOS-061 smokes against the new page, not by the new tests.
+
+  **Validation.** Today suite 92/92; full regression 2627/2628 across 29 suites;
+  integration 64/64; browser smoke 46/46 (062), 44/44 (061), 57/57 (060);
+  rehearsal 63/63 with NO migration; Today at 1000 actions / 500 events / 500
+  recurrence sources / 100 projects: indexes 3.4ms, view 12.3ms, total 14.5ms.
+  The single failure is the pre-existing marginal memory wall-clock budget that
+  fails identically on unmodified main; it was not weakened.
+
+  **Durable lesson.** Replacing four cards with one projection is a rewrite, and
+  a rewrite silently drops behaviour that no new test knows to look for. The
+  previous sprints' browser smokes were the only thing that noticed.
