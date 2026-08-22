@@ -371,7 +371,21 @@ export function stripResolvedTemporal(text: string, result: TemporalResult): str
   for (const f of result.findings) {
     if (!f.dueDate) continue;
     const escaped = f.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    out = out.replace(new RegExp(`\\s*\\b${escaped}\\b`, "i"), " ");
+    // LIFEOS-063 R-4: take the preposition that GOVERNED the date with it.
+    //
+    // "Return the library books by Thursday" used to leave "Return the library
+    // books by" — a preposition with nothing to point at, which then appeared in
+    // Today, Suggested Next, Upcoming and Project Pulse. Some phrases already
+    // carry their own preposition ("on Tuesday"), so this is tried first and
+    // falls through to the bare phrase when it does not match.
+    //
+    // Scoped to the word immediately before the removed phrase on purpose. A
+    // blanket trailing-preposition strip would turn "Turn the heating on" into
+    // "Turn the heating"; here "on" is only ever removed when a date followed it.
+    const withPreposition = new RegExp(`\\s*\\b(?:by|before|on|at|until|til|till|due)\\s+${escaped}\\b`, "i");
+    out = withPreposition.test(out)
+      ? out.replace(withPreposition, " ")
+      : out.replace(new RegExp(`\\s*\\b${escaped}\\b`, "i"), " ");
   }
   return out.replace(/\s+/g, " ").replace(/\s+([.,;:])/g, "$1").trim().replace(/[,;:]+$/, "").trim();
 }

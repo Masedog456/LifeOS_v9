@@ -166,7 +166,13 @@ export default function TodayCommandCenter() {
             {view.recurringToday.map((r) => (
               <li key={r.action.id} data-today-recurring className="flex items-center justify-between gap-3 py-1">
                 <Link href={`/actions/${r.action.id}`} className={linkClass}>
-                  {r.action.title}<span className="ml-1.5 text-[11px] text-zinc-400">{r.schedule}</span>
+                  {r.action.title}
+                  <span className="ml-1.5 text-[11px] text-zinc-400">
+                    {/* LIFEOS-063 R-2. "Every day at 8:00 AM" is the whole point
+                        of a timed standing responsibility; the schedule alone
+                        does not tell you when today's instance is. */}
+                    {r.action.dueTime ? `${r.schedule} at ${formatLocalTime(r.action.dueTime)}` : r.schedule}
+                  </span>
                 </Link>
                 <button type="button" data-complete-occurrence
                   onClick={() => { if (completeOccurrence(r.action.id, r.occurrence)) toast({ kind: "success", message: "Done for today. It'll come back next time." }); }}

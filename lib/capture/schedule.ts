@@ -107,8 +107,23 @@ export interface RecurrenceFinding {
 const AMBIGUOUS_RE =
   /\b(twice|three\s+times|3\s+times|a\s+few\s+times|several\s+times|couple\s+of\s+times)\s+(?:a|per|each)\s+(day|week|month|year)\b|\bsometimes\s+on\b|\bnow\s+and\s+(?:then|again)\b|\boccasionally\b|\bregularly\b/i;
 
+/**
+ * Recurrence phrases this model cannot express, which are REPORTED rather than
+ * dropped.
+ *
+ * The weekday/weekend set (LIFEOS-063 R-3) was the hole: "every weekday at
+ * 9:15" matched nothing here and nothing below, so `extractRecurrence` returned
+ * `null` — indistinguishable from a sentence containing no schedule at all.
+ * The consequence was the failure LIFEOS-061 exists to prevent: a standing
+ * meeting collapsed into a one-off on whichever day it was typed, the words
+ * "every weekday" left sitting in its title, and no disclosure anywhere.
+ *
+ * Saying "Conqify can't store this schedule yet" is not a smaller answer than
+ * storing it — it is the difference between a limit and a lie. Actual weekday-set
+ * support is a capability change and is deliberately NOT added here.
+ */
 const UNSUPPORTED_PATTERN_RE =
-  /\b(first|second|third|fourth|last)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekday|weekend)\b|\bevery\s+other\s+(?!sunday|monday|tuesday|wednesday|thursday|friday|saturday|day|week|month|year)\w+/i;
+  /\b(first|second|third|fourth|last)\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday|weekday|weekend)\b|\bevery\s+other\s+(?!sunday|monday|tuesday|wednesday|thursday|friday|saturday|day|week|month|year)\w+|\b(?:every|each)\s+(?:weekday|weekend|week\s?day|week\s?end)s?\b|\bon\s+(?:weekdays|weekends)\b/i;
 
 /** "every 3 days", "every other week", "every 2 weeks". */
 const INTERVAL_WORDS: Record<string, number> = { other: 2, second: 2, third: 3, fourth: 4 };

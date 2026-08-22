@@ -269,12 +269,21 @@ export default function TodayPage() {
           </details>
           )}
 
-          {view.activeRecs.length === 0 && view.proposals.length === 0 && view.openDialogues.length === 0 && view.activeResearch.length === 0 && view.openDecisions.length === 0 && view.staleBeliefs.length === 0 && view.duePractices.length === 0 && (
-            <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-center text-sm text-zinc-500 dark:border-white/[.12]">
-              <p className="text-zinc-600 dark:text-zinc-300">You&apos;re all caught up. 🌿</p>
-              <p className="mx-auto mt-1 max-w-md text-xs">Nothing is waiting on you right now. Capture a thought, open an idea to explore, or take a quiet moment — it&apos;ll all be here when you return.</p>
-            </div>
-          )}
+          {/* LIFEOS-063 R-1. A second "You're all caught up. Nothing is waiting
+              on you right now" panel used to live here, gated ONLY on the
+              knowledge-side collections above it — recommendations, proposals,
+              dialogues, research, decisions, stale beliefs, practices. It knew
+              nothing about `TodayCommandCenter`, so on an ordinary day it fired
+              while the page listed three overdue actions, a due follow-up and
+              two appointments a few hundred pixels higher.
+
+              This is the same defect LIFEOS-062 removed at the other end of the
+              page, and the reason both existed is the same: the empty state
+              belongs to the one component that knows whether the projection
+              found anything. `TodayCommandCenter` renders a capture-focused
+              prompt when there is genuinely nothing, and every card here hides
+              itself when it has nothing to say, so an empty day already reads
+              correctly without a panel asserting it. */}
         </div>
       )}
     </main>

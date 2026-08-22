@@ -4100,11 +4100,16 @@ export function commitCapture(
           workspaceId: c.workspaceId,
         });
         if (c.dueDate) setActionDueDate(actionId, c.dueDate);
-        // A due TIME only after a due DATE exists — the store refuses it
-        // otherwise, and that ordering is the reason it can.
-        if (c.dueDate && c.time) setActionDueTime(actionId, c.time);
         // A recurrence makes this a standing SOURCE. It is never "done".
+        //
+        // Set BEFORE the time, deliberately: `setActionDueTime` needs a day to
+        // have been named, and for a recurring action the rule is what names
+        // it. Doing these the other way round is what dropped the time on every
+        // "every day at 8" (LIFEOS-063 R-2).
         if (c.recurrence) setActionRecurrence(actionId, c.recurrence);
+        // A due TIME only once a day has been named — by a date or by a rule.
+        // The store refuses it otherwise, and that ordering is the reason it can.
+        if (c.time && (c.dueDate || c.recurrence)) setActionDueTime(actionId, c.time);
         // A waiting item enters `waiting` immediately — that IS its state, and
         // making the user set it afterwards was the friction LIFEOS-059 found.
         if (c.kind === "waiting") markActionWaiting(actionId, c.waitingOn ?? "", c.dueDate);
@@ -4563,7 +4568,13 @@ export function setActionDueTime(actionId: string, dueTime?: string): boolean {
     return true;
   }
   // A time with no day names no moment. Refused, not stored and hoped about.
-  if (!isLocalTime(dueTime) || !a.dueDate) return false;
+  //
+  // LIFEOS-063 R-2: a RECURRENCE RULE names days too. A recurring action
+  // deliberately carries no `dueDate` — its schedule is its rule — so requiring
+  // one here silently discarded the time on every "every day at 8", including
+  // the time the confirmation screen had just displayed. The principle is
+  // unchanged; the rule is simply the other way a day can be named.
+  if (!isLocalTime(dueTime) || (!a.dueDate && !readRule(a.recurrence))) return false;
   bumpAction(actionId, (x) => appendActionHistory({ ...x, dueTime }, makeActionEvent({ action: "edited", at: now(), detail: dueTime })));
   return true;
 }
