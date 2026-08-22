@@ -85,6 +85,7 @@ export type AutobiographicalKind =
   | "event_scheduled"
   | "action_created"
   | "action_deferred"
+  | "action_rescheduled"
   | "action_cancelled"
   | "waiting_started"
   | "note_created"
@@ -283,6 +284,34 @@ export function buildAutobiographicalTimeline(
     }
   }
 
+  // ---- reschedules: read from action history, which the index omits -------
+  //
+  // LIFEOS-065 made "move the deadline to Friday" a sentence, so a review that
+  // could not report it would answer "what changed?" worse than the product now
+  // behaves. `setActionDueDate` already appends a `due_set` entry carrying the
+  // new day; `buildActivityIndex` maps only status transitions, so it is read
+  // here instead of widening the shared index (same reasoning as events above).
+  //
+  // EVENT reschedules stay invisible: `LifeEvent` has no history at all. That
+  // asymmetry is why "what changed?" remains PARTIAL, and it is stated rather
+  // than papered over.
+  for (const a of state.nextActions ?? []) {
+    for (const h of a.history ?? []) {
+      if (h.action !== "due_set" || !within(h.at, range)) continue;
+      // The creation of a dated record already appears as `action_created`;
+      // calling that a reschedule would invent a change that never happened.
+      if (dayOf(h.at) === dayOf(a.createdAt) && Math.abs(Date.parse(h.at) - Date.parse(a.createdAt)) < 2000) continue;
+      out.push({
+        at: h.at, day: dayOf(h.at), kind: "action_rescheduled", title: a.title,
+        recordRef: { kind: "action", id: a.id },
+        projectRef: projectRef(a.projectId),
+        detail: h.detail ? `to ${formatDayKey(h.detail)}` : undefined,
+        evidence: "action.history[].due_set",
+        origin: classifyOrigin({ kind: "action", text: a.title }),
+      });
+    }
+  }
+
   // ---- events: scheduled, never attended (§7, §10) ------------------------
   for (const ev of state.events ?? []) {
     const rule = readRule(ev.recurrence);
@@ -400,6 +429,7 @@ export interface WeekReview {
   scheduled: AutobiographicalEvent[];
   added: AutobiographicalEvent[];
   deferred: AutobiographicalEvent[];
+  rescheduled: AutobiographicalEvent[];
   reflections: AutobiographicalEvent[];
   waiting: WaitingLine[];
   stillOpen: OpenLine[];
@@ -446,6 +476,7 @@ export function summarise(review: Omit<WeekReview, "summary" | "coverage" | "lim
   if (newActions) parts.push(`added ${plural(newActions, "action")}`);
   if (review.reflections.length) parts.push(`captured ${plural(review.reflections.length, "note or reflection", "notes and reflections")}`);
   if (review.deferred.length) parts.push(`deferred ${plural(review.deferred.length, "item")}`);
+  if (review.rescheduled.length) parts.push(`rescheduled ${plural(review.rescheduled.length, "item")}`);
 
   const lead = parts.length === 0
     ? "Nothing was recorded in this period."
@@ -470,6 +501,7 @@ export function buildWeekReview(
   const completed = timeline.filter((e) => (COMPLETION_KINDS as string[]).includes(e.kind));
   const scheduled = timeline.filter((e) => e.kind === "event_scheduled");
   const deferred = timeline.filter((e) => e.kind === "action_deferred");
+  const rescheduled = timeline.filter((e) => e.kind === "action_rescheduled");
   // A reflection is the user's own words. Machine prose kept as a note is a
   // record of what a model said, not of what the user thought, so it is not
   // presented as a reflection (§24).
@@ -561,7 +593,7 @@ export function buildWeekReview(
   rollups.sort((a, b) => b.completed - a.completed || b.added - a.added || a.project.title.localeCompare(b.project.title));
 
   const core = {
-    range, rangeKind, timeline, completed, scheduled, added, deferred, reflections,
+    range, rangeKind, timeline, completed, scheduled, added, deferred, rescheduled, reflections,
     waiting, stillOpen, projects: rollups.slice(0, MAX_PROJECTS),
   };
 
@@ -597,6 +629,11 @@ export function limitationsFor(
   }
   if (review.waiting.some((w) => w.followUpDue)) {
     out.push("A follow-up date having arrived is recorded; whether you followed up is not.");
+  }
+  if (review.scheduled.length > 0) {
+    // Stated wherever events appear, because LIFEOS-065 lets a user move one by
+    // saying so — and moving it leaves no trace at all.
+    out.push("Events carry no change history, so a rescheduled event shows only where it stands now.");
   }
   return out;
 }

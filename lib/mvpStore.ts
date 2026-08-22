@@ -4527,9 +4527,18 @@ export function createEvent(input: {
 }
 
 /** Edit user-set fields on an Event. Invalid time combinations are refused. */
-export function updateEvent(eventId: string, patch: Partial<Pick<LifeEvent, "title" | "date" | "startTime" | "endTime" | "allDay" | "notes">>): boolean {
+export function updateEvent(
+  eventId: string,
+  // LIFEOS-065: `recurrence` joins the patch rather than getting its own setter.
+  // Changing a standing meeting's day is the same kind of edit as changing a
+  // one-off's, and a second function would mean two places enforcing the same
+  // validation. Invalid rules are refused here by `readRule`, exactly as an
+  // invalid time is.
+  patch: Partial<Pick<LifeEvent, "title" | "date" | "startTime" | "endTime" | "allDay" | "notes" | "recurrence">>,
+): boolean {
   const ev = (state.events ?? []).find((e) => e.id === eventId);
   if (!ev) return false;
+  if (patch.recurrence !== undefined && !readRule(patch.recurrence)) return false;
   const next = { ...ev, ...patch };
   if (next.allDay) { next.startTime = undefined; next.endTime = undefined; }
   if (next.startTime !== undefined && !isLocalTime(next.startTime)) return false;
