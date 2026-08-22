@@ -29,7 +29,11 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { attachProposals, commitCapture, useStore } from "@/lib/mvpStore";
+import {
+  attachProposals, commitCapture, useStore,
+  setActionDueDate, setActionDueTime, setActionRecurrence, stopActionRecurrence,
+  deferAction, updateEvent, stopEventRecurrence, deleteEvent,
+} from "@/lib/mvpStore";
 import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/lib/capture/interpret";
 import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/capture/commit";
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
@@ -41,6 +45,21 @@ import type { MatchOption } from "@/lib/capture/match";
 import { generateBeliefs, interpretCapture } from "@/lib/aiClient";
 import { todayKey, formatDayKey } from "@/lib/reviews/dates";
 import { toast } from "@/lib/ux/feedback";
+import { detectTemporalEdits, buildProposal, type EditTarget, type TemporalEditIntent } from "@/lib/capture/temporal-edit";
+import { applyTemporalEdit, type EditOps } from "@/lib/capture/apply-edit";
+import ChangeConfirm from "@/components/capture/ChangeConfirm";
+
+/**
+ * The store writers the change path may use (LIFEOS-065 §4).
+ *
+ * Every one already exists and already enforces its own invariants. Listing
+ * them explicitly is the point: this component cannot reach any writer that is
+ * not on this line.
+ */
+const EDIT_OPS: EditOps = {
+  setActionDueDate, setActionDueTime, setActionRecurrence, stopActionRecurrence,
+  deferAction, updateEvent, stopEventRecurrence, deleteEvent,
+};
 
 /** User-facing kind labels. Product words, not ontology. */
 const KIND_LABEL: Record<CandidateKind, string> = {
@@ -104,6 +123,12 @@ export default function CaptureComposer() {
   const [raw, setRaw] = useState("");
   const [busy, setBusy] = useState(false);
   const [asked, setAsked] = useState(false);
+  /**
+   * Rescheduling language switches the box into an explicit change state before
+   * anything is written (§27). Ordinary capture stays exactly as it was — this
+   * branch is entered only when the sentence names both a change and a schedule.
+   */
+  const [edits, setEdits] = useState<TemporalEditIntent[] | null>(null);
 
   const projectTitles = useMemo(
     () => buildEscalationContext("", state).projectTitles,
@@ -117,6 +142,17 @@ export default function CaptureComposer() {
     const src = text.trim();
     if (!src || busy) return;
     setBusy(true);
+
+    // Is this a CHANGE to something that already exists, rather than something
+    // new? Checked first, because reading "move the dentist to Friday" as a new
+    // action would leave the user with two dentist appointments (§29).
+    const editIntents = detectTemporalEdits(src, state, today);
+    if (editIntents.length > 0) {
+      setRaw(src);
+      setEdits(editIntents);
+      setBusy(false);
+      return;
+    }
 
     // Deterministic first, and it renders before any model is considered.
     let interpretation = interpret(src, state, today);
@@ -147,7 +183,26 @@ export default function CaptureComposer() {
   }
 
   function reset() {
-    setText(""); setRows(null); setRaw(""); setAsked(false);
+    setText(""); setRows(null); setRaw(""); setAsked(false); setEdits(null);
+  }
+
+  /** Apply one confirmed change through the existing store setters. */
+  function applyEdit(intent: TemporalEditIntent, target: EditTarget, destructive: boolean) {
+    const outcome = applyTemporalEdit(buildProposal(intent, target), EDIT_OPS, {
+      confirmDestructive: destructive,
+      today,
+    });
+    toast({ kind: outcome.applied ? "success" : "info", message: outcome.message });
+  }
+
+  /**
+   * The user disagreed with the change reading. Fall back to ordinary capture
+   * on the SAME text, so nothing they typed is lost (§28).
+   */
+  function keepAsCapture() {
+    const src = raw || text.trim();
+    setEdits(null);
+    setRows(rowsFrom(interpret(src, state, today).candidates));
   }
 
   function confirmSelected() {
@@ -226,11 +281,11 @@ export default function CaptureComposer() {
         onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void look(); } }}
         placeholder="Call the dentist tomorrow, finish the report, and Marcus still owes me the file…"
         rows={4}
-        disabled={busy || !!rows}
+        disabled={busy || !!rows || !!edits}
         className="w-full resize-none rounded-2xl border border-black/[.08] bg-transparent p-5 text-lg leading-relaxed outline-none transition-colors placeholder:text-zinc-400 focus:border-black/[.20] disabled:opacity-60 dark:border-white/[.10] dark:focus:border-white/[.25]"
       />
 
-      {!rows && (
+      {!rows && !edits && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button type="button" data-capture-submit onClick={() => void look()} disabled={!text.trim() || busy}
             className="rounded-full bg-zinc-900 px-6 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900">
@@ -240,7 +295,11 @@ export default function CaptureComposer() {
         </div>
       )}
 
-      {rows && (
+      {edits && (
+        <ChangeConfirm intents={edits} onApply={applyEdit} onDismiss={keepAsCapture} />
+      )}
+
+      {rows && !edits && (
         <div data-capture-results className="mt-5">
           <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
             {live.length === 1 ? "I found 1 thing:" : `I found ${live.length} things:`}
@@ -387,7 +446,7 @@ export default function CaptureComposer() {
         </div>
       )}
 
-      {!rows && (
+      {!rows && !edits && (
         <p className="mt-6 text-sm leading-relaxed text-zinc-400">
           Start messy. Nothing is created until you confirm it, and{" "}
           <Link href="/notes" className="underline underline-offset-2">a note</Link> is always a valid answer.
