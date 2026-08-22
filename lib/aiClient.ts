@@ -27,6 +27,7 @@ import { mockOutlines, mockSectionDraft } from "@/lib/mockAuthoring";
 import type { DraftTransform, EvidenceItem, ProjectEvidence } from "@/types/mvp";
 import { authedJsonHeaders } from "@/lib/security/api-token";
 import { mockFollowups, mockInterviewSynthesis } from "@/lib/mockInterview";
+import { mockCaptureCandidates } from "@/lib/mockCapture";
 import type { ContextItem } from "@/lib/interview/context";
 
 export type AiSource = "ai" | "mock";
@@ -77,6 +78,22 @@ async function call<T>(
 
 export function generateBeliefs(text: string) {
   return call<ProposalDraft[]>({ task: "beliefs", text }, () => mockProposals(text));
+}
+
+/**
+ * Capture escalation (LIFEOS-060 §11).
+ *
+ * Called ONLY when `interpret()` sets `escalate` — the deterministic pass runs
+ * first and always, and its candidates are already on screen before this is
+ * attempted. The result is additive: on failure the fallback returns an empty
+ * array and the user sees exactly what they saw before, with no error and no
+ * message about API keys (§13).
+ *
+ * Everything returned is re-validated by `validateAiCandidates` against the
+ * constrained candidate contract before it can reach the UI.
+ */
+export function interpretCapture(text: string, projectTitles: string[] = []) {
+  return call<unknown[]>({ task: "capture_interpret", text, projectTitles }, () => mockCaptureCandidates());
 }
 
 export function summarize(text: string) {

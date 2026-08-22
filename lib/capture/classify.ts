@@ -78,6 +78,13 @@ const ACTION_VERBS = [
   "schedule", "book", "pay", "renew", "submit", "file", "return", "pick up",
   "drop off", "fix", "repair", "clean", "wash", "print", "sign", "mail",
   "reply", "respond", "confirm", "cancel", "register", "download", "upload",
+  // LIFEOS-060: completion verbs. "Finish the dashboard" fell through to Note,
+  // which is the single most common everyday errand shape the list was missing.
+  // Kept to verbs that only ever describe doing — `review` and `make` are
+  // deliberately absent, because "review of the paper" and "make of the car"
+  // are ordinary nouns and a wrong action costs more than a right one gains.
+  "finish", "complete", "update", "refill", "restock", "pack", "ship",
+  "deliver", "apply", "draft", "unsubscribe", "reschedule",
 ];
 
 /**
@@ -94,6 +101,14 @@ const REFLECTION_MARKERS = [
   "i've realized", "i have realized", "i've realised", "i have realised",
   "i'm noticing", "i am noticing", "i've been thinking", "i have been thinking",
   "i keep noticing", "looking back",
+  // LIFEOS-060: doubt, not just insight. "I've been questioning whether teaching
+  // is what I want to do" is the single most reflective sentence in the torture
+  // test and fell through to the generic note fallback — which mislabelled it
+  // AND made it look unplaceable enough to escalate to a model for no reason.
+  "i've been questioning", "i have been questioning", "i'm questioning", "i am questioning",
+  "i've been wondering", "i have been wondering", "i'm wondering", "i am wondering",
+  "i'm still unsure", "i am still unsure", "i'm unsure", "i am unsure",
+  "i keep wondering", "i keep coming back to",
 ];
 
 /** Informational shapes that are notes even when they contain a verb. */

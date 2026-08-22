@@ -3928,3 +3928,88 @@ connectors require repeated beta demand **and** stable API support, both.
   well-documented codebase makes each local addition easy to defend, which is
   exactly what lets the global cost accumulate unchallenged. Sprint scope should
   occasionally be spent on subtraction.
+
+- **LIFEOS-060 — Universal Capture 2.0 (the front door).**
+  Repairs the intake bottleneck LIFEOS-059 measured. Zero migrations, zero new
+  store domains, zero new life nouns.
+
+  **Universal Capture is the front door.** The primary input used to send every
+  capture to a model and answer *"N beliefs waiting in your Inbox"*, so an errand
+  needed five more steps through two other inboxes to become a task. Now the
+  deterministic pass runs inline on the capture surface and confirmation creates
+  the records there. The browser smoke asserts the user never visits `/process`
+  or `/inbox`.
+
+  **Raw source must survive interpretation.** Three layers, kept apart: the RAW
+  CAPTURE is persisted and never rewritten; the INTERPRETATION is transient and
+  never persisted; LIFE RECORDS are created only on confirm. Persisting the
+  interpretation was considered and rejected — a stored machine reading is a
+  second account of the user's life that can drift from the first, and a pure
+  function reproduces it exactly on demand. That decision is why this sprint
+  needed no migration.
+
+  **One capture may yield multiple records.** `decompose` splits on intent SHAPE
+  rather than on type disagreement, which is what `detectMultiIntent` did — it
+  saw one kind in "call the advisor, finish the dashboard, buy dog food" and
+  collapsed three errands into one. The merge-back rule keeps it safe: a fragment
+  stands alone only if it carries its own intent signal, so "Call Mom, Dad, and
+  the dentist" stays one action. Over-splitting is worse than under-splitting,
+  because a wrong split creates records the user must delete.
+
+  **Authority belongs at mutation, not interpretation.** Read aggressively, write
+  carefully. A guess costs nothing until it becomes a record, so authority scales
+  with what a wrong write would cost: an errand is `auto_with_undo` and arrives
+  pre-ticked, a Project or Protocol is `confirm`, and low confidence caps
+  authority at `confirm` whatever the kind. Belief and Constitution are not in
+  `CandidateKind` at all — this pipeline cannot write one by any path, including
+  the AI path, because the type does not exist.
+
+  **Deterministic first, AI escalation as needed.** `classifyCapture` was not
+  replaced: every LIFEOS-059 failure was a missing CAPABILITY (dates, waiting
+  phrasing, decomposition), not a wrong rule. The model is asked only when a
+  substantial segment matched nothing, may propose only action/waiting/note,
+  never sets a date, and is never pre-ticked. Context sent is the capture text
+  plus project TITLES — asserted by a test that plants a note body and a belief
+  in the store and checks neither reaches the payload.
+
+  **Note is the safe fallback.** "Keep the whole thing as a note" is always
+  present and never depends on interpretation having worked.
+
+  **Unresolved time must remain explicit until Time Foundation.** The parser
+  resolves a day or reports why it could not: `time_of_day`, `recurrence`,
+  `month_only`, `vague`, `past`. "October" never becomes October 1st. "Every
+  Sunday" never becomes one arbitrary Sunday — recurrence is matched BEFORE
+  weekdays precisely so it cannot be. Where a day IS resolvable but the kind
+  cannot hold it ("Dentist appointment Tuesday at 2:30" reads as a note), the
+  date rides along, the UI says it is not being kept, and Action is one tap away.
+
+  **Three defects found by running the pipeline rather than reasoning about it.**
+  (1) "Finish the dashboard" fell through to Note — `ACTION_VERBS` had no
+  completion verbs, the most common everyday errand shape. (2) "I want to learn
+  Spanish" became an action titled "learn Spanish", which sits in Next forever;
+  it now routes to Goal at `possible` confidence. (3) A note's editable text was
+  its date-stripped title, so committing "Dentist appointment Tuesday at 2:30"
+  would have stored it without "Tuesday" — a silent drop of exactly the kind §19
+  forbids, introduced by the date-stripping meant to serve it.
+
+  **An occasion is not a task (acceptance patch).** "I need to remember Mom's
+  birthday" first shipped as an Action, which reproduced the LIFEOS-059 defect in
+  a new place: an Action carries completion semantics and a birthday has none, so
+  ticking it off is meaningless and leaving it open makes it permanent debris in
+  Next. It now routes to a Note, unticked, reporting `occasion` as unresolved and
+  saying plainly that timed events are not supported yet. No date is invented and
+  no Event noun was added — the fix was to fail truthfully, not to build early.
+  The rule fires on the occasion itself, not the word: "Call Mom on her birthday"
+  is still an Action, because calling someone is a thing you finish.
+
+  **Validation.** Capture suite 176/176; full regression 2376/2376 across 27
+  suites; integration 64/64; browser smoke 57/57 (A–G) with no page errors;
+  rehearsal 46/46 with no migration; interpretation 0.69ms worst case against a
+  store of 200 projects / 2000 notes / 2000 actions.
+
+  **Durable lesson.** The date-stripping that made titles clean is the same
+  change that silently dropped a word from a note — a correctness feature and a
+  data-loss bug in one edit, invisible to every unit test because both halves
+  were individually right. What caught it was printing the actual output of all
+  eleven torture sentences and reading them. Run the thing; do not reason about
+  the thing.
