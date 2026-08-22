@@ -4167,3 +4167,96 @@ connectors require repeated beta demand **and** stable API support, both.
   **Durable lesson.** Replacing four cards with one projection is a rewrite, and
   a rewrite silently drops behaviour that no new test knows to look for. The
   previous sprints' browser smokes were the only thing that noticed.
+
+- **LIFEOS-063 — Executive Loop Acceptance (dogfood + review).** An acceptance
+  sprint, not a feature sprint. Question: does the CAPTURE → UNDERSTAND →
+  UNDERSTAND WHEN → SURFACE TODAY → ACT → RECOMPUTE loop built by 060/061/062
+  actually reduce the work of running a day? Verdict: **partially accepted — the
+  loop holds, it has no memory.** Full findings in
+  `EXECUTIVE_LOOP_ACCEPTANCE_063.md`.
+
+  **Method: a deterministic seven-day replay through the real pipeline.**
+  `lib/dogfood/{scenario,replay,ops}.ts` runs a scripted week through
+  `interpret → toCommitCandidate → commitCapture → buildTodayIndexes →
+  buildTodayView → recommendNextAction`. Nothing is simulated; `ops.ts` is a thin
+  adapter onto the real store functions. **No telemetry was added** — no beta
+  event system, no analytics, no logger, no new domain, no new route. This is a
+  developer-only fixture no running code path reads.
+
+  **`realDogfoodOps()` throws in a browser.** The replay wipes the store, and in
+  a browser that store holds a real person's life. A comment is a convention; a
+  throw is a fence. The selftest exercises the throw rather than describing it.
+
+  **Two clocks, and the discipline that came out of it.** Three behaviours read a
+  stored timestamp rather than the day being asked about — `alsoToday`
+  (`createdAt`), `waitingDays` (`waitingSince`), and a recurring action's
+  occurrence anchor (`dueDate ?? createdAt`). A fixed-date fixture makes all
+  three look broken. So the replay takes an `anchor` and runs twice: fixed week
+  (deterministic dates) and live anchor (clocks agree). **Anything that fails
+  under both is a product finding; anything that fails only under the fixed week
+  is the fixture.** Two suspected defects were caught by that rule and NOT
+  reported — a recurring action stopping to a date five months out, and a wait
+  reporting "0 days".
+
+  **What the week measured.** 58 interactions across seven days; **9 (16%)**
+  anywhere other than Capture and Today; Today needed **zero** interactions to be
+  correct on any day. Suggested Next scored 10/10 against §21's cases. The quiet
+  day rendered no sections and manufactured no suggestion. Capture scored 1/2:
+  four of eight §19 shapes reach useful state in three interactions with no
+  taxonomy knowledge; four require a filing decision.
+
+  **Three defects found by running it, all invisible to 2627 unit assertions.**
+  (1) `/today` kept a SECOND "You're all caught up. Nothing is waiting on you
+  right now" panel, gated only on the legacy knowledge collections, so it fired
+  while the page listed three overdue actions and a due follow-up — the same
+  defect LIFEOS-062 fixed at the other end of the page. (2) `setActionDueTime`
+  refused any time without a `dueDate`, and a recurring action deliberately has
+  none, so "every day at 8" displayed 08:00 on the confirmation screen and stored
+  nothing. (3) `extractRecurrence` returned `null` — not `unsupported` — for
+  "every weekday", so unlike every other unrepresentable phrase it produced no
+  disclosure and the event collapsed to one arbitrary day.
+
+  **Repairs (§30 only): local, no migration, no domain, no new noun.** Deleted
+  the duplicate empty-state panel; let a recurrence rule name the day a `dueTime`
+  needs (`setActionDueTime` accepts a due date OR a rule, `commitCapture` sets
+  recurrence first, Today renders the time on a recurring row); reported
+  weekday/weekend recurrence as `unsupported_pattern` instead of swallowing it
+  (**weekday-set support itself was NOT added** — that is capability, deferred);
+  and stripped the preposition that governed a resolved date, so titles stopped
+  reading "Return the library books by".
+
+  **Known gaps are asserted, not just written down.** `lib/dogfood/selftest.ts`
+  §5 pins the limitations the report documents and this sprint deliberately did
+  not fix — "Replace…" is a note, "Dentist Thursday at 2:30" is a note, a leading
+  "Still " defeats waiting detection, `waitingOn` swallows the object. Each fails
+  the day the gap closes, which is the only way a documented limitation stays
+  true once someone touches the parser.
+
+  **The diagnosis.** 060/061/062 were the right three sprints. The product's
+  remaining problem is not that it does not understand — it is that it does not
+  REMEMBER and does not let you CHANGE YOUR MIND. It hears "I need to" and cannot
+  hear "I did", "I didn't", or "move it". `buildInsightTimeline` returned **0
+  entries** for a week containing 52 activity events, because it indexes
+  knowledge records, not a lived week. Conqify has a present tense and no past
+  tense.
+
+  **Next three sprints, chosen from the evidence:** (1) Week in Review — a
+  read-only narrative projection over the activity index, needing **no new
+  persisted data**; (2) Temporal editing — rescheduling as language, the
+  highest-frequency single cause of leaving; (3) Capture coverage II —
+  appointments, completions, waiting phrasing. Calendar sync is the right FOURTH
+  sprint: the Event model is three fields and a richer recurrence vocabulary
+  short of connector-ready, and both calendar departures were caused by capture
+  failures rather than by the missing connector.
+
+  **Validation.** Full regression **2709/2709 across 30 suites** (dogfood 81/81);
+  integration 64/64; browser smokes 30/30 (063), 46/46 (062), 43/44 (061 — the
+  one failure is a clock-dependent assertion whose latest seeded event is 14:30,
+  and it fails identically on unmodified main), 57/57 (060); rehearsal 63/63 with
+  **no migration**; tsc clean; eslint 0 errors (2 pre-existing warnings); build
+  compiled; audit:security PASS; release:audit PASS 17/17.
+
+  **Durable lesson.** Printing real pipeline output found three defects; a second
+  pass asking "and WHY is that wrong?" removed two false ones before they reached
+  the report. Running the thing is necessary and not sufficient — explaining the
+  output is the other half.
