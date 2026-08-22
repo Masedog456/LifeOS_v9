@@ -168,6 +168,10 @@ import {
 import { classifyStatementChange } from "@/lib/constitution/revision";
 import { extractConditional } from "@/lib/capture/classify";
 import type { CommitCandidate } from "@/lib/capture/commit";
+// Time foundation (LIFEOS-061).
+import { isLocalTime, isValidTimeRange } from "@/lib/time/localtime";
+import { currentOccurrence, readRule, type RecurrenceRule } from "@/lib/time/recurrence";
+import type { LifeEvent, RecurrenceCompletion } from "@/types/mvp";
 import { type NotePromotionKey } from "@/lib/notes/promotion";
 import { planSplit } from "@/lib/inbox/split";
 import { planMerge } from "@/lib/inbox/merge";
@@ -239,6 +243,8 @@ const EMPTY_STATE: StoreState = {
   protocols: [],
   constitutionElements: [],
   constitutionRevisions: [],
+  events: [],
+  recurrenceCompletions: [],
 };
 
 let state: StoreState = EMPTY_STATE;
@@ -590,6 +596,8 @@ export function hydrate() {
         protocols: asArray<Protocol>(parsed.protocols),
         constitutionElements: asArray<ConstitutionElement>(parsed.constitutionElements),
         constitutionRevisions: asArray<ConstitutionRevision>(parsed.constitutionRevisions),
+        events: asArray<LifeEvent>(parsed.events),
+        recurrenceCompletions: asArray<RecurrenceCompletion>(parsed.recurrenceCompletions),
       };
       // Deferred captures whose local date has arrived return to the inbox
       // (LIFEOS-035, Feature 9) — deterministic, no background workers.
@@ -657,7 +665,7 @@ export function resetStore() {
     tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
     workspaces: [], sessions: [], goals: [], projects: [],
     nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [],
-    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [], notes: [], protocols: [], constitutionElements: [], constitutionRevisions: [],
+    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [], notes: [], protocols: [], constitutionElements: [], constitutionRevisions: [], events: [], recurrenceCompletions: [],
   });
 }
 
@@ -4092,6 +4100,11 @@ export function commitCapture(
           workspaceId: c.workspaceId,
         });
         if (c.dueDate) setActionDueDate(actionId, c.dueDate);
+        // A due TIME only after a due DATE exists — the store refuses it
+        // otherwise, and that ordering is the reason it can.
+        if (c.dueDate && c.time) setActionDueTime(actionId, c.time);
+        // A recurrence makes this a standing SOURCE. It is never "done".
+        if (c.recurrence) setActionRecurrence(actionId, c.recurrence);
         // A waiting item enters `waiting` immediately — that IS its state, and
         // making the user set it afterwards was the friction LIFEOS-059 found.
         if (c.kind === "waiting") markActionWaiting(actionId, c.waitingOn ?? "", c.dueDate);
@@ -4125,6 +4138,17 @@ export function commitCapture(
       case "goal": {
         if (!title) break;
         created.push({ kind: "goal", id: createGoal({ title }) });
+        break;
+      }
+      // LIFEOS-061. An Event HAPPENS: no status, no completion, no checkbox.
+      case "event": {
+        if (!title || !c.dueDate) break;
+        const eventId = createEvent({
+          title, date: c.dueDate, startTime: c.time,
+          allDay: !c.time, recurrence: c.recurrence,
+          sourceCaptureId: captureId, fromAiText: fromAi,
+        });
+        if (eventId) created.push({ kind: "event", id: eventId });
         break;
       }
     }
@@ -4458,6 +4482,229 @@ export function deleteConstitutionElement(elementId: string): void {
  * back as the user's own thinking. Saving is not authorship — this is the
  * LIFEOS-050A hole, and a note-shaped door into it.
  */
+
+// ------------------------------------------------ time foundation (061) ----
+
+/**
+ * Create an Event (LIFEOS-061 §5). Something that HAPPENS at a time.
+ *
+ * Never a task: no status, no completion, no checkbox. An Event happens and then
+ * has happened, and `lib/time/events.ts` decides when it stops appearing in
+ * Today. Invalid times are refused rather than normalised — an end before a
+ * start describes an overnight event, which this sprint does not model, and
+ * silently swapping the two would invent a 22-hour appointment.
+ */
+export function createEvent(input: {
+  title: string; date: string; startTime?: string; endTime?: string; allDay?: boolean;
+  notes?: string; recurrence?: RecurrenceRule; sourceCaptureId?: string; fromAiText?: boolean;
+  linkedEntityRefs?: RecordRefLite[];
+}): string | null {
+  const title = (input.title ?? "").trim();
+  const date = (input.date ?? "").trim();
+  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const allDay = !!input.allDay;
+  const startTime = allDay ? undefined : (isLocalTime(input.startTime) ? input.startTime : undefined);
+  const endTime = allDay ? undefined : (isLocalTime(input.endTime) ? input.endTime : undefined);
+  if (!isValidTimeRange(startTime, endTime)) return null;
+  const at = now();
+  const ev: LifeEvent = {
+    id: id(), title, date, startTime, endTime,
+    allDay: allDay ? true : undefined,
+    notes: (input.notes ?? "").trim(),
+    recurrence: readRule(input.recurrence) ?? undefined,
+    linkedEntityRefs: input.linkedEntityRefs ?? [],
+    sourceCaptureId: input.sourceCaptureId,
+    fromAiText: input.fromAiText ? true : undefined,
+    createdAt: at, updatedAt: at,
+  };
+  setState({ ...state, events: [ev, ...(state.events ?? [])] });
+  return ev.id;
+}
+
+/** Edit user-set fields on an Event. Invalid time combinations are refused. */
+export function updateEvent(eventId: string, patch: Partial<Pick<LifeEvent, "title" | "date" | "startTime" | "endTime" | "allDay" | "notes">>): boolean {
+  const ev = (state.events ?? []).find((e) => e.id === eventId);
+  if (!ev) return false;
+  const next = { ...ev, ...patch };
+  if (next.allDay) { next.startTime = undefined; next.endTime = undefined; }
+  if (next.startTime !== undefined && !isLocalTime(next.startTime)) return false;
+  if (next.endTime !== undefined && !isLocalTime(next.endTime)) return false;
+  if (!isValidTimeRange(next.startTime, next.endTime)) return false;
+  setState({ ...state, events: (state.events ?? []).map((e) => (e.id === eventId ? { ...next, updatedAt: now() } : e)) });
+  return true;
+}
+
+/**
+ * Delete an Event.
+ *
+ * Tombstoning is not done here: the sync layer derives tombstones by diffing the
+ * confirmed base against current state (`lib/sync/tombstones.ts`), exactly as it
+ * does for every other domain. Writing one by hand would create a second,
+ * divergent source of deletion truth.
+ */
+export function deleteEvent(eventId: string): void {
+  setState({ ...state, events: (state.events ?? []).filter((e) => e.id !== eventId) });
+}
+
+/** Stop an Event recurring. Past instances remain history; no future ones derive. */
+export function stopEventRecurrence(eventId: string): void {
+  setState({
+    ...state,
+    events: (state.events ?? []).map((e) => (e.id === eventId ? { ...e, recurrence: undefined, updatedAt: now() } : e)),
+  });
+}
+
+/** Set (or clear) an action's due TIME. Refused without a due date (§6, §11). */
+export function setActionDueTime(actionId: string, dueTime?: string): boolean {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  if (!a) return false;
+  if (dueTime === undefined) {
+    bumpAction(actionId, (x) => appendActionHistory({ ...x, dueTime: undefined }, makeActionEvent({ action: "edited", at: now() })));
+    return true;
+  }
+  // A time with no day names no moment. Refused, not stored and hoped about.
+  if (!isLocalTime(dueTime) || !a.dueDate) return false;
+  bumpAction(actionId, (x) => appendActionHistory({ ...x, dueTime }, makeActionEvent({ action: "edited", at: now(), detail: dueTime })));
+  return true;
+}
+
+/** Attach a recurrence rule to an action, making it a standing source. */
+export function setActionRecurrence(actionId: string, rule?: RecurrenceRule): boolean {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  if (!a) return false;
+  const valid = rule === undefined ? undefined : (readRule(rule) ?? undefined);
+  if (rule !== undefined && !valid) return false;
+  bumpAction(actionId, (x) => appendActionHistory({ ...x, recurrence: valid }, makeActionEvent({ action: "edited", at: now() })));
+  return true;
+}
+
+/**
+ * The occurrence a recurring action is currently asking for, or `undefined`.
+ *
+ * Pure read over (rule, anchor, completions). No cursor is stored, so this
+ * cannot drift, cannot duplicate on reload, and cannot race across devices —
+ * two devices compute the same answer because it is the same function.
+ */
+export function actionCurrentOccurrence(s: StoreState, action: NextAction, from: string): string | undefined {
+  return occurrenceFor(action, from, completionIndex(s));
+}
+
+/**
+ * Group completion history by action, in ONE pass.
+ *
+ * The naive shape — filtering the whole completion list once per recurring
+ * action — is O(sources x completions), and it showed: 1000 sources against
+ * 12,000 completions took 280ms, which is a global historical scan per source
+ * and exactly what §15 says not to do. Building the index once brings the same
+ * work to single-digit milliseconds.
+ *
+ * Callers that resolve more than one action (Today, any projection) must build
+ * this once and pass it in.
+ */
+export function completionIndex(s: StoreState): Map<string, string[]> {
+  const index = new Map<string, string[]>();
+  for (const c of s.recurrenceCompletions ?? []) {
+    const list = index.get(c.actionId);
+    if (list) list.push(c.occurrenceDate);
+    else index.set(c.actionId, [c.occurrenceDate]);
+  }
+  return index;
+}
+
+/** The occurrence a recurring action is asking for, given a prebuilt index. */
+export function occurrenceFor(action: NextAction, from: string, index: Map<string, string[]>): string | undefined {
+  const rule = readRule(action.recurrence);
+  if (!rule) return undefined;
+  const anchor = action.dueDate ?? action.createdAt.slice(0, 10);
+  return currentOccurrence(rule, anchor, from, index.get(action.id) ?? []) ?? undefined;
+}
+
+/**
+ * Record that one occurrence of a recurring action was completed.
+ *
+ * The source action is NOT marked done — that is the whole contract of a
+ * recurring action, and setting it would turn a standing responsibility into a
+ * one-time task that vanishes. Idempotent by identity: a second call for the
+ * same `(actionId, occurrenceDate)` is a no-op, so a double click, a replay, or
+ * a sync echo cannot create a duplicate.
+ */
+export function completeOccurrence(actionId: string, occurrenceDate: string): boolean {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  if (!a || !readRule(a.recurrence)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(occurrenceDate)) return false;
+  const existing = (state.recurrenceCompletions ?? []).some(
+    (c) => c.actionId === actionId && c.occurrenceDate === occurrenceDate,
+  );
+  if (existing) return false;
+  const row: RecurrenceCompletion = { id: id(), actionId, occurrenceDate, completedAt: now() };
+  setState({ ...state, recurrenceCompletions: [row, ...(state.recurrenceCompletions ?? [])] });
+  // History on the action itself records THAT an occurrence closed, without
+  // changing its status — the evidence lives in the completion row.
+  bumpAction(actionId, (x) => appendActionHistory(x, makeActionEvent({ action: "completed", at: now(), detail: occurrenceDate })));
+  return true;
+}
+
+/** Undo one occurrence completion. */
+export function uncompleteOccurrence(actionId: string, occurrenceDate: string): void {
+  setState({
+    ...state,
+    recurrenceCompletions: (state.recurrenceCompletions ?? []).filter(
+      (c) => !(c.actionId === actionId && c.occurrenceDate === occurrenceDate),
+    ),
+  });
+}
+
+/**
+ * Stop future recurrence, keeping the action and ALL prior completion history.
+ *
+ * What the action becomes: an ORDINARY non-recurring action, still open, with
+ * its `dueDate` set to the occurrence it was currently asking for. That is the
+ * smallest truthful model — the standing responsibility ends, the one instance
+ * still outstanding does not silently vanish, and nothing already completed is
+ * resurrected, because the current occurrence is by definition one that was not
+ * completed.
+ *
+ * If there is no outstanding occurrence, the due date is cleared rather than
+ * left pointing at a date the schedule no longer produces.
+ */
+export function stopActionRecurrence(actionId: string, from: string): boolean {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  if (!a || !readRule(a.recurrence)) return false;
+  const outstanding = actionCurrentOccurrence(state, a, from);
+  bumpAction(actionId, (x) => appendActionHistory(
+    { ...x, recurrence: undefined, dueDate: outstanding },
+    makeActionEvent({ action: "edited", at: now(), detail: "recurrence stopped" }),
+  ));
+  return true;
+}
+
+/**
+ * Delete a recurring action AND the completion history derived solely from it.
+ *
+ * A deliberate privacy position, not an oversight: history derived only from a
+ * record the user deleted must go with it, or deletion would leave behind
+ * personal history the user has no way to remove. Autobiographical memory never
+ * outranks a deletion. The UI states this consequence in those words before
+ * asking — see `components/actions/RecurringActionControls.tsx`.
+ *
+ * STOPPING recurrence is the other door, and it preserves everything.
+ */
+export function deleteActionWithHistory(actionId: string): void {
+  setState({
+    ...state,
+    nextActions: (state.nextActions ?? []).filter((a) => a.id !== actionId),
+    recurrenceCompletions: (state.recurrenceCompletions ?? []).filter((c) => c.actionId !== actionId),
+  });
+}
+
+export function completionsFor(s: StoreState, actionId: string): RecurrenceCompletion[] {
+  return (s.recurrenceCompletions ?? [])
+    .filter((c) => c.actionId === actionId)
+    .sort((a, b) => b.occurrenceDate.localeCompare(a.occurrenceDate));
+}
+
+// ------------------------------------------------------------------ notes ----
+
 export function createNote(input: NewNoteInput): string {
   const at = now();
   const fields = normalizeNewNote(input);

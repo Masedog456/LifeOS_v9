@@ -16,6 +16,7 @@ import type { CandidateKind } from "@/lib/capture/authority";
 import type { Candidate } from "@/lib/capture/interpret";
 import { associationFields, type MatchOption } from "@/lib/capture/match";
 import type { DayKey } from "@/lib/reviews/dates";
+import type { RecurrenceRule } from "@/lib/time/recurrence";
 
 /** A candidate the user confirmed, reduced to the fields that become a record. */
 export interface CommitCandidate {
@@ -26,6 +27,10 @@ export interface CommitCandidate {
   response?: string;
   waitingOn?: string;
   dueDate?: DayKey;
+  /** LIFEOS-061: wall clock. `dueTime` on an action, `startTime` on an event. */
+  time?: string;
+  /** LIFEOS-061: recurrence rule, already completed against the anchor. */
+  recurrence?: RecurrenceRule;
   projectId?: string;
   goalId?: string;
   workspaceId?: string;
@@ -48,6 +53,8 @@ export function toCommitCandidate(candidate: Candidate, chosen?: MatchOption): C
     response: f.response,
     waitingOn: f.waitingOn,
     dueDate: f.dueDate,
+    time: f.time,
+    recurrence: f.recurrence,
     ...associationFields(chosen),
   };
 }
@@ -64,6 +71,8 @@ export function isCommittable(c: CommitCandidate): boolean {
     case "protocol": return !!c.trigger?.trim() && !!c.response?.trim();
     case "note":
     case "reflection": return !!(c.body?.trim() || c.title?.trim());
+    // An event needs a day. A title with no date names no occasion.
+    case "event": return !!c.title?.trim() && !!c.dueDate;
     default: return !!c.title?.trim();
   }
 }

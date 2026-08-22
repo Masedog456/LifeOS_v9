@@ -105,8 +105,8 @@ export function runCaptureSelfTests(): SelfTestReport {
     ok("2.12 an impossible date is not rolled into a real one",
       extractTemporal("due February 31", TODAY).dueDate === undefined);
     ok("2.13 every unresolved reason has a user-facing label",
-      (["time_of_day", "recurrence", "month_only", "vague", "past", "occasion"] as const).every((r) => !!UNRESOLVED_LABEL[r]));
-    ok("2.13a and no label is missing from the map", Object.keys(UNRESOLVED_LABEL).length === 6);
+      (["time_of_day", "recurrence", "recurrence_ambiguous", "month_only", "vague", "past", "occasion"] as const).every((r) => !!UNRESOLVED_LABEL[r]));
+    ok("2.13a and no label is missing from the map", Object.keys(UNRESOLVED_LABEL).length === 7);
     ok("2.14 no time-of-day is ever stored as a date",
       extractTemporal("meeting at 11", TODAY).dueDate === undefined);
   }
@@ -185,8 +185,9 @@ export function runCaptureSelfTests(): SelfTestReport {
     ok("6.12 no forbidden kind is a candidate kind",
       FORBIDDEN_CANDIDATE_KINDS.every((f) => !(CANDIDATE_KINDS as readonly string[]).includes(f)),
       JSON.stringify(CANDIDATE_KINDS));
-    ok("6.13 the candidate kinds are exactly the seven declared",
-      CANDIDATE_KINDS.length === 7 && CANDIDATE_KINDS.includes("action") && CANDIDATE_KINDS.includes("note"));
+    // Eight since LIFEOS-061 added `event`. Pinned, so a ninth is a deliberate act.
+    ok("6.13 the candidate kinds are exactly the eight declared",
+      CANDIDATE_KINDS.length === 8 && CANDIDATE_KINDS.includes("action") && CANDIDATE_KINDS.includes("note") && CANDIDATE_KINDS.includes("event"));
   }
 
   // ============ 7. RECORD ASSOCIATION (§10) ============
@@ -240,7 +241,11 @@ export function runCaptureSelfTests(): SelfTestReport {
 
     // Interpretation is transient: it adds NO store domain.
     ok("8.16 no interpretation domain was added to the store", !(STORE_DOMAINS as string[]).includes("interpretations"));
-    eq("8.17 the store still has 44 domains", STORE_DOMAINS.length, 44);
+    // 46 since LIFEOS-061 added `events` and `recurrenceCompletions`. Capture
+    // itself still adds none — interpretation remains transient.
+    eq("8.17 the store has 46 domains", STORE_DOMAINS.length, 46);
+    ok("8.17a and none of them is an occurrences table",
+      !(STORE_DOMAINS as string[]).includes("occurrences"));
   }
 
   // ============ 9. THE TORTURE TEST (§18) ============
@@ -269,17 +274,19 @@ export function runCaptureSelfTests(): SelfTestReport {
       t2.candidates[0].unresolved.some((u) => u.reason === "occasion"), JSON.stringify(t2.candidates[0].unresolved));
     // 4. the user can keep it as a Note — it already IS one, and note is committable
     ok("9.2g it is committable as a note", isCommittable(toCommitCandidate(t2.candidates[0])));
-    // 5. no Event or new persisted type
-    ok("9.2h no Event kind exists", !(CANDIDATE_KINDS as readonly string[]).includes("event"));
-    // Pinned rather than pattern-matched: `maintenanceEvents` has been a domain
-    // since LIFEOS-038 and has nothing to do with calendar events, so a regex on
-    // "event" tests the wrong thing. What matters is that NO domain was added.
-    eq("9.2i the store still has exactly 44 domains", STORE_DOMAINS.length, 44);
-    ok("9.2i2 and none of them is a calendar/occasion noun",
-      !(STORE_DOMAINS as string[]).some((d) => ["events", "occasions", "appointments", "calendar", "reminders"].includes(d)));
+    // 5. no invented date, and no Event WITHOUT one.
+    //
+    // LIFEOS-061 gave occasions a home, but only when a date is actually named.
+    // "Remember Mom's birthday" names none, so it is STILL a note — the
+    // known-date / no-date split of §13. An Event here would require inventing
+    // the birthday, which is the one thing neither sprint will do.
+    ok("9.2h no event candidate is produced without a date",
+      !t2.candidates.some((c) => c.kind === "event"));
+    ok("9.2i2 and no occasion domain was invented",
+      !(STORE_DOMAINS as string[]).some((d) => ["occasions", "appointments", "calendar", "reminders"].includes(d)));
     // The copy states the limitation in words the user can act on.
     ok("9.2j the limitation is stated plainly",
-      /occasion/i.test(t2.candidates[0].reason) && /not supported yet|aren't supported yet/i.test(t2.candidates[0].reason),
+      /occasion/i.test(t2.candidates[0].reason) && /no date|guessing/i.test(t2.candidates[0].reason),
       t2.candidates[0].reason);
 
     // A doable STEP around an occasion is still an action — the rule fires on the
@@ -321,20 +328,26 @@ export function runCaptureSelfTests(): SelfTestReport {
     eq("9.10 anger → protocol", kindsOf(t8.candidates), ["protocol"]);
     ok("9.11 and a protocol must be confirmed", t8.candidates[0].authority === "confirm");
 
+    // LIFEOS-061: this is the case the last sprint could only apologise for.
     const t9 = run("Every Sunday refill my medication box.");
-    ok("9.12 recurrence is NOT fabricated", t9.candidates[0].fields.dueDate === undefined);
-    ok("9.13 and IS reported", t9.candidates[0].unresolved.some((u) => u.reason === "recurrence"));
+    eq("9.12a it is now a recurring action", kindsOf(t9.candidates), ["action"]);
+    eq("9.12b with a real weekly rule",
+      t9.candidates[0].fields.recurrence, { frequency: "weekly", interval: 1, weekdays: [0] });
+    ok("9.12c and STILL no fabricated one-off date", t9.candidates[0].fields.dueDate === undefined);
+    ok("9.13 the recurrence is no longer reported as unsupported",
+      !t9.candidates[0].unresolved.some((u) => u.reason === "recurrence"));
 
+    // LIFEOS-060 could only keep this as a note and apologise for the time.
+    // LIFEOS-061 gives it the record it always needed: an Event, which HAPPENS.
     const t10 = run("Dentist appointment Tuesday at 2:30.");
-    // An appointment is not a task, and Event is LIFEOS-061. So it stays a note —
-    // but the day the parser DID resolve rides along and is disclosed as not
-    // kept, rather than silently dropped (§18), with Action one tap away.
-    eq("9.14a it reads as a note, not a fabricated task", t10.candidates[0].kind, "note");
-    eq("9.14b the resolved day is carried, not discarded", t10.candidates[0].fields.dueDate, "2026-08-25");
-    ok("9.14c and is disclosed as not kept on a note", dateNotKept(t10.candidates[0]));
-    ok("9.14d with Action offered to keep it", t10.candidates[0].alternates.includes("action"));
-    ok("9.15 and the unstorable time is disclosed",
-      t10.candidates[0].unresolved.some((u) => u.reason === "time_of_day"));
+    eq("9.14a it is now an Event, not a task and not a note", t10.candidates[0].kind, "event");
+    eq("9.14b on the resolved day", t10.candidates[0].fields.dueDate, "2026-08-25");
+    eq("9.14c at the resolved time", t10.candidates[0].fields.time, "14:30");
+    ok("9.14d and nothing is disclosed as dropped, because nothing is",
+      !dateNotKept(t10.candidates[0]) && t10.candidates[0].unresolved.length === 0,
+      JSON.stringify(t10.candidates[0].unresolved));
+    ok("9.15 the time is no longer reported as unstorable",
+      !t10.candidates[0].unresolved.some((u) => u.reason === "time_of_day"));
 
     const t11 = run("I need to call my advisor tomorrow, finish the LotPilot dashboard, buy dog food, and I've been questioning whether teaching is what I want to do.");
     eq("9.16 four candidates", t11.candidates.length, 4);
@@ -345,12 +358,14 @@ export function runCaptureSelfTests(): SelfTestReport {
     ok("9.20a the reflection keeps its FULL text as a body",
       (t11.candidates[3].fields.body ?? "").includes("questioning whether teaching"),
       JSON.stringify(t11.candidates[3].fields));
-    // A note carries its whole sentence, so a resolved date the kind cannot
-    // store is still present in the record rather than silently dropped (§18).
-    const appt = run("Dentist appointment Tuesday at 2:30.");
-    ok("9.20b a note body keeps the resolved weekday word",
-      (appt.candidates[0].fields.body ?? "").includes("Tuesday"),
-      JSON.stringify(appt.candidates[0].fields));
+    // A note still carries its whole sentence, so a resolved date the kind
+    // cannot store is present in the record rather than silently dropped (§18).
+    // Tested on a sentence that is genuinely note-shaped, now that a timed
+    // appointment has become an Event.
+    const dated = run("Vocabulary list from Tuesday.");
+    ok("9.20b a note body keeps its full sentence",
+      (dated.candidates[0].fields.body ?? "").includes("Tuesday"),
+      JSON.stringify(dated.candidates[0].fields));
     ok("9.21 the teaching reflection is a note, not a belief",
       t11.candidates[3].kind === "note" && t11.candidates[3].alternates.includes("reflection"));
     ok("9.22 and every title is non-empty",

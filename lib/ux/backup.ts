@@ -39,6 +39,8 @@ export const STORE_DOMAINS: (keyof StoreState)[] = [
   "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments",
   "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews",
   "notes", "protocols", "constitutionElements", "constitutionRevisions",
+  // Time foundation (LIFEOS-061). Appended, never reordered.
+  "events", "recurrenceCompletions",
 ];
 
 export interface LifeOSBackup {

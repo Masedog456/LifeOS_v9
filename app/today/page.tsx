@@ -25,6 +25,7 @@ import { openQuickCapture } from "@/lib/command/events";
 import FirstRun from "@/components/ux/FirstRun";
 import TodayReviewCard from "@/components/reviews/TodayReviewCard";
 import TodayInboxCard from "@/components/inbox/TodayInboxCard";
+import TodayScheduleCard from "@/components/planning/TodayScheduleCard";
 import TodayDueCard from "@/components/planning/TodayDueCard";
 import TodayReturnCard from "@/components/planning/TodayReturnCard";
 import TodayActions from "@/components/actions/TodayActions";
@@ -99,7 +100,8 @@ export default function TodayPage() {
 
   const empty =
     state.captures.length === 0 && state.beliefs.length === 0 && state.sources.length === 0 &&
-    state.dialogueSessions.length === 0 && state.researchProjects.length === 0;
+    state.dialogueSessions.length === 0 && state.researchProjects.length === 0 &&
+    (state.events ?? []).length === 0 && (state.nextActions ?? []).length === 0;
   const showOnboardingInvite = !isOnboardingDone();
   // The collapsible "More from your notebook" only appears when it holds
   // something — an empty disclosure would be noise, not calm.
@@ -141,6 +143,11 @@ export default function TodayPage() {
         <div className="flex flex-col gap-4">
           {/* Daily review entry point (LIFEOS-034, Feature 12). */}
           <TodayReviewCard />
+
+          {/* What is happening today, and what repeats today (LIFEOS-061).
+              Placed above the due list because a fixed appointment is the one
+              thing on this page you cannot reschedule by deciding to. */}
+          <TodayScheduleCard />
 
           {/* Capture inbox entry point (LIFEOS-035, Feature 13). */}
           <TodayDueCard />

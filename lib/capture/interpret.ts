@@ -45,6 +45,8 @@ import { classifyOne, extractConditional, type ClassificationConfidence } from "
 import { decompose, type Segment } from "@/lib/capture/decompose";
 import { detectWaiting, waitingTitle } from "@/lib/capture/waiting";
 import { detectOccasion, extractTemporal, stripResolvedTemporal, type TemporalFinding } from "@/lib/capture/dates";
+import { completeRule, extractRecurrence, extractTimeOfDay, looksLikeEvent } from "@/lib/capture/schedule";
+import { nextOccurrenceOnOrAfter, type RecurrenceRule } from "@/lib/time/recurrence";
 import { matchRecords, NO_MATCH, type MatchResult } from "@/lib/capture/match";
 import { authorityFor, type AuthorityLevel, type CandidateKind } from "@/lib/capture/authority";
 import type { StoreState } from "@/types/mvp";
@@ -61,6 +63,10 @@ export interface CandidateFields {
   response?: string;
   waitingOn?: string;
   dueDate?: DayKey;
+  /** LIFEOS-061: wall-clock time. On an action this is `dueTime`; on an event, `startTime`. */
+  time?: string;
+  /** LIFEOS-061: recurrence rule, already completed against the anchor. */
+  recurrence?: RecurrenceRule;
   projectId?: string;
   goalId?: string;
   workspaceId?: string;
@@ -108,6 +114,7 @@ const ALTERNATES: Record<CandidateKind, CandidateKind[]> = {
   reflection: ["note"],
   project: ["action", "note"],
   goal: ["action", "project", "note"],
+  event: ["action", "note"],
 };
 
 function seg(text: string): Segment {
@@ -138,12 +145,48 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     producedBy: "deterministic" as const,
   };
 
+  // 0. TIME FOUNDATION (LIFEOS-061). Recurrence and time-of-day are now values,
+  //    not apologies. Both are read before the routing rules below, because both
+  //    change WHICH record the sentence should become.
+  const timeFinding = extractTimeOfDay(text);
+  const recFinding = extractRecurrence(text);
+  const rule: RecurrenceRule | undefined =
+    recFinding?.rule ? completeRule(recFinding.rule, temporal.dueDate ?? today) : undefined;
+
+  // A recurrence phrase that could NOT become a rule keeps being reported, in
+  // the user's own words. The channel narrowed; it did not disappear.
+  const scheduleUnresolved: TemporalFinding[] = [];
+  if (recFinding?.unsupported) {
+    scheduleUnresolved.push({
+      phrase: recFinding.phrase,
+      // The two are different failures and the copy says which: "twice a week"
+      // names a count with no days; "third Thursday" names days this model has
+      // no way to express. Collapsing them would tell the user less than we know.
+      reason: recFinding.unsupported === "ambiguous_frequency" ? "recurrence_ambiguous" : "recurrence",
+    });
+  }
+
+  //    Recurrence and time strip out of the unresolved list once they ARE
+  //    representable — reporting "time of day isn't stored yet" beside a stored
+  //    time would be false.
+  const stillUnresolved = temporal.unresolved.filter((u) => {
+    if (u.reason === "time_of_day" && timeFinding) return false;
+    if (u.reason === "recurrence" && rule) return false;
+    return true;
+  });
+  const base2 = { ...base, unresolved: [...stillUnresolved, ...scheduleUnresolved] };
+
+  //    EVENT vs ACTION is decided by intent shape, never by the presence of a
+  //    time (§11, §13). "Dinner with Mom Friday at 7" happens; "Send Mom the form
+  //    Friday at 7" is a step. Getting this wrong toward Action is the worse
+  //    failure — it puts a checkbox on dinner.
+
   // 1. Conditional → protocol. Checked first: a conditional usually CONTAINS an
   //    action verb, so testing actions first would misroute every protocol.
   const cond = extractConditional(text);
   if (cond?.leading) {
     return {
-      ...base,
+      ...base2,
       kind: "protocol",
       fields: { trigger: cond.trigger, response: cond.response, body: text },
       confidence: "high",
@@ -157,17 +200,87 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
   const waiting = detectWaiting(text);
   if (waiting) {
     return {
-      ...base,
+      ...base2,
       kind: "waiting",
       fields: {
         title: stripResolvedTemporal(waitingTitle(text), temporal) || waitingTitle(text),
         waitingOn: waiting.waitingOn || undefined,
         dueDate: temporal.dueDate,
+        time: temporal.dueDate ? timeFinding?.time : undefined,
       },
       confidence: "high",
       reason: waiting.reason,
       authority: authorityFor("waiting", "high"),
       alternates: ALTERNATES.waiting,
+    };
+  }
+
+  const eventShaped = looksLikeEvent(text);
+  if (eventShaped && (timeFinding || temporal.dueDate || rule)) {
+    // A recurring event anchors to its FIRST ACTUAL occurrence. "Staff meeting
+    // every Tuesday" captured on a Wednesday must not anchor to that Wednesday:
+    // the anchor is a real instance, and one the rule does not produce would
+    // show a meeting on a day it never happens.
+    const anchor = temporal.dueDate
+      ?? (rule ? (nextOccurrenceOnOrAfter(rule, today, today) ?? today) : today);
+    // An occasion noun with a known date is annual by definition — "Mom's
+    // birthday is August 14" recurs, and saying so is reading the sentence
+    // rather than guessing at it. Without a date there is nothing to anchor and
+    // this branch is not reached at all.
+    const occasionHere = detectOccasion(text);
+    const [, om, od] = anchor.split("-").map(Number);
+    const effectiveRule = rule ?? (occasionHere && temporal.dueDate
+      ? { frequency: "yearly" as const, interval: 1, month: om - 1, dayOfMonth: od }
+      : undefined);
+    return {
+      ...base2,
+      kind: "event",
+      fields: {
+        title: stripResolvedTemporal(titleOf(text), temporal).replace(timeFinding?.phrase ?? "\u0000", "").replace(/\s+/g, " ").trim() || titleOf(text),
+        dueDate: anchor,
+        time: timeFinding?.time,
+        recurrence: effectiveRule,
+      },
+      // Once the occasion IS represented, continuing to report it as unresolved
+      // would be a false disclosure — this channel's own failure mode, pointed
+      // the other way.
+      unresolved: base2.unresolved.filter((u) => u.reason !== "occasion"),
+      confidence: "high",
+      reason: effectiveRule ? "Something that happens, on a repeating schedule." : "Something that happens at a set time.",
+      authority: authorityFor("event", "high"),
+      alternates: ALTERNATES.event,
+    };
+  }
+
+  // 2b. A recurrence rule on a non-event sentence names something you DO
+  //     repeatedly, which is an ACTION regardless of how the sentence opens.
+  //
+  //     "Every Sunday refill my medication box" begins with "Every", so
+  //     `classifyOne` finds no leading action verb and falls through to Note.
+  //     That was the right answer when recurrence was unrepresentable; it is the
+  //     wrong one now, because a standing responsibility with a schedule is
+  //     exactly what a recurring action is for.
+  if (rule && !eventShaped) {
+    const cleaned = [recFinding?.phrase, timeFinding?.phrase]
+      .filter((p): p is string => !!p)
+      .reduce((acc, p) => acc.replace(p, ""), titleOf(text))
+      .replace(/\s+/g, " ")
+      .replace(/^[,;:\s]+/, "")
+      .trim();
+    return {
+      ...base2,
+      kind: "action",
+      fields: {
+        title: cleaned || titleOf(text),
+        time: timeFinding?.time,
+        recurrence: rule,
+        // No dueDate: a recurring action's schedule IS its rule. A one-off date
+        // here would be the arbitrary occurrence the whole model refuses.
+      },
+      confidence: "high",
+      reason: "Something to do, on a repeating schedule.",
+      authority: authorityFor("action", "high"),
+      alternates: ALTERNATES.action,
     };
   }
 
@@ -186,20 +299,47 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
   //    the shape that would otherwise capture it.
   const occasion = detectOccasion(text);
   if (occasion) {
+    // §13 splits what LIFEOS-060 could not: a KNOWN occasion date and an
+    // occasion with no date are different situations.
+    //
+    // "Mom's birthday is August 14" names a day, and a birthday recurs yearly —
+    // that is a complete Event, and yearly recurrence is read from the date
+    // itself rather than assumed, because a birthday is annual by definition.
+    if (temporal.dueDate) {
+      const [, mm, dd] = temporal.dueDate.split("-").map(Number);
+      return {
+        ...base2,
+        kind: "event",
+        fields: {
+          title: stripResolvedTemporal(titleOf(text), temporal) || titleOf(text),
+          dueDate: temporal.dueDate,
+          time: timeFinding?.time,
+          recurrence: rule ?? { frequency: "yearly", interval: 1, month: mm - 1, dayOfMonth: dd },
+        },
+        // The occasion is now represented, so continuing to report it as
+        // unresolved would be a false disclosure — the failure mode this whole
+        // channel exists to prevent, pointed the other way.
+        unresolved: base2.unresolved.filter((u) => u.reason !== "occasion"),
+        confidence: "likely",
+        reason: "An occasion on a known date — kept as a yearly event.",
+        authority: authorityFor("event", "likely"),
+        alternates: ALTERNATES.event,
+      };
+    }
+    // No date anywhere in the sentence. Still nothing to invent (§13).
     return {
-      ...base,
+      ...base2,
       kind: "note",
-      fields: { body: text, title: titleOf(text), dueDate: temporal.dueDate },
+      fields: { body: text, title: titleOf(text) },
       confidence: "possible",
       reason:
-        "This sounds like a date or occasion. Conqify can keep it as a note for now, but timed events aren't supported yet.",
-      // Never pre-ticked: the user should see the limitation before agreeing to it.
+        "This sounds like an occasion, but no date was given. Conqify keeps it as a note rather than guessing one — add a date and it becomes an event.",
       authority: authorityFor("note", "possible"),
       alternates: ALTERNATES.note,
     };
   }
 
-  // 4. "I want to learn Spanish" is a GOAL, not a next action (§7).
+  // 5. "I want to learn Spanish" is a GOAL, not a next action (§7).
   //
   //    `classifyOne` reads it as an action because "I want to" shares a rule with
   //    "I need to", and LIFEOS-059 measured the cost: "learn Spanish" lands in the
@@ -217,7 +357,7 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     const restIsErrand = classifyOne(rest).confidence === "high" && classifyOne(rest).suggestedType === "action";
     if (!restIsErrand) {
       return {
-        ...base,
+        ...base2,
         kind: "goal",
         fields: { title: stripResolvedTemporal(rest, temporal) || rest, dueDate: temporal.dueDate },
         confidence: "possible",
@@ -228,25 +368,34 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     }
   }
 
-  // 5. Everything else goes through the existing, proven classifier.
+  // 6. Everything else goes through the existing, proven classifier.
   const classified = classifyOne(text);
   const titled = stripResolvedTemporal(classified.extracted?.title ?? text, temporal) || text;
 
   switch (classified.suggestedType) {
     case "action":
       return {
-        ...base,
+        ...base2,
         kind: "action",
-        fields: { title: titled, dueDate: temporal.dueDate },
+        fields: {
+          // A resolved time leaves the title the same way a resolved date does —
+          // the field owns it now, and two copies would drift.
+          title: (timeFinding ? titled.replace(timeFinding.phrase, "").replace(/\s+/g, " ").trim() : titled) || titled,
+          dueDate: temporal.dueDate,
+          // A due TIME needs a due DATE. Without one it names no moment, so it
+          // is dropped rather than stored as a half-fact.
+          time: temporal.dueDate ? timeFinding?.time : undefined,
+          recurrence: rule,
+        },
         confidence: classified.confidence,
-        reason: classified.reason,
+        reason: rule ? "Something to do, on a repeating schedule." : classified.reason,
         authority: authorityFor("action", classified.confidence),
         alternates: ALTERNATES.action,
       };
 
     case "project":
       return {
-        ...base,
+        ...base2,
         kind: "project",
         fields: { title: titled, dueDate: temporal.dueDate },
         confidence: classified.confidence,
@@ -262,7 +411,7 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     // structure onto someone thinking out loud is exactly what §16 forbids.
     case "reflection":
       return {
-        ...base,
+        ...base2,
         kind: "note",
         fields: { body: text, title: titled, dueDate: temporal.dueDate },
         confidence: classified.confidence,
@@ -273,7 +422,7 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
 
     case "question":
       return {
-        ...base,
+        ...base2,
         kind: "note",
         fields: { body: text, title: titled, dueDate: temporal.dueDate },
         confidence: classified.confidence,
@@ -286,7 +435,7 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
     case "unknown":
     default:
       return {
-        ...base,
+        ...base2,
         kind: "note",
         fields: { body: text, title: titled, dueDate: temporal.dueDate },
         confidence: classified.confidence,
@@ -361,7 +510,7 @@ export function interpret(text: string, state: StoreState, today: DayKey): Inter
  * no retyping. The user is told what the trade is instead of discovering it.
  */
 export function dateNotKept(candidate: Candidate): boolean {
-  return !!candidate.fields.dueDate && candidate.kind !== "action" && candidate.kind !== "waiting";
+  return !!candidate.fields.dueDate && candidate.kind !== "action" && candidate.kind !== "waiting" && candidate.kind !== "event";
 }
 
 /**

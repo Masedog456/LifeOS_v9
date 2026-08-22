@@ -36,10 +36,13 @@ export type AuthorityLevel = "auto_safe" | "auto_with_undo" | "confirm" | "never
  * `belief` and `constitution_element` are absent BY DESIGN — see above. Adding
  * one here would be a deliberate act with a test to break, not an oversight.
  */
-export type CandidateKind = "action" | "waiting" | "note" | "protocol" | "reflection" | "project" | "goal";
+export type CandidateKind = "action" | "waiting" | "note" | "protocol" | "reflection" | "project" | "goal" | "event";
 
 export const CANDIDATE_KINDS: readonly CandidateKind[] = [
   "action", "waiting", "note", "protocol", "reflection", "project", "goal",
+  // Time foundation (LIFEOS-061). An Event is something that HAPPENS — never a
+  // task, and never given completion semantics.
+  "event",
 ];
 
 /** Kinds this pipeline must never be able to write. Asserted by the suite. */
@@ -66,6 +69,9 @@ const BASE: Record<CandidateKind, AuthorityLevel> = {
   // Structure the user must live with. §10: never created automatically.
   project: "confirm",
   goal: "confirm",
+  // An event is as cheap to undo as an errand — it creates one dated row and
+  // nothing else. Same tier as an action.
+  event: "auto_with_undo",
 };
 
 /**

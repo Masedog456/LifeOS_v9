@@ -37,7 +37,7 @@ function emptyState(): StoreState {
     notes: [],
     protocols: [],
     constitutionElements: [],
-    constitutionRevisions: [],
+    constitutionRevisions: [], events: [], recurrenceCompletions: [],
   };
 }
 const belief =(p: Partial<Belief> & { id: string; text: string }): Belief => ({ captureId: "", proposalId: "", status: "accepted", createdAt: iso(40), updatedAt: iso(40), revisions: [], judgments: [], ...p });

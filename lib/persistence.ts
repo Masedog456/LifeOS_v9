@@ -116,6 +116,8 @@ function normalize(partial: Partial<StoreState> | null): StoreState {
     protocols: partial?.protocols ?? [],
     constitutionElements: partial?.constitutionElements ?? [],
     constitutionRevisions: partial?.constitutionRevisions ?? [],
+    events: partial?.events ?? [],
+    recurrenceCompletions: partial?.recurrenceCompletions ?? [],
   };
 }
 

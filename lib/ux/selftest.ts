@@ -32,7 +32,7 @@ function emptyState(): StoreState {
     notes: [],
     protocols: [],
     constitutionElements: [],
-    constitutionRevisions: [],
+    constitutionRevisions: [], events: [], recurrenceCompletions: [],
   };
 }
 

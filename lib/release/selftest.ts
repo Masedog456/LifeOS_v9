@@ -9,6 +9,7 @@
  * functions only — no I/O.
  */
 
+import { EXPECTED_MIGRATION_VERSION } from "@/lib/security/schema-compatibility";
 import { checkVersionAlignment, releaseVersions, RELEASE_TAG } from "@/lib/release/versions";
 import { validateMigrationList, MIGRATION_CHECKPOINTS, isAllowedReleaseFixMigration } from "@/lib/release/migrations";
 import { validateRoutes, routeHasHelp } from "@/lib/release/routes";
@@ -39,20 +40,20 @@ export function runReleaseSelfTests(): SelfTestReport {
   ok("1.1 version alignment ok", va.ok, va.problems.join("; "));
   ok("1.2 release tag is v1.0.0-rc1", RELEASE_TAG === "v1.0.0-rc1");
   ok("1.3 app version matches tag", `v${releaseVersions().appVersion}` === RELEASE_TAG);
-  ok("1.4 migration version 39", releaseVersions().migrationVersion === 39);
+  ok("1.4 migration version 40", releaseVersions().migrationVersion === 40);
   ok("1.5 supported migration range sane", releaseVersions().supportedMigrationRange[0] <= releaseVersions().supportedMigrationRange[1]);
   ok("1.6 observed-count mismatch is caught", !checkVersionAlignment({ observedMigrationCount: 30 }).ok);
   ok("1.7 observed app-version mismatch is caught", !checkVersionAlignment({ observedAppVersion: "9.9.9" }).ok);
 
   // ---- 2. Migrations ----
-  const dense = validateMigrationList(Array.from({ length: 39 }, (_, i) => i + 1));
+  const dense = validateMigrationList(Array.from({ length: 40 }, (_, i) => i + 1));
   ok("2.1 dense 1..39 valid", dense.ok, dense.problems.join("; "));
   ok("2.2 duplicate number rejected", !validateMigrationList([1, 1, 2]).ok);
   ok("2.3 gap rejected", !validateMigrationList([1, 3]).ok);
   ok("2.4 wrong count rejected", !validateMigrationList(Array.from({ length: 36 }, (_, i) => i + 1)).ok);
   ok("2.5 twelve checkpoints", MIGRATION_CHECKPOINTS.length === 12); // +pre-constitution (056) +pre-successor-cascade (056D)
   ok("2.6 checkpoints cover required ids", ["pre-reading", "pre-workspaces", "pre-actions", "pre-planning", "pre-maintenance", "pre-security", "pre-reading-ingestion", "pre-reading-originals", "pre-reading-semantic", "current"].every((c) => MIGRATION_CHECKPOINTS.some((m) => m.id === c)));
-  ok("2.7 only 0040 release fix allowed", isAllowedReleaseFixMigration("0040_v1_release_fix.sql") && !isAllowedReleaseFixMigration("0041_extra.sql"));
+  ok("2.7 only the 0041 release fix is allowed", isAllowedReleaseFixMigration("0041_v1_release_fix.sql") && !isAllowedReleaseFixMigration("0042_extra.sql"));
 
   // ---- 3. Routes ----
   const rr = validateRoutes();
@@ -66,7 +67,7 @@ export function runReleaseSelfTests(): SelfTestReport {
   const inv = buildInventory(["cohesion-tests", "release-tests"]);
   const invR = validateInventory(inv);
   ok("4.1 inventory valid", invR.ok, invR.problems.join("; "));
-  ok("4.2 44 data domains", inv.dataDomainCount === 44); // +notes (052) +protocols (054) +constitution ×2 (056)
+  ok("4.2 46 data domains", inv.dataDomainCount === 46, `${inv.dataDomainCount}`); // +notes (052) +protocols (054) +constitution ×2 (056) +events & recurrenceCompletions (061)
   ok("4.3 dev flag inventoried", inv.envVars.some((e) => e.name === "LIFEOS_ENABLE_DEV_ROUTES"));
   ok("4.4 no service-role env var", !inv.envVars.some((e) => /service.?role/i.test(e.name)));
   ok("4.5 supabase optional", inv.externalServices.every((s) => !s.required));
@@ -107,7 +108,9 @@ export function runReleaseSelfTests(): SelfTestReport {
   ok("8.6 captures span processing states", (fx.records.captures as { processingStatus: string }[]).map((c) => c.processingStatus).filter((v, i, a) => a.indexOf(v) === i).length >= 4);
 
   // ---- 9. Aggregate readiness ----
-  const ev = gatherEvidence(39);
+  // Fed the constant, not a literal: this asserts the gates pass at the head
+  // this build actually ships, and follows it when the head advances.
+  const ev = gatherEvidence(EXPECTED_MIGRATION_VERSION);
   ok("9.1 deterministic gates pass", ev.deterministicGatesPass, "one or more release validators failing");
   ok("9.2 manual checks surfaced", ev.manualChecksRequired >= 1);
   ok("9.3 readiness reflects blockers", typeof ev.tagReady === "boolean");
