@@ -77,14 +77,21 @@ export default function CalendarIntegration() {
           <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">Not connected</p>
           {/* The honest state, and why — not a Connect button that cannot work. */}
           <p className="mt-1.5 text-sm leading-relaxed text-zinc-500">
-            Calendar import isn&apos;t available yet. Conqify can read a calendar&apos;s schedule and
-            keep it reconciled, but it has no way to ask your calendar for permission — that needs an
-            account-linking step this build doesn&apos;t have.
+            Connecting a calendar isn&apos;t available in this environment yet. Conqify can read a
+            calendar&apos;s schedule and keep it reconciled, and it can link an account without
+            changing how you sign in — but this build has no calendar credentials configured and no
+            secure place to keep them, so there&apos;s nothing to connect to.
           </p>
+          {/* §23. The permissions are stated BEFORE any Connect button exists,
+              not revealed behind one. A person deciding whether to link an
+              account should be able to read what it grants first. */}
           <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
-            When it arrives it will ask for read-only access ({REQUIRED_SCOPES.length === 1 ? "one scope" : `${REQUIRED_SCOPES.length} scopes`}),
-            import the last {IMPORT_WINDOW_DAYS_BACK} and next {IMPORT_WINDOW_DAYS_FORWARD} days, and
-            never request permission to write to your calendar, read your contacts, or read your mail.
+            When it does arrive, Conqify will ask for read-only access to the calendars you choose
+            ({REQUIRED_SCOPES.length === 1 ? "one permission" : `${REQUIRED_SCOPES.length} permissions`}) and
+            import the last {IMPORT_WINDOW_DAYS_BACK} and next {IMPORT_WINDOW_DAYS_FORWARD} days.
+            It will not be able to modify your calendar, and it will never ask for your contacts or
+            your mail. Signing in to Conqify stays exactly as it is — connecting Google doesn&apos;t
+            become a way to log in.
           </p>
         </div>
       ) : (
