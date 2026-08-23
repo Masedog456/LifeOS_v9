@@ -4635,3 +4635,100 @@ connectors require repeated beta demand **and** stable API support, both.
   a live connector is found by moving somebody's real appointment, and a wrong
   merge has no undo: it destroys the note and the project link attached to a
   record that no longer exists.
+
+- **LIFEOS-068 — Integration Account Linking Foundation.** A signed-in Conqify
+  user can grant Conqify access to an external service **without that service
+  becoming a way to log in**. The complete linking architecture — OAuth state
+  machine, PKCE, AES-256-GCM credential vault, provider seam, refresh semantics,
+  disconnect and account-deletion purge — built and tested against fixtures.
+  **One migration (0042). Zero new store domains. No tokens anywhere near the
+  browser. The security gate was not touched.**
+
+  **Confirmed principles.**
+  - *Authentication ≠ integration authorization.* Conqify auth answers "who is
+    this user?"; an integration answers "what has this ALREADY-authenticated
+    user permitted us to read?". Collapsing them is how a calendar connector
+    quietly becomes a login provider.
+  - *Provider connection ≠ Conqify login.* Asserted structurally: nothing in
+    `lib/integrations/**` or `app/api/integrations/**` calls `signInWithOAuth`,
+    `linkIdentity`, `signUp`, `signInAnonymously`, or `setSession`.
+  - *Tokens are server secrets.* Never in `StoreState`, never exported, never
+    logged, never returned by a route, never plaintext at rest.
+  - *OAuth state is user-bound and one-time.* The raw value is never stored —
+    only `sha256(state)` — and the claim is a single conditional UPDATE.
+  - *The Calendar adapter does not own OAuth.* Linking is its own layer, so a
+    future Gmail or Drive integration can reuse the same linked account.
+  - *Disconnect revokes access without deleting unrelated life data.*
+  - *Least privilege by default.*
+
+  **Supabase's `linkIdentity()` was evaluated and REJECTED, for two independent
+  reasons.** It writes to `auth.identities`, which by definition makes Google a
+  way to authenticate as that user — §34's exact prohibition. And `auth-js`
+  delivers `provider_refresh_token` on the **client session object**: using it
+  would route a Google refresh token through the browser. Neither is fixable by
+  being careful; both are what the API does.
+
+  **The vault fails closed, and the path that would not exist does not exist.**
+  There is no branch anywhere reading `if (vault unavailable) → store plaintext`.
+  An unavailable vault is a first-class implementation that REFUSES, so a caller
+  cannot forget to check it. `delete` is the one exception and deliberately
+  succeeds: a disconnect must never be blocked by a broken vault.
+
+  **Why the production backend ships unwired.** Reading a credential table the
+  browser cannot reach needs a privileged database connection. Every server
+  route here carries only the USER's JWT, so RLS evaluates as that user and a
+  table they cannot read is one our route cannot read either. Obtaining that
+  connection needs a privileged Supabase credential that (a) does not exist in
+  this environment and (b) is refused inside `app/lib/components` by
+  `scripts/scan-secrets.mjs` — a release gate left deliberately untouched. So
+  `supabaseTokenVault` takes the handle as an ARGUMENT and the resolver passes
+  `null`. **Nothing looks the credential up dynamically or assembles its name
+  from fragments**; passing a regex while defeating its intent is worse than
+  being blocked, because the next reader still believes the guarantee holds.
+
+  **The migration's shape is the security boundary.** `integration_accounts` and
+  `integration_oauth_states` are ordinary RLS tables. `integration_credentials`
+  lives in a **`private` schema** — PostgREST exposes `public`, so a table
+  outside it has no REST path at all, which is stronger than a restrictive
+  policy on a reachable table because it does not depend on the policy being
+  right. There is **no plaintext token column anywhere in the schema**: the
+  credential row is ciphertext, IV, auth tag and key version. Proved against
+  real Postgres — including that the application role cannot see the table in
+  `information_schema`, cannot select from it, and that deleting the user
+  cascades metadata, states and credentials to zero.
+
+  **The refresh rule that silently kills integrations.** Google returns a
+  refresh token on FIRST consent and usually omits it afterwards. Writing back
+  whatever arrived nulls the stored one, and the integration dies an hour later
+  with nothing the user can act on. So an absent `refreshToken` in a refresh
+  response **preserves** the stored one; a present one rotates it. And
+  `invalid_grant` is the ONLY response that marks an integration revoked — a
+  timeout or a 500 means "try again", not "the user took access away".
+
+  **Three test-quality lessons, each of which had made an assertion vacuous.**
+  (1) The structural scan ran from the compiled harness's directory, found zero
+  files, and every "nothing calls signInWithOAuth" assertion passed against an
+  empty string — *a structural test that cannot see the code is not a passing
+  test*, so it now fails loudly when the source root is missing. (2) The scan
+  matched its own file, which necessarily contains the strings it forbids. (3)
+  It matched DOC COMMENTS explaining why those APIs are absent — the same trap
+  `scripts/audit-auth.mjs` documents having fallen into, so its comment-stripper
+  was borrowed rather than reinvented.
+
+  **A real route defect the browser found.** A forged OAuth state produced HTTP
+  500: the refusing store throws, and the throw escaped the handler. A stack
+  trace on a page Google redirected someone to tells them nothing and is a bad
+  place for anything the server knows. Both routes now catch and redirect with a
+  status word from a closed set — never the provider's message.
+
+  **Validation.** Full regression **3360/3360 across 35 suites** (new
+  integrations suite 156/156); migration rehearsal **96/96 with 0042**,
+  including the private-schema isolation and cascade-deletion proofs; release
+  audit 17/17; **audit:security PASS — including the auth audit, unchanged**;
+  tsc clean; eslint 0 errors.
+
+  **Durable lesson.** The blocker that ends a sprint is worth more than a
+  workaround that hides it. `signInWithOAuth` is forbidden here for a good
+  reason, and the correct response was to build the thing that does not need it
+  — an account-link flow that never touches authentication — and to stop at the
+  point where a real secret would have to be stored insecurely.

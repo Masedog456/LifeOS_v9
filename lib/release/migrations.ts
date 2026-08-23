@@ -8,12 +8,13 @@
  * module holds the deterministic expectations that both the rehearsal and the
  * release self-test check against, so the two can never disagree.
  *
- * Historical migrations are never modified. The current head is **0041**
- * (`0041_external_calendar_identity.sql`, LIFEOS-067 — four nullable columns on
- * `events` giving an imported appointment durable provider identity). A
- * demonstrated release-blocking database defect would add exactly one
- * narrowly-scoped `0042_v1_release_fix.sql` beyond it; see
- * `ALLOWED_RELEASE_FIX_MIGRATION` below.
+ * Historical migrations are never modified. The current head is **0042**
+ * (`0042_integration_accounts.sql`, LIFEOS-068 — integration account linking:
+ * public metadata, short-lived OAuth states, and a credential table in a
+ * non-public schema the browser has no path to). A demonstrated
+ * release-blocking database defect would add exactly one narrowly-scoped
+ * `0043_v1_release_fix.sql` beyond it; see `ALLOWED_RELEASE_FIX_MIGRATION`
+ * below.
  */
 
 import { RELEASE_MIGRATION_COUNT } from "@/lib/release/versions";
@@ -42,7 +43,8 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-constitution", label: "Before the Living Constitution", throughVersion: 37 },
   { id: "pre-successor-cascade", label: "Before the revision successor cascade", throughVersion: 38 },
   { id: "pre-calendar", label: "Before external calendar identity", throughVersion: 40 },
-  { id: "current", label: "Current production head", throughVersion: 41 },
+  { id: "pre-integrations", label: "Before integration account linking", throughVersion: 41 },
+  { id: "current", label: "Current production head", throughVersion: 42 },
 ];
 
 export interface MigrationListReport {
@@ -91,10 +93,11 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  *
  * LIFEOS-067 did the same thing again: 0041 became external calendar identity —
  * four nullable columns on `events`, reviewed at a schema gate before it was
- * written — so the hatch shifts to 0042. The hatch has now moved twice without
- * ever being spent, which is the outcome it was designed for.
+ * written — so the hatch shifted to 0042. LIFEOS-068 spent that number on
+ * integration accounts, also gated and reviewed first, so the hatch is now
+ * 0043. Three moves, never once spent: that is the outcome it was designed for.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0042_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0043_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

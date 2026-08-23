@@ -32,15 +32,15 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 41", files.length === 41, `found ${files.length}`);
+ok("migration count == 42", files.length === 42, `found ${files.length}`);
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
 // Head is 0041 (0041_external_calendar_identity.sql, LIFEOS-067). A
 // release-blocking DB defect would add exactly one narrowly-scoped
 // 0042_v1_release_fix.sql beyond it — the escape hatch is one unplanned
 // migration, not an open door, and it moves with the head.
-const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > 41);
-ok("no migration beyond 0041 except allowed 0042 fix", beyondHead.every((f) => f === "0042_v1_release_fix.sql"), `unexpected: ${beyondHead.join(", ")}`);
+const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > 42);
+ok("no migration beyond 0042 except allowed 0043 fix", beyondHead.every((f) => f === "0043_v1_release_fix.sql"), `unexpected: ${beyondHead.join(", ")}`);
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");
@@ -48,7 +48,11 @@ const createTable = (allSql.match(/create table if not exists/gi) || []).length;
 // 60, not 58: LIFEOS-056 added constitution_elements + constitution_revisions
 // (0038). 0040 adds a COLUMN, not a table, so this count is unchanged.
 // 62 since LIFEOS-061 added `events` and `recurrence_completions`.
-ok("62 CREATE TABLE IF NOT EXISTS", createTable === 62, `found ${createTable}`);
+// 65 since LIFEOS-068's 0042 added three: integration_accounts and
+// integration_oauth_states in `public`, and integration_credentials in the
+// `private` schema — which is why this total is THREE higher while the public
+// table count the rehearsal asserts only rose by two.
+ok("65 CREATE TABLE IF NOT EXISTS", createTable === 65, `found ${createTable}`);
 const userOwned = (allSql.match(/user_id\s+uuid\s+not null\s+default\s+auth\.uid\(\)/gi) || []).length;
 ok("user-owned tables default user_id to auth.uid()", userOwned >= 40, `found ${userOwned}`);
 ok("every table uses IF NOT EXISTS (rerunnable)", (allSql.match(/create table\b/gi) || []).length === createTable, "found a CREATE TABLE without IF NOT EXISTS");

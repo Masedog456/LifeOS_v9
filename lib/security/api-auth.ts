@@ -133,6 +133,37 @@ export async function guardCostBearingRoute(
   return { ok: false, status: post.status ?? 401, reason: post.reason ?? "invalid_token" };
 }
 
+/**
+ * Require an authenticated caller, unconditionally (LIFEOS-068).
+ *
+ * Different from `guardCostBearingRoute`, and deliberately so. That guard ties
+ * the auth requirement to whether a request could spend money, which is right
+ * for the AI routes: with no provider key they can only return mocks, and
+ * demanding a login there would break offline use for no security gain.
+ *
+ * Integration linking has no such gradient. Every call is about ONE user's
+ * connection to an external account, so there is no version of it that is safe
+ * to serve anonymously. This returns the user id or a 401, and nothing in
+ * between.
+ */
+export async function requireUser(
+  request: Request,
+): Promise<{ ok: true; userId: string } | { ok: false; status: 401 | 503; reason: AuthFailure }> {
+  const supabaseConfigured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  );
+  // No identity system configured at all: a server misconfiguration, not the
+  // caller's fault, and certainly not a reason to proceed without a user.
+  if (!supabaseConfigured) return { ok: false, status: 503, reason: "unavailable" };
+
+  const token = bearerToken(request.headers.get("authorization"));
+  if (!token) return { ok: false, status: 401, reason: "missing_token" };
+
+  const userId = await verifySupabaseToken(token);
+  if (!userId) return { ok: false, status: 401, reason: "invalid_token" };
+  return { ok: true, userId };
+}
+
 // ------------------------------------------------------------ rate limiting ----
 
 /**
