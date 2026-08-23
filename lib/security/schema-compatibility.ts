@@ -20,7 +20,7 @@
 import { CURRENT_STATE_VERSION } from "@/lib/migrations/state-version";
 
 /** The latest migration number this build ships (keep in step with supabase/migrations). */
-export const EXPECTED_MIGRATION_VERSION = 40;   // 0040_time_foundation (LIFEOS-061)
+export const EXPECTED_MIGRATION_VERSION = 41;   // 0041_external_calendar_identity (LIFEOS-067)
 
 export type CompatMode = "ok" | "read-only" | "upgrade" | "blocked";
 

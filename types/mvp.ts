@@ -3062,6 +3062,42 @@ export interface LifeEvent {
    * Confirming a machine-suggested STRUCTURE never sets this (LIFEOS-050A/050B).
    */
   fromAiText?: boolean;
+
+  // ------------------------------------------- external calendar identity ---
+  //
+  // LIFEOS-067. A provider is TRANSPORT, not a life concept: there is no
+  // GoogleCalendarEvent, and an imported appointment is the same `LifeEvent` a
+  // capture produces. These four fields are the whole difference, and they exist
+  // for exactly one question — *"is this the same external event I imported
+  // yesterday?"* — which title and date cannot answer, because both change.
+  //
+  // **All-or-nothing.** `provider`, `calendarId` and `eventId` are present
+  // together or all absent. Half an identity is worse than none: Postgres treats
+  // NULLs as distinct in a unique index, so a null calendar id would silently
+  // defeat the idempotence the index exists to guarantee. The database enforces
+  // this with a CHECK constraint (0041); `externalIdentityOf` enforces it here.
+
+  /** Which transport this came from. Free text, so a second provider is not a migration. */
+  externalProvider?: string;
+  /** Calendars are many per user, and event ids are only unique WITHIN one. */
+  externalCalendarId?: string;
+  /** The provider's own id. The thing reconciliation matches on. */
+  externalEventId?: string;
+  /**
+   * When the PROVIDER last said this changed.
+   *
+   * Nullable even on a linked row: not every provider or fixture supplies a
+   * trustworthy modification timestamp, and a missing one must degrade to
+   * "reconcile by identity" rather than to a failure.
+   *
+   * It answers "did the upstream copy change?" — it does **not** answer "did the
+   * local copy change since the last successful sync?". Those are different
+   * clocks, and this codebase has no reconciliation baseline for the second one.
+   * See `lib/calendar/reconcile.ts`: full local-vs-upstream edit conflict
+   * detection is deferred, and nothing here pretends otherwise.
+   */
+  externalUpdatedAt?: ISO;
+
   createdAt: ISO;
   updatedAt: ISO;
 }
