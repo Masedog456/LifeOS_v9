@@ -38,6 +38,7 @@ import { extractTimeOfDay, extractRecurrence, completeRule } from "@/lib/capture
 import { formatLocalTime, type LocalTime } from "@/lib/time/localtime";
 import { describeRule, readRule, type RecurrenceRule } from "@/lib/time/recurrence";
 import { decompose } from "@/lib/capture/decompose";
+import { isExternallyOwned } from "@/lib/calendar/external";
 
 /** What the user is asking to change. Each maps to ONE existing store setter. */
 export type EditOperation =
@@ -89,7 +90,9 @@ export interface EditRefusal {
     // LIFEOS-066 §18. Ticking something twice, and ticking something that has
     // no tick to give.
     | "already_complete"
-    | "not_completable";
+    | "not_completable"
+    // LIFEOS-067 §14. Owned by an external calendar this product only reads.
+    | "external_read_only";
   /** Said to the user, in their terms. Never a stack trace. */
   message: string;
 }
@@ -290,6 +293,14 @@ function targetOfEvent(e: LifeEvent): EditTarget {
     kind: "event", id: e.id, title: e.title,
     currentDate: e.date, currentTime: e.startTime,
     recurrence: readRule(e.recurrence) ?? undefined,
+    // LIFEOS-067 §14, §31. An externally-owned Event's schedule belongs to the
+    // calendar it came from, and this integration is READ-ONLY. Moving it here
+    // would change Conqify and not Google, the next refresh would move it back,
+    // and in between the user would believe they had rescheduled something they
+    // had not. Blocked and SAID, rather than allowed and quietly reverted.
+    blocked: isExternallyOwned(e)
+      ? `“${e.title}” comes from your ${e.externalProvider} calendar. Conqify reads that calendar but can't write to it, so a change made here wouldn't reach it — and the next refresh would put it back. Change it there instead.`
+      : undefined,
   };
 }
 
@@ -481,7 +492,11 @@ export function refusalFor(intent: TemporalEditIntent, text: string): EditRefusa
 
   if (only?.blocked) {
     return {
-      code: intent.operation === "complete" ? "already_complete" : "completed_action",
+      code: only.kind === "event"
+        // LIFEOS-067 §14. The only thing that blocks an EVENT is external
+        // ownership — events have no status to be completed or cancelled.
+        ? "external_read_only"
+        : intent.operation === "complete" ? "already_complete" : "completed_action",
       message: only.blocked,
     };
   }

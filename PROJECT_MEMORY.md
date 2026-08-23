@@ -4523,3 +4523,115 @@ connectors require repeated beta demand **and** stable API support, both.
   PRODUCT. A field can be parsed correctly, asserted correctly, and still never
   reach the screen — and the assertion that would have caught it is the one that
   reads what is actually rendered, not what the function returned.
+
+- **LIFEOS-067 — Calendar Integration Foundation.** External calendar events can
+  now enter the same shared life model Today, Capture, Week in Review and
+  Temporal Editing already use — without a second calendar island, and without a
+  provider becoming a life concept. **One migration (0041, four nullable columns
+  on `events`). Zero new store domains. Zero new user-facing nouns. Zero
+  provider tables.** Read/reconcile only; no write-back.
+
+  **Confirmed principles.**
+  - *Provider ≠ life ontology.* There is no `GoogleCalendarEvent`. An imported
+    appointment is a `LifeEvent` from the moment it lands, which is why Today,
+    Week in Review and Capture handle it without knowing calendars exist.
+  - *External id ≠ title/date match.* Reconciliation keys on
+    `(provider, calendarId, eventId)` and nothing else. Titles and dates change —
+    that is the entire reason the feature is worth building — and two people can
+    have a meeting called "Standup" that is not the same meeting.
+  - *External Event ≠ user-authored.* An import carries no `sourceCaptureId` and
+    no `fromAiText`. Connecting a calendar does not make its contents the user's
+    writing *inside Conqify*.
+  - *Calendar sync ≠ calendar dashboard.* No grid, no provider surface. Settings
+    gets connection state and a disconnect button; Today stays the one place a
+    schedule appears.
+  - *Read failure ≠ deletion signal.* A failed fetch returns nothing and says so.
+  - *Partial fetch ≠ authoritative absence.* Removal requires `scope.complete`,
+    which defaults to false.
+  - *Local enrichment must survive external refresh.* Enforced by the patch TYPE,
+    not by care — see below.
+  - *Today consumes one Event model regardless of origin.*
+
+  **Identity is all-or-nothing, and that is a Postgres fact, not a style choice.**
+  A unique index on `(user_id, provider, calendar_id, event_id)` does NOT
+  guarantee idempotence if `calendar_id` can be NULL: Postgres treats NULLs as
+  DISTINCT, so the same event would import twice and the index would not notice.
+  0041 therefore carries a CHECK requiring provider + calendar id + event id
+  together, or all four columns absent. `external_updated_at` stays outside that
+  rule because not every provider supplies a trustworthy timestamp, and a missing
+  one must degrade to reconcile-by-identity rather than make the row malformed.
+  Proved against real Postgres in the rehearsal, not just in TypeScript.
+
+  **Ownership is enforced by a type with no member for the forbidden thing.**
+  `ExternalOwnedPatch` has no `notes` and no `linkedEntityRefs`. A refresh
+  physically cannot overwrite the user's annotation or their project link — not
+  "does not", *cannot*. External calendars own when a thing happens; Conqify owns
+  what the user made of it.
+
+  **What was NOT claimed.** `external_updated_at` says when the PROVIDER changed
+  something. It does not say whether the local copy changed since the last
+  successful sync — that needs a reconciliation baseline this schema does not
+  add. So full local-vs-upstream edit conflict detection is **deferred**, and the
+  integration is read-only precisely so the undetectable conflict is one the
+  product does not let you create: a temporal edit against an externally-owned
+  Event is refused out loud, naming the calendar and warning that the next
+  refresh would put it back.
+
+  **Timezone is a connector-semantics boundary, not polish.** Conqify's time
+  model is deliberately zoneless — a `LocalTime` is a wall-clock reading. Three
+  provider shapes, three different answers: an all-day date is exact; a floating
+  date-time IS Conqify's model and is taken verbatim; an INSTANT (zoned or
+  offset-bearing) is **refused** as `timezone_unsupported` unless the caller
+  states a home offset, because there is no user home-timezone field and
+  rendering it in whatever zone the server runs in would be a lie. A fixed
+  numeric offset plus a stated home offset converts by exact integer arithmetic
+  — no timezone database, and the DAY rolls when it should. The provider's
+  original strings survive as transient metadata so nothing is silently lost.
+
+  **Recurrence is mapped or preserved, never simplified.** `BYDAY=MO,WE,FR`
+  becomes a rule. `BYSETPOS=3` ("third Thursday"), `COUNT`, `UNTIL` and
+  positional weekdays do not: the event is still imported as a single dated
+  occurrence, the raw rule is kept and REPORTED, and Conqify makes no recurrence
+  claim. A flattened "every Thursday" would put a meeting on three days a month
+  it does not happen, and the user would have no way to tell we invented it.
+
+  **Provider choice: fixture-ready, live deferred — and the blocker is correct.**
+  `signInWithOAuth()` is on the FORBIDDEN list in `scripts/audit-auth.mjs`
+  (*"creates accounts on first sign-in"*), enforced by the `audit:security`
+  release gate. Conqify authenticates by email OTP; there is no OAuth client, no
+  token store, and no server route that could hold a client secret. Network
+  reachability was never the problem — googleapis answers 401 from the container.
+  A real connector needs an explicit **account-link** flow, separate from
+  sign-in, with read-only scope. Authentication-as-calendar-authorization is a
+  back door, and the audit is right to forbid it.
+
+  **Two fixture mistakes worth remembering.** (1) A "malformed time" was asserted
+  to reject as `malformed_date`; the parser was more precise than the test. (2)
+  Existing rows were built with `allDay: undefined` while a date-only payload
+  normalizes to `allDay: true` — so the reconciler correctly reported a real
+  difference and it looked like an over-eager diff. **A fixture must mirror what
+  the write path actually writes, or it tests a state the product never produces.**
+
+  **Validation.** Full regression **3203/3204 across 34 suites** (new calendar
+  suite 150/150); browser smokes 34/34 (067), 54/54 (066), 45/45 (065), 58/58
+  (064), 46/46 (062), 44/44 (061), 57/57 (060); migration rehearsal **72/72 with
+  0041 applied**, including nine new checks proving the identity CHECK, the
+  duplicate-import refusal, the same-id-different-calendar case, and the absence
+  of any credential-shaped column on `events`; release audit 17/17; audit:security
+  PASS; tsc clean; eslint 0 errors. Reconciliation is linear: 100/1000/5000
+  events all well inside budget, with no title comparison in the matching path.
+
+  **Two known failures, neither caused by this sprint.** `memory` "perf: all
+  engines under budget" (~1650ms vs 1500ms) fails identically at base commit
+  `653800f` in a clean worktree. Smoke-063 A2 fails because `week-store.json` is a
+  frozen dated snapshot whose newest event is 2026-08-22; from 2026-08-23 onward
+  it contains no event dated today, so the NOW section is correctly absent. The
+  product was verified on this build: seed an event still ahead and the section
+  appears. Neither assertion was weakened and the frozen acceptance snapshot was
+  not rewritten.
+
+  **Durable lesson.** The reconciler was written and fully tested before any
+  provider existed. That ordering is not tidiness — a reconciliation bug found by
+  a live connector is found by moving somebody's real appointment, and a wrong
+  merge has no undo: it destroys the note and the project link attached to a
+  record that no longer exists.

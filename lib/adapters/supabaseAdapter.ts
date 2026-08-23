@@ -2236,10 +2236,19 @@ interface EventRow {
   start_time: string | null; end_time: string | null; all_day: boolean;
   notes: string; recurrence: unknown | null; linked_entity_refs: unknown;
   source_capture_id: string | null; from_ai_text: boolean;
+  // LIFEOS-067. External calendar identity, all-or-nothing (0041).
+  external_provider: string | null;
+  external_calendar_id: string | null;
+  external_event_id: string | null;
+  external_updated_at: string | null;
   created_at: string; updated_at: string;
 }
 
 function eventToRow(e: LifeEvent): EventRow {
+  // Identity is written as a UNIT. Sending a partial one would violate the 0041
+  // CHECK — correctly — and, worse, a row that slipped through would defeat the
+  // unique index, because Postgres treats NULLs as distinct.
+  const linked = !!(e.externalProvider && e.externalCalendarId && e.externalEventId);
   return {
     id: e.id, title: e.title, date: e.date,
     start_time: e.startTime ?? null, end_time: e.endTime ?? null,
@@ -2248,6 +2257,10 @@ function eventToRow(e: LifeEvent): EventRow {
     linked_entity_refs: e.linkedEntityRefs ?? [],
     source_capture_id: e.sourceCaptureId ?? null,
     from_ai_text: !!e.fromAiText,
+    external_provider: linked ? e.externalProvider! : null,
+    external_calendar_id: linked ? e.externalCalendarId! : null,
+    external_event_id: linked ? e.externalEventId! : null,
+    external_updated_at: linked ? (e.externalUpdatedAt ?? null) : null,
     created_at: e.createdAt, updated_at: e.updatedAt,
   };
 }
@@ -2270,6 +2283,16 @@ function rowToEvent(r: any): LifeEvent {
     linkedEntityRefs: Array.isArray(r.linked_entity_refs) ? r.linked_entity_refs : [],
     sourceCaptureId: r.source_capture_id ?? undefined,
     fromAiText: r.from_ai_text ? true : undefined,
+    // Read as a UNIT for the same reason it is written as one: a half identity
+    // is not a partially-linked event, it is a row nothing can reconcile. An
+    // older client that predates 0041 returns undefined for all four, which is
+    // the correct "not linked" state.
+    ...(r.external_provider && r.external_calendar_id && r.external_event_id ? {
+      externalProvider: r.external_provider as string,
+      externalCalendarId: r.external_calendar_id as string,
+      externalEventId: r.external_event_id as string,
+      externalUpdatedAt: r.external_updated_at ?? undefined,
+    } : {}),
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }

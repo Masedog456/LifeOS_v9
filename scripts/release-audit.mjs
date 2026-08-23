@@ -32,14 +32,15 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 40", files.length === 40, `found ${files.length}`);
+ok("migration count == 41", files.length === 41, `found ${files.length}`);
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
-// Head is 0040 (0040_time_foundation.sql, LIFEOS-061). A release-blocking DB
-// defect would add exactly one narrowly-scoped 0041_v1_release_fix.sql beyond
-// it — the escape hatch is one unplanned migration, not an open door.
-const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > 40);
-ok("no migration beyond 0040 except allowed 0041 fix", beyondHead.every((f) => f === "0041_v1_release_fix.sql"), `unexpected: ${beyondHead.join(", ")}`);
+// Head is 0041 (0041_external_calendar_identity.sql, LIFEOS-067). A
+// release-blocking DB defect would add exactly one narrowly-scoped
+// 0042_v1_release_fix.sql beyond it — the escape hatch is one unplanned
+// migration, not an open door, and it moves with the head.
+const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > 41);
+ok("no migration beyond 0041 except allowed 0042 fix", beyondHead.every((f) => f === "0042_v1_release_fix.sql"), `unexpected: ${beyondHead.join(", ")}`);
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");

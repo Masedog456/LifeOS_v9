@@ -4560,6 +4560,127 @@ export function deleteEvent(eventId: string): void {
   setState({ ...state, events: (state.events ?? []).filter((e) => e.id !== eventId) });
 }
 
+/**
+ * Create an Event carrying external calendar identity (LIFEOS-067).
+ *
+ * Separate from `createEvent` on purpose: identity is ALL-OR-NOTHING, and a
+ * dedicated entry point can refuse an incomplete one instead of writing a row
+ * the unique index cannot protect. `createEvent` stays exactly as it was, so
+ * nothing about locally-created events changes.
+ *
+ * Provenance is NOT laundered (§32). The event carries no `sourceCaptureId` and
+ * no `fromAiText`: the user authored it in their calendar, and Conqify imported
+ * it. Connecting a calendar does not make its contents Conqify's writing, and it
+ * does not make them the user's writing *inside Conqify* either.
+ */
+export function createExternalEvent(input: {
+  title: string; date: string; startTime?: string; endTime?: string; allDay?: boolean;
+  recurrence?: RecurrenceRule;
+  externalProvider: string; externalCalendarId: string; externalEventId: string;
+  externalUpdatedAt?: string;
+}): string | null {
+  const provider = (input.externalProvider ?? "").trim();
+  const calendarId = (input.externalCalendarId ?? "").trim();
+  const externalId = (input.externalEventId ?? "").trim();
+  // Half an identity is worse than none: Postgres treats NULLs as distinct, so a
+  // row missing its calendar id would import again on the next refresh and the
+  // unique index would not notice.
+  if (!provider || !calendarId || !externalId) return null;
+
+  const id = createEvent({
+    title: input.title, date: input.date, startTime: input.startTime, endTime: input.endTime,
+    allDay: input.allDay, recurrence: input.recurrence,
+  });
+  if (!id) return null;
+
+  setState({
+    ...state,
+    events: (state.events ?? []).map((e) => (e.id === id ? {
+      ...e,
+      externalProvider: provider,
+      externalCalendarId: calendarId,
+      externalEventId: externalId,
+      externalUpdatedAt: input.externalUpdatedAt,
+    } : e)),
+  });
+  return id;
+}
+
+/**
+ * Apply a refresh to an externally-owned Event (LIFEOS-067 §9).
+ *
+ * The patch type has no member for `notes` or `linkedEntityRefs`, so a refresh
+ * **cannot** overwrite the user's own annotation or their project link. That is
+ * the ownership split made structural rather than remembered: external
+ * calendars own when a thing happens, Conqify owns what the user made of it.
+ *
+ * Refuses an Event that is not externally linked — a local Event has no upstream
+ * to be refreshed from, and applying provider data to one would be a mutation
+ * with no author.
+ */
+export function applyExternalEventPatch(
+  eventId: string,
+  patch: {
+    title?: string; date?: string; startTime?: string; endTime?: string;
+    allDay?: boolean; recurrence?: RecurrenceRule; externalUpdatedAt?: string;
+  },
+): boolean {
+  const ev = (state.events ?? []).find((e) => e.id === eventId);
+  if (!ev) return false;
+  if (!ev.externalProvider || !ev.externalCalendarId || !ev.externalEventId) return false;
+
+  const next: LifeEvent = { ...ev };
+  if (patch.title !== undefined) next.title = patch.title.trim() || ev.title;
+  if (patch.date !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(patch.date)) return false;
+    next.date = patch.date;
+  }
+  if (patch.allDay !== undefined) next.allDay = patch.allDay ? true : undefined;
+  if (patch.startTime !== undefined) next.startTime = patch.startTime;
+  if (patch.endTime !== undefined) next.endTime = patch.endTime;
+  if (patch.recurrence !== undefined) {
+    if (patch.recurrence === null || patch.recurrence === undefined) next.recurrence = undefined;
+    else {
+      const rule = readRule(patch.recurrence);
+      if (!rule) return false;
+      next.recurrence = rule;
+    }
+  }
+  if (next.allDay) { next.startTime = undefined; next.endTime = undefined; }
+  if (next.startTime !== undefined && !isLocalTime(next.startTime)) return false;
+  if (next.endTime !== undefined && !isLocalTime(next.endTime)) return false;
+  if (!isValidTimeRange(next.startTime, next.endTime)) return false;
+  if (patch.externalUpdatedAt !== undefined) next.externalUpdatedAt = patch.externalUpdatedAt;
+
+  setState({
+    ...state,
+    events: (state.events ?? []).map((e) => (e.id === eventId ? { ...next, updatedAt: now() } : e)),
+  });
+  return true;
+}
+
+/**
+ * Unlink an Event from its external calendar (LIFEOS-067 §17).
+ *
+ * Keeps the Event, its schedule, its notes and its links. Removes only the
+ * identity — so future upstream changes and deletions can no longer reach it.
+ * This is what "disconnect" means: stop synchronising, not erase.
+ */
+export function unlinkExternalEvent(eventId: string): boolean {
+  const ev = (state.events ?? []).find((e) => e.id === eventId);
+  if (!ev || !ev.externalProvider) return false;
+  setState({
+    ...state,
+    events: (state.events ?? []).map((e) => (e.id === eventId ? {
+      ...e,
+      externalProvider: undefined, externalCalendarId: undefined,
+      externalEventId: undefined, externalUpdatedAt: undefined,
+      updatedAt: now(),
+    } : e)),
+  });
+  return true;
+}
+
 /** Stop an Event recurring. Past instances remain history; no future ones derive. */
 export function stopEventRecurrence(eventId: string): void {
   setState({

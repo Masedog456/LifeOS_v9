@@ -116,14 +116,16 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 40, `found ${files.length} migration files, expected 40`);
+  ok("migration files present", files.length === 41, `found ${files.length} migration files, expected 41`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
   applyChain("rc_clean", files);
   const tableCount = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
   // 62 since LIFEOS-061 added exactly two: `events` and `recurrence_completions`.
-  ok("clean apply 0001->0040 (62 public tables)", tableCount === 62, `got ${tableCount} public tables`);
+  // LIFEOS-067's 0041 adds COLUMNS to `events` and no table at all — a provider
+  // is transport, not a life concept, so there is no second event table.
+  ok("clean apply 0001->0041 (62 public tables)", tableCount === 62, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
@@ -298,6 +300,46 @@ function run() {
       tryA(`insert into public.events(id, title, date, recurrence) values (gen_random_uuid(), 'Broken rule', current_date, '{"frequency":"fortnightly"}'::jsonb);`));
     const loads = asA(`select count(*) from public.events;`).trim();
     ok("061: and every event row still loads", Number(loads) >= 2, `${loads} rows`);
+
+    // 0041 — external calendar identity (LIFEOS-067). Both guarantees are
+    // enforced in the DATABASE, because the TypeScript that writes these rows is
+    // exactly the thing a bug would live in.
+    //
+    // The unique index is only meaningful if identity is COMPLETE: Postgres
+    // treats NULLs as distinct, so a row with a null calendar id would import
+    // twice and the index would not notice. That is what the CHECK prevents.
+    ok("067: a complete external identity is accepted",
+      tryA(`insert into public.events(id, title, date, all_day, external_provider, external_calendar_id, external_event_id)
+            values (gen_random_uuid(), 'Dentist', current_date, true, 'google', 'primary@example.com', 'evt-1');`));
+    ok("067: provider + event id with NO calendar id is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_provider, external_event_id)
+             values (gen_random_uuid(), 'Half', current_date, true, 'google', 'evt-2');`));
+    ok("067: a calendar id with no provider is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_calendar_id)
+             values (gen_random_uuid(), 'Half', current_date, true, 'primary@example.com');`));
+    ok("067: an external_updated_at with no identity is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_updated_at)
+             values (gen_random_uuid(), 'Orphan stamp', current_date, true, now());`));
+    ok("067: importing the SAME external event twice is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_provider, external_calendar_id, external_event_id)
+             values (gen_random_uuid(), 'Dentist again', current_date, true, 'google', 'primary@example.com', 'evt-1');`));
+    ok("067: the same event id in a DIFFERENT calendar is a different event",
+      tryA(`insert into public.events(id, title, date, all_day, external_provider, external_calendar_id, external_event_id)
+            values (gen_random_uuid(), 'Work dentist', current_date, true, 'google', 'work@example.com', 'evt-1');`));
+    // The partial index must not constrain purely local events, which are the
+    // overwhelming majority and all carry four NULLs.
+    ok("067: two local events with no identity never collide",
+      tryA(`insert into public.events(id, title, date, all_day) values (gen_random_uuid(), 'Local A', current_date, true);`)
+      && tryA(`insert into public.events(id, title, date, all_day) values (gen_random_uuid(), 'Local B', current_date, true);`));
+    // Unlinking (disconnect) must be a legal transition, not a constraint fight.
+    ok("067: clearing identity on disconnect is accepted",
+      tryA(`update public.events set external_provider = null, external_calendar_id = null,
+            external_event_id = null, external_updated_at = null where external_event_id = 'evt-1' and external_calendar_id = 'work@example.com';`));
+    // And a token must never end up here. Asserted as an absence of columns.
+    const tokenCols = asA(`select count(*) from information_schema.columns
+      where table_schema='public' and table_name='events'
+      and (column_name ilike '%token%' or column_name ilike '%secret%' or column_name ilike '%refresh%');`).trim();
+    ok("067: no credential-shaped column exists on events", tokenCols === "0", `${tokenCols} columns`);
     ok("061: a non-object recurrence is refused",
       !tryA(`insert into public.events(id, title, date, recurrence) values (gen_random_uuid(), 'Bad type', current_date, '"weekly"'::jsonb);`));
 
