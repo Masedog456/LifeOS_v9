@@ -17,6 +17,7 @@ import { useStore } from "@/lib/mvpStore";
 import { buildLivingMemory, type MemoryCandidate, type MemoryKind } from "@/lib/memory/living";
 import ExplanationDetail from "@/components/ExplanationDetail";
 import WeekInReview from "@/components/memory/WeekInReview";
+import AskMemory from "@/components/memory/AskMemory";
 
 const KIND_LABEL: Record<MemoryKind, string> = {
   not_revisited: "Not revisited",
@@ -56,6 +57,13 @@ export default function MemoryPage() {
           What happened, and what is worth coming back to — both read straight from your own records. Nothing here is stored; every line is a way back to the thing it describes.
         </p>
       </header>
+
+      {/* LIFEOS-069 §20. One query box on the page that already exists, above
+          the browse mode it shares its evidence with — not a /ask-life route
+          and not a chat surface. Asking is read-only; nothing here is stored. */}
+      <section className="mb-8">
+        <AskMemory />
+      </section>
 
       {/* LIFEOS-064. Hosted here rather than behind a new nav destination:
           LIFEOS-063 counted 40 destinations of which a full week of ordinary

@@ -46,6 +46,9 @@ function hrefFor(ref: { kind: string; id: string }): string {
     case "project": return `/project/${ref.id}`;
     case "decision": return `/decisions/${ref.id}`;
     case "formation": return `/formation/${ref.id}`;
+    // A Reflection has no detail page; the formation timeline is where its text
+    // is shown. `/formation/<id>` would 404 — that route resolves sessions.
+    case "reflection": return "/formation/timeline";
     case "capture": return "/process";
     // An Event has no detail page yet. Today is where events are shown.
     default: return "/today";

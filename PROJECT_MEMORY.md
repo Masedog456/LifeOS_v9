@@ -4732,3 +4732,102 @@ connectors require repeated beta demand **and** stable API support, both.
   reason, and the correct response was to build the thing that does not need it
   — an account-link flow that never touches authentication — and to stop at the
   point where a real secret would have to be stored insecurely.
+
+- **LIFEOS-069 — Executive Memory Query.** A person can now ask Conqify what
+  happened — "what did I finish last week?", "what am I waiting on?", "what did
+  I say about teaching?" — and get an answer built only from records they made.
+  Eight question classes (COMPLETION, EVENTS, WAITING, CHANGES, PROJECT,
+  REFLECTION, OPEN_WORK, TIME), routed deterministically, retrieved from the
+  evidence backbone LIFEOS-064 already built, and rendered with the provenance
+  of each source attached. **Zero migrations; head remains 0042; no new store
+  domain; no embeddings; nothing persisted.**
+
+  **Memory query reuses the autobiographical timeline.** No second evidence
+  model was created. `buildAutobiographicalTimeline` already returns exactly
+  what an answer needs — a dated fact with a `recordRef`, an `evidence` field
+  naming the column it came from, and an `OriginType` — so the query layer is a
+  filter over it, not a parallel index. That reuse is what makes the three
+  confusions unrepeatable: a COMPLETION answer filters `COMPLETION_KINDS` and
+  therefore *cannot* count a created action, because no code path exists that
+  would have to remember not to.
+
+  **Retrieval precedes synthesis, and the AI seam enforces it.** The
+  deterministic path answers every supported question end to end with no model
+  call. `buildEvidencePacket` exists for the day one is added, and it hands over
+  only facts already retrieved plus the ids they came from —
+  `validateAiPlan` then REJECTS any class, range or id outside that set rather
+  than repairing it. Coercing "almost valid" model output is how a question
+  about June gets answered about July.
+
+  **"You said" requires authorship evidence.** Two conditions, both recorded:
+  the provenance says `user_authored`, and the record is a kind a person writes
+  in (reflection, note, capture, decision). An Event titled "Teaching prep" is
+  neither, so it can support "what was scheduled about teaching" and never "what
+  did I say about teaching". `imported_user_authored` is deliberately excluded
+  too — the user wrote it somewhere else and an importer chose what to carry
+  across, which is a fidelity Conqify cannot vouch for. AI prose kept in a note
+  is real evidence *of what a model produced*, and is labelled as such.
+
+  **Current state ≠ historical state.** "What was I waiting on last Tuesday?"
+  is answered from `waitingSince` plus still-being-open — a wait that began
+  before that day and is still live was demonstrably live then — and is marked
+  **PARTIALLY_ANSWERED** with the gap named: a wait that closed in between left
+  no trace at all. A wait that STARTED after the asked day is excluded outright.
+  Presenting today's list as though it were Tuesday's is the one way a
+  projection can lie about a past range.
+
+  **Scheduled ≠ attended. Created ≠ completed. Linked activity ≠ progress.**
+  Every EVENTS answer carries the attendance limitation unconditionally, and no
+  branch anywhere constructs the words "you attended". Every PROJECT answer is
+  counts of dated linked records — a project touched at 23:00 last night with no
+  dated activity reports **NO_RECORDED_EVIDENCE**, not momentum.
+
+  **There is no second date parser.** `lib/capture/dates.ts` leans FORWARD by
+  design ("August 25" in September means next August), which is right for a
+  deadline and exactly wrong for a memory. So `resolveMemoryRange` maps a small
+  closed vocabulary of backward-looking phrases — relative windows, named
+  months, named weekdays — onto `resolveRange`/`resolveWeekRange`, and every
+  range is produced by those existing helpers. Anything outside the three shapes
+  is reported `unresolved` rather than guessed at.
+
+  **Deleted source disappears from answers, for free.** An answer is a value
+  computed from `(state, question)`; there is no cache and no `MemoryAnswer`
+  table, so removing a record removes its memory with no invalidation step.
+  Proved in the browser: ask, delete the note, ask again, the fact is gone and
+  nothing remains in storage.
+
+  **No evidence produces no invented life history.** Four statuses, and the
+  fourth is deliberate: `NEEDS_CHOICE`. Ambiguity is not a grade of evidence —
+  "partially answered" implies something was answered and "no recorded evidence"
+  is false when the problem is that there is too much. Two records called
+  "Dashboard" produce a question, never a tie-break, and **recency is never a
+  secret tie-breaker**. An emotion question is never fully answered however good
+  the match: Conqify stores text, and a note containing "worried" is evidence
+  that the word was written, not that the feeling was had.
+
+  **Two dead links were fixed on the way through.** LIFEOS-064 gave a Reflection
+  the ref kind `formation`, so every Week in Review link to one resolved
+  `/formation/<id>` — a route that looks up formation SESSIONS and 404s. A
+  Reflection has no detail page at all (`buildFormationTimeline` gives it no
+  href for that reason), so both the timeline and the lexical index now point at
+  `/formation/timeline`, where its text is actually shown. Reflections and
+  Events joined the existing command index rather than getting one of their own;
+  the `formation` label became "Reflection sessions" so two different records
+  stop sharing one word.
+
+  **Validation.** Full regression **3495/3495 across 36 suites** (new
+  memory/query suite 135/135); browser smoke **44/44** first pass; smokes
+  066/067/068 at 54/54, 35/35, 30/30; migration rehearsal 96/96 **still at
+  0042**; release audit 17/17 including `migration count == 42`;
+  audit:security PASS; tsc clean; eslint 0 errors. Performance at realistic
+  scale (1,200 actions, 400 events, 600 notes, 200 reflections, 40 projects):
+  a week, a month and a year all answer inside budget with the indexes reused.
+
+  **Durable lesson.** Printing the real answers before writing a single
+  assertion found six wording and grouping defects that 135 green assertions
+  would have happily preserved — an attribution calling an Action "a note", a
+  summary whose counts added to fewer items than it listed, a wait printed twice
+  under two dates. And two of the four initial test failures were the TEST being
+  wrong, not the product: a limitation that says "no record of whether you
+  attended" is the honest sentence, and a regex scanning it for the word
+  "attended" fails the honest sentence while passing the dishonest one.

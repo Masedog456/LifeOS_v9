@@ -354,7 +354,12 @@ export function buildAutobiographicalTimeline(
     out.push({
       at: r.createdAt, day: dayOf(r.createdAt), kind: "reflection_captured",
       title: (r.response || r.prompt).trim(),
-      recordRef: { kind: "formation", id: r.id },
+      // `reflection`, not `formation`. LIFEOS-064 used the formation kind here
+      // and the link it produced 404'd: `/formation/<id>` resolves formation
+      // SESSIONS, and a Reflection is a different record with a different id
+      // space. LIFEOS-069 §16 forbids dead-end prose, and `lib/command/records`
+      // now knows where a Reflection actually opens.
+      recordRef: { kind: "reflection", id: r.id },
       evidence: "reflection.createdAt",
       origin: classifyOrigin({ kind: "reflection", text: r.response }),
     });

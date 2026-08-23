@@ -12,6 +12,19 @@ import { noteDisplayTitle } from "@/lib/notes/notes";
 import { CONSTITUTION_KIND_LABEL } from "@/types/mvp";
 import type { StoreState } from "@/types/mvp";
 import type { SearchEntry } from "@/lib/command/types";
+import { todayKey } from "@/lib/reviews/dates";
+
+/**
+ * Where an Event opens.
+ *
+ * There is no Event detail page, and inventing one is not this sprint's job. So
+ * a result points at the surface that actually shows it: Today for anything
+ * still ahead, Memory — where Week in Review lists what was on the calendar —
+ * for anything past. Both are real destinations; neither is a dead end.
+ */
+function eventHref(date: string): string {
+  return date >= todayKey() ? "/today" : "/memory";
+}
 
 /** Display order for grouped results (also the group label source). */
 export const RECORD_LABELS: Record<string, string> = {
@@ -24,7 +37,12 @@ export const RECORD_LABELS: Record<string, string> = {
   synthesis: "Syntheses",
   tension: "Tensions",
   decision: "Decisions",
-  formation: "Reflections",
+  // Two different records, two different words. A `formation` is a guided
+  // session with a title and a status; a `reflection` is a prompt the user
+  // answered. Labelling both "Reflections" made one of them unfindable.
+  formation: "Reflection sessions",
+  reflection: "Reflections",
+  event: "Calendar",
   knowledge_project: "Authoring",
   source: "Library",
   inquiry: "Questions",
@@ -44,8 +62,8 @@ export const RECORD_LABELS: Record<string, string> = {
 
 /** Deterministic group ordering for search output (index = priority). */
 export const RECORD_ORDER: string[] = [
-  "action", "daily_review", "goal", "project", "milestone", "action_template", "workspace", "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
-  "synthesis", "tension", "decision", "inquiry", "formation", "knowledge_project", "source",
+  "action", "daily_review", "event", "goal", "project", "milestone", "action_template", "workspace", "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
+  "synthesis", "tension", "decision", "inquiry", "reflection", "formation", "knowledge_project", "source",
   "passage", "highlight", "annotation",
 ];
 
@@ -99,6 +117,35 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
   for (const d of state.decisions) add("decision", d.id, d.title, { body: `${d.title} ${d.question}`, status: d.status, updatedAt: d.updatedAt, href: `/decisions/${d.id}` });
   for (const i of state.inquiries) add("inquiry", i.id, i.question, { body: i.question, status: i.status, updatedAt: i.updatedAt, href: `/inquiry/${i.id}` });
   for (const f of state.formationSessions) add("formation", f.id, f.title || f.prompt, { body: `${f.title} ${f.prompt}`, status: f.status, updatedAt: f.updatedAt, href: `/formation/${f.id}` });
+
+  // Reflections join the SAME index (LIFEOS-069 §5). They were the largest body
+  // of user-authored text in the store that global search could not see, which
+  // made "what did I say about X?" unanswerable for exactly the records most
+  // likely to contain the answer.
+  //
+  // The user's RESPONSE is the title. The prompt is Conqify's words, so leading
+  // with it would put a generated sentence where the person's own belongs; it
+  // stays in the body, where it is still searchable.
+  for (const r of state.reflections ?? []) {
+    const annotations = (r.annotations ?? []).map((a) => a.text ?? "").join(" ");
+    add("reflection", r.id, snip(r.response || r.prompt, 80), {
+      body: `${r.response} ${r.prompt} ${r.context ?? ""} ${annotations}`,
+      // A Reflection has no detail page — `buildFormationTimeline` gives it no
+      // href for that reason. The formation timeline is where its text is
+      // actually displayed, so that is where a result opens. Linking to
+      // `/formation/<id>` would 404: that route looks up formation SESSIONS.
+      updatedAt: r.createdAt, href: "/formation/timeline",
+    });
+  }
+
+  // Events join it too. A calendar entry is a recorded fact about a life, and
+  // "what was scheduled about X?" is a question the index could not answer.
+  for (const ev of state.events ?? []) {
+    add("event", ev.id, ev.title, {
+      body: `${ev.title} ${ev.notes ?? ""}`,
+      status: ev.date, updatedAt: ev.updatedAt, href: eventHref(ev.date),
+    });
+  }
   for (const k of state.knowledgeProjects) add("knowledge_project", k.id, k.title, { body: k.title, status: k.status, updatedAt: k.updatedAt, href: `/author/${k.id}` });
   for (const s of state.sources) add("source", s.id, s.title, { body: `${s.title} ${s.author ?? ""}`, aliases: s.author ? [s.author] : [], status: s.status, updatedAt: s.addedAt, href: `/library/${s.id}` });
 
@@ -211,6 +258,8 @@ export function resolveRecord(state: StoreState, kind: string, id: string): { ti
     case "decision": { const d = state.decisions.find((x) => x.id === id); return d && { title: d.title, href: `/decisions/${d.id}`, status: d.status }; }
     case "inquiry": { const i = state.inquiries.find((x) => x.id === id); return i && { title: snip(i.question, 60), href: `/inquiry/${i.id}`, status: i.status }; }
     case "formation": { const f = state.formationSessions.find((x) => x.id === id); return f && { title: f.title || snip(f.prompt, 60), href: `/formation/${f.id}`, status: f.status }; }
+    case "reflection": { const r = (state.reflections ?? []).find((x) => x.id === id); return r && { title: snip(r.response || r.prompt, 60), href: "/formation/timeline" }; }
+    case "event": { const e = (state.events ?? []).find((x) => x.id === id); return e && { title: e.title, href: eventHref(e.date), status: e.date }; }
     case "knowledge_project": { const k = state.knowledgeProjects.find((x) => x.id === id); return k && { title: k.title, href: `/author/${k.id}`, status: k.status }; }
     case "source": { const s = state.sources.find((x) => x.id === id); return s && { title: s.title, href: `/library/${s.id}`, status: s.status }; }
     case "document": { const d = state.documents.find((x) => x.id === id); return d && { title: d.title, href: `/document/${d.id}`, status: d.status }; }
