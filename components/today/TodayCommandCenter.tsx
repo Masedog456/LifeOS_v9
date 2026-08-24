@@ -278,7 +278,15 @@ export default function TodayCommandCenter() {
       </Section>
 
       {/* §28: Today reflects what was RECORDED. No data is not no life activity. */}
-      <p data-coverage className="px-1 text-[11px] text-zinc-400">{COVERAGE_NOTE}</p>
+      <p data-coverage className="px-1 text-[11px] text-zinc-400">
+        {COVERAGE_NOTE}{" "}
+        {/* LIFEOS-064 §19. One link, and nothing else — Today stays present
+            tense. Dropping the week's history onto this page would undo the
+            single thing LIFEOS-062 got right about it. */}
+        <Link href="/memory" data-review-week className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300">
+          Review this week
+        </Link>
+      </p>
     </div>
   );
 }

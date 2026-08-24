@@ -128,24 +128,49 @@ export async function runDogfoodSelfTests(): Promise<SelfTestReport> {
     CAPTURE_PROBES.every((p) => read(p.text).candidates.every(
       (c) => !(FORBIDDEN_CANDIDATE_KINDS as readonly string[]).includes(c.kind))));
 
-  // ============================================ 5. gaps that are STILL OPEN
+  // ================================= 5. the LIFEOS-063 gaps, and what closed
   //
-  // Each of these fails the day the gap closes. That is intentional: when one
-  // goes red, the friction ledger in EXECUTIVE_LOOP_ACCEPTANCE_063.md is out of
-  // date and should be corrected in the same change.
+  // These began as LIMITATION assertions — each pinned a gap the dogfood found
+  // and each was written to fail the day the gap closed, so the friction ledger
+  // in EXECUTIVE_LOOP_ACCEPTANCE_063.md could never quietly go stale.
+  //
+  // ## The transition (LIFEOS-066 §32)
+  //
+  // Four of them went red in LIFEOS-066, which is what they were for. They are
+  // NOT deleted and they are NOT weakened: each is rewritten as the AFFIRMATIVE
+  // assertion of the behaviour that replaced it, keeping the original FR number
+  // so the ledger entry and the test still point at each other.
+  //
+  //   FR-4   was: "Replace the kitchen tap washer" is a Note
+  //          now: it is an Action                                    → 5.1
+  //   FR-5   was: "Dentist Thursday at 2:30" is a Note
+  //          now: it is an Event                                     → 5.2
+  //   FR-6   was: a leading "Still " defeats waiting detection
+  //          now: it does not                                        → 5.4
+  //   FR-12  was: waitingOn swallows the object of the wait
+  //          now: who and what are separate fields                   → 5.6
+  //
+  // FR-10 (5.7) is untouched and still fails-on-close: nothing this sprint
+  // changed how "tonight" is stripped from a title, so pinning it still says
+  // something true.
 
-  eq("5.1 GAP FR-4 — a verb outside ACTION_VERBS is still a Note ('Replace…')",
-    kinds("Replace the kitchen tap washer")[0], "note");
-  eq("5.2 GAP FR-5 — a bare appointment is still a Note ('Dentist Thursday at 2:30')",
-    kinds("Dentist Thursday at 2:30")[0], "note");
-  eq("5.3 GAP FR-5 — an event NOUN is still what makes it an Event",
+  eq("5.1 FR-4 CLOSED — an everyday errand verb is an Action ('Replace…')",
+    kinds("Replace the kitchen tap washer")[0], "action");
+  eq("5.2 FR-5 CLOSED — a bare appointment WITH A TIME is an Event",
+    kinds("Dentist Thursday at 2:30")[0], "event");
+  eq("5.3 FR-5 — an event NOUN still makes it an Event",
     kinds("Dentist appointment Thursday at 2:30")[0], "event");
-  eq("5.4 GAP FR-6 — a leading 'Still ' still defeats waiting detection",
-    kinds("Still waiting on Priya for the quote")[0], "note");
-  eq("5.5 GAP FR-6 — the same sentence without it is detected",
+  // The heuristic stayed NARROW (§5): the clock is what separates an
+  // appointment from a reminder to ring them, and without one this is still a
+  // note rather than a guessed event.
+  eq("5.3b FR-5 — the same words with NO time are not an Event",
+    kinds("Dentist Thursday")[0], "note");
+  eq("5.4 FR-6 CLOSED — a leading 'Still ' no longer defeats waiting detection",
+    kinds("Still waiting on Priya for the quote")[0], "waiting");
+  eq("5.5 FR-6 — the same sentence without it is still detected",
     kinds("Waiting on Priya for the quote")[0], "waiting");
-  eq("5.6 GAP FR-12 — waitingOn still swallows the object",
-    first("chase Priya about the quote").fields.waitingOn, "Priya about the quote");
+  eq("5.6 FR-12 CLOSED — waitingOn holds the PERSON, not the whole phrase",
+    first("chase Priya about the quote").fields.waitingOn, "Priya");
   ok("5.7 GAP FR-10 — 'tonight' is still left in the title",
     /tonight/i.test(first("Dinner with Sam tonight at 7:30").fields.title ?? ""));
 
@@ -276,13 +301,27 @@ export async function runDogfoodSelfTests(): Promise<SelfTestReport> {
     eq("7.26 'what am I waiting on' is answerable",
       run.weekReview.find((a) => /waiting/.test(a.question))?.verdict, "answerable");
 
-    // FR-4's downstream cost, pinned. See the scenario comment on this step.
+    // FR-4's downstream cost — CLOSED in LIFEOS-066 (§32).
+    //
+    // The original pair pinned the damage: "Replace the kitchen tap washer"
+    // became a Note, a Note has no due date, and so on Friday there was nothing
+    // to defer. One step in the scripted week failed, and 7.27/7.28 asserted
+    // that it did. Now the sentence is an Action, so the deferral works and the
+    // week runs clean — the assertions become the affirmative statement of it.
     const failed = days.flatMap((d) => d.steps).filter((s) => !s.ok);
-    eq("7.27 GAP FR-4 — the tap washer still cannot be deferred four days later", failed.length, 1);
-    ok("7.28 …and that is the ONLY step in the week that fails",
-      failed.every((s) => /kitchen tap/i.test(s.detail)), JSON.stringify(failed.map((s) => s.detail)));
+    ok("7.27 FR-4 CLOSED — every scripted step in the week now succeeds",
+      failed.length === 0, JSON.stringify(failed.map((s) => s.detail)));
+    ok("7.28 FR-4 CLOSED — specifically, the tap washer WAS deferred four days later",
+      days.flatMap((d) => d.steps).some((s) => s.ok && /kitchen tap/i.test(s.detail)),
+      JSON.stringify(days.flatMap((d) => d.steps).filter((s) => /kitchen tap/i.test(s.detail))));
 
-    eq("7.29 three captures had to fall back to the escape hatch", run.escapeHatchCaptures, 3);
+    // Three captures used to need the "keep the whole thing as a note" escape
+    // hatch because the parser could not place them. Two of the three — the tap
+    // washer and the bare dentist appointment — are now placed correctly.
+    //
+    // The remaining one is NOT declared fixed. It is asserted exactly, so that
+    // a future sprint closing it turns this red the same way FR-4 did.
+    eq("7.29 one capture still falls back to the escape hatch", run.escapeHatchCaptures, 1);
   }
 
   const passed = results.filter((r) => r.pass).length;

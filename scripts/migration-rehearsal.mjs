@@ -50,6 +50,15 @@ function migrationFiles() {
 
 /** Bootstrap the auth shim every migration expects (auth.users + auth.uid()). */
 const AUTH_BOOTSTRAP = `
+-- Supabase API roles. Modelled here (like auth and storage below) so the
+-- REVOKEs in 0042 are actually exercised rather than skipped: the point of
+-- those statements is that anon and authenticated end up with no grant on the
+-- private credential schema, and that is only provable if the roles exist.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
+end $$;
 create schema if not exists auth;
 create table if not exists auth.users (id uuid primary key);
 create or replace function auth.uid() returns uuid language sql stable as $$
@@ -116,20 +125,25 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 40, `found ${files.length} migration files, expected 40`);
+  ok("migration files present", files.length === 42, `found ${files.length} migration files, expected 42`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
   applyChain("rc_clean", files);
   const tableCount = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
   // 62 since LIFEOS-061 added exactly two: `events` and `recurrence_completions`.
-  ok("clean apply 0001->0040 (62 public tables)", tableCount === 62, `got ${tableCount} public tables`);
+  // LIFEOS-067's 0041 adds COLUMNS to `events` and no table at all — a provider
+  // is transport, not a life concept, so there is no second event table.
+  // LIFEOS-068's 0042 adds TWO public tables (integration_accounts,
+  // integration_oauth_states) and one PRIVATE one, which is not counted here
+  // because it is deliberately outside `public` — see the credential checks below.
+  ok("clean apply 0001->0042 (64 public tables)", tableCount === 64, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
   applyChain("rc_clean", files);
   const tableCount3 = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("idempotent x3 (stable table count)", tableCount3 === 62, `after 3x got ${tableCount3}`);
+  ok("idempotent x3 (stable table count)", tableCount3 === 64, `after 3x got ${tableCount3}`);
 
   // 3) RLS enabled on every public table + each has policies.
   const noRls = psql("rc_clean", `select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity=false order by 1;`).trim();
@@ -166,10 +180,11 @@ function run() {
     applyChain(db, first);
     applyChain(db, rest);
     const c = Number(psql(db, "select count(*) from pg_tables where schemaname='public';").trim());
-    // 60, not 58: LIFEOS-056 added `constitution_elements` and
-    // `constitution_revisions` (0038). The property under test is unchanged — an upgraded
-    // database must reach exactly the same table count as a clean install.
-    ok(`checkpoint upgrade ${id} (through ${through})`, c === 62, `reached ${c} tables`);
+    // The property under test never changes — an upgraded database must reach
+    // exactly the same table count as a clean install — only the number moves as
+    // planned migrations add tables. 64 since LIFEOS-068's 0042 added
+    // `integration_accounts` and `integration_oauth_states`.
+    ok(`checkpoint upgrade ${id} (through ${through})`, c === 64, `reached ${c} tables`);
     psql("postgres", `drop database if exists ${db} with (force);`);
   }
 
@@ -298,6 +313,150 @@ function run() {
       tryA(`insert into public.events(id, title, date, recurrence) values (gen_random_uuid(), 'Broken rule', current_date, '{"frequency":"fortnightly"}'::jsonb);`));
     const loads = asA(`select count(*) from public.events;`).trim();
     ok("061: and every event row still loads", Number(loads) >= 2, `${loads} rows`);
+
+    // 0041 — external calendar identity (LIFEOS-067). Both guarantees are
+    // enforced in the DATABASE, because the TypeScript that writes these rows is
+    // exactly the thing a bug would live in.
+    //
+    // The unique index is only meaningful if identity is COMPLETE: Postgres
+    // treats NULLs as distinct, so a row with a null calendar id would import
+    // twice and the index would not notice. That is what the CHECK prevents.
+    ok("067: a complete external identity is accepted",
+      tryA(`insert into public.events(id, title, date, all_day, external_provider, external_calendar_id, external_event_id)
+            values (gen_random_uuid(), 'Dentist', current_date, true, 'google', 'primary@example.com', 'evt-1');`));
+    ok("067: provider + event id with NO calendar id is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_provider, external_event_id)
+             values (gen_random_uuid(), 'Half', current_date, true, 'google', 'evt-2');`));
+    ok("067: a calendar id with no provider is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_calendar_id)
+             values (gen_random_uuid(), 'Half', current_date, true, 'primary@example.com');`));
+    ok("067: an external_updated_at with no identity is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_updated_at)
+             values (gen_random_uuid(), 'Orphan stamp', current_date, true, now());`));
+    ok("067: importing the SAME external event twice is refused",
+      !tryA(`insert into public.events(id, title, date, all_day, external_provider, external_calendar_id, external_event_id)
+             values (gen_random_uuid(), 'Dentist again', current_date, true, 'google', 'primary@example.com', 'evt-1');`));
+    ok("067: the same event id in a DIFFERENT calendar is a different event",
+      tryA(`insert into public.events(id, title, date, all_day, external_provider, external_calendar_id, external_event_id)
+            values (gen_random_uuid(), 'Work dentist', current_date, true, 'google', 'work@example.com', 'evt-1');`));
+    // The partial index must not constrain purely local events, which are the
+    // overwhelming majority and all carry four NULLs.
+    ok("067: two local events with no identity never collide",
+      tryA(`insert into public.events(id, title, date, all_day) values (gen_random_uuid(), 'Local A', current_date, true);`)
+      && tryA(`insert into public.events(id, title, date, all_day) values (gen_random_uuid(), 'Local B', current_date, true);`));
+    // Unlinking (disconnect) must be a legal transition, not a constraint fight.
+    ok("067: clearing identity on disconnect is accepted",
+      tryA(`update public.events set external_provider = null, external_calendar_id = null,
+            external_event_id = null, external_updated_at = null where external_event_id = 'evt-1' and external_calendar_id = 'work@example.com';`));
+    // And a token must never end up here. Asserted as an absence of columns.
+    const tokenCols = asA(`select count(*) from information_schema.columns
+      where table_schema='public' and table_name='events'
+      and (column_name ilike '%token%' or column_name ilike '%secret%' or column_name ilike '%refresh%');`).trim();
+    ok("067: no credential-shaped column exists on events", tokenCols === "0", `${tokenCols} columns`);
+
+    // 0042 — integration account linking (LIFEOS-068). The guarantees that
+    // matter here are about REACHABILITY and SECRETS, so they are proved
+    // against real Postgres rather than trusted to the client.
+    const IA = "eeeeeeee-0000-0000-0000-00000000000e";
+
+    // The credential table lives OUTSIDE `public`, which is the whole point:
+    // PostgREST exposes `public`, so a table that is not in it has no REST path.
+    const credInPublic = asA(`select count(*) from information_schema.tables
+      where table_schema='public' and table_name='integration_credentials';`).trim();
+    ok("068: the credential table is NOT in the public schema", credInPublic === "0", `${credInPublic} found`);
+    // Asked as the SUPERUSER, because `information_schema` only shows what the
+    // querying role may reach — and the app role deliberately may not reach this
+    // table at all. That invisibility is asserted separately, just below.
+    const credExists = psql("rc_clean", `select count(*) from pg_tables
+      where schemaname='private' and tablename='integration_credentials';`).trim();
+    ok("068: …it exists in the private schema", credExists === "1", `${credExists} found`);
+    // The app role cannot even SEE it — the strongest form of the guarantee.
+    const credVisible = asA(`select count(*) from information_schema.tables
+      where table_schema='private' and table_name='integration_credentials';`).trim();
+    ok("068: …and the application role cannot see it at all", credVisible === "0", `${credVisible} visible`);
+    ok("068: …nor select from it",
+      !tryA(`select count(*) from private.integration_credentials;`));
+
+    // No plaintext token column can exist even by mistake.
+    const plaintextCols = asA(`select count(*) from information_schema.columns
+      where table_schema='private' and table_name='integration_credentials'
+      and column_name in ('access_token','refresh_token','id_token','client_secret','token','secret');`).trim();
+    ok("068: no plaintext token column exists on the credential table", plaintextCols === "0", `${plaintextCols} columns`);
+    const publicSecretCols = asA(`select count(*) from information_schema.columns
+      where table_schema='public'
+      and (column_name in ('access_token','refresh_token','id_token','client_secret')
+           or column_name ilike '%client_secret%');`).trim();
+    ok("068: no secret-shaped column exists anywhere in public", publicSecretCols === "0", `${publicSecretCols} columns`);
+
+    // The API roles must not be able to reach the private schema at all.
+    const anonUsage = asA(`select count(*) from information_schema.role_usage_grants
+      where object_schema='private' and grantee in ('anon','authenticated');`).trim();
+    ok("068: the API roles hold no grant on the private schema", anonUsage === "0", `${anonUsage} grants`);
+    const credGrants = asA(`select count(*) from information_schema.role_table_grants
+      where table_schema='private' and grantee in ('anon','authenticated');`).trim();
+    ok("068: …and none on the credential table", credGrants === "0", `${credGrants} grants`);
+
+    // Status is a closed set, and `connected` must be fully identified.
+    asA(`insert into public.integration_accounts(id, provider, status) values ('${IA}', 'google', 'pending');`);
+    ok("068: a pending integration with no provider account id is legal",
+      asA(`select count(*) from public.integration_accounts where id = '${IA}';`).trim() === "1");
+    ok("068: an unknown status is refused",
+      !tryA(`update public.integration_accounts set status = 'banana' where id = '${IA}';`));
+    ok("068: connecting without a provider account id is refused",
+      !tryA(`update public.integration_accounts set status = 'connected' where id = '${IA}';`));
+    ok("068: connecting WITH an identity and a date is accepted",
+      tryA(`update public.integration_accounts set status='connected', provider_account_id='goog-1', connected_at=now() where id = '${IA}';`));
+
+    // One canonical link per provider account (§18).
+    ok("068: a second link to the SAME provider account is refused",
+      !tryA(`insert into public.integration_accounts(id, provider, provider_account_id, status, connected_at)
+             values (gen_random_uuid(), 'google', 'goog-1', 'connected', now());`));
+    ok("068: a different provider account is a different link",
+      tryA(`insert into public.integration_accounts(id, provider, provider_account_id, status, connected_at)
+            values (gen_random_uuid(), 'google', 'goog-2', 'connected', now());`));
+    ok("068: several pending rows can coexist",
+      tryA(`insert into public.integration_accounts(id, provider, status) values (gen_random_uuid(), 'google', 'pending');`)
+      && tryA(`insert into public.integration_accounts(id, provider, status) values (gen_random_uuid(), 'google', 'pending');`));
+
+    // OAuth state: hashed, expiring, one-time.
+    const SH = "a".repeat(64);
+    ok("068: a state row requires a sha256-shaped hash",
+      !tryA(`insert into public.integration_oauth_states(state_hash, provider, verifier_ciphertext, verifier_iv, verifier_tag, verifier_key_version, expires_at)
+             values ('not-a-hash', 'google', 'c', 'i', 't', 1, now() + interval '10 minutes');`));
+    ok("068: a valid state row is accepted",
+      tryA(`insert into public.integration_oauth_states(state_hash, provider, verifier_ciphertext, verifier_iv, verifier_tag, verifier_key_version, expires_at)
+            values ('${SH}', 'google', 'c', 'i', 't', 1, now() + interval '10 minutes');`));
+    ok("068: a state that expires before it was created is refused",
+      !tryA(`insert into public.integration_oauth_states(state_hash, provider, verifier_ciphertext, verifier_iv, verifier_tag, verifier_key_version, expires_at)
+             values ('${"b".repeat(64)}', 'google', 'c', 'i', 't', 1, now() - interval '1 minute');`));
+    // The atomic claim: exactly one of two identical statements can win.
+    const first = asA(`update public.integration_oauth_states set consumed_at = now()
+      where state_hash = '${SH}' and consumed_at is null and expires_at > now() returning state_hash;`).trim();
+    const second = asA(`update public.integration_oauth_states set consumed_at = now()
+      where state_hash = '${SH}' and consumed_at is null and expires_at > now() returning state_hash;`).trim();
+    ok("068: a state can be claimed exactly once", first !== "" && second === "", `first='${first}' second='${second}'`);
+
+    // §16/§29. Deleting the user takes metadata, states and credentials with it.
+    // Seeded as the SUPERUSER on purpose: the application role cannot reach this
+    // schema, which is the guarantee asserted above. A privileged connection is
+    // what a future credential vault would use, and it is what the cascade
+    // behaviour below has to be proved against.
+    const asSuper = (sql) => psql("rc_clean", sql);
+    const trySuper = (sql) => { try { psql("rc_clean", sql); return true; } catch { return false; } };
+    asSuper(`insert into private.integration_credentials(integration_account_id, access_ciphertext, access_iv, access_tag, key_version)
+             values ('${IA}', 'c', 'i', 't', 1);`);
+    ok("068: a refresh envelope must be complete or absent",
+      !trySuper(`update private.integration_credentials set refresh_ciphertext = 'c' where integration_account_id = '${IA}';`));
+    ok("068: …and a complete one is accepted",
+      trySuper(`update private.integration_credentials
+                set refresh_ciphertext='c', refresh_iv='i', refresh_tag='t' where integration_account_id = '${IA}';`));
+    psql("rc_clean", `delete from auth.users where id = '${A}';`);
+    const leftAccounts = psql("rc_clean", `select count(*) from public.integration_accounts;`).trim();
+    const leftStates = psql("rc_clean", `select count(*) from public.integration_oauth_states;`).trim();
+    const leftCreds = psql("rc_clean", `select count(*) from private.integration_credentials;`).trim();
+    ok("068: deleting the user removes integration metadata", leftAccounts === "0", `${leftAccounts} rows`);
+    ok("068: …and their pending OAuth states", leftStates === "0", `${leftStates} rows`);
+    ok("068: …and every credential — no orphaned secret survives", leftCreds === "0", `${leftCreds} rows`);
     ok("061: a non-object recurrence is refused",
       !tryA(`insert into public.events(id, title, date, recurrence) values (gen_random_uuid(), 'Bad type', current_date, '"weekly"'::jsonb);`));
 

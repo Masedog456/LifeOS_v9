@@ -267,16 +267,72 @@ const OCCURRENCE_NOUNS =
   /\b(appointment|meeting|dinner|lunch|breakfast|brunch|class|lecture|session|call\s+with|interview|party|concert|game|match|flight|train|rehearsal|practice\s+with|standup|stand-up|checkup|check-up|ceremony|service|wedding|birthday|anniversary|reunion|conference|workshop|show|screening|visit\s+from)\b/i;
 
 /**
+ * Places and people you have an appointment WITH (LIFEOS-066 §4).
+ *
+ * Nobody says "dentist appointment Thursday at 2:30". They say "Dentist
+ * Thursday at 2:30", and LIFEOS-063 found that the shorter, commoner sentence
+ * became a note with its date thrown away.
+ *
+ * These are heads of things that HAPPEN TO YOU at a time — a practitioner, a
+ * venue, a named social occasion. Deliberately not a general noun list: the
+ * whole safety of this path is that "Paper Friday at 5" contains no word from
+ * here and so stays ambiguous (§5).
+ */
+const APPOINTMENT_HEADS =
+  /\b(dentist|dentists|doctor|doctors|gp|therapy|therapist|counselling|counseling|physio|physiotherapy|chiropractor|optician|optometrist|orthodontist|hygienist|haircut|hairdresser|barber|massage|scan|x-ray|xray|bloods|blood\s+test|surgery|consultation|checkup|check-up|mot|inspection|viewing|fitting|induction)\b/i;
+
+/**
+ * Heads that only name a happening when they lead the phrase.
+ *
+ * "Coffee Tuesday at 10" is a meeting; "the new coffee machine arrives at 9" is
+ * not. These words are ordinary nouns elsewhere in a sentence, so they are
+ * anchored — while the appointment heads above may sit behind a modifier,
+ * because "car inspection" and "blood test" are how those are actually said.
+ */
+const SOCIAL_HEADS =
+  /^(?:the\s+|my\s+|our\s+)?(coffee|drinks|dinner|lunch|breakfast|brunch|class|lecture|seminar|tutorial|rehearsal|training|standup|stand-up|retro|retrospective|1:1|one-on-one|assembly)\b/i;
+
+/** The first few words, where an appointment head is allowed to hide. */
+function headZone(t: string): string {
+  return t.split(/\s+/).slice(0, 3).join(" ");
+}
+
+/**
+ * "…with <Somebody>" — a person turns an otherwise plain noun into a meeting.
+ *
+ * "Coffee with Sarah", "Meeting with Alex", "Call with the bank". Requires a
+ * capitalised name or a determiner-led noun, so "with luck" and "with the flu"
+ * do not qualify.
+ */
+const WITH_SOMEONE = /\bwith\s+(?:[A-Z][\w'-]+|the\s+[a-z]+)/;
+
+/**
+ * Words that mean the sentence is ABOUT a happening rather than being one.
+ *
+ * "Meeting notes from Tuesday" contains a meeting and a day and is a document
+ * (§26F). "From" is retrospective; notes, minutes and an agenda are artefacts.
+ */
+const ABOUT_A_HAPPENING = /\b(notes?|minutes|agenda|summary|recap|write-?up|takeaways?|debrief)\b|\bfrom\s+(?:last\s+)?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|the\s+meeting)\b/i;
+
+/**
  * Does this segment describe something that HAPPENS (an Event) rather than
  * something to DO (an Action)?
  *
  * Order matters. A leading step verb wins outright: "call with Sarah" is an
  * occurrence noun, but "Call Sarah at 3" starts with a step verb and is a task.
+ *
+ * `hasTime` is what makes the bare-noun path safe. "Dentist Thursday at 2:30"
+ * names a moment; "Dentist" on its own is a reminder to ring them. A named
+ * occurrence noun ("dinner with Mum Friday") never needed the clock and still
+ * does not — only the shorter, riskier shape does.
  */
-export function looksLikeEvent(text: string): boolean {
+export function looksLikeEvent(text: string, hasTime = false): boolean {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   if (!t) return false;
   if (STEP_VERBS.test(t)) return false;
+  if (ABOUT_A_HAPPENING.test(t)) return false;
   if (OCCURRENCE_NOUNS.test(t)) return true;
+  // §4/§5: the bare-noun path, gated on an explicit time.
+  if (hasTime && (APPOINTMENT_HEADS.test(headZone(t)) || SOCIAL_HEADS.test(t) || WITH_SOMEONE.test(t))) return true;
   return false;
 }

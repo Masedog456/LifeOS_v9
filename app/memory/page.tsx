@@ -16,6 +16,8 @@ import Link from "next/link";
 import { useStore } from "@/lib/mvpStore";
 import { buildLivingMemory, type MemoryCandidate, type MemoryKind } from "@/lib/memory/living";
 import ExplanationDetail from "@/components/ExplanationDetail";
+import WeekInReview from "@/components/memory/WeekInReview";
+import AskMemory from "@/components/memory/AskMemory";
 
 const KIND_LABEL: Record<MemoryKind, string> = {
   not_revisited: "Not revisited",
@@ -50,11 +52,31 @@ export default function MemoryPage() {
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Living Memory</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Memory</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Meaningful ideas from your own history, resurfaced by transparent rules. Every item says exactly why it appeared — no opaque suggestions, nothing stored.
+          What happened, and what is worth coming back to — both read straight from your own records. Nothing here is stored; every line is a way back to the thing it describes.
         </p>
       </header>
+
+      {/* LIFEOS-069 §20. One query box on the page that already exists, above
+          the browse mode it shares its evidence with — not a /ask-life route
+          and not a chat surface. Asking is read-only; nothing here is stored. */}
+      <section className="mb-8">
+        <AskMemory />
+      </section>
+
+      {/* LIFEOS-064. Hosted here rather than behind a new nav destination:
+          LIFEOS-063 counted 40 destinations of which a full week of ordinary
+          use touched four, and "Memory" is already this page's word for looking
+          backwards. */}
+      <section className="mb-8">
+        <WeekInReview />
+      </section>
+
+      <h2 className="mb-2 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Worth revisiting</h2>
+      <p className="mb-4 text-[11px] text-zinc-400">
+        Meaningful ideas resurfaced by transparent rules. Every item says exactly why it appeared.
+      </p>
 
       {candidates.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm text-zinc-500 dark:border-white/[.12]">

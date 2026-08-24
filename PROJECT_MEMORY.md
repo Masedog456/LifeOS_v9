@@ -4260,3 +4260,574 @@ connectors require repeated beta demand **and** stable API support, both.
   pass asking "and WHY is that wrong?" removed two false ones before they reached
   the report. Running the thing is necessary and not sufficient — explaining the
   output is the other half.
+
+- **LIFEOS-064 — Week in Review (autobiographical memory, read-only).** The gap
+  LIFEOS-063 named — *"Conqify has a present tense and no past tense"* — closed
+  as a **projection**, not a store. `buildAutobiographicalTimeline(state, range)`
+  and `buildWeekReview(state, rangeKind)` in `lib/memory/week.ts`, surfaced on
+  `/memory`. **Zero migrations. Zero new store domains. Zero new nav
+  destinations. Zero new user-facing nouns. No AI.**
+
+  **Confirmed principles.**
+  - *Autobiographical memory is a projection over recorded life.* Deriving it
+    rather than storing it means deleting a source removes its memory for free,
+    editing one updates it for free, and a derived sentence can never be
+    mistaken for something the user wrote. All three are asserted.
+  - *Created ≠ completed.* Separate kinds, never merged, never summed. Ten
+    actions created and never touched appear in Added and in nothing else.
+  - *Scheduled ≠ attended.* The kind is `event_scheduled`; there is no
+    `event_happened`, because no attendance field exists anywhere in the schema.
+    The section is headed "On the calendar" and states the limitation.
+  - *Touched ≠ progressed.* `Project` carries `createdAt`/`updatedAt` and **no
+    history at all**, so a project line counts dated linked records and the
+    section says Conqify keeps no history of project changes.
+  - *Derived memory ≠ user authorship.* Every line carries the provenance of its
+    source; a note with `fromAiText` is recorded in the timeline but never
+    presented under "In your own words".
+  - *No record ≠ nothing happened.* The empty state says nothing was **recorded**,
+    and `FORBIDDEN_REVIEW_WORDS` is asserted against everything the product
+    writes — but never against the user's own text.
+  - *Week review works with no AI, offline, with no key, transmitting nothing.*
+
+  **The §4 evidence audit, which decided the architecture.** `buildActivityIndex`
+  already flattens action and capture history — including `action_completed`,
+  `action_deferred` (with its target day) and `action_waiting` (with the person).
+  So **§12's open question resolved positively: the deferral transition IS
+  recorded**, and "deferred this week" is a fact rather than a guess from the
+  current `deferredUntil`. What the index does NOT carry: **events, notes and
+  projects — zero entries for all three**, because it predates LIFEOS-060 and
+  -061. Those are read directly here rather than added to the shared index,
+  because extending it would change what `dormancyView`, `periodSummary` and
+  Today's Return card consider a record.
+
+  **Recurring completions are distinguished by their detail.** `completeOccurrence`
+  writes a `completed` history entry whose `detail` is the OCCURRENCE DATE.
+  Reading it as an ordinary completion would claim a standing responsibility had
+  ended; the timeline splits `recurring_completion` from `completed_action` on
+  exactly that field.
+
+  **Two bugs found by printing real output rather than reasoning about it.**
+  (1) The deterministic summary counted `added`, which is CAPPED for readability
+  — so the headline number would silently become "added 12 actions" for a week
+  with thirty. It now counts the timeline; the section is a bounded view, the
+  sentence is the fact. (2) Current state leaked into past ranges: a wait that
+  began after the period, and actions created after it, both appeared under
+  "last week". Both are now filtered by the range end, and the residue — status
+  is *current* status — is stated as a limitation rather than silently wrong.
+
+  **Language rules apply to the product, not the person.** The torture week
+  deliberately contains a user reflection reading *"Good week for sleep."* The
+  review must neither adopt that language itself nor censor the user for using
+  it, and the browser smoke asserts both halves.
+
+  **Product-claim retest (LIFEOS-063 §28).** *"What happened this week?"*
+  **FAIL → PASS**. *"What did I accomplish?"*, *"What remains open?"*, *"What am
+  I waiting on?"* all **PASS**. *"What changed?"* stays **PARTIAL**: additions,
+  deferrals, completions and new waits are reported; what an edit changed is not,
+  because notes and projects carry no edit log.
+
+  **Validation.** Full regression **2799/2799 across 31 suites** (week review
+  90/90, dogfood 81/81); integration 64/64; browser smokes 58/58 (064), 30/30
+  (063), 46/46 (062), 43/44 (061 — the same clock-dependent assertion that fails
+  identically on unmodified main), 57/57 (060); rehearsal 63/63 with **no
+  migration**; tsc clean; eslint 0 errors; build compiled; audit:security PASS;
+  release:audit PASS 17/17. Performance at a year of data (1096 actions, 183
+  events, 183 notes, 100 projects): index 2.0ms, one week **2.6ms**, one year
+  3.7ms for 2249 autobiographical events.
+
+  **Durable lesson.** A summary sentence and the section beneath it must be
+  computed from different things: the section is bounded for readability, the
+  sentence is the fact. Counting the rendered list is how a headline number
+  quietly becomes a cap.
+
+- **LIFEOS-065 — Temporal Editing.** "The dentist moved to Friday at 3" now
+  changes the dentist appointment. Natural-language editing of existing Actions
+  and Events, through Universal Capture, with an explicit change-confirmation
+  state before anything is written. **Zero migrations. Zero new store domains.
+  Zero new update APIs. Zero new user-facing nouns.**
+
+  **Confirmed principles.**
+  - *Update intent ≠ create intent.* Detection requires BOTH an edit verb AND a
+    schedule, so "move the sofa to the garage" stays an ordinary capture while
+    "move the dentist to Friday" does not. Getting this wrong in the create
+    direction leaves the user with two dentist appointments.
+  - *Ambiguous target ≠ silent mutation.* Two records matching means two rows,
+    no default selection, and no Confirm button until one is chosen. There is no
+    code path that can pick the newer one.
+  - *Reschedule ≠ duplicate.* Every torture case asserts the record COUNT before
+    and after, and that the id is unchanged.
+  - *dueDate ≠ defer.* "Move the deadline to tomorrow" changes what is owed;
+    "come back to this tomorrow" hides it and leaves the due date alone.
+  - *Occurrence ≠ series.* LIFEOS-061 has no recurrence exceptions, so
+    "Tuesday's staff meeting" is refused with an explanation rather than
+    silently changing every Tuesday.
+  - *Completed history ≠ editable future plan.* A completed action is blocked,
+    not reopened, and recurring completions are never touched.
+  - *Mutation authority belongs AFTER target resolution.* The dispatcher takes a
+    resolved target and re-checks the refusal itself; a guard that lives only in
+    the UI is not a guard.
+  - *Week Review must not claim edit history it does not have.*
+
+  **The §4 audit answered the architecture: no new update API.** Every operation
+  maps onto a setter that already enforces its own invariants — `setActionDueDate`,
+  `setActionDueTime` (a time needs a day), `setActionRecurrence` (the rule must
+  parse), `stopActionRecurrence` (history preserved), `deferAction` (writes the
+  transition), `updateEvent` (valid time range), `deleteEvent`. The single
+  extension was letting `updateEvent` accept `recurrence` rather than adding a
+  second event-recurrence setter.
+
+  **Event has no cancellation state, and "cancel" is not mapped onto delete.**
+  `LifeEvent` has no status; only `deleteEvent` exists. So cancelling names the
+  consequence in those words — *"removing it deletes it, and it won't appear in
+  your history"* — and the destructive apply requires an explicit flag the UI
+  passes only from a button labelled "Delete it".
+
+  **The AI never mutates, and its answer is validated against what it was given.**
+  An invented record id, an operation outside the enum, a malformed date or time,
+  or an operation with nothing to apply are all discarded rather than coerced.
+  The escalation context carries titles, dates, times, type and a project title —
+  **1061 bytes for 12 candidates** — and no note body, description, reflection,
+  belief or Constitution element. Completed actions are not even offered.
+
+  **Five defects found by running the 14 torture cases before writing any UI.**
+  (1) `decompose` did not split "I didn't work out today. Move it to tomorrow.",
+  so the referent was never found — fixed with a sentence-boundary split plus a
+  referent extractor that strips subject, negation and day. (2) "work out" did
+  not match "Workout" — fixed with whitespace-collapsed comparison on both
+  sides, which can merge words but never substitute them. (3) "Make the paper
+  due Monday" searched for a record called "paper due". (4) "Move the staff
+  meeting from Tuesday to Wednesday" proposed *Every Tuesday → Every Tuesday*,
+  because the generic date parser takes the FIRST weekday and only the second is
+  the instruction. (5) "Come back to the assignment tomorrow" was not recognised
+  as an edit at all and would have created a duplicate.
+
+  **Week Review consequence.** `setActionDueDate` already appends a `due_set`
+  history entry carrying the new day, so a rescheduled ACTION is now reported in
+  the week's "what changed?". A rescheduled EVENT is not, because `LifeEvent`
+  has no history at all — the review states that asymmetry rather than smoothing
+  it, and "what changed?" stays PARTIAL for exactly that reason.
+
+  **Validation.** Full regression **2918/2918 across 32 suites** (temporal
+  editing 119/119); integration 64/64; browser smokes 45/45 (065), 58/58 (064),
+  30/30 (063), 46/46 (062), 43/44 (061 — the same clock-dependent assertion that
+  fails identically on unmodified main), 57/57 (060); rehearsal 63/63 with **no
+  migration**; tsc clean; eslint 0 errors; build compiled; audit:security PASS;
+  release:audit PASS 17/17. Performance at 1000 actions / 500 events / 100
+  projects: rejecting a capture 0.00ms, one edit **1.85ms**, two edits 3.09ms.
+
+  **Durable lesson.** A detector for mutations needs a NEGATIVE test suite
+  before it needs a positive one. Half of this sprint's assertions are changes
+  that must not happen, and three of the five defects above were only visible
+  because the torture cases were run before any UI existed to make them look
+  plausible.
+
+- **LIFEOS-066 — Capture Coverage II.** Ordinary people should not have to
+  phrase life in Conqify's dialect. Seven language gaps the LIFEOS-063 dogfood
+  proved, closed without redesigning Universal Capture and without adding a
+  single record type. **Zero migrations. Zero new store domains. Zero new
+  user-facing nouns.**
+
+  **Confirmed principles.**
+  - *Expand understanding without expanding ontology.* Every gap was a PARSER
+    gap. Nothing here was solved by inventing a record type, and the one new
+    concept — a completion — is an operation on an Action that already exists.
+  - *Completion is an UPDATE, never a creation.* There is deliberately no path
+    that makes an Action called "finished deployment" in order to tick it. A
+    completion the user never had is history they never lived.
+  - *Strong shapes may ask; weak shapes must earn it.* "I finished the X" opens
+    the panel even when nothing matches, because the user should be told nothing
+    was ticked. "Called the dentist" only speaks when it names something open —
+    most past-tense sentences in a capture box are just notes about the day.
+  - *Not-done is not the inverse of done.* "I didn't work out today" is a fact
+    about a day: no completion, no reschedule, no flag, no streak, no moral
+    language. It becomes a note that says what did not change.
+  - *A narrow heuristic is the point, not a limitation.* An appointment head
+    plus a CLOCK is an Event; the same words without a time are a note. "Dentist
+    Thursday at 2:30" happens; "Dentist Thursday" is a reminder to ring them.
+  - *The word alone decides nothing.* "Remember to X" is the errand X; "Remember
+    Mom's birthday" is an occasion; "Remember to give him space when he gets
+    overwhelmed" is a conditional and keeps its protocol shape.
+  - *Confidence hides a hedge; it must not hide a disclosure.* See below.
+
+  **One panel, one dispatcher.** `complete` was added to LIFEOS-065's
+  `EditOperation` enum rather than given a mutation surface of its own, so it
+  inherits `matchEditTargets`, `authorityFor`, `ChangeConfirm` and
+  `applyTemporalEdit` unchanged — including "no recency tie-breaker": two open
+  actions called "Proposal" means two rows and a question, exactly as it does
+  for a reschedule. A wrong completion is worse than a wrong date change,
+  because the item simply stops appearing.
+
+  **A bounded morphology table, never a stemmer.** Suffix-stripping turns "need"
+  into "ne" and "red" into "r", silently, and then matches titles that share the
+  mangled prefix. `lib/capture/morphology.ts` writes out every past/base pair and
+  lives in its own module because `decompose` needs it to know where to CUT and
+  `completion` needs it to know what a sentence is ABOUT — importing one from the
+  other would be a cycle, and two copies would drift.
+
+  **Six defects found by printing real pipeline output before writing any UI.**
+  (1) `cleanObject` required leading whitespace before a trailing day word, so
+  "Worked out this morning" searched for "morning". (2) A weak past-tense shape
+  surfaced already-completed matches, opening a panel to announce that nothing
+  would happen. (3) The missed-work object kept its verb, so "I didn't finish
+  the proposal" never found "Proposal". (4) `decompose` could not cut on a
+  past-tense verb, so "Called the dentist and booked a haircut for Friday at 3"
+  was one note that reported a completion and lost an appointment. (5)
+  `stripResolvedTemporal` left a dangling copula — "Mom's birthday is" — on every
+  occasion Event. (6) `looksLikeMissed` did not accept "never got around to".
+
+  **The one the SMOKE found, which the selftests could not.** The missed-work
+  explanation was computed correctly and never rendered: `reason` is hidden when
+  confidence is high, and the routing here is certain. So the sentence a user
+  most needs to read — *"Nothing was marked complete and nothing was
+  rescheduled"* — was invisible on screen while 132 assertions passed. Fixed
+  with an explicit `disclosure` field rendered unconditionally, the same way an
+  unstorable date already is. **Confidence is a hedge about ROUTING; a statement
+  about what did not happen is not a hedge and must not share its visibility.**
+
+  **§32 gap transitions, documented rather than deleted.** Four LIFEOS-063
+  limitation assertions went red, which is what they were written to do. None was
+  removed or weakened: each was rewritten as the affirmative assertion of the
+  behaviour that replaced it, keeping its FR number so the friction ledger and
+  the test still point at each other — FR-4 (errand verbs), FR-5 (bare
+  appointments), FR-6 (leading "Still"), FR-12 (`waitingOn` swallowing its
+  object). FR-10 is untouched and still fails-on-close. The dogfood replay's
+  escape-hatch count dropped 3 → 1, and the remaining one is asserted exactly so
+  a future sprint closing it turns red the same way.
+
+  **Capture acceptance re-scored on the UNCHANGED §19 rubric: 1 → 2.** Six of
+  eight probe shapes now reach useful saved state in three interactions with no
+  taxonomy decision, up from four. B — *"Dentist Thursday at 2:30"*, which 063
+  called "among the most common things anyone types into a life-management app"
+  — went from a Note with its date disclosed and then dropped, to an Event with
+  the date AND the time. F and G still take four, and that is deliberate: a
+  reflection and a genuinely ambiguous phrase are offered unticked, never
+  assumed. The rubric was not altered.
+
+  **Validation.** Full regression **3053/3054 across 33 suites** (new capture
+  coverage suite 132/132, temporal editing 119/119, dogfood 82/82); browser
+  smokes 54/54 (066), 45/45 (065), 58/58 (064), 46/46 (062), 57/57 (060), and
+  29/30 (063) + 43/44 (061) — both failures being the same NOW-section assertion
+  whose fixtures seed morning event times, proven clock-dependent by seeding an
+  event still ahead on the clock and watching the section appear. tsc clean;
+  eslint 0 errors (2 pre-existing warnings); build compiled. Interpretation runs
+  on SUBMIT, not per keystroke: 0.40ms per sentence at 100 actions, 2.15ms at
+  1000, 10.08ms at 5000.
+
+  **Known pre-existing failure, not weakened.** `memory` "perf: all engines under
+  budget" reports ~1650ms against a 1500ms budget. Verified in a clean worktree
+  at the LIFEOS-065 base commit `653800f`: it fails there identically, at the
+  same magnitude. This container is slower than the one the budget was set on.
+  The budget was left alone.
+
+  **Durable lesson.** Selftests prove the parser; only the browser proves the
+  PRODUCT. A field can be parsed correctly, asserted correctly, and still never
+  reach the screen — and the assertion that would have caught it is the one that
+  reads what is actually rendered, not what the function returned.
+
+- **LIFEOS-067 — Calendar Integration Foundation.** External calendar events can
+  now enter the same shared life model Today, Capture, Week in Review and
+  Temporal Editing already use — without a second calendar island, and without a
+  provider becoming a life concept. **One migration (0041, four nullable columns
+  on `events`). Zero new store domains. Zero new user-facing nouns. Zero
+  provider tables.** Read/reconcile only; no write-back.
+
+  **Confirmed principles.**
+  - *Provider ≠ life ontology.* There is no `GoogleCalendarEvent`. An imported
+    appointment is a `LifeEvent` from the moment it lands, which is why Today,
+    Week in Review and Capture handle it without knowing calendars exist.
+  - *External id ≠ title/date match.* Reconciliation keys on
+    `(provider, calendarId, eventId)` and nothing else. Titles and dates change —
+    that is the entire reason the feature is worth building — and two people can
+    have a meeting called "Standup" that is not the same meeting.
+  - *External Event ≠ user-authored.* An import carries no `sourceCaptureId` and
+    no `fromAiText`. Connecting a calendar does not make its contents the user's
+    writing *inside Conqify*.
+  - *Calendar sync ≠ calendar dashboard.* No grid, no provider surface. Settings
+    gets connection state and a disconnect button; Today stays the one place a
+    schedule appears.
+  - *Read failure ≠ deletion signal.* A failed fetch returns nothing and says so.
+  - *Partial fetch ≠ authoritative absence.* Removal requires `scope.complete`,
+    which defaults to false.
+  - *Local enrichment must survive external refresh.* Enforced by the patch TYPE,
+    not by care — see below.
+  - *Today consumes one Event model regardless of origin.*
+
+  **Identity is all-or-nothing, and that is a Postgres fact, not a style choice.**
+  A unique index on `(user_id, provider, calendar_id, event_id)` does NOT
+  guarantee idempotence if `calendar_id` can be NULL: Postgres treats NULLs as
+  DISTINCT, so the same event would import twice and the index would not notice.
+  0041 therefore carries a CHECK requiring provider + calendar id + event id
+  together, or all four columns absent. `external_updated_at` stays outside that
+  rule because not every provider supplies a trustworthy timestamp, and a missing
+  one must degrade to reconcile-by-identity rather than make the row malformed.
+  Proved against real Postgres in the rehearsal, not just in TypeScript.
+
+  **Ownership is enforced by a type with no member for the forbidden thing.**
+  `ExternalOwnedPatch` has no `notes` and no `linkedEntityRefs`. A refresh
+  physically cannot overwrite the user's annotation or their project link — not
+  "does not", *cannot*. External calendars own when a thing happens; Conqify owns
+  what the user made of it.
+
+  **What was NOT claimed.** `external_updated_at` says when the PROVIDER changed
+  something. It does not say whether the local copy changed since the last
+  successful sync — that needs a reconciliation baseline this schema does not
+  add. So full local-vs-upstream edit conflict detection is **deferred**, and the
+  integration is read-only precisely so the undetectable conflict is one the
+  product does not let you create: a temporal edit against an externally-owned
+  Event is refused out loud, naming the calendar and warning that the next
+  refresh would put it back.
+
+  **Timezone is a connector-semantics boundary, not polish.** Conqify's time
+  model is deliberately zoneless — a `LocalTime` is a wall-clock reading. Three
+  provider shapes, three different answers: an all-day date is exact; a floating
+  date-time IS Conqify's model and is taken verbatim; an INSTANT (zoned or
+  offset-bearing) is **refused** as `timezone_unsupported` unless the caller
+  states a home offset, because there is no user home-timezone field and
+  rendering it in whatever zone the server runs in would be a lie. A fixed
+  numeric offset plus a stated home offset converts by exact integer arithmetic
+  — no timezone database, and the DAY rolls when it should. The provider's
+  original strings survive as transient metadata so nothing is silently lost.
+
+  **Recurrence is mapped or preserved, never simplified.** `BYDAY=MO,WE,FR`
+  becomes a rule. `BYSETPOS=3` ("third Thursday"), `COUNT`, `UNTIL` and
+  positional weekdays do not: the event is still imported as a single dated
+  occurrence, the raw rule is kept and REPORTED, and Conqify makes no recurrence
+  claim. A flattened "every Thursday" would put a meeting on three days a month
+  it does not happen, and the user would have no way to tell we invented it.
+
+  **Provider choice: fixture-ready, live deferred — and the blocker is correct.**
+  `signInWithOAuth()` is on the FORBIDDEN list in `scripts/audit-auth.mjs`
+  (*"creates accounts on first sign-in"*), enforced by the `audit:security`
+  release gate. Conqify authenticates by email OTP; there is no OAuth client, no
+  token store, and no server route that could hold a client secret. Network
+  reachability was never the problem — googleapis answers 401 from the container.
+  A real connector needs an explicit **account-link** flow, separate from
+  sign-in, with read-only scope. Authentication-as-calendar-authorization is a
+  back door, and the audit is right to forbid it.
+
+  **Two fixture mistakes worth remembering.** (1) A "malformed time" was asserted
+  to reject as `malformed_date`; the parser was more precise than the test. (2)
+  Existing rows were built with `allDay: undefined` while a date-only payload
+  normalizes to `allDay: true` — so the reconciler correctly reported a real
+  difference and it looked like an over-eager diff. **A fixture must mirror what
+  the write path actually writes, or it tests a state the product never produces.**
+
+  **Validation.** Full regression **3203/3204 across 34 suites** (new calendar
+  suite 150/150); browser smokes 34/34 (067), 54/54 (066), 45/45 (065), 58/58
+  (064), 46/46 (062), 44/44 (061), 57/57 (060); migration rehearsal **72/72 with
+  0041 applied**, including nine new checks proving the identity CHECK, the
+  duplicate-import refusal, the same-id-different-calendar case, and the absence
+  of any credential-shaped column on `events`; release audit 17/17; audit:security
+  PASS; tsc clean; eslint 0 errors. Reconciliation is linear: 100/1000/5000
+  events all well inside budget, with no title comparison in the matching path.
+
+  **Two known failures, neither caused by this sprint.** `memory` "perf: all
+  engines under budget" (~1650ms vs 1500ms) fails identically at base commit
+  `653800f` in a clean worktree. Smoke-063 A2 fails because `week-store.json` is a
+  frozen dated snapshot whose newest event is 2026-08-22; from 2026-08-23 onward
+  it contains no event dated today, so the NOW section is correctly absent. The
+  product was verified on this build: seed an event still ahead and the section
+  appears. Neither assertion was weakened and the frozen acceptance snapshot was
+  not rewritten.
+
+  **Durable lesson.** The reconciler was written and fully tested before any
+  provider existed. That ordering is not tidiness — a reconciliation bug found by
+  a live connector is found by moving somebody's real appointment, and a wrong
+  merge has no undo: it destroys the note and the project link attached to a
+  record that no longer exists.
+
+- **LIFEOS-068 — Integration Account Linking Foundation.** A signed-in Conqify
+  user can grant Conqify access to an external service **without that service
+  becoming a way to log in**. The complete linking architecture — OAuth state
+  machine, PKCE, AES-256-GCM credential vault, provider seam, refresh semantics,
+  disconnect and account-deletion purge — built and tested against fixtures.
+  **One migration (0042). Zero new store domains. No tokens anywhere near the
+  browser. The security gate was not touched.**
+
+  **Confirmed principles.**
+  - *Authentication ≠ integration authorization.* Conqify auth answers "who is
+    this user?"; an integration answers "what has this ALREADY-authenticated
+    user permitted us to read?". Collapsing them is how a calendar connector
+    quietly becomes a login provider.
+  - *Provider connection ≠ Conqify login.* Asserted structurally: nothing in
+    `lib/integrations/**` or `app/api/integrations/**` calls `signInWithOAuth`,
+    `linkIdentity`, `signUp`, `signInAnonymously`, or `setSession`.
+  - *Tokens are server secrets.* Never in `StoreState`, never exported, never
+    logged, never returned by a route, never plaintext at rest.
+  - *OAuth state is user-bound and one-time.* The raw value is never stored —
+    only `sha256(state)` — and the claim is a single conditional UPDATE.
+  - *The Calendar adapter does not own OAuth.* Linking is its own layer, so a
+    future Gmail or Drive integration can reuse the same linked account.
+  - *Disconnect revokes access without deleting unrelated life data.*
+  - *Least privilege by default.*
+
+  **Supabase's `linkIdentity()` was evaluated and REJECTED, for two independent
+  reasons.** It writes to `auth.identities`, which by definition makes Google a
+  way to authenticate as that user — §34's exact prohibition. And `auth-js`
+  delivers `provider_refresh_token` on the **client session object**: using it
+  would route a Google refresh token through the browser. Neither is fixable by
+  being careful; both are what the API does.
+
+  **The vault fails closed, and the path that would not exist does not exist.**
+  There is no branch anywhere reading `if (vault unavailable) → store plaintext`.
+  An unavailable vault is a first-class implementation that REFUSES, so a caller
+  cannot forget to check it. `delete` is the one exception and deliberately
+  succeeds: a disconnect must never be blocked by a broken vault.
+
+  **Why the production backend ships unwired.** Reading a credential table the
+  browser cannot reach needs a privileged database connection. Every server
+  route here carries only the USER's JWT, so RLS evaluates as that user and a
+  table they cannot read is one our route cannot read either. Obtaining that
+  connection needs a privileged Supabase credential that (a) does not exist in
+  this environment and (b) is refused inside `app/lib/components` by
+  `scripts/scan-secrets.mjs` — a release gate left deliberately untouched. So
+  `supabaseTokenVault` takes the handle as an ARGUMENT and the resolver passes
+  `null`. **Nothing looks the credential up dynamically or assembles its name
+  from fragments**; passing a regex while defeating its intent is worse than
+  being blocked, because the next reader still believes the guarantee holds.
+
+  **The migration's shape is the security boundary.** `integration_accounts` and
+  `integration_oauth_states` are ordinary RLS tables. `integration_credentials`
+  lives in a **`private` schema** — PostgREST exposes `public`, so a table
+  outside it has no REST path at all, which is stronger than a restrictive
+  policy on a reachable table because it does not depend on the policy being
+  right. There is **no plaintext token column anywhere in the schema**: the
+  credential row is ciphertext, IV, auth tag and key version. Proved against
+  real Postgres — including that the application role cannot see the table in
+  `information_schema`, cannot select from it, and that deleting the user
+  cascades metadata, states and credentials to zero.
+
+  **The refresh rule that silently kills integrations.** Google returns a
+  refresh token on FIRST consent and usually omits it afterwards. Writing back
+  whatever arrived nulls the stored one, and the integration dies an hour later
+  with nothing the user can act on. So an absent `refreshToken` in a refresh
+  response **preserves** the stored one; a present one rotates it. And
+  `invalid_grant` is the ONLY response that marks an integration revoked — a
+  timeout or a 500 means "try again", not "the user took access away".
+
+  **Three test-quality lessons, each of which had made an assertion vacuous.**
+  (1) The structural scan ran from the compiled harness's directory, found zero
+  files, and every "nothing calls signInWithOAuth" assertion passed against an
+  empty string — *a structural test that cannot see the code is not a passing
+  test*, so it now fails loudly when the source root is missing. (2) The scan
+  matched its own file, which necessarily contains the strings it forbids. (3)
+  It matched DOC COMMENTS explaining why those APIs are absent — the same trap
+  `scripts/audit-auth.mjs` documents having fallen into, so its comment-stripper
+  was borrowed rather than reinvented.
+
+  **A real route defect the browser found.** A forged OAuth state produced HTTP
+  500: the refusing store throws, and the throw escaped the handler. A stack
+  trace on a page Google redirected someone to tells them nothing and is a bad
+  place for anything the server knows. Both routes now catch and redirect with a
+  status word from a closed set — never the provider's message.
+
+  **Validation.** Full regression **3360/3360 across 35 suites** (new
+  integrations suite 156/156); migration rehearsal **96/96 with 0042**,
+  including the private-schema isolation and cascade-deletion proofs; release
+  audit 17/17; **audit:security PASS — including the auth audit, unchanged**;
+  tsc clean; eslint 0 errors.
+
+  **Durable lesson.** The blocker that ends a sprint is worth more than a
+  workaround that hides it. `signInWithOAuth` is forbidden here for a good
+  reason, and the correct response was to build the thing that does not need it
+  — an account-link flow that never touches authentication — and to stop at the
+  point where a real secret would have to be stored insecurely.
+
+- **LIFEOS-069 — Executive Memory Query.** A person can now ask Conqify what
+  happened — "what did I finish last week?", "what am I waiting on?", "what did
+  I say about teaching?" — and get an answer built only from records they made.
+  Eight question classes (COMPLETION, EVENTS, WAITING, CHANGES, PROJECT,
+  REFLECTION, OPEN_WORK, TIME), routed deterministically, retrieved from the
+  evidence backbone LIFEOS-064 already built, and rendered with the provenance
+  of each source attached. **Zero migrations; head remains 0042; no new store
+  domain; no embeddings; nothing persisted.**
+
+  **Memory query reuses the autobiographical timeline.** No second evidence
+  model was created. `buildAutobiographicalTimeline` already returns exactly
+  what an answer needs — a dated fact with a `recordRef`, an `evidence` field
+  naming the column it came from, and an `OriginType` — so the query layer is a
+  filter over it, not a parallel index. That reuse is what makes the three
+  confusions unrepeatable: a COMPLETION answer filters `COMPLETION_KINDS` and
+  therefore *cannot* count a created action, because no code path exists that
+  would have to remember not to.
+
+  **Retrieval precedes synthesis, and the AI seam enforces it.** The
+  deterministic path answers every supported question end to end with no model
+  call. `buildEvidencePacket` exists for the day one is added, and it hands over
+  only facts already retrieved plus the ids they came from —
+  `validateAiPlan` then REJECTS any class, range or id outside that set rather
+  than repairing it. Coercing "almost valid" model output is how a question
+  about June gets answered about July.
+
+  **"You said" requires authorship evidence.** Two conditions, both recorded:
+  the provenance says `user_authored`, and the record is a kind a person writes
+  in (reflection, note, capture, decision). An Event titled "Teaching prep" is
+  neither, so it can support "what was scheduled about teaching" and never "what
+  did I say about teaching". `imported_user_authored` is deliberately excluded
+  too — the user wrote it somewhere else and an importer chose what to carry
+  across, which is a fidelity Conqify cannot vouch for. AI prose kept in a note
+  is real evidence *of what a model produced*, and is labelled as such.
+
+  **Current state ≠ historical state.** "What was I waiting on last Tuesday?"
+  is answered from `waitingSince` plus still-being-open — a wait that began
+  before that day and is still live was demonstrably live then — and is marked
+  **PARTIALLY_ANSWERED** with the gap named: a wait that closed in between left
+  no trace at all. A wait that STARTED after the asked day is excluded outright.
+  Presenting today's list as though it were Tuesday's is the one way a
+  projection can lie about a past range.
+
+  **Scheduled ≠ attended. Created ≠ completed. Linked activity ≠ progress.**
+  Every EVENTS answer carries the attendance limitation unconditionally, and no
+  branch anywhere constructs the words "you attended". Every PROJECT answer is
+  counts of dated linked records — a project touched at 23:00 last night with no
+  dated activity reports **NO_RECORDED_EVIDENCE**, not momentum.
+
+  **There is no second date parser.** `lib/capture/dates.ts` leans FORWARD by
+  design ("August 25" in September means next August), which is right for a
+  deadline and exactly wrong for a memory. So `resolveMemoryRange` maps a small
+  closed vocabulary of backward-looking phrases — relative windows, named
+  months, named weekdays — onto `resolveRange`/`resolveWeekRange`, and every
+  range is produced by those existing helpers. Anything outside the three shapes
+  is reported `unresolved` rather than guessed at.
+
+  **Deleted source disappears from answers, for free.** An answer is a value
+  computed from `(state, question)`; there is no cache and no `MemoryAnswer`
+  table, so removing a record removes its memory with no invalidation step.
+  Proved in the browser: ask, delete the note, ask again, the fact is gone and
+  nothing remains in storage.
+
+  **No evidence produces no invented life history.** Four statuses, and the
+  fourth is deliberate: `NEEDS_CHOICE`. Ambiguity is not a grade of evidence —
+  "partially answered" implies something was answered and "no recorded evidence"
+  is false when the problem is that there is too much. Two records called
+  "Dashboard" produce a question, never a tie-break, and **recency is never a
+  secret tie-breaker**. An emotion question is never fully answered however good
+  the match: Conqify stores text, and a note containing "worried" is evidence
+  that the word was written, not that the feeling was had.
+
+  **Two dead links were fixed on the way through.** LIFEOS-064 gave a Reflection
+  the ref kind `formation`, so every Week in Review link to one resolved
+  `/formation/<id>` — a route that looks up formation SESSIONS and 404s. A
+  Reflection has no detail page at all (`buildFormationTimeline` gives it no
+  href for that reason), so both the timeline and the lexical index now point at
+  `/formation/timeline`, where its text is actually shown. Reflections and
+  Events joined the existing command index rather than getting one of their own;
+  the `formation` label became "Reflection sessions" so two different records
+  stop sharing one word.
+
+  **Validation.** Full regression **3495/3495 across 36 suites** (new
+  memory/query suite 135/135); browser smoke **44/44** first pass; smokes
+  066/067/068 at 54/54, 35/35, 30/30; migration rehearsal 96/96 **still at
+  0042**; release audit 17/17 including `migration count == 42`;
+  audit:security PASS; tsc clean; eslint 0 errors. Performance at realistic
+  scale (1,200 actions, 400 events, 600 notes, 200 reflections, 40 projects):
+  a week, a month and a year all answer inside budget with the indexes reused.
+
+  **Durable lesson.** Printing the real answers before writing a single
+  assertion found six wording and grouping defects that 135 green assertions
+  would have happily preserved — an attribution calling an Action "a note", a
+  summary whose counts added to fewer items than it listed, a wait printed twice
+  under two dates. And two of the four initial test failures were the TEST being
+  wrong, not the product: a limitation that says "no record of whether you
+  attended" is the honest sentence, and a regex scanning it for the word
+  "attended" fails the honest sentence while passing the dishonest one.

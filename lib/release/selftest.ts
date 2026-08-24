@@ -40,20 +40,20 @@ export function runReleaseSelfTests(): SelfTestReport {
   ok("1.1 version alignment ok", va.ok, va.problems.join("; "));
   ok("1.2 release tag is v1.0.0-rc1", RELEASE_TAG === "v1.0.0-rc1");
   ok("1.3 app version matches tag", `v${releaseVersions().appVersion}` === RELEASE_TAG);
-  ok("1.4 migration version 40", releaseVersions().migrationVersion === 40);
+  ok("1.4 migration version 42", releaseVersions().migrationVersion === 42);
   ok("1.5 supported migration range sane", releaseVersions().supportedMigrationRange[0] <= releaseVersions().supportedMigrationRange[1]);
   ok("1.6 observed-count mismatch is caught", !checkVersionAlignment({ observedMigrationCount: 30 }).ok);
   ok("1.7 observed app-version mismatch is caught", !checkVersionAlignment({ observedAppVersion: "9.9.9" }).ok);
 
   // ---- 2. Migrations ----
-  const dense = validateMigrationList(Array.from({ length: 40 }, (_, i) => i + 1));
-  ok("2.1 dense 1..39 valid", dense.ok, dense.problems.join("; "));
+  const dense = validateMigrationList(Array.from({ length: 42 }, (_, i) => i + 1));
+  ok("2.1 dense 1..42 valid", dense.ok, dense.problems.join("; "));
   ok("2.2 duplicate number rejected", !validateMigrationList([1, 1, 2]).ok);
   ok("2.3 gap rejected", !validateMigrationList([1, 3]).ok);
   ok("2.4 wrong count rejected", !validateMigrationList(Array.from({ length: 36 }, (_, i) => i + 1)).ok);
-  ok("2.5 twelve checkpoints", MIGRATION_CHECKPOINTS.length === 12); // +pre-constitution (056) +pre-successor-cascade (056D)
+  ok("2.5 fourteen checkpoints", MIGRATION_CHECKPOINTS.length === 14); // +pre-constitution (056) +pre-successor-cascade (056D) +pre-calendar (067) +pre-integrations (068)
   ok("2.6 checkpoints cover required ids", ["pre-reading", "pre-workspaces", "pre-actions", "pre-planning", "pre-maintenance", "pre-security", "pre-reading-ingestion", "pre-reading-originals", "pre-reading-semantic", "current"].every((c) => MIGRATION_CHECKPOINTS.some((m) => m.id === c)));
-  ok("2.7 only the 0041 release fix is allowed", isAllowedReleaseFixMigration("0041_v1_release_fix.sql") && !isAllowedReleaseFixMigration("0042_extra.sql"));
+  ok("2.7 only the 0043 release fix is allowed", isAllowedReleaseFixMigration("0043_v1_release_fix.sql") && !isAllowedReleaseFixMigration("0044_extra.sql"));
 
   // ---- 3. Routes ----
   const rr = validateRoutes();

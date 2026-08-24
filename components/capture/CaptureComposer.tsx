@@ -29,7 +29,12 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { attachProposals, commitCapture, useStore } from "@/lib/mvpStore";
+import {
+  attachProposals, commitCapture, useStore,
+  setActionDueDate, setActionDueTime, setActionRecurrence, stopActionRecurrence,
+  deferAction, updateEvent, stopEventRecurrence, deleteEvent,
+  completeAction, completeOccurrence,
+} from "@/lib/mvpStore";
 import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/lib/capture/interpret";
 import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/capture/commit";
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
@@ -41,6 +46,27 @@ import type { MatchOption } from "@/lib/capture/match";
 import { generateBeliefs, interpretCapture } from "@/lib/aiClient";
 import { todayKey, formatDayKey } from "@/lib/reviews/dates";
 import { toast } from "@/lib/ux/feedback";
+import { buildProposal, type EditTarget, type TemporalEditIntent } from "@/lib/capture/temporal-edit";
+import { readChanges } from "@/lib/capture/completion";
+import { applyTemporalEdit, type EditOps } from "@/lib/capture/apply-edit";
+import ChangeConfirm from "@/components/capture/ChangeConfirm";
+
+/**
+ * The store writers the change path may use (LIFEOS-065 §4).
+ *
+ * Every one already exists and already enforces its own invariants. Listing
+ * them explicitly is the point: this component cannot reach any writer that is
+ * not on this line.
+ */
+const EDIT_OPS: EditOps = {
+  setActionDueDate, setActionDueTime, setActionRecurrence, stopActionRecurrence,
+  deferAction, updateEvent, stopEventRecurrence, deleteEvent,
+  // LIFEOS-066 §6. Both already exist and already keep their own contracts:
+  // `completeOccurrence` closes ONE day of a repeating action without touching
+  // the action's status, and is idempotent by `(action, day)`.
+  completeAction: (actionId: string) => completeAction(actionId),
+  completeOccurrence,
+};
 
 /** User-facing kind labels. Product words, not ontology. */
 const KIND_LABEL: Record<CandidateKind, string> = {
@@ -104,6 +130,14 @@ export default function CaptureComposer() {
   const [raw, setRaw] = useState("");
   const [busy, setBusy] = useState(false);
   const [asked, setAsked] = useState(false);
+  /**
+   * Rescheduling language switches the box into an explicit change state before
+   * anything is written (§27). Ordinary capture stays exactly as it was — this
+   * branch is entered only when the sentence names both a change and a schedule.
+   */
+  const [edits, setEdits] = useState<TemporalEditIntent[] | null>(null);
+  /** True once the new half of a mixed utterance has been saved (§16). */
+  const [committed, setCommitted] = useState(false);
 
   const projectTitles = useMemo(
     () => buildEscalationContext("", state).projectTitles,
@@ -117,6 +151,28 @@ export default function CaptureComposer() {
     const src = text.trim();
     if (!src || busy) return;
     setBusy(true);
+
+    // Is this a CHANGE to something that already exists, rather than something
+    // new? Checked first, because reading "move the dentist to Friday" as a new
+    // action would leave the user with two dentist appointments (§29).
+    // Is any part of this a CHANGE to something that already exists, rather
+    // than something new? Reading "move the dentist to Friday" as a new action
+    // leaves the user with two dentist appointments (LIFEOS-065 §29); reading
+    // "I finished the deployment" as a new one leaves the finished thing open
+    // beside a note about finishing it (LIFEOS-066 §6).
+    //
+    // A sentence can be both at once — "I finished deployment and need to email
+    // my professor tomorrow" is one completed record and one new one — so the
+    // leftover text goes down the ordinary path in the SAME view rather than
+    // being discarded (§16).
+    const { changes, remainder } = readChanges(src, state, today);
+    if (changes.length > 0) {
+      setRaw(src);
+      setEdits(changes);
+      setRows(remainder.trim() ? rowsFrom(interpret(remainder, state, today).candidates) : null);
+      setBusy(false);
+      return;
+    }
 
     // Deterministic first, and it renders before any model is considered.
     let interpretation = interpret(src, state, today);
@@ -147,7 +203,32 @@ export default function CaptureComposer() {
   }
 
   function reset() {
-    setText(""); setRows(null); setRaw(""); setAsked(false);
+    setText(""); setRows(null); setRaw(""); setAsked(false); setEdits(null); setCommitted(false);
+  }
+
+  /** Apply one confirmed change through the existing store setters. */
+  function applyEdit(intent: TemporalEditIntent, target: EditTarget, destructive: boolean): string {
+    const outcome = applyTemporalEdit(buildProposal(intent, target), EDIT_OPS, {
+      confirmDestructive: destructive,
+      today,
+    });
+    toast({ kind: outcome.applied ? "success" : "info", message: outcome.message });
+    // Returned so the panel prints what actually happened, not what was asked
+    // for. A refusal that reads as a success is a lie about the user's records.
+    return outcome.message;
+  }
+
+  /**
+   * The user disagreed with the change reading. Fall back to ordinary capture
+   * on the SAME text, so nothing they typed is lost (§28).
+   */
+  function keepAsCapture() {
+    setEdits(null);
+    // The new half of a mixed utterance may already be saved. Re-reading the
+    // whole sentence then would offer the user a second copy of what they just
+    // confirmed, so this ends the interaction instead.
+    if (committed) { reset(); return; }
+    setRows(rowsFrom(interpret(raw || text.trim(), state, today).candidates));
   }
 
   function confirmSelected() {
@@ -172,6 +253,9 @@ export default function CaptureComposer() {
         ? "Saved your capture."
         : `Saved ${created.length} thing${created.length === 1 ? "" : "s"}.`,
     });
+    // A pending change is a proposal the user has not answered yet. Clearing the
+    // whole surface here would discard it and make them retype the sentence.
+    if (edits) { setRows(null); setText(""); setCommitted(true); return; }
     reset();
   }
 
@@ -226,11 +310,11 @@ export default function CaptureComposer() {
         onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void look(); } }}
         placeholder="Call the dentist tomorrow, finish the report, and Marcus still owes me the file…"
         rows={4}
-        disabled={busy || !!rows}
+        disabled={busy || !!rows || !!edits}
         className="w-full resize-none rounded-2xl border border-black/[.08] bg-transparent p-5 text-lg leading-relaxed outline-none transition-colors placeholder:text-zinc-400 focus:border-black/[.20] disabled:opacity-60 dark:border-white/[.10] dark:focus:border-white/[.25]"
       />
 
-      {!rows && (
+      {!rows && !edits && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button type="button" data-capture-submit onClick={() => void look()} disabled={!text.trim() || busy}
             className="rounded-full bg-zinc-900 px-6 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900">
@@ -240,10 +324,19 @@ export default function CaptureComposer() {
         </div>
       )}
 
+      {edits && (
+        <ChangeConfirm intents={edits} onApply={applyEdit} onDismiss={keepAsCapture} />
+      )}
+
+      {/* Both panels can be open at once. "I finished deployment and need to
+          email my professor tomorrow" is one change and one new thing, and
+          showing only the change would silently drop half the sentence (§16). */}
       {rows && (
         <div data-capture-results className="mt-5">
           <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
-            {live.length === 1 ? "I found 1 thing:" : `I found ${live.length} things:`}
+            {edits
+              ? (live.length === 1 ? "And 1 new thing:" : `And ${live.length} new things:`)
+              : (live.length === 1 ? "I found 1 thing:" : `I found ${live.length} things:`)}
           </p>
 
           <ul className="mt-3 flex flex-col gap-2">
@@ -294,10 +387,28 @@ export default function CaptureComposer() {
                         <span data-recurrence>{describeRule(r.candidate.fields.recurrence)}</span>
                       )}
                       {r.candidate.fields.waitingOn && (
-                        <span data-waiting-on>Waiting on {r.candidate.fields.waitingOn}</span>
+                        <span data-waiting-on>
+                          Waiting on {r.candidate.fields.waitingOn}
+                          {/* §10. The object of the wait, when the sentence
+                              separated it. Two waits on the same person are the
+                              same person, and this is how you can see which is
+                              which without reading both titles. */}
+                          {r.candidate.fields.waitingFor && (
+                            <span data-waiting-for> · for {r.candidate.fields.waitingFor}</span>
+                          )}
+                        </span>
                       )}
                       {r.candidate.confidence !== "high" && <span>{r.candidate.reason}</span>}
                     </div>
+
+                    {/* A disclosure is shown whatever the confidence — it says
+                        what did NOT happen, and hiding it because the routing
+                        was certain is exactly backwards (§8). */}
+                    {r.candidate.disclosure && (
+                      <p data-capture-disclosure className="mt-1.5 text-[11px] text-zinc-500">
+                        {r.candidate.disclosure}
+                      </p>
+                    )}
 
                     {/* A date the kind cannot hold — said out loud rather than dropped (§18). */}
                     {dateNotKept(r.candidate) && (
@@ -387,7 +498,7 @@ export default function CaptureComposer() {
         </div>
       )}
 
-      {!rows && (
+      {!rows && !edits && (
         <p className="mt-6 text-sm leading-relaxed text-zinc-400">
           Start messy. Nothing is created until you confirm it, and{" "}
           <Link href="/notes" className="underline underline-offset-2">a note</Link> is always a valid answer.
