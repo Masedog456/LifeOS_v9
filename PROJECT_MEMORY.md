@@ -4831,3 +4831,118 @@ connectors require repeated beta demand **and** stable API support, both.
   wrong, not the product: a limitation that says "no record of whether you
   attended" is the honest sentence, and a regex scanning it for the word
   "attended" fails the honest sentence while passing the dishonest one.
+
+- **LIFEOS-070 — Forgetting & Commitment Awareness.** Conqify can now answer
+  "what am I forgetting?" — overdue work, follow-up dates that arrived,
+  deferrals that came back, recurring occurrences due, blocked work whose
+  blockage itself needs attention, approaching deadlines, projects with nothing
+  startable left, and open commitments that have simply gone quiet. Eight signal
+  kinds, one deduplicated list, every row carrying the dated fact it came from.
+  **Zero migrations; head remains 0042; no new store domain; nothing persisted.**
+
+  **Forgotten ≠ old.** Nothing surfaces because it is aged. Every signal names a
+  field a person could open the record and check — `dueDate`, `followUpDate`,
+  `history[].returned`, a recurrence occurrence, an unmet dependency edge, a
+  project's linked actions, the activity index. Dormancy is last in the order
+  and by far the most conditioned, because a long silence is the weakest
+  evidence that anything is wrong.
+
+  **Situational awareness ≠ priority score.** There is no urgency number, no
+  risk band, no weighting and no hidden probability. Ordering is
+  `COMMITMENT_ORDER`, a fixed lexicographic list; ties break on the date the
+  signal carries and then the title. A test asserts no key matching
+  `score|urgency|risk|priority|weight|rank|probability` appears anywhere in the
+  output.
+
+  **Two live defects the audit found by RUNNING the product, not reading it.**
+  (1) *Returned-from-deferral had never once rendered.* Hydrate cleared
+  `deferredUntil` — correctly, the deferral is over — while both consumers
+  tested `deferredUntil === today`, so the predicate was already false by first
+  paint. Worse, hydrate wrote no `returned` history event (only the manual path
+  did) and `buildActivityIndex` had no mapping for one, so the return left **no
+  trace anywhere**. (2) *Future-deferred items were not quiet:* `alsoToday`
+  excluded waiting and blocked but not deferred, so "remind me next week"
+  captured today sat under TODAY for the rest of the day. Both were live code
+  with zero selftest and zero smoke coverage. That is how they survived four
+  sprints.
+
+  **The repair is structural, not a patch.** `returnDueActions` now writes the
+  `returned` event ITSELF, so the branch that could forget no longer exists —
+  both call sites get identical evidence by construction. The durable source of
+  truth is the history event, never a stale field: `returnedOn(action, day)`
+  reads history, and `deferredUntil` is left correctly cleared.
+
+  **Waiting ≠ actionable. Blocked ≠ executable.** A wait with no follow-up date
+  produces no signal — there is no defensible duration threshold in this product
+  and §13 said do not invent one. A dependency now reads "**Blocked by** X"; the
+  old copy said "Waiting on X", conflating a prerequisite of your own with
+  something you are expecting from someone else. And blocked work surfaces only
+  when the blockage has evidence behind it — the blocker is overdue or dormant,
+  or the blocked item is itself due — rather than dumping every future blocked
+  task into view.
+
+  **No next action ≠ project failure.** "No executable next action is recorded"
+  — exported as one constant so Today, the signal layer and Memory say the same
+  sentence. *Executable* is the load-bearing word: a project whose only actions
+  are blocked or waiting does have next actions, just none that can be started,
+  and the older copy was untrue about exactly that case. Never "stalled", never
+  "at risk".
+
+  **One commitment should not appear multiple times.** The audit found a single
+  overdue action rendered in THREE sections with three different wordings —
+  "Overdue by 1 day" in Suggested Next, "Was due Sun, Aug 23" in Needs
+  Attention, and "No recorded activity in 120 days" as a Return suggestion. Now
+  one record yields one row under its highest-priority kind, with the rest
+  attached as secondary reasons; dormancy is *suppressed* for anything already
+  flagged, because a blocked item is quiet BECAUSE it is blocked.
+
+  **One date computation, two explicitly named windows.** Four horizon constants
+  existed and two of them both meant "due soon" while covering different ranges
+  (7 days in Today's Upcoming, 3 in the recommender). The shared fact is now
+  `daysUntilDue` — horizon-free — and each consumer applies its own named window:
+  `UPCOMING_WINDOW_DAYS` and `RECOMMENDATION_HORIZON_DAYS`. Suggested Next keeps
+  its narrower bar; it just no longer calls it the same thing.
+
+  **Suggested Next stayed a separate decision layer.** Both read
+  `commitmentFactsFor`. Commitment awareness deliberately includes what a
+  recommender must exclude — waiting, blocked, projects — because "what may be
+  slipping out of view?" and "what should I do now?" are different questions
+  over the same evidence. A dead `follow_up_due` reason was removed from the
+  recommender rather than left as decorative coverage: `followUpDate` is written
+  only by `markActionWaiting`, and waiting actions are never executable, so it
+  could never fire.
+
+  **"What am I forgetting?" is bounded by what Conqify recorded.** Memory Query
+  routes those questions into the *same* `buildCommitmentSignals` call Today
+  renders, so the two surfaces cannot drift. Empty state is "Nothing stands out
+  from what Conqify has recorded" — never "you're all caught up", which would be
+  a claim about a life rather than about a database.
+
+  **Deleted source disappears from signals.** Signals are values computed from
+  `(state, TodayIndexes)`; completing or deleting a record removes its signal
+  with no invalidation step, proved in the browser both ways.
+
+  **Validation.** Full regression **3621/3621 across 37 suites** (new commitment
+  suite 124/124); browser smoke **39/39**; smokes 060–062, 065–069 all green;
+  migration rehearsal 96/96 **still at 0042**; release audit 17/17;
+  audit:security PASS; tsc clean; eslint 0 errors. Performance, reusing
+  `TodayIndexes`: 100 actions 17ms · 1,000 actions 28ms · 5,000 actions 171ms —
+  linear, with an O(n) dependency chain rather than any n² traversal.
+
+  **Durable lesson, twice over.** The audit's findings came from seeding a
+  fixture into the deployed build and reading which section each row landed in —
+  three of the conclusions I had drawn from reading the code were wrong. And two
+  of the five smoke failures were the TEST, not the product: one assertion read
+  `localStorage` immediately after hydrate (the store persists on the next
+  write, not on load), and another completed the very item a later assertion
+  checked. A failing assertion is a claim that needs the same verification as a
+  passing one.
+
+  **Known harness debt (not a product defect).** `smoke-064`'s `week-store.json`
+  is a frozen snapshot dated 2026-08-18. Its range assertions were written when
+  "last week" meant Aug 10–16; the calendar has since rolled to Monday Aug 24,
+  which moves "last week" to Aug 17–23 and swallows the fixture. Proven by
+  computing `resolveWeekRange("last_week", …)` for both days, and by the fact
+  that 070 changes **no** week, range or date code (empty diff). Week in Review's
+  real coverage is the deterministic `memory/week` suite — 90/90, fixed dates.
+  The snapshot needs re-dating in a future sprint.

@@ -12,6 +12,7 @@
 
 import type { NextAction } from "@/types/mvp";
 import { todayKey, addDays, weekStartKey, type DayKey } from "@/lib/reviews/dates";
+import { makeEvent, appendHistory } from "@/lib/actions/history";
 
 export type DeferOption = "tomorrow" | "next_week" | "someday" | { date: DayKey };
 
@@ -45,18 +46,42 @@ export function returningToday(actions: NextAction[], today: DayKey = todayKey()
 }
 
 /**
- * A due deferred action returns to `open` (eligible for Next). Its history is
- * preserved and a `returned` event is appended by the store. Pure: yields the
- * next actions array plus the returned ids. Someday deferrals never auto-return.
+ * A due deferred action returns to `open` (eligible for Next).
+ *
+ * ## The return leaves evidence, and it does so HERE
+ *
+ * Returning clears `deferredUntil` — correctly, because the deferral is over and
+ * a stale date would be a lie about the record's current state. That means the
+ * ONLY durable trace of the return is the `returned` history event, so this
+ * function writes it rather than trusting callers to.
+ *
+ * LIFEOS-070's audit found why that matters: the store had two return paths, and
+ * the manual one appended the event while the HYDRATE one did not. Since hydrate
+ * runs on every load, a deferral that came back left no trace at all, and Today's
+ * "returned from deferral" signal — which tested the cleared `deferredUntil` —
+ * could never fire. Both bugs came from the same shape: evidence written beside
+ * the transition instead of by it. Now the branch that could forget does not
+ * exist.
+ *
+ * Pure: yields the next actions array plus the returned ids. Someday deferrals
+ * (no date) never auto-return.
  */
-export function returnDueActions(actions: NextAction[], today: DayKey = todayKey()): { actions: NextAction[]; returnedIds: string[] } {
+export function returnDueActions(
+  actions: NextAction[],
+  today: DayKey = todayKey(),
+  at: string = new Date().toISOString(),
+): { actions: NextAction[]; returnedIds: string[] } {
   const returnedIds: string[] = [];
   const next = actions.map((a) => {
-    if (isDue(a, today)) {
-      returnedIds.push(a.id);
-      return { ...a, status: "open" as const, deferredUntil: undefined };
-    }
-    return a;
+    if (!isDue(a, today)) return a;
+    returnedIds.push(a.id);
+    // `detail` carries the day the deferral was set to return on — the fact that
+    // makes "returned from deferral today" checkable against the record later.
+    const returned = { ...a, status: "open" as const, deferredUntil: undefined };
+    return appendHistory(
+      returned,
+      makeEvent({ action: "returned", at, fromStatus: "deferred", toStatus: "open", detail: a.deferredUntil }),
+    );
   });
   return { actions: returnedIds.length ? next : actions, returnedIds };
 }

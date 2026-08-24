@@ -123,6 +123,12 @@ export interface MemoryQueryPlan {
    * moods, so the answer layer must say so (§23, negative assertion 5).
    */
   emotionWord?: string;
+  /**
+   * For an OPEN_WORK question that names ONE kind of slip — "what follow-ups
+   * are due?", "what came back today?" — the commitment kinds it is asking
+   * about. Empty means the whole picture (LIFEOS-070 §17).
+   */
+  signalKinds?: string[];
   /** True when the question asks WHO rather than WHAT ("who am I waiting on"). */
   wantsSubject?: boolean;
 }
@@ -295,7 +301,10 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
 
   { kind: "COMPLETION", re: /\b(?:finish|finished|complete|completed|accomplish|accomplished|get done|got done|got through|checked off|ticked off|wrap(?:ped)? up)\b|\bwhat did (?:i|we) do\b/ },
 
-  { kind: "OPEN_WORK", re: /\bstill (?:needs?|need) attention\b|\bstill open\b|\bneeds? (?:my )?attention\b|\bwhat'?s left\b|\bwhat'?s outstanding\b|\bstill (?:to do|need to do|owe)\b|\bon my plate\b|\bunfinished\b|\bstill hanging\b/ },
+  // OPEN_WORK is also the "what am I forgetting?" class (LIFEOS-070 §17). Those
+  // questions are answered from the SAME commitment signals Today renders, so a
+  // person cannot get one answer from the page and a different one from Memory.
+  { kind: "OPEN_WORK", re: /\bstill (?:needs?|need) attention\b|\bstill open\b|\bneeds? (?:my )?attention\b|\bwhat'?s left\b|\bwhat'?s outstanding\b|\bstill (?:to do|need to do|owe)\b|\bon my plate\b|\bunfinished\b|\bstill hanging\b|\bam i forgetting\b|\bhave i forgotten\b|\bslipping\b|\bfollow.?ups? (?:are )?due\b|\bcame? back (?:today|from deferral)\b|\bno (?:executable )?next action\b|\bfell through\b/ },
 
   // "what happened with X" is a project question when X is one, and a general
   // "around X" question otherwise; the retrieval layer decides which.
@@ -446,8 +455,19 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
 
   const emotion = EMOTION_WORDS.exec(q);
 
+  // A narrower forgetting question asks about one kind of slip. Anything else
+  // gets the whole picture rather than a guessed subset.
+  let signalKinds: string[] | undefined;
+  if (kind === "OPEN_WORK") {
+    if (/\bfollow.?ups?\b/.test(q)) signalKinds = ["follow_up_due"];
+    else if (/\bcame? back\b|\bfrom deferral\b/.test(q)) signalKinds = ["returned_today"];
+    else if (/\bprojects?\b/.test(q)) signalKinds = ["project_no_next_action"];
+    else if (/\bblocked\b/.test(q)) signalKinds = ["blocked"];
+  }
+
   return {
     kind,
+    signalKinds,
     question: raw,
     range: rm.range,
     rangeLabel: rm.phrase,

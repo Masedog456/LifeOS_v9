@@ -33,7 +33,15 @@ import { formatLocalTime } from "@/lib/time/localtime";
 import { formatDayKey, todayKey } from "@/lib/reviews/dates";
 import { nowLocalTime } from "@/lib/time/events";
 import { describeRule } from "@/lib/time/recurrence";
+import {
+  signalsForSection, PROJECT_NO_NEXT_ACTION, type CommitmentSignal,
+} from "@/lib/commitment/signals";
 import { toast } from "@/lib/ux/feedback";
+
+/** Where a signal's record opens. Every row is a way back to the record. */
+function hrefForSignal(s: CommitmentSignal): string {
+  return s.recordRef.kind === "project" ? `/project/${s.recordRef.id}` : `/actions/${s.recordRef.id}`;
+}
 
 function Section({ title, show, children, id }: { title: string; show: boolean; children: React.ReactNode; id?: string }) {
   // Empty sections do not render. A panel that says "nothing here" is a reminder
@@ -59,6 +67,10 @@ export default function TodayCommandCenter() {
   const [now] = useState(() => nowLocalTime());
 
   const view = useMemo(() => buildTodayView(state, buildTodayIndexes(state, today, now)), [state, today, now]);
+  // Split once, from the already-deduplicated list. Each section renders its own
+  // slice; no section re-derives what belongs in it.
+  const attention = useMemo(() => signalsForSection(view.signals, "attention"), [view.signals]);
+  const returns = useMemo(() => signalsForSection(view.signals, "return"), [view.signals]);
 
   if (view.empty) {
     return (
@@ -185,29 +197,25 @@ export default function TodayCommandCenter() {
         )}
       </Section>
 
-      {/* ---- NEEDS ATTENTION ---- */}
-      <Section title="Needs attention" id="attention"
-        show={view.overdue.length + view.returnedToday.length + view.blocked.length > 0}>
+      {/* ---- NEEDS ATTENTION ----
+          Rendered from the deduplicated commitment signals (LIFEOS-070 §15/§16),
+          so one commitment is one row no matter how many facts are true of it.
+          Every row states WHY it is here in the record's own terms. */}
+      <Section title="Needs attention" id="attention" show={attention.length > 0}>
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {view.overdue.map((a) => (
-            <li key={a.id} data-overdue className={rowClass}>
-              <Link href={`/actions/${a.id}`} className={linkClass}>{a.title}</Link>
-              {/* Past tense, stated once. No count, no exclamation, no blame. */}
-              <span className={metaClass}>Was due {formatDayKey(a.dueDate!)}</span>
-            </li>
-          ))}
-          {view.returnedToday.map((a) => (
-            <li key={a.id} data-returned className={rowClass}>
-              <Link href={`/actions/${a.id}`} className={linkClass}>{a.title}</Link>
-              <span className={metaClass}>Comes back today</span>
-            </li>
-          ))}
-          {view.blocked.map((b) => (
-            <li key={b.action.id} data-blocked className={rowClass}>
-              <Link href={`/actions/${b.action.id}`} className={linkClass}>{b.action.title}</Link>
-              <span className={metaClass}>
-                Waiting on {b.blockers.length === 1 ? b.blockers[0].title : `${b.blockers.length} prerequisites`}
-              </span>
+          {attention.map((s) => (
+            <li key={`${s.recordRef.kind}:${s.recordRef.id}`} data-signal={s.kind} className="py-1">
+              <div className={rowClass}>
+                <Link href={hrefForSignal(s)} className={linkClass}>{s.title}</Link>
+                <span className={metaClass}>{s.explanation}</span>
+              </div>
+              {/* §15. Other true facts about the SAME commitment — attached, never
+                  a second row. */}
+              {s.secondaryReasons.length > 0 && (
+                <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-400">
+                  {s.secondaryReasons.map((r) => r.text).join(" ")}
+                </p>
+              )}
             </li>
           ))}
         </ul>
@@ -242,7 +250,11 @@ export default function TodayCommandCenter() {
               </Link>
               {/* Facts only. No health score, no percentage, no "at risk". */}
               <p className="text-[11px] text-zinc-500">
-                {p.nextAction ? `Next: ${p.nextAction.title}` : p.needsNextAction ? "No next action recorded" : ""}
+                {/* §11. One wording for this fact, shared with the signal layer
+                    and with Memory — "executable" is the load-bearing word,
+                    because a project whose only actions are blocked or waiting
+                    does have next actions, just none that can be started. */}
+                {p.nextAction ? `Next: ${p.nextAction.title}` : p.needsNextAction ? PROJECT_NO_NEXT_ACTION : ""}
                 {p.blockedCount > 0 ? ` · ${p.blockedCount} blocked` : ""}
                 {p.waitingCount > 0 ? ` · ${p.waitingCount} waiting` : ""}
               </p>
@@ -251,14 +263,27 @@ export default function TodayCommandCenter() {
         </ul>
       </Section>
 
-      {/* ---- RETURN ---- */}
-      <Section title="Worth returning to" id="return" show={!!view.returnItem}>
-        {view.returnItem && (
-          <div data-return>
-            <p className="text-sm text-zinc-800 dark:text-zinc-100">{view.returnItem.title}</p>
-            <p className="text-[11px] text-zinc-500">{view.returnItem.reason}</p>
-          </div>
-        )}
+      {/* ---- RETURN ----
+          Two things belong here (§16): a deferral the user themselves scheduled
+          to come back, and an open commitment that has simply gone quiet. Both
+          arrive as signals; the older single-record suggestion still appears for
+          NON-action records, and is suppressed when it duplicates a signal. */}
+      <Section title="Worth returning to" id="return"
+        show={returns.length > 0 || !!view.returnItem}>
+        <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+          {returns.map((s) => (
+            <li key={`${s.recordRef.kind}:${s.recordRef.id}`} data-signal={s.kind} className={rowClass}>
+              <Link href={hrefForSignal(s)} className={linkClass}>{s.title}</Link>
+              <span className={metaClass}>{s.explanation}</span>
+            </li>
+          ))}
+          {view.returnItem && (
+            <li data-return className={rowClass}>
+              <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{view.returnItem.title}</span>
+              <span className={metaClass}>{view.returnItem.reason}</span>
+            </li>
+          )}
+        </ul>
       </Section>
 
       {/* ---- UPCOMING ---- */}

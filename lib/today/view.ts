@@ -38,6 +38,9 @@ import { readRule, describeRule } from "@/lib/time/recurrence";
 import { upcomingOccurrences, type EventOccurrence } from "@/lib/time/events";
 import { returnSuggestion, type ReturnSuggestion } from "@/lib/planning/today-signals";
 import { recommendNextAction, type RecommendResult } from "@/lib/today/recommend";
+import {
+  buildCommitmentSignals, returnedOn, type CommitmentSignal,
+} from "@/lib/commitment/signals";
 import type { TodayIndexes } from "@/lib/today/indexes";
 
 /** Stated on the page. Today reflects records, not a life. */
@@ -123,6 +126,15 @@ export interface TodayView {
    * can never become an undated backlog dumped onto Today.
    */
   alsoToday: NextAction[];
+  /**
+   * Deduplicated commitment signals (LIFEOS-070).
+   *
+   * The single source for what Needs Attention and Worth Returning To render.
+   * The arrays below remain as the raw groupings other projections read, but a
+   * commitment appears in this list exactly ONCE — the audit found one overdue
+   * action rendered in three sections with three different wordings.
+   */
+  signals: CommitmentSignal[];
   /** NEEDS ATTENTION */
   overdue: NextAction[];
   returnedToday: NextAction[];
@@ -176,6 +188,12 @@ export function buildTodayView(state: StoreState, ix: TodayIndexes): TodayView {
     if (dueTodayIds.has(a.id) || a.status === "waiting") return false;
     if (a.dueDate && a.dueDate !== today) return false;
     if (ix.blockedActionIds.has(a.id)) return false;
+    // A deferral that has NOT come back yet is a decision the user already made:
+    // not now. Today used to show it anyway whenever it happened to be captured
+    // today, so "remind me about this next week" appeared under Today for the
+    // rest of the day it was deferred on (LIFEOS-070 §2). Nothing about the
+    // record changes here — it is simply not claimed to be current.
+    if (a.status === "deferred" && (!a.deferredUntil || a.deferredUntil > today)) return false;
     return (
       a.status === "in_progress" ||
       ix.plannedTodayIds.has(a.id) ||
@@ -185,7 +203,10 @@ export function buildTodayView(state: StoreState, ix: TodayIndexes): TodayView {
 
   // ---- NEEDS ATTENTION ---------------------------------------------------
   const overdue = sortByDue(overdueActions(nonRecurring, today), today);
-  const returnedToday = nonRecurring.filter((a) => a.deferredUntil === today);
+  // Read from the `returned` HISTORY EVENT, not from `deferredUntil`. Returning
+  // clears that field, so testing it — as this line used to — could never be
+  // true after a hydrate, and the signal never once rendered (LIFEOS-070 §1).
+  const returnedToday = nonRecurring.filter((a) => returnedOn(a, today));
 
   const blocked: BlockedItem[] = [];
   for (const a of nonRecurring) {
@@ -249,8 +270,20 @@ export function buildTodayView(state: StoreState, ix: TodayIndexes): TodayView {
 
   const nowEvent = ix.occurrences.find((o) => isNow(o, ix.now));
 
+  const signals = buildCommitmentSignals(state, ix, { today });
+  // A record that already carries a commitment signal must not ALSO be offered
+  // as something to return to — the audit found an overdue action presented as
+  // "No recorded activity in 120 days", which reads as forgotten when it is in
+  // fact flagged two sections above (LIFEOS-070 §12).
+  const signalled = new Set(signals.map((s) => `${s.recordRef.kind}:${s.recordRef.id}`));
+  const suggested = returnSuggestion(state, ix.activity, undefined, today);
+  const returnItem = suggested && !signalled.has(`${suggested.ref.kind}:${suggested.ref.id}`)
+    ? suggested
+    : null;
+
   const view: TodayView = {
     today,
+    signals,
     nowEvent,
     nextEvent: ix.nextEvent,
     minutesToNextEvent: ix.minutesToNextEvent,
@@ -262,7 +295,7 @@ export function buildTodayView(state: StoreState, ix: TodayIndexes): TodayView {
     returnedToday,
     blocked,
     waiting,
-    returnItem: returnSuggestion(state, ix.activity, undefined, today),
+    returnItem,
     upcoming: upcoming.slice(0, MAX_UPCOMING),
     pulse: pulse.slice(0, MAX_PULSE),
     suggestion: recommendNextAction(state, ix, today),
