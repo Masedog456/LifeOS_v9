@@ -184,6 +184,35 @@ export async function runCommitmentSelfTests(): Promise<SelfTestReport> {
       state.nextActions.find((a) => a.id === "t4")?.deferredUntil === NEXT_WEEK);
     ok("2.C4 …and it is still not due to return", !isDue(state.nextActions.find((a) => a.id === "t4")!, T));
 
+    // LIFEOS-071's browser run found the other half of this hole: an action with
+    // a PAST due date that the user has since deferred forward kept reporting
+    // itself overdue, because deferring does not clear `dueDate`. Deferring is
+    // supposed to end the signal — that is the entire point of the operation.
+    const deferredButOverdue: StoreState = {
+      ...state,
+      nextActions: [...state.nextActions, act({
+        id: "t-defover", title: "ZZDeferredWasOverdue", createdAt: iso(LONG_AGO),
+        dueDate: YESTERDAY, status: "deferred", deferredUntil: NEXT_WEEK,
+      })],
+    } as StoreState;
+    const after = buildCommitmentSignals(
+      deferredButOverdue, buildTodayIndexes(deferredButOverdue, T), { today: T },
+    );
+    ok("2.C5 an action deferred forward reports nothing, even with a past due date",
+      !after.some((s) => s.title === "ZZDeferredWasOverdue"),
+      after.filter((s) => s.title === "ZZDeferredWasOverdue").map((s) => s.kind).join(","));
+    // …and a deferral whose day has ARRIVED is not suppressed by the same rule.
+    const backToday: StoreState = {
+      ...state,
+      nextActions: [...state.nextActions, act({
+        id: "t-back", title: "ZZDeferralArrived", createdAt: iso(LONG_AGO),
+        dueDate: YESTERDAY, status: "deferred", deferredUntil: T,
+      })],
+    } as StoreState;
+    ok("2.C6 …while a deferral whose day arrived is still surfaced",
+      buildCommitmentSignals(backToday, buildTodayIndexes(backToday, T), { today: T })
+        .some((s) => s.title === "ZZDeferralArrived"));
+
     // ---- D. an overdue action is not duplicated across attention rows
     eq("2.D1 an overdue action produces exactly one signal", kindOf("ZZOverdue").length, 1);
     const attention = signalsForSection(signals, "attention");

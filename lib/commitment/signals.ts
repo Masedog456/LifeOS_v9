@@ -246,7 +246,21 @@ export function buildCommitmentSignals(
   const dormantAfter = opts.dormantAfterDays ?? RETURN_THRESHOLD_DAYS;
 
   const actions = state.nextActions ?? [];
-  const live = actions.filter(isLive);
+
+  /**
+   * A deferral the user set for a LATER day is a decision, not a lapse.
+   *
+   * `isLive` correctly treats a deferred action as live — it is not finished —
+   * but a date-based signal must still stay quiet about it, because the user has
+   * already answered "not now" and a stale `dueDate` does not override that.
+   * LIFEOS-070 §21 fixed this for Today's own section; the audit's browser run
+   * showed the SIGNAL layer had the same hole, so an action deferred to next
+   * week kept reporting itself overdue. Deferring is supposed to end the signal.
+   */
+  const deferredAhead = (a: NextAction): boolean =>
+    a.status === "deferred" && (!a.deferredUntil || a.deferredUntil > today);
+
+  const live = actions.filter((a) => isLive(a) && !deferredAhead(a));
   // A recurring action is a standing source, not a dated task: its occurrence is
   // asked for by the schedule and it must never also appear as an ordinary due
   // item, or one responsibility becomes two rows.
@@ -454,7 +468,19 @@ export function dormantSignals(
   for (const a of actions) {
     if (a.status === "waiting" || a.status === "deferred") continue;
     if (dueKeyOf(a)) continue;
-    const at = lastActivity.get(`action:${a.id}`) ?? a.createdAt;
+    // The LATER of indexed activity and the record's own `updatedAt`.
+    //
+    // The activity index carries status transitions, not field edits, so an
+    // action changed five minutes ago can have no index entry at all. That
+    // matters as of LIFEOS-071: `stopWaiting` moves an item out of `waiting`
+    // (where dormancy never applies) into `open` (where it does), and reading
+    // only the index would flag a wait the user JUST resolved as forgotten.
+    // `updatedAt` is recorded evidence that the record changed, so it counts.
+    const indexed = lastActivity.get(`action:${a.id}`);
+    const at = [indexed, a.updatedAt, a.createdAt]
+      .filter((x): x is string => !!x)
+      .sort()
+      .pop();
     if (!at) continue;
     const day = at.slice(0, 10);
     if (day >= today) continue;

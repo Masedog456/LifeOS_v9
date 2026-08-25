@@ -4946,3 +4946,83 @@ connectors require repeated beta demand **and** stable API support, both.
   that 070 changes **no** week, range or date code (empty diff). Week in Review's
   real coverage is the deterministic `memory/week` suite — 90/90, fixed dates.
   The snapshot needs re-dating in a future sprint.
+
+- **LIFEOS-071 — Commitment Resolution.** A surfaced commitment can now be acted
+  on where it appears: complete, defer, reschedule, done-for-today, open the
+  blocker, set the next follow-up, stop waiting, add a project's next action.
+  Nine resolution kinds, bounded per signal, at most three inline. **Zero
+  migrations; head remains 0042; no new domain, no new life noun, no new history
+  kind.**
+
+  **Signal ≠ command.** The resolver returns DESCRIPTIONS of mutations; nothing
+  runs on a render. Three rules are enforced by shape rather than by care:
+  `RESOLUTIONS_BY_KIND` is a fixed table (an overdue row cannot offer "open
+  blocker"; a blocked row cannot offer "complete"), the `ResolutionOps` interface
+  has no destructive member at all, and there is no `cancel` or `delete`
+  resolution kind to filter out.
+
+  **Resolution targets the source record.** Nothing mutates a
+  `CommitmentSignal` — it is recomputed from state, so a resolved commitment
+  stops being surfaced because its EVIDENCE changed, not because something
+  crossed it off. Proved twice in the browser: completing from Memory removed
+  the row on Today, and the item that blocker was blocking stopped reporting
+  itself blocked.
+
+  **Waiting ≠ completed, and a follow-up date is not a follow-up.** The audit
+  found `followUpDate` has exactly one writer — `markActionWaiting` — which
+  resets `waitingSince` to now. Pushing a follow-up through it would silently
+  restart the wait clock and falsify the one dated fact the waiting signal rests
+  on. And there is no `followed_up` history kind, so **"mark followed up" was not
+  built**: `setNextFollowUpDate` moves the date and preserves `waitingSince`;
+  `stopWaiting` ends the wait, clears its fields, and returns the action to
+  `open` — never to `completed`. Both controls say so before the press.
+
+  **`restored` was the wrong history kind, and that mattered.** It is emitted
+  only by `restoreAction`, documented as cancelled/completed → open, and rendered
+  as "Action reopened". A wait ending is none of those, so `stopWaiting` uses the
+  generic `edited` event with the status transition attached and a detail that
+  says "stopped waiting on Marcus". Truthful, and no new kind invented.
+
+  **Blocked ≠ executable.** A blocked row's primary — and only mutating —
+  affordance is opening the blocker. One blocker links straight through; two ask
+  which, **never resolved by recency**. No completion, no defer, no reschedule:
+  offering those would be the product suggesting something the user cannot do.
+
+  **Recurring occurrence ≠ whole series.** A recurring signal offers "Done for
+  today" and has no whole-action completion in its set at all. The control says
+  "the repeat stays", the outcome message repeats it, and the undo removes only
+  that occurrence. Proved in the browser: after completing, the action is still
+  `open`, its rule survives, and exactly one completion row exists.
+
+  **AI may propose, user confirms — so nothing was proposed.** §16 allows an AI
+  suggestion for a project's next action behind confirmation. Conqify does not
+  invent a commitment and attribute it to someone, so the control is a text field
+  the user fills. Empty input creates nothing, asserted three ways.
+
+  **No silent cancellation.** Cancel and delete are absent from the resolution
+  surface entirely and stay on the record's own page, where the consequences are
+  visible. A one-click cancel beside "you may be forgetting this" is how someone
+  loses work they meant to keep.
+
+  **Two defects the browser found that no fixture could.** (1) A future-deferred
+  action with a stale past due date kept reporting itself **overdue** — LIFEOS-070
+  fixed this for Today's own section and left the same hole in the SIGNAL layer,
+  so deferring did not end the signal. (2) `stop_waiting` is a `confirm` action
+  with no presets, and the panel rendered only its (empty) choice list plus
+  "Never mind" — **the operation could be started and never completed**. Both
+  are now pinned by assertions.
+
+  **Validation.** Full regression **3731/3731 across 38 suites** (new resolution
+  suite 108/108, commitment 126/126); browser smoke **62/62**; smokes 060–063,
+  065–070 green; migration rehearsal 96/96 **still at 0042**; release audit
+  17/17; audit:security PASS; tsc clean; eslint 0 errors. Resolution derivation
+  is ~0.11ms per signal and trivial against signal generation (1,000 signals:
+  70ms to generate, 108ms to resolve), reusing the page's existing
+  `TodayIndexes` — no store scan per button.
+
+  **Durable lesson.** Both real defects this sprint were *reachability* failures,
+  not logic failures: code that computed the right answer and could never be
+  exercised. 108 green assertions against a recording fake could not see either,
+  because a fake cannot tell you that the button opens an empty panel. The
+  deterministic suite proves WHICH primitive runs; only the browser proves that
+  a person can run it.
