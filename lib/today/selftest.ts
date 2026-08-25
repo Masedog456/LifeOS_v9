@@ -16,6 +16,7 @@ import {
   buildTodayView, waitingDays, violatesTodayLanguage, todayStrings,
   COVERAGE_NOTE, EMPTY_PROMPT, FORBIDDEN_TODAY_WORDS,
 } from "@/lib/today/view";
+import { dueLabel } from "@/lib/actions/due";
 import { STORE_DOMAINS } from "@/lib/ux/backup";
 import type { LifeEvent, NextAction, StoreState } from "@/types/mvp";
 
@@ -190,9 +191,22 @@ export function runTodaySelfTests(): SelfTestReport {
     const r = rec(stateWith({ nextActions: [act({ id: "over", title: "Overdue", dueDate: TWO_AGO })] }));
     ok("4.1 a recommendation always has at least one reason", (r.recommendation?.reasons.length ?? 0) > 0);
     eq("4.2 and the reason is the observable fact", codesOf(r.recommendation!.reasons), ["overdue"]);
-    eq("4.3 stated plainly", r.recommendation!.reasons[0].text, "Overdue by 2 days");
-    ok("4.4 singular is handled", rec(stateWith({ nextActions: [act({ title: "x", dueDate: YESTERDAY })] }))
-      .recommendation!.reasons[0].text === "Overdue by 1 day");
+    // LIFEOS-070 §6 TRANSITION. These two assertions used to pin "Overdue by 2
+    // days" / "Overdue by 1 day" — a day COUNT, which is the framing
+    // `DUE_BUCKET_LABEL` was written to avoid and which the §4 audit found to be
+    // a THIRD wording for a fact Today already stated two other ways. The count
+    // is gone; the recommender now uses the one shared neutral label. The
+    // assertions are replaced by affirmative ones proving the new behaviour
+    // rather than relaxed to accommodate it.
+    eq("4.3 stated plainly, in the shared neutral wording",
+      r.recommendation!.reasons[0].text, dueLabel(act({ id: "over", title: "Overdue", dueDate: TWO_AGO }), TODAY));
+    ok("4.3b …which names the date rather than counting days",
+      /^Was due /.test(r.recommendation!.reasons[0].text), r.recommendation!.reasons[0].text);
+    ok("4.4 a single overdue day is worded identically — there is no count to pluralise",
+      /^Was due /.test(rec(stateWith({ nextActions: [act({ title: "x", dueDate: YESTERDAY })] }))
+        .recommendation!.reasons[0].text));
+    ok("4.4b …and no reason anywhere says “overdue by”",
+      !/overdue by/i.test((r.recommendation?.reasons ?? []).map((x) => x.text).join(" ")));
     // No reason text is a score, a percentage, or an opaque appeal to AI.
     const allTexts = (r.recommendation?.reasons ?? []).map((x) => x.text).join(" ");
     ok("4.5 no percentage in any reason", !/%/.test(allTexts));

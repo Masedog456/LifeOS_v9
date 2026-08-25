@@ -41,8 +41,8 @@
 
 import type { NextAction, StoreState } from "@/types/mvp";
 import type { DayKey } from "@/lib/reviews/dates";
-import { dayDiff } from "@/lib/reviews/dates";
-import { isLive } from "@/lib/actions/due";
+import { isLive, dueLabel } from "@/lib/actions/due";
+import { commitmentFactsFor } from "@/lib/commitment/signals";
 import { minutesOf, type LocalTime } from "@/lib/time/localtime";
 import type { TodayIndexes } from "@/lib/today/indexes";
 
@@ -57,10 +57,15 @@ export interface Reason {
     | "overdue"
     | "due_today"
     | "due_at_time"
-    | "follow_up_due"
+    // `follow_up_due` is deliberately ABSENT (LIFEOS-070 §8). `followUpDate` is
+    // written only by `markActionWaiting`, which sets `status: "waiting"`, and
+    // `isExecutable` excludes waiting actions — so the reason could never fire
+    // for the case it was written for. It read as coverage while being
+    // unreachable. A due follow-up is a commitment-awareness signal, and that is
+    // where it now lives.
     | "returned_today"
     | "blocks_other"
-    | "due_soon"
+    | "due_within_horizon"
     | "planned_today"
     | "fits_before_event"
     | "only_candidate"
@@ -88,10 +93,10 @@ interface Scored {
   reasons: Reason[];
   overdueDays: number;
   dueToday: boolean;
-  followUpDue: boolean;
   returnedToday: boolean;
   blocksCount: number;
-  dueSoonDays: number;
+  /** Days until due, WITHIN this recommender's horizon. 0 means "not near". */
+  withinHorizonDays: number;
   plannedToday: boolean;
   fitsBeforeEvent: boolean;
 }
@@ -104,8 +109,18 @@ const SIZE_MINUTES: Record<string, number> = {
   large: 120,
 };
 
-/** How far ahead "due soon" reaches. Beyond this a date is not a reason. */
-const DUE_SOON_DAYS = 3;
+/**
+ * How far ahead a due date is still a reason to recommend something NOW.
+ *
+ * Narrower than Today's Upcoming window (`UPCOMING_WINDOW_DAYS`, 7 days) on
+ * purpose, and named for what it is rather than called "due soon" as well
+ * (LIFEOS-070 §7). The two windows answer different questions — "worth starting
+ * today" is a tighter bar than "approaching" — and the audit found them sharing
+ * a name while meaning different ranges, which is how a page ends up quietly
+ * contradicting itself. There is now ONE date computation
+ * (`commitmentFactsFor().daysUntilDue`) and two explicitly named windows over it.
+ */
+export const RECOMMENDATION_HORIZON_DAYS = 3;
 
 /**
  * §13 allows "user-marked priority if one already exists". It does not.
@@ -147,17 +162,20 @@ function plural(n: number, one: string, many: string): string {
 function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
   const reasons: Reason[] = [];
 
-  // `dayDiff(a, b)` is a MINUS b. Overdue = today - dueDate.
-  const overdueDays = a.dueDate && a.dueDate < today ? dayDiff(today, a.dueDate) : 0;
-  if (overdueDays > 0) {
-    reasons.push({
-      code: "overdue",
-      text: `Overdue by ${overdueDays} ${plural(overdueDays, "day", "days")}`,
-    });
+  // LIFEOS-070 §4. The FACTS come from the shared commitment layer; this
+  // function decides only what they mean for a recommendation. Nothing here
+  // recomputes a date comparison that `lib/actions/due.ts` already owns.
+  const f = commitmentFactsFor(a, ix, today);
+
+  if (f.overdueDays > 0) {
+    // §6. One wording for a passed deadline, and it is `dueLabel`'s: "Was due
+    // Sun, Aug 23". The old text here was "Overdue by 3 days" — a count that
+    // reads as a reprimand, and a third phrasing for a fact Today already had
+    // two of.
+    reasons.push({ code: "overdue", text: dueLabel(a, today) });
   }
 
-  const dueToday = a.dueDate === today;
-  if (dueToday) {
+  if (f.dueToday) {
     reasons.push(
       a.dueTime
         ? { code: "due_at_time", text: `Due today at ${a.dueTime}` }
@@ -165,13 +183,12 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
     );
   }
 
-  const followUpDue = !!a.followUpDate && a.followUpDate <= today;
-  if (followUpDue) reasons.push({ code: "follow_up_due", text: "A follow-up is due" });
+  // A follow-up cannot reach this function — waiting actions are not executable
+  // — so no reason is emitted for it. See the `Reason["code"]` comment.
 
-  const returnedToday = a.deferredUntil === today;
-  if (returnedToday) reasons.push({ code: "returned_today", text: "Comes back today" });
+  if (f.returnedToday) reasons.push({ code: "returned_today", text: "Came back from deferral today" });
 
-  const blocksCount = ix.blocksMap.get(a.id)?.size ?? 0;
+  const blocksCount = f.blocksCount;
   if (blocksCount > 0) {
     reasons.push({
       code: "blocks_other",
@@ -179,15 +196,11 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
     });
   }
 
-  const dueSoonDays =
-    a.dueDate && a.dueDate > today && dayDiff(a.dueDate, today) <= DUE_SOON_DAYS
-      ? dayDiff(a.dueDate, today)
-      : 0;
-  if (dueSoonDays > 0) {
-    reasons.push({
-      code: "due_soon",
-      text: `Due in ${dueSoonDays} ${plural(dueSoonDays, "day", "days")}`,
-    });
+  // The shared fact is horizon-free; THIS window is the recommender's own.
+  const withinHorizonDays =
+    f.daysUntilDue !== undefined && f.daysUntilDue <= RECOMMENDATION_HORIZON_DAYS ? f.daysUntilDue : 0;
+  if (withinHorizonDays > 0) {
+    reasons.push({ code: "due_within_horizon", text: dueLabel(a, today) });
   }
 
   const plannedToday = ix.plannedTodayIds.has(a.id);
@@ -213,8 +226,9 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
   if (linked) reasons.push({ code: "linked_constitution", text: `Linked to your ${linked}` });
 
   return {
-    action: a, reasons, overdueDays, dueToday, followUpDue, returnedToday,
-    blocksCount, dueSoonDays, plannedToday, fitsBeforeEvent,
+    action: a, reasons,
+    overdueDays: f.overdueDays, dueToday: f.dueToday, returnedToday: f.returnedToday,
+    blocksCount, withinHorizonDays, plannedToday, fitsBeforeEvent,
   };
 }
 
@@ -223,27 +237,28 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
  *
  *  1. more overdue                    — a passed deadline is the clearest fact
  *  2. due today                       — a deadline that has not passed yet
- *  3. follow-up due                   — a commitment to someone else
- *  4. returned from deferral today    — the user chose this date themselves
- *  5. blocks more other actions       — unblocking is observably higher leverage
- *  6. sooner due date                 — within the DUE_SOON window only
- *  7. planned for today               — an explicit horizon assignment
- *  8. fits before the next event      — only where the user SIZED the action
- *  9. created earlier                 — stable, arbitrary, and honest about it
+ *  3. returned from deferral today    — the user chose this date themselves
+ *  4. blocks more other actions       — unblocking is observably higher leverage
+ *  5. sooner due date                 — within RECOMMENDATION_HORIZON_DAYS only
+ *  6. planned for today               — an explicit horizon assignment
+ *  7. fits before the next event      — only where the user SIZED the action
+ *  8. created earlier                 — stable, arbitrary, and honest about it
+ *
+ * The follow-up step is gone because it could never fire (LIFEOS-070 §8), not
+ * because follow-ups stopped mattering — they are a commitment signal now.
  *
  * There is deliberately no "importance" step. See the header.
  */
 function compare(a: Scored, b: Scored): number {
   if (a.overdueDays !== b.overdueDays) return b.overdueDays - a.overdueDays;
   if (a.dueToday !== b.dueToday) return a.dueToday ? -1 : 1;
-  if (a.followUpDue !== b.followUpDue) return a.followUpDue ? -1 : 1;
   if (a.returnedToday !== b.returnedToday) return a.returnedToday ? -1 : 1;
   if (a.blocksCount !== b.blocksCount) return b.blocksCount - a.blocksCount;
-  if (a.dueSoonDays !== b.dueSoonDays) {
+  if (a.withinHorizonDays !== b.withinHorizonDays) {
     // 0 means "no near due date" and must sort LAST, not first.
-    if (a.dueSoonDays === 0) return 1;
-    if (b.dueSoonDays === 0) return -1;
-    return a.dueSoonDays - b.dueSoonDays;
+    if (a.withinHorizonDays === 0) return 1;
+    if (b.withinHorizonDays === 0) return -1;
+    return a.withinHorizonDays - b.withinHorizonDays;
   }
   if (a.plannedToday !== b.plannedToday) return a.plannedToday ? -1 : 1;
   if (a.fitsBeforeEvent !== b.fitsBeforeEvent) return a.fitsBeforeEvent ? -1 : 1;
@@ -256,8 +271,8 @@ function compare(a: Scored, b: Scored): number {
 
 /** Reason codes that are strong enough to justify a recommendation on their own. */
 const GROUNDING_CODES = new Set<Reason["code"]>([
-  "overdue", "due_today", "due_at_time", "follow_up_due",
-  "returned_today", "blocks_other", "due_soon", "planned_today",
+  "overdue", "due_today", "due_at_time",
+  "returned_today", "blocks_other", "due_within_horizon", "planned_today",
 ]);
 
 /**
@@ -314,10 +329,9 @@ function indistinguishable(a: Scored, b: Scored): boolean {
   return (
     a.overdueDays === b.overdueDays &&
     a.dueToday === b.dueToday &&
-    a.followUpDue === b.followUpDue &&
     a.returnedToday === b.returnedToday &&
     a.blocksCount === b.blocksCount &&
-    a.dueSoonDays === b.dueSoonDays &&
+    a.withinHorizonDays === b.withinHorizonDays &&
     a.plannedToday === b.plannedToday &&
     a.fitsBeforeEvent === b.fitsBeforeEvent
   );

@@ -70,7 +70,11 @@ export function buildActivityIndex(state: StoreState): ActivityEvent[] {
     const attr = { projectId: a.projectId, milestoneId: a.milestoneId };
     push({ at: a.createdAt, type: "action_created", recordKind: "action", recordId: a.id, ...attr });
     for (const e of a.history ?? []) {
-      const map: Record<string, string> = { started: "action_started", completed: "action_completed", deferred: "action_deferred", waiting: "action_waiting", cancelled: "action_cancelled", restored: "action_restored", reopened: "action_restored" };
+      // `returned` joins the map in LIFEOS-070. It was the one recorded action
+      // transition the shared index dropped, which meant a deferral coming back
+      // was invisible to every consumer built on this stream — dormancy, the
+      // Return card, Week in Review and commitment awareness alike.
+      const map: Record<string, string> = { started: "action_started", completed: "action_completed", deferred: "action_deferred", returned: "action_returned", waiting: "action_waiting", cancelled: "action_cancelled", restored: "action_restored", reopened: "action_restored" };
       const t = map[e.action];
       if (t) push({ at: e.at, type: t, recordKind: "action", recordId: a.id, ...attr, detail: e.detail });
     }

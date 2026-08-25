@@ -48,9 +48,13 @@ import { buildIndex, searchFlat } from "@/lib/command/search";
 import { resolveRecord } from "@/lib/command/records";
 import type { SearchEntry } from "@/lib/command/types";
 import {
-  buildAutobiographicalTimeline, buildWeekReview, COMPLETION_KINDS,
+  buildAutobiographicalTimeline, COMPLETION_KINDS,
   type AutobiographicalEvent,
 } from "@/lib/memory/week";
+import { buildTodayIndexes, type TodayIndexes } from "@/lib/today/indexes";
+import {
+  buildCommitmentSignals, COMMITMENT_ORDER, NOTHING_STANDS_OUT,
+} from "@/lib/commitment/signals";
 import {
   planMemoryQuery, MEMORY_QUERY_EXAMPLES, MEMORY_UNRESOLVED_LABEL,
   type MemoryQueryPlan,
@@ -364,6 +368,8 @@ export interface AnswerOptions {
    * record the question had nothing to do with.
    */
   focusRef?: RecordRefLite;
+  /** Prebuilt Today indexes, when the caller already has them (§23). */
+  todayIndexes?: TodayIndexes;
 }
 
 /** Narrow a candidate set to the record the user picked, if they picked one. */
@@ -939,61 +945,76 @@ function datedAuthored(state: StoreState, entry: SearchEntry): MemoryAnswerItem 
 // --------------------------------------------------------------- OPEN_WORK --
 
 /**
- * What still needs attention.
+ * What may be slipping out of view (LIFEOS-070 §17).
  *
- * Delegates to `buildWeekReview` rather than re-deriving "open", so the answer
- * and the Still Open section on the same page can never disagree.
+ * Delegates entirely to `buildCommitmentSignals` — the same deduplicated model
+ * Today renders. That is the whole point of routing these questions here rather
+ * than writing a second answer engine: asking "what am I forgetting?" on the
+ * Memory page and reading Needs Attention on Today are two views of one list,
+ * and they cannot drift because there is only one computation.
  */
 function answerOpenWork(state: StoreState, plan: MemoryQueryPlan, today: DayKey, opts: AnswerOptions): MemoryAnswer {
-  const review = buildWeekReview(state, "this_week", { today, index: opts.index });
-  const items: MemoryAnswerItem[] = review.stillOpen.map((o) => {
-    // The date shown is the one the reason is ABOUT: a due date for something
-    // overdue, the day a wait began for something waiting. A "next in project"
-    // line has neither, and gets no date rather than a borrowed one.
-    const day = o.reason === "waiting" ? o.action.waitingSince?.slice(0, 10) : o.action.dueDate;
-    return {
-      text: o.action.title,
-      attribution: attributionFor("action", classifyOrigin({ kind: "action", text: o.action.title })),
-      day, when: day ? fmt(day) : undefined,
-      detail: o.detail,
-      ref: { kind: "action", id: o.action.id },
-      href: `/actions/${o.action.id}`,
-      evidence: o.reason === "waiting" ? "action.waitingSince" : "action.dueDate",
-      origin: classifyOrigin({ kind: "action", text: o.action.title }),
-    };
-  });
+  const ix = opts.todayIndexes ?? buildTodayIndexes(state, today);
+  const all = buildCommitmentSignals(state, ix, { today });
+  const wanted = plan.signalKinds?.length
+    ? all.filter((s) => plan.signalKinds!.includes(s.kind))
+    : all;
+
+  const items: MemoryAnswerItem[] = wanted.map((s) => ({
+    text: s.title,
+    attribution: attributionFor(s.recordRef.kind, classifyOrigin({ kind: s.recordRef.kind, text: s.title })),
+    day: s.date,
+    when: s.date ? fmt(s.date) : undefined,
+    // The explanation IS the answer for this class — every row says why it is
+    // here, in the record's own terms.
+    detail: [s.explanation, ...s.secondaryReasons.map((r) => r.text)].join(" "),
+    ref: s.recordRef,
+    href: resolveRecord(state, s.recordRef.kind, s.recordRef.id)?.href,
+    evidence: s.evidence,
+    origin: classifyOrigin({ kind: s.recordRef.kind, text: s.title }),
+  }));
 
   if (items.length === 0) {
     return {
-      ...noEvidence(plan),
-      heading: "Nothing flagged",
-      summary: "No action is overdue, due soon, or waiting on someone. That is what Conqify has recorded — it is not a claim about everything on your mind.",
+      ...noEvidence(plan, COMMITMENT_COVERAGE),
+      heading: "Nothing stands out",
+      // §20. Bounded to the record. NOT "you're all caught up", which would be
+      // a claim about the user's life rather than about Conqify's contents.
+      summary: NOTHING_STANDS_OUT,
     };
   }
 
-  const overdue = review.stillOpen.filter((o) => o.reason === "overdue").length;
-  const soon = review.stillOpen.filter((o) => o.reason === "due_soon").length;
-  const waiting = review.stillOpen.filter((o) => o.reason === "waiting").length;
-  const nextUp = review.stillOpen.filter((o) => o.reason === "project_next").length;
-  const parts: string[] = [];
-  if (overdue) parts.push(`${plural(overdue, "item is", "items are")} past a due date you set`);
-  if (soon) parts.push(`${plural(soon, "item is", "items are")} due within a week`);
-  if (waiting) parts.push(`${plural(waiting, "item is", "items are")} waiting on someone`);
-  // Counted, because every listed line must be accounted for in the sentence
-  // above it. A summary that adds up to fewer items than the list is a small
-  // arithmetic lie that makes the reader distrust the rest.
-  if (nextUp) parts.push(`${plural(nextUp, "item is", "items are")} the next step in a project`);
+  // Counts by kind, so the sentence above the list accounts for every row in it.
+  const counted = new Map<string, number>();
+  for (const s of wanted) counted.set(s.kind, (counted.get(s.kind) ?? 0) + 1);
+  const phrase: Record<string, (n: number) => string> = {
+    overdue: (n) => `${plural(n, "item is", "items are")} past a due date you set`,
+    follow_up_due: (n) => `${plural(n, "follow-up date has", "follow-up dates have")} arrived`,
+    returned_today: (n) => `${plural(n, "item")} came back from deferral today`,
+    recurring_due: (n) => `${plural(n, "recurring occurrence is", "recurring occurrences are")} due today`,
+    blocked: (n) => `${plural(n, "item is", "items are")} blocked by unfinished work`,
+    due_soon: (n) => `${plural(n, "item is", "items are")} due soon`,
+    project_no_next_action: (n) => `${plural(n, "project has", "projects have")} no executable next action`,
+    dormant: (n) => `${plural(n, "open item has", "open items have")} no recorded activity`,
+  };
+  const parts = [...counted.entries()]
+    .sort((a, b) => COMMITMENT_ORDER.indexOf(a[0] as never) - COMMITMENT_ORDER.indexOf(b[0] as never))
+    .map(([kind, n]) => (phrase[kind] ? phrase[kind](n) : `${plural(n, "item")} (${kind})`));
 
   return {
     status: "ANSWERED",
-    heading: "Still open",
+    heading: "What may need attention",
     summary: `${sentence(parts)}.`,
     items,
-    limitation: "This is what has a due date or a recorded wait. Anything you never wrote down isn't here.",
+    limitation: COMMITMENT_COVERAGE,
     sourceRefs: refsOf(items),
     plan,
   };
 }
+
+/** §22. The answer is bounded by the record, and says so. */
+const COMMITMENT_COVERAGE =
+  "This is what Conqify has recorded a date or a dependency for. Anything you never wrote down isn't here.";
 
 // -------------------------------------------------------------------- TIME --
 

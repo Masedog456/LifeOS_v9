@@ -604,6 +604,9 @@ export function hydrate() {
       { const dd = returnDueDefers(state.captures); if (dd.returnedIds.length) state = { ...state, captures: dd.captures }; }
       // Deferred actions whose local date has arrived become eligible for Next
       // again (LIFEOS-036, Feature 9) — deterministic, no background workers.
+      // The `returned` history event comes with the transition (LIFEOS-070 §1):
+      // this branch used to skip it, which left the return with no evidence and
+      // made Today's returned-from-deferral signal permanently unreachable.
       { const da = returnDueActions(state.nextActions); if (da.returnedIds.length) state = { ...state, nextActions: da.actions }; }
       // Corruption isolation (LIFEOS-033, Feature 10): drop malformed rows from
       // the in-memory store so a single bad record (null / missing id) can never
@@ -5307,14 +5310,16 @@ function recordActionSessionActivity(actionId: string, kind: string, label: stri
   recordSessionActivity({ type: "action_activity", entityKind: "action", entityId: actionId, label: `${kind}: ${label}`.slice(0, 120), detail: kind });
 }
 
-/** Manually return due deferred actions to Next (also runs on hydrate). */
+/**
+ * Manually return due deferred actions to Next (also runs on hydrate).
+ *
+ * The `returned` history event is written by `returnDueActions` itself, so this
+ * path and the hydrate path record identical evidence by construction. They used
+ * to differ, and the difference was invisible (LIFEOS-070 §1).
+ */
 export function returnDueActionsNow(): void {
-  const da = returnDueActions(state.nextActions ?? []);
-  if (da.returnedIds.length) {
-    const at = now();
-    const returned = new Set(da.returnedIds);
-    setState({ ...state, nextActions: da.actions.map((a) => (returned.has(a.id) ? appendActionHistory(a, makeActionEvent({ action: "returned", at, toStatus: "open" })) : a)) });
-  }
+  const da = returnDueActions(state.nextActions ?? [], reviewTodayKey(), now());
+  if (da.returnedIds.length) setState({ ...state, nextActions: da.actions });
 }
 
 /** De-dupe a RecordRefLite list by kind+id (shared by link/complete helpers). */
