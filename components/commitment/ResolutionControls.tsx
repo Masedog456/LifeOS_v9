@@ -34,7 +34,6 @@ import {
 } from "@/lib/mvpStore";
 import { todayKey } from "@/lib/reviews/dates";
 import { toast } from "@/lib/ux/feedback";
-import type { CommitmentSignal } from "@/lib/commitment/signals";
 import type { ResolutionAction, ResolutionChoice } from "@/lib/commitment/resolve";
 import { applyResolution, type ResolutionOps } from "@/lib/commitment/apply";
 
@@ -65,9 +64,16 @@ const primaryBtn =
   "rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900";
 
 export default function ResolutionControls({
-  signal, actions,
+  title, actions,
 }: {
-  signal: CommitmentSignal;
+  /**
+   * The record's title, used only to label the one text input.
+   *
+   * A title, not a `CommitmentSignal` — a recommended action need not carry a
+   * signal, and passing a synthesised one just to satisfy a prop would put a
+   * fake piece of evidence into the render tree (LIFEOS-072 §20).
+   */
+  title: string;
   actions: ResolutionAction[];
 }) {
   /** Which action's bounded choice panel is open, by kind. */
@@ -145,7 +151,7 @@ export default function ResolutionControls({
                 onChange={(e) => setDraft(e.target.value)}
                 autoFocus
                 placeholder="What's the next step?"
-                aria-label={`Next action for ${signal.title}`}
+                aria-label={`Next action for ${title}`}
                 data-resolution-input
                 className="min-w-0 flex-1 rounded-full border border-black/[.12] bg-transparent px-3 py-1 text-[11px] outline-none dark:border-white/[.15]"
               />

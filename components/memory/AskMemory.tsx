@@ -168,7 +168,7 @@ export default function AskMemory() {
                       Memory-specific resolver. */}
                   {item.signal && (
                     <ResolutionControls
-                      signal={item.signal}
+                      title={item.text}
                       actions={resolutionsFor(state, item.signal, { ix: todayIndexes })}
                     />
                   )}

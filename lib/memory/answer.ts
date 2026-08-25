@@ -52,6 +52,7 @@ import {
   type AutobiographicalEvent,
 } from "@/lib/memory/week";
 import { buildTodayIndexes, type TodayIndexes } from "@/lib/today/indexes";
+import { recommendNextAction, NO_STANDOUT } from "@/lib/today/recommend";
 import {
   buildCommitmentSignals, COMMITMENT_ORDER, NOTHING_STANDS_OUT,
   type CommitmentSignal,
@@ -436,6 +437,7 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "PROJECT": return answerProject(state, plan, range, implicit, searchIndex, opts);
     case "REFLECTION": return answerReflection(state, plan, searchIndex);
     case "OPEN_WORK": return answerOpenWork(state, plan, today, opts);
+    case "NEXT_ACTION": return answerNextAction(state, plan, today, opts);
     case "TIME": return answerTime(state, plan, searchIndex, opts);
     default: return noEvidence(plan);
   }
@@ -1022,6 +1024,57 @@ function answerOpenWork(state: StoreState, plan: MemoryQueryPlan, today: DayKey,
     items,
     limitation: COMMITMENT_COVERAGE,
     sourceRefs: refsOf(items),
+    plan,
+  };
+}
+
+/**
+ * What should I do next (LIFEOS-072 §21).
+ *
+ * Delegates to `recommendNextAction` — the same function Today's Suggested Next
+ * card calls, with the same indexes. Asking Memory and reading Today therefore
+ * cannot give different answers, because there is one builder and no second
+ * guidance path. A tie still produces no standout here, exactly as it does
+ * there: refusing to guess is the answer, not a gap to fill.
+ */
+function answerNextAction(state: StoreState, plan: MemoryQueryPlan, today: DayKey, opts: AnswerOptions): MemoryAnswer {
+  const ix = opts.todayIndexes ?? buildTodayIndexes(state, today);
+  const result = recommendNextAction(state, ix, today);
+
+  if (!result.recommendation) {
+    return {
+      status: "NO_RECORDED_EVIDENCE",
+      heading: "No single next action stands out",
+      summary: result.note ?? NO_STANDOUT,
+      items: [],
+      limitation: result.consideredCount > 0
+        ? `${plural(result.consideredCount, "action is", "actions are")} ready to start; none of them has a date or dependency that puts it ahead of the others.`
+        : "Nothing Conqify has recorded is ready to start right now.",
+      sourceRefs: [], plan,
+    };
+  }
+
+  const { action, reasons, counterfactual } = result.recommendation;
+  const ref: RecordRefLite = { kind: "action", id: action.id };
+  return {
+    status: "ANSWERED",
+    heading: action.title,
+    // Reasons first, then the short comparison — the same two things the card
+    // shows, in the same order.
+    summary: [reasons.map((r) => r.text).join(" · "), counterfactual].filter(Boolean).join(". "),
+    items: [{
+      text: action.title,
+      attribution: attributionFor("action", classifyOrigin({ kind: "action", text: action.title })),
+      day: action.dueDate,
+      when: action.dueDate ? fmt(action.dueDate) : undefined,
+      detail: reasons.map((r) => r.text).join(" · "),
+      ref,
+      href: `/actions/${action.id}`,
+      evidence: reasons.map((r) => r.code).join(","),
+      origin: classifyOrigin({ kind: "action", text: action.title }),
+    }],
+    limitation: COMMITMENT_COVERAGE,
+    sourceRefs: [ref],
     plan,
   };
 }

@@ -53,6 +53,15 @@ export interface TodayIndexes {
   minutesToNextEvent?: number;
   /** Ids the user explicitly assigned to the `today` horizon. */
   plannedTodayIds: Set<string>;
+  /**
+   * actionId → when it was last MOVED INTO the `today` horizon.
+   *
+   * Read from the assignment's history, which records `planned`/`moved` with a
+   * `toHorizon` and nothing else writes. The assignment's own `updatedAt` cannot
+   * answer this — reordering inside a column bumps it — and without a real day
+   * marker "planned today" stayed true forever (LIFEOS-072 §13).
+   */
+  plannedTodayAt: Map<string, string>;
   /** actionId → adopted Constitution element label, when explicitly linked. */
   constitutionByAction: Map<string, string>;
   /** The activity index, built ONCE and shared. */
@@ -79,10 +88,19 @@ export function buildTodayIndexes(state: StoreState, today: DayKey, now?: LocalT
   const nextEvent = nextEventToday(occurrences, clock);
 
   const plannedTodayIds = new Set<string>();
+  const plannedTodayAt = new Map<string, string>();
   for (const a of actions) {
-    if (assignmentFor(state.planningAssignments ?? [], { kind: "action", id: a.id })?.horizon === "today") {
-      plannedTodayIds.add(a.id);
+    const assignment = assignmentFor(state.planningAssignments ?? [], { kind: "action", id: a.id });
+    if (assignment?.horizon !== "today") continue;
+    plannedTodayIds.add(a.id);
+    // The most recent event that put it in this column. Reordering writes no
+    // `toHorizon`, so it cannot masquerade as a fresh plan.
+    let at: string | undefined;
+    for (const e of assignment.history ?? []) {
+      if (e.toHorizon !== "today") continue;
+      if (!at || e.at > at) at = e.at;
     }
+    if (at) plannedTodayAt.set(a.id, at);
   }
 
   // §18: an ADOPTED element that EXPLICITLY links to an action. No inference, no
@@ -109,6 +127,7 @@ export function buildTodayIndexes(state: StoreState, today: DayKey, now?: LocalT
     nextEvent,
     minutesToNextEvent: minutesUntil(clock, nextEvent?.startTime),
     plannedTodayIds,
+    plannedTodayAt,
     constitutionByAction,
     activity: buildActivityIndex(state),
   };

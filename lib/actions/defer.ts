@@ -40,6 +40,26 @@ export function isSomeday(a: NextAction): boolean {
   return a.status === "deferred" && !a.deferredUntil;
 }
 
+/**
+ * Is this action deferred to a day that has not arrived?
+ *
+ * THE shared predicate for "the user already said not now". `isLive` is true for
+ * a deferred action — correctly, it is not finished — so every surface that asks
+ * "should this be in front of them?" needs this second question, and each one
+ * that answered it privately got it wrong at least once:
+ *
+ *   LIFEOS-070 §21 — Today showed a future deferral captured today
+ *   LIFEOS-071     — the signal layer still called one overdue
+ *   LIFEOS-072     — Suggested Next still recommended one
+ *
+ * Three copies of the same omission in three sprints is the argument for one
+ * exported predicate. A stale `dueDate` never overrides a live deferral: the
+ * user's later decision wins over the earlier one.
+ */
+export function isDeferredAhead(a: NextAction, today: DayKey = todayKey()): boolean {
+  return a.status === "deferred" && (!a.deferredUntil || a.deferredUntil > today);
+}
+
 /** Deferred actions returning today (for the Today card / daily review). */
 export function returningToday(actions: NextAction[], today: DayKey = todayKey()): NextAction[] {
   return actions.filter((a) => a.status === "deferred" && a.deferredUntil === today);

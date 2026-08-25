@@ -5026,3 +5026,67 @@ connectors require repeated beta demand **and** stable API support, both.
   because a fake cannot tell you that the button opens an empty panel. The
   deterministic suite proves WHICH primitive runs; only the browser proves that
   a person can run it.
+
+- **LIFEOS-072 — Next Action Guidance.** Suggested Next became a grounded
+  decision layer: it names one action, explains itself from recorded facts, says
+  what it beat, and resolves through the same controls every commitment row uses.
+  No second recommendation engine, no priority score, no autonomous planner.
+  **ZERO migrations — head stays 0042; 46 store domains; no new life noun.**
+
+  **Guidance ≠ priority score.** Nothing here produces a number the user can see.
+  Ordering is a lexicographic walk over recorded facts — an unpassed due *time*
+  today, then overdue, due today, returned today, today's recurring occurrence,
+  how many live dependents it unblocks, a date inside the narrow
+  `RECOMMENDATION_HORIZON_DAYS = 3` window, planned-for-today, fits-before-event.
+  Every step is a property of a record, and the explanation names the first fact
+  that actually separated the winner from the runner-up, so the sentence can
+  never disagree with the decision it explains.
+
+  **A tie is not permission to guess.** When nothing but the stable tie-breaker
+  separates the top two, there is no recommendation at all: "No single next
+  action stands out from what Conqify has recorded", plus how many were
+  considered. Not newest, not oldest, not alphabetical, not a hidden score.
+  Memory answers the identical question with the identical sentence, because
+  "What should I do next?" routes into the SAME recommender — a ninth query kind,
+  not a second guidance path.
+
+  **Eligibility is shared, not re-derived.** `isDeferredAhead` lives in
+  `lib/actions/defer.ts` and is the one definition of "parked in the future",
+  consumed by the recommender, the commitment signals, and Today's return list.
+  Never recommended: waiting, blocked, cancelled, completed, future-deferred, a
+  future recurring occurrence. A recurring occurrence due TODAY *is* recommendable
+  — LIFEOS-062's blanket exclusion made real work permanently invisible.
+
+  **Five audit defects, pinned.** A future deferral recommended because its old
+  due date had passed; a blocker recommended for unblocking something already
+  completed; a recurring occurrence that could never be recommended at all; a
+  timed deadline still ahead losing to one already passed; "planned today" that
+  stayed true forever (`updatedAt` is polluted by reordering, so planning
+  assignment history became the day marker — no persistence added).
+
+  **Two more the deterministic suite could not find.** The browser caught Today's
+  older "worth returning to" fallback announcing an action deferred a month out as
+  "No recorded activity in 120 days" — `dormancyView` reads every action
+  regardless of status, so the surface answered a question the user had already
+  answered. And the §30 claim retest caught the counterfactual asserting facts the
+  records did not carry: an **undated** runner-up described as "due later", a
+  runner-up that unblocks one thing told it "doesn't unblock anything", a
+  runner-up with a real date told it had none. Each clause read true in its own
+  fixture because the fixture happened to give the runner-up the property the
+  sentence assumed.
+
+  **Validation.** Full regression **3823/3823 across 39 suites** (new guidance
+  suite 87/87); browser smoke-072 **43/43**; smokes 060–063, 065–071 green at
+  528/529 — the single failure (063 A2, a wall-clock NOW-event artifact) proved
+  identical on an unmodified pre-072 build. Migration rehearsal 96/96 still at
+  0042; release audit 17/17; audit:security PASS; tsc clean; eslint 0 errors.
+  Recommendation is 2ms at 100 actions, 19ms at 1,000, 93ms at 5,000, reusing the
+  page's existing `TodayIndexes`.
+
+  **Durable lesson.** Two regressions this sprint pinned behaviour the sprint
+  deliberately changed, and both were replaced with affirmative assertions of the
+  new rule rather than relaxed — a test that only says "not the old thing" stops
+  proving anything. And a green counterfactual assertion is worth exactly as much
+  as its fixture: three false sentences shipped past 87 passing assertions
+  because every fixture gave the runner-up the property the clause assumed.
+  Printing real product output found all three in one pass.

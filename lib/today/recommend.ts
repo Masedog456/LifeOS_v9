@@ -41,7 +41,11 @@
 
 import type { NextAction, StoreState } from "@/types/mvp";
 import type { DayKey } from "@/lib/reviews/dates";
-import { isLive, dueLabel } from "@/lib/actions/due";
+import { isLive, dueLabel, dueKeyOf } from "@/lib/actions/due";
+import { isDeferredAhead } from "@/lib/actions/defer";
+import { blockedBy } from "@/lib/actions/dependencies";
+import { readRule } from "@/lib/time/recurrence";
+import { occurrenceFor } from "@/lib/mvpStore";
 import { commitmentFactsFor } from "@/lib/commitment/signals";
 import { minutesOf, type LocalTime } from "@/lib/time/localtime";
 import type { TodayIndexes } from "@/lib/today/indexes";
@@ -64,6 +68,7 @@ export interface Reason {
     // unreachable. A due follow-up is a commitment-awareness signal, and that is
     // where it now lives.
     | "returned_today"
+    | "recurring_due"
     | "blocks_other"
     | "due_within_horizon"
     | "planned_today"
@@ -77,6 +82,15 @@ export interface Reason {
 export interface Recommendation {
   action: NextAction;
   reasons: Reason[];
+  /**
+   * One short sentence about what this beat (§19).
+   *
+   * Present only when there WAS a runner-up and the two differed on a fact worth
+   * naming. Absent when the recommendation was the only candidate, or when the
+   * difference is not something a sentence improves — a counterfactual that says
+   * nothing is worse than none, and a narrative is not wanted here.
+   */
+  counterfactual?: string;
 }
 
 export interface RecommendResult {
@@ -87,13 +101,30 @@ export interface RecommendResult {
   consideredCount: number;
 }
 
-/** Facts gathered about one candidate, before ordering. */
-interface Scored {
+/**
+ * Facts gathered about one candidate, before ordering.
+ *
+ * Named for what it holds. It was called `Scored`, which was never true — there
+ * is no score in it and never has been — and a type name that implies one is an
+ * invitation for someone to add the field it promises (LIFEOS-072 §9).
+ */
+interface CandidateFacts {
   action: NextAction;
   reasons: Reason[];
+  /**
+   * A due TIME today that has not yet passed.
+   *
+   * Ranked above generic overdue (§7, §8): a window still closing beats one that
+   * already closed. Deliberately NOT a "near" threshold — no minutes constant is
+   * invented, because any number would be indefensible and unexplainable. The
+   * fact is binary: today, timed, not yet passed.
+   */
+  dueTimeAhead: boolean;
   overdueDays: number;
   dueToday: boolean;
   returnedToday: boolean;
+  recurringDue: boolean;
+  /** Live actions this one unblocks. Dead dependents are not counted. */
   blocksCount: number;
   /** Days until due, WITHIN this recommender's horizon. 0 means "not near". */
   withinHorizonDays: number;
@@ -138,15 +169,75 @@ export const RECOMMENDATION_HORIZON_DAYS = 3;
  * Waiting and blocked are both excluded, and for the same reason: neither can be
  * started. Recommending one would be the product telling someone to do something
  * they are unable to do, which is worse than recommending nothing (§16, §17).
+ *
+ * A FUTURE DEFERRAL is excluded too (LIFEOS-072 §5). `isLive` is true for a
+ * deferred action, so this function used to recommend one whose `dueDate` had
+ * passed before the user deferred it — the user's later "not now" losing to
+ * their earlier deadline. The predicate is shared with the commitment layer
+ * rather than restated here; three sprints each wrote their own copy and each
+ * copy had this bug.
+ *
+ * A RECURRING action is eligible only when today's occurrence is actually due
+ * and not yet recorded. It used to be excluded outright, which meant a day whose
+ * only eligible work was a standing commitment produced no recommendation at all
+ * (LIFEOS-072 §5, §15). What is never recommended is the SERIES — see
+ * `recurringDueToday`.
  */
-function isExecutable(a: NextAction, ix: TodayIndexes): boolean {
+function isExecutable(a: NextAction, ix: TodayIndexes, today: DayKey): boolean {
   if (!isLive(a)) return false;
   if (a.status === "waiting") return false;
-  // A recurring action is a standing source; its occurrence is handled by the
-  // schedule, not by the next-action recommender.
-  if (a.recurrence) return false;
+  if (isDeferredAhead(a, today)) return false;
   if (ix.blockedActionIds.has(a.id)) return false;
+  if (readRule(a.recurrence)) return recurringDueToday(a, ix, today);
   return true;
+}
+
+/**
+ * Is today's occurrence of a recurring action due and still open?
+ *
+ * Delegates to the existing engine. A completed occurrence moves `occurrenceFor`
+ * on to the next date, so a kept commitment stops being recommended with no rule
+ * of its own — and a future occurrence never matches today.
+ */
+function recurringDueToday(a: NextAction, ix: TodayIndexes, today: DayKey): boolean {
+  return occurrenceFor(a, today, ix.completions) === today;
+}
+
+/**
+ * How many currently-relevant actions this one unblocks.
+ *
+ * Counts only dependents that are still LIVE. The audit found the raw edge count
+ * being used, so an action was recommended for unblocking something already
+ * completed — a recommendation built on a dead edge, which is §10's "random
+ * dependency cleanup" exactly.
+ */
+function unblocksLiveCount(a: NextAction, ix: TodayIndexes): number {
+  const ids = ix.blocksMap.get(a.id);
+  if (!ids) return 0;
+  let n = 0;
+  for (const id of ids) {
+    const dependent = ix.actionsById.get(id);
+    if (dependent && isLive(dependent)) n += 1;
+  }
+  return n;
+}
+
+/**
+ * Was this action put in today's plan TODAY?
+ *
+ * `PlanningAssignment` carries no date, and `updatedAt` is bumped by reordering
+ * within a column, so neither can answer this. The assignment's HISTORY can: a
+ * `planned`/`moved` event records `toHorizon` with a timestamp, and nothing but
+ * a horizon change writes one. Without this, an action dragged into the "today"
+ * column last Tuesday still read as planned-for-today forever (§13).
+ */
+function plannedTodayOn(ix: TodayIndexes, actionId: string, today: DayKey): boolean {
+  if (!ix.plannedTodayIds.has(actionId)) return false;
+  const at = ix.plannedTodayAt.get(actionId);
+  // No history at all — an older assignment from before the events were written.
+  // Treated as NOT planned today rather than as permanently planned: the sticky
+  // reading is the one that misleads.
+  return !!at && at.slice(0, 10) === today;
 }
 
 function plural(n: number, one: string, many: string): string {
@@ -159,7 +250,7 @@ function plural(n: number, one: string, many: string): string {
  * Every fact added here is something a person could verify by looking at the
  * record. Nothing is inferred about what the action means.
  */
-function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
+function score(a: NextAction, ix: TodayIndexes, today: DayKey): CandidateFacts {
   const reasons: Reason[] = [];
 
   // LIFEOS-070 §4. The FACTS come from the shared commitment layer; this
@@ -175,10 +266,16 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
     reasons.push({ code: "overdue", text: dueLabel(a, today) });
   }
 
+  // A due TIME today, and whether the clock has passed it. §8: an action due at
+  // 09:00 read at 20:00 must not be described as coming up.
+  const dueTimeAhead = f.dueToday && !!a.dueTime && minutesOf(a.dueTime)! > (minutesOf(ix.now) ?? 0);
   if (f.dueToday) {
     reasons.push(
       a.dueTime
-        ? { code: "due_at_time", text: `Due today at ${a.dueTime}` }
+        ? {
+          code: "due_at_time",
+          text: dueTimeAhead ? `Due today at ${a.dueTime}` : `Was due at ${a.dueTime} today`,
+        }
         : { code: "due_today", text: "Due today" },
     );
   }
@@ -188,11 +285,21 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
 
   if (f.returnedToday) reasons.push({ code: "returned_today", text: "Came back from deferral today" });
 
-  const blocksCount = f.blocksCount;
+  const recurringDue = !!readRule(a.recurrence) && recurringDueToday(a, ix, today);
+  if (recurringDue) reasons.push({ code: "recurring_due", text: "Today's occurrence is due" });
+
+  // Live dependents only — an action that unblocks something already finished
+  // has unblocked nothing.
+  const blocksCount = unblocksLiveCount(a, ix);
   if (blocksCount > 0) {
+    const names = blockedBy(a.id, ix.blocksMap, ix.actionsById).filter(isLive);
     reasons.push({
       code: "blocks_other",
-      text: `Blocks ${blocksCount} other ${plural(blocksCount, "action", "actions")}`,
+      // Naming the thing it unlocks is the difference between a fact and a
+      // statistic — §19's counterfactual in miniature.
+      text: names.length === 1
+        ? `Unlocks ${names[0].title}`
+        : `Unlocks ${blocksCount} other ${plural(blocksCount, "action", "actions")}`,
     });
   }
 
@@ -203,7 +310,7 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
     reasons.push({ code: "due_within_horizon", text: dueLabel(a, today) });
   }
 
-  const plannedToday = ix.plannedTodayIds.has(a.id);
+  const plannedToday = plannedTodayOn(ix, a.id, today);
   if (plannedToday) reasons.push({ code: "planned_today", text: "You planned this for today" });
 
   // §15: a size claim ONLY where the user sized it. Unknown size means no claim.
@@ -226,33 +333,46 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): Scored {
   if (linked) reasons.push({ code: "linked_constitution", text: `Linked to your ${linked}` });
 
   return {
-    action: a, reasons,
+    action: a, reasons, dueTimeAhead,
     overdueDays: f.overdueDays, dueToday: f.dueToday, returnedToday: f.returnedToday,
-    blocksCount, withinHorizonDays, plannedToday, fitsBeforeEvent,
+    recurringDue, blocksCount, withinHorizonDays, plannedToday, fitsBeforeEvent,
   };
 }
 
 /**
  * THE ORDERING. Lexicographic; first difference wins.
  *
- *  1. more overdue                    — a passed deadline is the clearest fact
- *  2. due today                       — a deadline that has not passed yet
- *  3. returned from deferral today    — the user chose this date themselves
- *  4. blocks more other actions       — unblocking is observably higher leverage
- *  5. sooner due date                 — within RECOMMENDATION_HORIZON_DAYS only
- *  6. planned for today               — an explicit horizon assignment
- *  7. fits before the next event      — only where the user SIZED the action
- *  8. created earlier                 — stable, arbitrary, and honest about it
+ *  1. due at a time today, not yet passed — the only window still closing
+ *  2. more overdue                    — a passed deadline is the clearest fact
+ *  3. due today                       — a deadline that has not passed yet
+ *  4. returned from deferral today    — the user chose this date themselves
+ *  5. today's recurring occurrence    — a standing commitment, due now
+ *  6. blocks more other LIVE actions  — unblocking is observably higher leverage
+ *  7. sooner due date                 — within RECOMMENDATION_HORIZON_DAYS only
+ *  8. planned for today               — an explicit horizon assignment, made today
+ *  9. fits before the next event      — only where the user SIZED the action
+ * 10. created earlier                 — stable, arbitrary, and honest about it
+ *
+ * Step 1 is new in LIFEOS-072 and is the one ordering change: an action due at
+ * 10:30 today, read at 09:00, has a window that is still closing, while an
+ * overdue action's window closed already. It needs no "near" threshold — the
+ * fact is binary, and any minutes constant would be a number nobody could
+ * defend (§8).
+ *
+ * Step 4 sits BELOW the deadline facts on purpose: returning from a deferral is
+ * evidence of renewed availability, not of urgency (§12).
  *
  * The follow-up step is gone because it could never fire (LIFEOS-070 §8), not
  * because follow-ups stopped mattering — they are a commitment signal now.
  *
  * There is deliberately no "importance" step. See the header.
  */
-function compare(a: Scored, b: Scored): number {
+function compare(a: CandidateFacts, b: CandidateFacts): number {
+  if (a.dueTimeAhead !== b.dueTimeAhead) return a.dueTimeAhead ? -1 : 1;
   if (a.overdueDays !== b.overdueDays) return b.overdueDays - a.overdueDays;
   if (a.dueToday !== b.dueToday) return a.dueToday ? -1 : 1;
   if (a.returnedToday !== b.returnedToday) return a.returnedToday ? -1 : 1;
+  if (a.recurringDue !== b.recurringDue) return a.recurringDue ? -1 : 1;
   if (a.blocksCount !== b.blocksCount) return b.blocksCount - a.blocksCount;
   if (a.withinHorizonDays !== b.withinHorizonDays) {
     // 0 means "no near due date" and must sort LAST, not first.
@@ -272,7 +392,7 @@ function compare(a: Scored, b: Scored): number {
 /** Reason codes that are strong enough to justify a recommendation on their own. */
 const GROUNDING_CODES = new Set<Reason["code"]>([
   "overdue", "due_today", "due_at_time",
-  "returned_today", "blocks_other", "due_within_horizon", "planned_today",
+  "returned_today", "recurring_due", "blocks_other", "due_within_horizon", "planned_today",
 ]);
 
 /**
@@ -289,7 +409,7 @@ export function recommendNextAction(
   ix: TodayIndexes,
   today: DayKey,
 ): RecommendResult {
-  const candidates = (state.nextActions ?? []).filter((a) => isExecutable(a, ix));
+  const candidates = (state.nextActions ?? []).filter((a) => isExecutable(a, ix, today));
   if (candidates.length === 0) {
     return { recommendation: null, note: NO_STANDOUT, consideredCount: 0 };
   }
@@ -321,15 +441,82 @@ export function recommendNextAction(
     return { recommendation: null, note: NO_STANDOUT, consideredCount: candidates.length };
   }
 
-  return { recommendation: { action: best.action, reasons: best.reasons }, consideredCount: candidates.length };
+  return {
+    recommendation: {
+      action: best.action,
+      reasons: best.reasons,
+      counterfactual: scored.length > 1 ? counterfactualFor(best, scored[1], today) : undefined,
+    },
+    consideredCount: candidates.length,
+  };
+}
+
+/**
+ * Why the winner beat the runner-up, in one clause — or nothing (§19).
+ *
+ * Walks the SAME ordering the comparison used and names the first fact that
+ * actually separated them, so the sentence can never disagree with the decision
+ * it explains. Compact on purpose: this is a footnote under a recommendation,
+ * not an argument.
+ */
+function counterfactualFor(best: CandidateFacts, next: CandidateFacts, today: DayKey): string | undefined {
+  const other = next.action.title;
+  if (best.dueTimeAhead && !next.dueTimeAhead) {
+    return next.overdueDays > 0
+      ? `It's due at ${best.action.dueTime} today, and that time hasn't passed yet — ${other} is already overdue.`
+      : `It has a time today that hasn't passed yet; ${other} doesn't.`;
+  }
+  if (best.overdueDays !== next.overdueDays && best.overdueDays > 0) {
+    return next.overdueDays > 0
+      ? `Both are past their date; this one's was earlier.`
+      : `${dueLabel(best.action, today)}, and ${other} isn't overdue.`;
+  }
+  if (best.dueToday && !next.dueToday) {
+    // "Not due today" is two different facts: dated later, or never dated at
+    // all. The §30 claim retest caught this sentence telling the user an
+    // UNDATED action was "due later" — a date invented to round off a clause.
+    return dueKeyOf(next.action)
+      ? `It's due today; ${other} is due later.`
+      : `It's due today; ${other} has no date on it.`;
+  }
+  if (best.returnedToday && !next.returnedToday) {
+    // Same trap: by this point `next` is neither overdue nor due today, but it
+    // may still carry a date further out. "No date pressing on it" would erase
+    // a date the user did record.
+    return dueKeyOf(next.action)
+      ? `You set it to come back today; ${other} isn't due yet.`
+      : `You set it to come back today; ${other} has no date on it.`;
+  }
+  if (best.recurringDue && !next.recurringDue) {
+    return `Today's occurrence is due; ${other} has no date today.`;
+  }
+  if (best.blocksCount > next.blocksCount && best.blocksCount > 0) {
+    // The guard is `greater than`, not `and the other is zero`. Saying the
+    // runner-up "doesn't unblock anything" when it unblocks one thing is simply
+    // untrue — and it is a count of records either way, never a score.
+    return next.blocksCount > 0
+      ? `It unblocks more of your unfinished work than ${other} does.`
+      : `Finishing it unblocks other work; ${other} doesn't unblock anything.`;
+  }
+  if (best.withinHorizonDays > 0 && next.withinHorizonDays === 0) {
+    return `Its date is close; ${other} has none within the next few days.`;
+  }
+  if (best.plannedToday && !next.plannedToday) {
+    return `You planned it for today; ${other} you didn't.`;
+  }
+  // Everything above matched. The stable tie-breaker separated them, and that is
+  // not a reason — saying so would dress an arbitrary pick as a judgment.
+  return undefined;
 }
 
 /** Do these two differ on any ordering fact other than the stable tie-breaker? */
-function indistinguishable(a: Scored, b: Scored): boolean {
+function indistinguishable(a: CandidateFacts, b: CandidateFacts): boolean {
   return (
+    a.dueTimeAhead === b.dueTimeAhead &&
     a.overdueDays === b.overdueDays &&
     a.dueToday === b.dueToday &&
     a.returnedToday === b.returnedToday &&
+    a.recurringDue === b.recurringDue &&
     a.blocksCount === b.blocksCount &&
     a.withinHorizonDays === b.withinHorizonDays &&
     a.plannedToday === b.plannedToday &&

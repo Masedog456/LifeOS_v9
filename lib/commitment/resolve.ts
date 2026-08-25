@@ -172,15 +172,40 @@ export function resolutionsFor(
   signal: CommitmentSignal,
   ctx: ResolveContext,
 ): ResolutionAction[] {
-  const today = ctx.today ?? ctx.ix.today ?? todayKey();
-  const kinds = RESOLUTIONS_BY_KIND[signal.kind] ?? [];
-  const action = signal.recordRef.kind === "action"
-    ? ctx.ix.actionsById.get(signal.recordRef.id)
-    : undefined;
+  return buildResolutions(state, signal.recordRef, RESOLUTIONS_BY_KIND[signal.kind] ?? [], ctx);
+}
 
+/**
+ * The set offered on a Suggested Next recommendation (LIFEOS-072 §20).
+ *
+ * A recommended action does not necessarily carry a commitment signal — it may
+ * simply be the only executable thing — so this takes the RECORD rather than
+ * synthesising a signal that no evidence supports. Same builder, same controls,
+ * same authority; only the entry point differs.
+ */
+export const RECOMMENDATION_RESOLUTIONS: readonly ResolutionKind[] = [
+  "complete_action", "complete_occurrence", "defer", "reschedule", "open_record",
+];
+
+export function resolutionsForAction(
+  state: StoreState,
+  actionId: string,
+  ctx: ResolveContext,
+): ResolutionAction[] {
+  return buildResolutions(state, { kind: "action", id: actionId }, RECOMMENDATION_RESOLUTIONS, ctx);
+}
+
+function buildResolutions(
+  state: StoreState,
+  recordRef: RecordRefLite,
+  kinds: readonly ResolutionKind[],
+  ctx: ResolveContext,
+): ResolutionAction[] {
+  const today = ctx.today ?? ctx.ix.today ?? todayKey();
+  const action = recordRef.kind === "action" ? ctx.ix.actionsById.get(recordRef.id) : undefined;
   const out: ResolutionAction[] = [];
   for (const kind of kinds) {
-    const built = build(kind, state, signal, action, ctx, today);
+    const built = build(kind, state, recordRef, action, ctx, today);
     if (built) out.push(built);
   }
   return out;
@@ -189,12 +214,11 @@ export function resolutionsFor(
 function build(
   kind: ResolutionKind,
   state: StoreState,
-  signal: CommitmentSignal,
+  ref: RecordRefLite,
   action: NextAction | undefined,
   ctx: ResolveContext,
   today: DayKey,
 ): ResolutionAction | null {
-  const ref = signal.recordRef;
   const base = { kind, recordRef: ref, enabled: true } as const;
 
   switch (kind) {

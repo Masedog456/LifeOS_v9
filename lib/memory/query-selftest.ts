@@ -230,7 +230,15 @@ export async function runMemoryQuerySelfTests(): Promise<SelfTestReport> {
       planMemoryQuery("How's the weather in Lisbon?", { today: TODAY }) === null);
     ok("1.12 …and so does small talk",
       planMemoryQuery("Tell me a joke", { today: TODAY }) === null);
-    eq("1.13 the router supports exactly the eight named classes", MEMORY_QUERY_KINDS.length, 8);
+    // LIFEOS-072 added NEXT_ACTION as the ninth class: "What should I do next?" routes
+    // into the SAME deterministic recommender Today uses, never a second guidance path.
+    eq("1.13 the router supports exactly the nine named classes",
+      [...MEMORY_QUERY_KINDS].sort().join(","),
+      ["COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME", "NEXT_ACTION"].sort().join(","));
+    eq("1.14 “what should I do next” routes to NEXT_ACTION",
+      planMemoryQuery("What should I do next?", { today: TODAY })?.kind, "NEXT_ACTION");
+    eq("1.15 …and so does “what's next”",
+      planMemoryQuery("What's next?", { today: TODAY })?.kind, "NEXT_ACTION");
   }
 
   // ============================================ 2. ranges resolve BACKWARDS (§4)

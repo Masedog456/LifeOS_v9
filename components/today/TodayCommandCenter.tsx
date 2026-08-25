@@ -26,7 +26,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { completeAction, completeOccurrence, useStore } from "@/lib/mvpStore";
+import { completeOccurrence, useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildTodayView, waitingDays, COVERAGE_NOTE, EMPTY_PROMPT } from "@/lib/today/view";
 import { formatLocalTime } from "@/lib/time/localtime";
@@ -36,7 +36,7 @@ import { describeRule } from "@/lib/time/recurrence";
 import {
   signalsForSection, PROJECT_NO_NEXT_ACTION, type CommitmentSignal,
 } from "@/lib/commitment/signals";
-import { resolutionsFor } from "@/lib/commitment/resolve";
+import { resolutionsFor, resolutionsForAction } from "@/lib/commitment/resolve";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { toast } from "@/lib/ux/feedback";
 
@@ -148,11 +148,20 @@ export default function TodayCommandCenter() {
                 <li key={r.code} className="text-[11px] text-zinc-500">· {r.text}</li>
               ))}
             </ul>
-            <button type="button" data-complete-suggested
-              onClick={() => { completeAction(s.recommendation!.action.id); toast({ kind: "success", message: "Done." }); }}
-              className="mt-2 rounded-full border border-black/[.12] px-3 py-0.5 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
-              Mark done
-            </button>
+            {/* §19. What it beat, in one sentence — present only when a
+                runner-up existed and something real separated them. */}
+            {s.recommendation.counterfactual && (
+              <p data-suggested-counterfactual className="mt-1 text-[11px] italic text-zinc-400">
+                {s.recommendation.counterfactual}
+              </p>
+            )}
+            {/* §20. The SAME resolver every commitment row uses. This card used
+                to carry its own bespoke "Mark done" button — a second mutation
+                path for the same operation, and one that offered no undo. */}
+            <ResolutionControls
+              title={s.recommendation.action.title}
+              actions={resolutionsForAction(state, s.recommendation.action.id, { today, ix })}
+            />
           </div>
         ) : (
           <p data-no-suggestion className="text-[11px] text-zinc-500">{s.note}</p>
@@ -240,7 +249,7 @@ export default function TodayCommandCenter() {
               )}
               {/* LIFEOS-071 §23. Controls attach to the PRIMARY row only —
                   secondary reasons never grow a second menu. */}
-              <ResolutionControls signal={s} actions={actionsFor(s)} />
+              <ResolutionControls title={s.title} actions={actionsFor(s)} />
             </li>
           ))}
         </ul>
@@ -267,7 +276,7 @@ export default function TodayCommandCenter() {
                     record does not support. */}
                 {waitingSignal(w.action.id) && (
                   <ResolutionControls
-                    signal={waitingSignal(w.action.id)!}
+                    title={w.action.title}
                     actions={actionsFor(waitingSignal(w.action.id)!)}
                   />
                 )}
@@ -298,7 +307,7 @@ export default function TodayCommandCenter() {
               {/* §16. The project's own signal carries "Add next action" — the
                   one place 071 is genuinely executive, and still user-written. */}
               {pulseSignal(p.project.id) && (
-                <ResolutionControls signal={pulseSignal(p.project.id)!} actions={actionsFor(pulseSignal(p.project.id)!)} />
+                <ResolutionControls title={p.project.title} actions={actionsFor(pulseSignal(p.project.id)!)} />
               )}
             </li>
           ))}
@@ -319,7 +328,7 @@ export default function TodayCommandCenter() {
                 <Link href={hrefForSignal(s)} className={linkClass}>{s.title}</Link>
                 <span className={metaClass}>{s.explanation}</span>
               </div>
-              <ResolutionControls signal={s} actions={actionsFor(s)} />
+              <ResolutionControls title={s.title} actions={actionsFor(s)} />
             </li>
           ))}
           {view.returnItem && (
