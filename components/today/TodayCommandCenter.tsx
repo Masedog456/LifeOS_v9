@@ -36,6 +36,8 @@ import { describeRule } from "@/lib/time/recurrence";
 import {
   signalsForSection, PROJECT_NO_NEXT_ACTION, type CommitmentSignal,
 } from "@/lib/commitment/signals";
+import { resolutionsFor } from "@/lib/commitment/resolve";
+import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { toast } from "@/lib/ux/feedback";
 
 /** Where a signal's record opens. Every row is a way back to the record. */
@@ -66,11 +68,31 @@ export default function TodayCommandCenter() {
   // One clock reading per render, so every section agrees about "now".
   const [now] = useState(() => nowLocalTime());
 
-  const view = useMemo(() => buildTodayView(state, buildTodayIndexes(state, today, now)), [state, today, now]);
+  // ONE index pass, shared by the projection AND the resolvers below. LIFEOS-071
+  // §27: deriving a row's controls must not scan the store again — the indexes
+  // a button needs are the ones the page already built.
+  const ix = useMemo(() => buildTodayIndexes(state, today, now), [state, today, now]);
+  const view = useMemo(() => buildTodayView(state, ix), [state, ix]);
   // Split once, from the already-deduplicated list. Each section renders its own
   // slice; no section re-derives what belongs in it.
   const attention = useMemo(() => signalsForSection(view.signals, "attention"), [view.signals]);
   const returns = useMemo(() => signalsForSection(view.signals, "return"), [view.signals]);
+  // Resolutions for every rendered signal, computed once per store snapshot
+  // rather than per button.
+  const resolutions = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof resolutionsFor>>();
+    for (const s of view.signals) {
+      m.set(`${s.recordRef.kind}:${s.recordRef.id}`, resolutionsFor(state, s, { today, ix }));
+    }
+    return m;
+  }, [state, view.signals, today, ix]);
+  const actionsFor = (s: CommitmentSignal) => resolutions.get(`${s.recordRef.kind}:${s.recordRef.id}`) ?? [];
+  /** The project's own commitment signal, when it has one. */
+  const pulseSignal = (projectId: string) =>
+    view.signals.find((s) => s.kind === "project_no_next_action" && s.recordRef.id === projectId);
+  /** A waiting action's signal — present only once its follow-up date arrived. */
+  const waitingSignal = (actionId: string) =>
+    view.signals.find((s) => s.kind === "follow_up_due" && s.recordRef.id === actionId);
 
   if (view.empty) {
     return (
@@ -216,6 +238,9 @@ export default function TodayCommandCenter() {
                   {s.secondaryReasons.map((r) => r.text).join(" ")}
                 </p>
               )}
+              {/* LIFEOS-071 §23. Controls attach to the PRIMARY row only —
+                  secondary reasons never grow a second menu. */}
+              <ResolutionControls signal={s} actions={actionsFor(s)} />
             </li>
           ))}
         </ul>
@@ -227,13 +252,25 @@ export default function TodayCommandCenter() {
           {view.waiting.map((w) => {
             const days = waitingDays(w, today);
             return (
-              <li key={w.action.id} data-waiting className={rowClass}>
-                <Link href={`/actions/${w.action.id}`} className={linkClass}>
-                  {w.waitingOn && <span className="font-medium">{w.waitingOn} · </span>}{w.action.title}
-                </Link>
-                <span className={metaClass}>
-                  {w.followUpDue ? "Follow-up due" : days !== undefined ? `Since ${formatDayKey(w.action.waitingSince!.slice(0, 10))}` : "Waiting"}
-                </span>
+              <li key={w.action.id} data-waiting className="py-1">
+                <div className={rowClass}>
+                  <Link href={`/actions/${w.action.id}`} className={linkClass}>
+                    {w.waitingOn && <span className="font-medium">{w.waitingOn} · </span>}{w.action.title}
+                  </Link>
+                  <span className={metaClass}>
+                    {w.followUpDue ? "Follow-up due" : days !== undefined ? `Since ${formatDayKey(w.action.waitingSince!.slice(0, 10))}` : "Waiting"}
+                  </span>
+                </div>
+                {/* §14. Only a wait whose follow-up date has ARRIVED gets
+                    controls — a wait with no due follow-up is not actionable,
+                    and putting buttons on it would manufacture urgency the
+                    record does not support. */}
+                {waitingSignal(w.action.id) && (
+                  <ResolutionControls
+                    signal={waitingSignal(w.action.id)!}
+                    actions={actionsFor(waitingSignal(w.action.id)!)}
+                  />
+                )}
               </li>
             );
           })}
@@ -258,6 +295,11 @@ export default function TodayCommandCenter() {
                 {p.blockedCount > 0 ? ` · ${p.blockedCount} blocked` : ""}
                 {p.waitingCount > 0 ? ` · ${p.waitingCount} waiting` : ""}
               </p>
+              {/* §16. The project's own signal carries "Add next action" — the
+                  one place 071 is genuinely executive, and still user-written. */}
+              {pulseSignal(p.project.id) && (
+                <ResolutionControls signal={pulseSignal(p.project.id)!} actions={actionsFor(pulseSignal(p.project.id)!)} />
+              )}
             </li>
           ))}
         </ul>
@@ -272,9 +314,12 @@ export default function TodayCommandCenter() {
         show={returns.length > 0 || !!view.returnItem}>
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
           {returns.map((s) => (
-            <li key={`${s.recordRef.kind}:${s.recordRef.id}`} data-signal={s.kind} className={rowClass}>
-              <Link href={hrefForSignal(s)} className={linkClass}>{s.title}</Link>
-              <span className={metaClass}>{s.explanation}</span>
+            <li key={`${s.recordRef.kind}:${s.recordRef.id}`} data-signal={s.kind} className="py-1">
+              <div className={rowClass}>
+                <Link href={hrefForSignal(s)} className={linkClass}>{s.title}</Link>
+                <span className={metaClass}>{s.explanation}</span>
+              </div>
+              <ResolutionControls signal={s} actions={actionsFor(s)} />
             </li>
           ))}
           {view.returnItem && (

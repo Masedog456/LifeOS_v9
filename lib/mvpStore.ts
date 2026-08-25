@@ -182,6 +182,7 @@ import { clearRollback, setRecovery } from "@/lib/sync/status-store";
 import { makeAction, inheritFromMilestone, inheritFromProject, inheritFromCapture, type NewActionInput } from "@/lib/actions/action";
 import { makeEvent as makeActionEvent, appendHistory as appendActionHistory, type ActionEventKind } from "@/lib/actions/history";
 import { deferKeyFor as actionDeferKeyFor, returnDueActions, type DeferOption as ActionDeferOption } from "@/lib/actions/defer";
+import { withNextFollowUp, withoutWaiting } from "@/lib/actions/waiting";
 import { planDependency, pruneDependencies } from "@/lib/actions/dependencies";
 import { makeTemplate, instantiateTemplate, type NewTemplateInput } from "@/lib/actions/templates";
 // Planning views & focus modes (LIFEOS-037).
@@ -5156,6 +5157,69 @@ export function setActionDueDate(actionId: string, dueDate?: string): void {
 export function markActionWaiting(actionId: string, waitingOn: string, followUpDate?: string): void {
   const at = now();
   bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "waiting", waitingOn: waitingOn.trim() || undefined, waitingSince: at, followUpDate }, makeActionEvent({ action: "waiting", at, fromStatus: a.status, toStatus: "waiting", detail: waitingOn.trim() || undefined })));
+}
+
+/**
+ * Set (or clear) the NEXT follow-up date on a waiting action (LIFEOS-071 §13).
+ *
+ * ## What this deliberately does not do
+ *
+ * It does not touch `waitingSince`. `markActionWaiting` — the only other writer
+ * of `followUpDate` — resets that field to now, which is right when a wait
+ * BEGINS and falsifying when a follow-up date is merely rescheduled: the one
+ * dated fact the waiting signal rests on is how long the wait has run, and
+ * pushing the date must not quietly restart that clock.
+ *
+ * It also does not record that a follow-up HAPPENED. Nothing in the schema can
+ * represent that, and §13 forbids inventing it. Moving the date is the only
+ * fact here, and the history detail says exactly that.
+ */
+export function setNextFollowUpDate(actionId: string, followUpDate?: string): boolean {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  // The field rule lives in `lib/actions/waiting.ts` and is tested there.
+  if (!a || !withNextFollowUp(a, followUpDate)) return false;
+  bumpAction(actionId, (x) => {
+    const next = withNextFollowUp(x, followUpDate) ?? x;
+    return appendActionHistory(next, makeActionEvent({
+      action: "edited",
+      at: now(),
+      detail: next.followUpDate ? `follow-up date set to ${next.followUpDate}` : "follow-up date cleared",
+    }));
+  });
+  return true;
+}
+
+/**
+ * End a wait because the user says it is resolved (LIFEOS-071 §14).
+ *
+ * Returns the action to `open` and clears every field that described the wait.
+ * It does NOT complete it: "they finally replied" and "the work is done" are
+ * different claims, and conflating them is how a waiting item silently becomes
+ * a fake completion in Week in Review.
+ *
+ * ## Why `edited` and not `restored`
+ *
+ * `restored` means recovery from a terminal or paused state — it is emitted
+ * only by `restoreAction`, is documented as "cancelled/completed → open", and
+ * renders as "Action reopened" in constitution evidence. A wait ending is none
+ * of those. So this uses the generic field-change event, with the status
+ * transition still recorded on it and a detail that says what changed. No new
+ * history kind is invented (§13, §28).
+ */
+export function stopWaiting(actionId: string): boolean {
+  const a = (state.nextActions ?? []).find((x) => x.id === actionId);
+  if (!a || !withoutWaiting(a)) return false;
+  bumpAction(actionId, (x) => {
+    const next = withoutWaiting(x) ?? x;
+    return appendActionHistory(next, makeActionEvent({
+      action: "edited",
+      at: now(),
+      fromStatus: "waiting",
+      toStatus: "open",
+      detail: x.waitingOn ? `stopped waiting on ${x.waitingOn}` : "stopped waiting",
+    }));
+  });
+  return true;
 }
 
 /** Cancel an action (Feature 5) — reversible via restore/reopen. */

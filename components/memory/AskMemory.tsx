@@ -31,6 +31,10 @@ import Link from "next/link";
 import { useStore } from "@/lib/mvpStore";
 import { buildIndex } from "@/lib/command/search";
 import { MEMORY_QUERY_EXAMPLES } from "@/lib/memory/query";
+import { buildTodayIndexes } from "@/lib/today/indexes";
+import { todayKey } from "@/lib/reviews/dates";
+import { resolutionsFor } from "@/lib/commitment/resolve";
+import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { answerMemoryQuery, type MemoryAnswer, type MemoryAnswerStatus } from "@/lib/memory/answer";
 import type { RecordRefLite } from "@/types/mvp";
 
@@ -59,10 +63,13 @@ export default function AskMemory() {
   // Built once per store snapshot and handed to the answer layer, so a question
   // does not rebuild the index the rest of the page already has (§25).
   const searchIndex = useMemo(() => buildIndex(state), [state]);
+  // Likewise for the commitment indexes: built once here, reused by the answer
+  // AND by every row's resolution controls (LIFEOS-071 §27).
+  const todayIndexes = useMemo(() => buildTodayIndexes(state, todayKey()), [state]);
 
   const answer: MemoryAnswer | undefined = useMemo(
-    () => (asked.trim() ? answerMemoryQuery(state, asked, { searchIndex, focusRef }) : undefined),
-    [state, asked, searchIndex, focusRef],
+    () => (asked.trim() ? answerMemoryQuery(state, asked, { searchIndex, focusRef, todayIndexes }) : undefined),
+    [state, asked, searchIndex, focusRef, todayIndexes],
   );
 
   function submit(q: string) {
@@ -156,6 +163,15 @@ export default function AskMemory() {
                     <span data-memory-attribution>{item.attribution}</span>
                     {item.detail ? ` · ${item.detail}` : ""}
                   </p>
+                  {/* LIFEOS-071 §18. A commitment answered here is resolvable
+                      here, through the SAME builder Today uses. There is no
+                      Memory-specific resolver. */}
+                  {item.signal && (
+                    <ResolutionControls
+                      signal={item.signal}
+                      actions={resolutionsFor(state, item.signal, { ix: todayIndexes })}
+                    />
+                  )}
                 </li>
               ))}
             </ul>

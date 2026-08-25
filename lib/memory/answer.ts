@@ -54,6 +54,7 @@ import {
 import { buildTodayIndexes, type TodayIndexes } from "@/lib/today/indexes";
 import {
   buildCommitmentSignals, COMMITMENT_ORDER, NOTHING_STANDS_OUT,
+  type CommitmentSignal,
 } from "@/lib/commitment/signals";
 import {
   planMemoryQuery, MEMORY_QUERY_EXAMPLES, MEMORY_UNRESOLVED_LABEL,
@@ -109,6 +110,16 @@ export interface MemoryAnswerItem {
   /** The field this line traces to. Asserted in tests (§6 of LIFEOS-064). */
   evidence: string;
   origin: OriginType;
+  /**
+   * The commitment signal this row came from, when it came from one
+   * (LIFEOS-071 §18).
+   *
+   * Carried so Memory can offer the SAME resolution controls Today offers, from
+   * the same builder — not so Memory can compute its own. Present only for the
+   * forgetting/attention class; a completion or a reflection has no commitment
+   * behind it and gets no controls.
+   */
+  signal?: CommitmentSignal;
 }
 
 /** One of several records the question could have meant (§13). */
@@ -972,6 +983,9 @@ function answerOpenWork(state: StoreState, plan: MemoryQueryPlan, today: DayKey,
     href: resolveRecord(state, s.recordRef.kind, s.recordRef.id)?.href,
     evidence: s.evidence,
     origin: classifyOrigin({ kind: s.recordRef.kind, text: s.title }),
+    // §18. The signal travels with the row so the surface can build the same
+    // resolutions Today builds — one resolver, two places it is rendered.
+    signal: s,
   }));
 
   if (items.length === 0) {
