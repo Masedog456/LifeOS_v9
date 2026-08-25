@@ -65,10 +65,12 @@ export type MemoryQueryKind =
   | "PROJECT"      // what happened with <project>
   | "REFLECTION"   // what did I say about <topic>
   | "OPEN_WORK"    // what still needs attention
-  | "TIME";        // when did I <verb> <thing>
+  | "TIME"         // when did I <verb> <thing>
+  | "NEXT_ACTION"; // what should I do next
 
 export const MEMORY_QUERY_KINDS: readonly MemoryQueryKind[] = [
   "COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME",
+  "NEXT_ACTION",
 ];
 
 /**
@@ -273,6 +275,11 @@ const EMOTION_WORDS =
  * these overlap, and the earlier rule is the more specific reading.
  */
 const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }> = [
+  // "What should I do next?" — routed to the SAME deterministic recommender
+  // Today uses (LIFEOS-072 §21). First, because "what should I do next" also
+  // contains "do", which the COMPLETION signal would otherwise claim.
+  { kind: "NEXT_ACTION", re: /\bwhat should (?:i|we) (?:do|work on|start|tackle)\b|\bwhat'?s next\b|\bwhat next\b|\bwhere should (?:i|we) start\b|\bwhat do (?:i|we) do next\b/ },
+
   // "when did I…" is unambiguous and must beat every topic word after it.
   { kind: "TIME", re: /^(?:so )?when did (?:i|we)\b.*\b(?:finish|complete|completed|finished|do|did|get done|wrap up)\b/, aspect: "completed" },
   { kind: "TIME", re: /^(?:so )?when did (?:i|we)\b.*\b(?:move|moved|reschedul|push|pushed|defer|deferred|change|changed)\w*\b/, aspect: "moved" },

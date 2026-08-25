@@ -236,12 +236,23 @@ export function runTodaySelfTests(): SelfTestReport {
     eq("5.5 but it IS surfaced in Waiting", view(w).waiting.length, 1);
     ok("5.6 with its due follow-up flagged", view(w).waiting[0].followUpDue);
 
-    // A recurring source is handled by the schedule, not the recommender.
+    // LIFEOS-072 reversed the blanket recurring exclusion. A recurring occurrence that is
+    // due TODAY is real, executable work and is now recommendable; an occurrence dated
+    // ahead of today is still a future occurrence and stays out of the recommender.
     const rc = stateWith({ nextActions: [
       act({ id: "r", title: "Refill medication", dueDate: TODAY, recurrence: { frequency: "weekly", interval: 1, weekdays: [3] } }),
     ] });
-    eq("5.7 a recurring source is not a next-action candidate", rec(rc).recommendation, null);
-    eq("5.8 it appears under today's schedule instead", view(rc).recurringToday.length, 1);
+    eq("5.7 a recurring occurrence due today IS a next-action candidate",
+      rec(rc).recommendation?.action.id, "r");
+    ok("5.7b …explained as today's occurrence, not as a score",
+      rec(rc).recommendation!.reasons.some((x) => x.code === "recurring_due"));
+    eq("5.8 it still appears under today's schedule as well", view(rc).recurringToday.length, 1);
+
+    const rcAhead = stateWith({ nextActions: [
+      act({ id: "ra", title: "Refill medication", dueDate: TOMORROW, recurrence: { frequency: "weekly", interval: 1, weekdays: [4] } }),
+    ] });
+    eq("5.8b a FUTURE recurring occurrence is never recommended", rec(rcAhead).recommendation, null);
+    eq("5.8c …and nothing is fabricated in its place", rec(rcAhead).note, NO_STANDOUT);
   }
 
   // ============ 6. EVENT AWARENESS (§15) ============

@@ -49,6 +49,7 @@ import {
   UPCOMING_WINDOW_DAYS,
 } from "@/lib/actions/due";
 import { isFollowUpDue } from "@/lib/actions/waiting";
+import { isDeferredAhead } from "@/lib/actions/defer";
 import { blockersOf } from "@/lib/actions/dependencies";
 import { readRule } from "@/lib/time/recurrence";
 import { occurrenceFor } from "@/lib/mvpStore";
@@ -247,20 +248,10 @@ export function buildCommitmentSignals(
 
   const actions = state.nextActions ?? [];
 
-  /**
-   * A deferral the user set for a LATER day is a decision, not a lapse.
-   *
-   * `isLive` correctly treats a deferred action as live — it is not finished —
-   * but a date-based signal must still stay quiet about it, because the user has
-   * already answered "not now" and a stale `dueDate` does not override that.
-   * LIFEOS-070 §21 fixed this for Today's own section; the audit's browser run
-   * showed the SIGNAL layer had the same hole, so an action deferred to next
-   * week kept reporting itself overdue. Deferring is supposed to end the signal.
-   */
-  const deferredAhead = (a: NextAction): boolean =>
-    a.status === "deferred" && (!a.deferredUntil || a.deferredUntil > today);
-
-  const live = actions.filter((a) => isLive(a) && !deferredAhead(a));
+  // A deferral the user set for a LATER day is a decision, not a lapse — and a
+  // stale `dueDate` does not override it. Shared with Suggested Next since
+  // LIFEOS-072; see `isDeferredAhead` for why it is one predicate and not four.
+  const live = actions.filter((a) => isLive(a) && !isDeferredAhead(a, today));
   // A recurring action is a standing source, not a dated task: its occurrence is
   // asked for by the schedule and it must never also appear as an ordinary due
   // item, or one responsibility becomes two rows.
