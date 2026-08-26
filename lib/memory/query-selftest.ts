@@ -232,13 +232,27 @@ export async function runMemoryQuerySelfTests(): Promise<SelfTestReport> {
       planMemoryQuery("Tell me a joke", { today: TODAY }) === null);
     // LIFEOS-072 added NEXT_ACTION as the ninth class: "What should I do next?" routes
     // into the SAME deterministic recommender Today uses, never a second guidance path.
-    eq("1.13 the router supports exactly the nine named classes",
+    // LIFEOS-073 added TOMORROW as the tenth — and the ONLY forward-looking
+    // class. Every other kind asks what happened, which is why the future-range
+    // refusal still guards all nine of them (asserted at 1.16 below).
+    eq("1.13 the router supports exactly the ten named classes",
       [...MEMORY_QUERY_KINDS].sort().join(","),
-      ["COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME", "NEXT_ACTION"].sort().join(","));
+      ["COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME", "NEXT_ACTION", "TOMORROW"].sort().join(","));
     eq("1.14 “what should I do next” routes to NEXT_ACTION",
       planMemoryQuery("What should I do next?", { today: TODAY })?.kind, "NEXT_ACTION");
     eq("1.15 …and so does “what's next”",
       planMemoryQuery("What's next?", { today: TODAY })?.kind, "NEXT_ACTION");
+    eq("1.16 “what do I have tomorrow” routes to TOMORROW",
+      planMemoryQuery("What do I have tomorrow?", { today: TODAY })?.kind, "TOMORROW");
+    // The forward-looking exemption is exactly one class wide. Asking what
+    // HAPPENED tomorrow is still a question about a period that has not
+    // occurred, and must still be refused rather than answered emptily.
+    ok("1.17 …while “what did I finish tomorrow” is NOT a TOMORROW question",
+      planMemoryQuery("What did I finish tomorrow?", { today: TODAY })?.kind !== "TOMORROW",
+      String(planMemoryQuery("What did I finish tomorrow?", { today: TODAY })?.kind));
+    eq("1.18 “what's on tomorrow” is", planMemoryQuery("What's on tomorrow?", { today: TODAY })?.kind, "TOMORROW");
+    eq("1.19 …and “anything tomorrow?” is too",
+      planMemoryQuery("Anything tomorrow?", { today: TODAY })?.kind, "TOMORROW");
   }
 
   // ============================================ 2. ranges resolve BACKWARDS (§4)

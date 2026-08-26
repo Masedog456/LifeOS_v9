@@ -53,6 +53,7 @@ import {
 } from "@/lib/memory/week";
 import { buildTodayIndexes, type TodayIndexes } from "@/lib/today/indexes";
 import { recommendNextAction, NO_STANDOUT } from "@/lib/today/recommend";
+import { buildDailyExecutiveView, NOTHING_TOMORROW } from "@/lib/today/daily";
 import {
   buildCommitmentSignals, COMMITMENT_ORDER, NOTHING_STANDS_OUT,
   type CommitmentSignal,
@@ -415,7 +416,15 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
 
   // A period that has not happened yet has nothing in it, and no amount of
   // retrieval will change that. Said before any work is done.
-  const future = plan.unresolved.find((u) => u.reason === "future_range");
+  //
+  // TOMORROW is the single exception, and a narrow one (LIFEOS-073 §16). Every
+  // other class asks what HAPPENED, so a future range genuinely holds nothing.
+  // "What do I have tomorrow?" asks what is SCHEDULED, and a commitment dated
+  // tomorrow is a record that exists today — refusing it would be the product
+  // declining to read its own calendar.
+  const future = plan.kind === "TOMORROW"
+    ? undefined
+    : plan.unresolved.find((u) => u.reason === "future_range");
   if (future) {
     return {
       status: "NO_RECORDED_EVIDENCE",
@@ -438,6 +447,7 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "REFLECTION": return answerReflection(state, plan, searchIndex);
     case "OPEN_WORK": return answerOpenWork(state, plan, today, opts);
     case "NEXT_ACTION": return answerNextAction(state, plan, today, opts);
+    case "TOMORROW": return answerTomorrow(state, plan, today, opts);
     case "TIME": return answerTime(state, plan, searchIndex, opts);
     default: return noEvidence(plan);
   }
@@ -1078,6 +1088,71 @@ function answerNextAction(state: StoreState, plan: MemoryQueryPlan, today: DayKe
     plan,
   };
 }
+
+/**
+ * What do I have tomorrow (LIFEOS-073 §15, §16).
+ *
+ * Reads the SAME tomorrow-preview the daily loop builds, so Memory and Today
+ * can never disagree about tomorrow. Dated evidence only: events, actions due
+ * tomorrow, occurrences falling tomorrow, and a deferral whose own return date
+ * is tomorrow. Undated open work is never invented into tomorrow — the whole
+ * point of §14's no-carry-forward rule.
+ */
+function answerTomorrow(state: StoreState, plan: MemoryQueryPlan, today: DayKey, opts: AnswerOptions): MemoryAnswer {
+  const ix = opts.todayIndexes ?? buildTodayIndexes(state, today);
+  const view = buildDailyExecutiveView(state, ix, today);
+  const day = addDays(today, 1);
+
+  if (view.tomorrow.length === 0) {
+    return {
+      status: "NO_RECORDED_EVIDENCE",
+      heading: `Nothing dated for ${fmt(day)}`,
+      summary: NOTHING_TOMORROW,
+      items: [],
+      // Never "you're free tomorrow" — an empty calendar is a fact about the
+      // records, not about the day (§22).
+      limitation: TOMORROW_COVERAGE,
+      sourceRefs: [], plan,
+    };
+  }
+
+  const items = view.tomorrow.map((t) => {
+    const ref: RecordRefLite = { kind: t.kind === "event" ? "event" : "action", id: t.id };
+    const origin = classifyOrigin({ kind: ref.kind, text: t.title });
+    return {
+      text: t.title,
+      // An Event is on the calendar. It is never "attended" (§29).
+      attribution: attributionFor(ref.kind, origin),
+      day,
+      when: [t.time, t.detail].filter(Boolean).join(" · ") || fmt(day),
+      ref,
+      href: ref.kind === "event" ? `/today` : `/actions/${t.id}`,
+      evidence: t.kind === "recurring" ? "recurrence occurrence" : t.kind === "event" ? "event.date" : "action.dueDate",
+      origin,
+    };
+  });
+
+  const events = view.tomorrow.filter((t) => t.kind === "event").length;
+  const work = view.tomorrow.length - events;
+  const clauses = [
+    events ? `${plural(events, "event is", "events are")} on your calendar` : "",
+    work ? `${plural(work, "item is", "items are")} dated for it` : "",
+  ].filter(Boolean);
+
+  return {
+    status: "ANSWERED",
+    heading: fmt(day),
+    summary: `${clauses.join(" and ")}.`,
+    items,
+    limitation: TOMORROW_COVERAGE,
+    sourceRefs: items.map((i) => i.ref),
+    plan,
+  };
+}
+
+/** §15. Dated evidence only — nothing was carried forward to fill this. */
+const TOMORROW_COVERAGE =
+  "This is what Conqify has a date for tomorrow. Open work with no date isn't moved here automatically.";
 
 /** §22. The answer is bounded by the record, and says so. */
 const COMMITMENT_COVERAGE =

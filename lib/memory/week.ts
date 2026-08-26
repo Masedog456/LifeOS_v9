@@ -46,7 +46,8 @@ import { buildActivityIndex, eventsInRange, type ActivityEvent } from "@/lib/ins
 import { occurrencesBetween, readRule, describeRule } from "@/lib/time/recurrence";
 import { classifyOrigin } from "@/lib/provenance/classify";
 import { isMachineProduced, type OriginType } from "@/lib/provenance";
-import { isLive, overdueActions, upcomingActions, sortByDue } from "@/lib/actions/due";
+import { isLive, overdueActions, dueTodayActions, upcomingActions, sortByDue } from "@/lib/actions/due";
+import { isDeferredAhead } from "@/lib/actions/defer";
 
 /** Stated on every review surface. No claim of exhaustive life memory (§23). */
 export const COVERAGE_NOTE =
@@ -88,6 +89,14 @@ export type AutobiographicalKind =
   | "action_rescheduled"
   | "action_cancelled"
   | "waiting_started"
+  // LIFEOS-073 §10. Transitions the store already recorded truthfully and every
+  // reader dropped, so "what changed today?" could not answer honestly.
+  | "action_returned"          // a deferral came back (§14)
+  | "action_restored"          // the user reversed a completion/cancellation (§14)
+  | "waiting_stopped"          // left a wait — never a completion (§12)
+  | "action_due_cleared"       // a due date was removed
+  | "action_planned"           // moved into a planning horizon (§13)
+  | "prerequisite_removed"     // a dependency edge was deleted — NOT "unblocked" (§11)
   | "note_created"
   | "reflection_captured"
   | "decision_recorded"
@@ -261,6 +270,61 @@ export function buildAutobiographicalTimeline(
         case "action_waiting":
           out.push({ ...base, kind: "waiting_started", detail: e.detail, evidence: "action.waitingSince" });
           break;
+
+        // ---- LIFEOS-073 §10, §12, §13, §14 ---------------------------------
+        //
+        // Each of these was already in the shared index (or reachable from a
+        // recorded history event) and fell through `default` into silence.
+
+        case "action_returned":
+          // §14: RETURNED is a deferral elapsing, not a reversal. The detail is
+          // the day it came back to.
+          out.push({ ...base, kind: "action_returned", evidence: "action.history[].returned" });
+          break;
+
+        case "action_restored":
+          // §14: RESTORED is the user reversing a completion or cancellation.
+          // Kept verbally distinct from `returned` — merging them would report
+          // an elapsed timer as a decision.
+          out.push({ ...base, kind: "action_restored", evidence: "action.history[].restored" });
+          break;
+
+        case "action_waiting_stopped":
+          // §12: leaving a wait is not finishing the work. `waitingOn` is only
+          // quoted when the record actually carries it.
+          out.push({
+            ...base, kind: "waiting_stopped",
+            detail: a.waitingOn ? `on ${a.waitingOn}` : undefined,
+            evidence: "action.history[].edited fromStatus=waiting",
+          });
+          break;
+
+        case "action_due_cleared":
+          out.push({ ...base, kind: "action_due_cleared", evidence: "action.history[].due_cleared" });
+          break;
+
+        case "action_prerequisite_removed":
+          // §11: named for what the event PROVES. `removeActionDependency`
+          // writes this for every edge removal regardless of whether other
+          // blockers remain, and completing a blocker writes nothing here at
+          // all — so this can never be read as "became unblocked today".
+          out.push({ ...base, kind: "prerequisite_removed", evidence: "action.history[].unblocked" });
+          break;
+
+        // §13: planning transitions carry their own horizon evidence. These
+        // arrive with `recordKind: "action"` (the assignment's `ref.kind`), so
+        // they belong in this switch — handling them after it would be dead
+        // code. `updatedAt` cannot answer this: reordering inside a column
+        // bumps it (LIFEOS-072 §13).
+        case "planning_planned":
+        case "planning_moved":
+          out.push({
+            ...base, kind: "action_planned",
+            detail: e.detail ? `to ${e.detail}` : undefined,
+            evidence: "planningAssignment.history[].toHorizon",
+          });
+          break;
+
         default:
           break;
       }
@@ -404,7 +468,7 @@ export interface WaitingLine {
 
 export interface OpenLine {
   action: NextAction;
-  reason: "overdue" | "due_soon" | "waiting" | "project_next";
+  reason: "overdue" | "due_today" | "due_soon" | "waiting" | "project_next";
   detail: string;
 }
 
@@ -426,9 +490,12 @@ export interface ProjectRollup {
   hadCompletion: boolean;
 }
 
-export interface WeekReview {
+/**
+ * A review of one resolved range. Week Review and the Daily Executive Loop are
+ * the same grouping over different ranges (LIFEOS-073 §6).
+ */
+export interface RangeReview {
   range: ResolvedRange;
-  rangeKind: WeekRangeKind;
   timeline: AutobiographicalEvent[];
   completed: AutobiographicalEvent[];
   scheduled: AutobiographicalEvent[];
@@ -445,6 +512,11 @@ export interface WeekReview {
   /** What this review cannot tell you, stated where it applies (§23). */
   limitations: string[];
   empty: boolean;
+}
+
+/** A RangeReview whose range is one of the named week windows. */
+export interface WeekReview extends RangeReview {
+  rangeKind: WeekRangeKind;
 }
 
 const MAX_ADDED = 12;
@@ -464,7 +536,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
  * assembled from only the clauses that have a non-zero count — a summary that
  * lists what did NOT happen is an appraisal wearing a count's clothes.
  */
-export function summarise(review: Omit<WeekReview, "summary" | "coverage" | "limitations" | "empty">): string {
+export function summarise(review: Omit<RangeReview, "summary" | "coverage" | "limitations" | "empty">): string {
   const parts: string[] = [];
   const oneTime = review.completed.filter((e) => e.kind === "completed_action").length;
   const recurring = review.completed.filter((e) => e.kind === "recurring_completion").length;
@@ -498,8 +570,24 @@ export function buildWeekReview(
   rangeKind: WeekRangeKind = "this_week",
   opts: { today?: DayKey; offsetMinutes?: number; index?: ActivityEvent[] } = {},
 ): WeekReview {
+  const range = resolveWeekRange(rangeKind, opts.today ?? todayKey(), opts.offsetMinutes);
+  return { ...buildRangeReview(state, range, opts), rangeKind };
+}
+
+/**
+ * The grouping, over ANY resolved range (LIFEOS-073 §6).
+ *
+ * Week Review supplies a week; the Daily Executive Loop supplies one local
+ * calendar day. Both get the same evidence model and the same three refusals —
+ * scheduled ≠ attended, created ≠ completed, touched ≠ progressed — because
+ * there is one implementation rather than a copy per surface.
+ */
+export function buildRangeReview(
+  state: StoreState,
+  range: ResolvedRange,
+  opts: { today?: DayKey; index?: ActivityEvent[] } = {},
+): RangeReview {
   const today = opts.today ?? todayKey();
-  const range = resolveWeekRange(rangeKind, today, opts.offsetMinutes);
   const timeline = buildAutobiographicalTimeline(state, range, opts.index);
   const lk = lookups(state);
 
@@ -522,11 +610,24 @@ export function buildWeekReview(
   const waitingRecordIds = new Set(
     timeline.filter((e) => e.kind === "waiting_started").map((e) => e.recordRef.id),
   );
+  // …and the same holds when a record was created and FINISHED on one day
+  // (LIFEOS-073 §7). "Email the agent" was listed twice in one daily closure —
+  // once under added, once under completed — reading as two accomplishments
+  // where the user did one thing. The terminal fact is the informative one, so
+  // completion wins and the creation line is suppressed.
+  //
+  // Keyed by day, not by record: created Monday and completed Friday really is
+  // two things that happened, and a week review should say so. Neither history
+  // event is touched — this is a presentation rule (§7).
+  const completedSameDay = new Set(
+    completed.map((e) => `${e.recordRef.id}:${e.day}`),
+  );
   const added = timeline
     .filter((e) => {
       if (!(ADDED_KINDS as string[]).includes(e.kind)) return false;
       if (reflectionIds.has(e.recordRef.id)) return false;
       if (e.kind === "action_created" && waitingRecordIds.has(e.recordRef.id)) return false;
+      if (e.kind === "action_created" && completedSameDay.has(`${e.recordRef.id}:${e.day}`)) return false;
       return true;
     })
     .slice(0, MAX_ADDED);
@@ -553,7 +654,14 @@ export function buildWeekReview(
   // claim to. What it can honestly exclude is anything that did not exist yet
   // during the range; `limitationsFor` states the rest.
   const existedBy = (a: NextAction) => dayOf(a.createdAt) <= range.endKey;
-  const live = (state.nextActions ?? []).filter((a) => isLive(a) && existedBy(a));
+  // A deferral parked BEYOND the range is not "still open" in any useful sense —
+  // the user already said when they intend to deal with it. Listing it here
+  // reported a parked item under its stale pre-deferral due date ("Was due Sun,
+  // Aug 23" for something deferred to Sep 15), which is the same stale-date
+  // claim LIFEOS-072 §5 and LIFEOS-073 §8 removed from Today and the Return
+  // card. Same shared predicate, so it means one thing everywhere.
+  const live = (state.nextActions ?? [])
+    .filter((a) => isLive(a) && existedBy(a) && !isDeferredAhead(a, range.endKey));
   const nonRecurring = live.filter((a) => !readRule(a.recurrence));
   const openSeen = new Set<string>();
   const stillOpen: OpenLine[] = [];
@@ -564,6 +672,16 @@ export function buildWeekReview(
   };
   for (const a of sortByDue(overdueActions(nonRecurring, range.endKey), range.endKey)) {
     pushOpen(a, "overdue", `Was due ${formatDayKey(a.dueDate!)}`);
+  }
+  // Due ON the last day of the range and not finished.
+  //
+  // `overdueActions` is the "overdue" bucket and `upcomingActions` is
+  // "tomorrow"|"soon" — the "today" bucket sits between them and belonged to
+  // neither, so work due today and still unfinished dropped out of "still open"
+  // entirely. For a week that was a quiet omission; for a DAY closure it removed
+  // the single most relevant row (LIFEOS-073 §19, found by the §29 retest).
+  for (const a of dueTodayActions(nonRecurring, range.endKey)) {
+    pushOpen(a, "due_today", `Due ${formatDayKey(a.dueDate!)}`);
   }
   for (const a of upcomingActions(nonRecurring, range.endKey, DUE_SOON_DAYS)) {
     pushOpen(a, "due_soon", `Due ${formatDayKey(a.dueDate!)}`);
@@ -598,7 +716,7 @@ export function buildWeekReview(
   rollups.sort((a, b) => b.completed - a.completed || b.added - a.added || a.project.title.localeCompare(b.project.title));
 
   const core = {
-    range, rangeKind, timeline, completed, scheduled, added, deferred, rescheduled, reflections,
+    range, timeline, completed, scheduled, added, deferred, rescheduled, reflections,
     waiting, stillOpen, projects: rollups.slice(0, MAX_PROJECTS),
   };
 
@@ -619,7 +737,7 @@ export function buildWeekReview(
  * it triggered it is the one a reader actually takes in.
  */
 export function limitationsFor(
-  review: Pick<WeekReview, "scheduled" | "projects" | "waiting" | "stillOpen" | "range">,
+  review: Pick<RangeReview, "scheduled" | "projects" | "waiting" | "stillOpen" | "range">,
   today: DayKey = todayKey(),
 ): string[] {
   const out: string[] = [];

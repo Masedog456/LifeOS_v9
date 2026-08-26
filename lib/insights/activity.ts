@@ -75,7 +75,26 @@ export function buildActivityIndex(state: StoreState): ActivityEvent[] {
       // was invisible to every consumer built on this stream — dormancy, the
       // Return card, Week in Review and commitment awareness alike.
       const map: Record<string, string> = { started: "action_started", completed: "action_completed", deferred: "action_deferred", returned: "action_returned", waiting: "action_waiting", cancelled: "action_cancelled", restored: "action_restored", reopened: "action_restored" };
-      const t = map[e.action];
+      let t = map[e.action];
+      // LIFEOS-073 §12. `stopWaiting` records leaving a wait as a GENERIC
+      // `edited` event — deliberately, because no existing kind means "stopped
+      // waiting" and LIFEOS-071 was told not to invent one. The transition is
+      // still structural: `fromStatus: "waiting"` is on the event. Read the
+      // fields, never the detail string, so a reworded detail cannot silently
+      // drop the fact.
+      if (!t && e.action === "edited" && e.fromStatus === "waiting" && e.toStatus !== "waiting") {
+        t = "action_waiting_stopped";
+      }
+      // §10: date facts the index dropped. Both are explicit recorded events.
+      if (!t && (e.action === "due_set" || e.action === "due_cleared")) {
+        t = e.action === "due_set" ? "action_due_set" : "action_due_cleared";
+      }
+      // §11: `unblocked` is written by `removeActionDependency` for EVERY edge
+      // removal, whether or not it was the last blocker, and the far commoner
+      // route to being unblocked — the blocker being completed — writes nothing
+      // here at all. So this proves "a prerequisite link was removed", and it is
+      // named for that. It must never be read as "became unblocked".
+      if (!t && e.action === "unblocked") t = "action_prerequisite_removed";
       if (t) push({ at: e.at, type: t, recordKind: "action", recordId: a.id, ...attr, detail: e.detail });
     }
   }
