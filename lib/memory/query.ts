@@ -66,11 +66,12 @@ export type MemoryQueryKind =
   | "REFLECTION"   // what did I say about <topic>
   | "OPEN_WORK"    // what still needs attention
   | "TIME"         // when did I <verb> <thing>
-  | "NEXT_ACTION"; // what should I do next
+  | "NEXT_ACTION"  // what should I do next
+  | "TOMORROW";    // what do I have tomorrow
 
 export const MEMORY_QUERY_KINDS: readonly MemoryQueryKind[] = [
   "COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME",
-  "NEXT_ACTION",
+  "NEXT_ACTION", "TOMORROW",
 ];
 
 /**
@@ -279,6 +280,20 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   // Today uses (LIFEOS-072 §21). First, because "what should I do next" also
   // contains "do", which the COMPLETION signal would otherwise claim.
   { kind: "NEXT_ACTION", re: /\bwhat should (?:i|we) (?:do|work on|start|tackle)\b|\bwhat'?s next\b|\bwhat next\b|\bwhere should (?:i|we) start\b|\bwhat do (?:i|we) do next\b/ },
+
+  // "What do I have tomorrow?" — the only FORWARD-looking class (LIFEOS-073
+  // §15, §16). It answers from the same tomorrow-preview model the daily loop
+  // uses, so there is no second tomorrow engine.
+  //
+  // Ahead of every backward signal below, because "what do I have tomorrow"
+  // and "what's on tomorrow" both contain words the calendar and open-work
+  // rules would otherwise claim and then resolve into a PAST range.
+  //
+  // The past-tense guard keeps the exemption exactly one class wide. "What did
+  // I finish tomorrow?" is a question about a period that has not happened, and
+  // it must keep falling through to the future-range refusal — answering it
+  // with tomorrow's schedule would be the product quietly changing the question.
+  { kind: "TOMORROW", re: /^(?!.*\b(?:did|was|were|had|have i|been)\b).*\btomorrow\b/ },
 
   // "when did I…" is unambiguous and must beat every topic word after it.
   { kind: "TIME", re: /^(?:so )?when did (?:i|we)\b.*\b(?:finish|complete|completed|finished|do|did|get done|wrap up)\b/, aspect: "completed" },

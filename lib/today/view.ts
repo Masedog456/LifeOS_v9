@@ -33,7 +33,7 @@ import type { DayKey } from "@/lib/reviews/dates";
 import { dayDiff } from "@/lib/reviews/dates";
 import { isLive, overdueActions, dueTodayActions, upcomingActions, sortByDue } from "@/lib/actions/due";
 import { blockersOf } from "@/lib/actions/dependencies";
-import { isDeferredAhead } from "@/lib/actions/defer";
+import { canGoQuiet } from "@/lib/actions/dormancy";
 import { occurrenceFor } from "@/lib/mvpStore";
 import { readRule, describeRule } from "@/lib/time/recurrence";
 import { upcomingOccurrences, type EventOccurrence } from "@/lib/time/events";
@@ -277,18 +277,22 @@ export function buildTodayView(state: StoreState, ix: TodayIndexes): TodayView {
   // "No recorded activity in 120 days", which reads as forgotten when it is in
   // fact flagged two sections above (LIFEOS-070 §12).
   const signalled = new Set(signals.map((s) => `${s.recordRef.kind}:${s.recordRef.id}`));
-  // …and neither must a deferral the user has parked in the FUTURE. `dormancyView`
-  // reads every action regardless of status, so an item explicitly deferred a month
-  // out came back as "No recorded activity in 120 days" — the surface answering a
-  // question the user has already answered. The commitment-signal path suppresses
-  // these (LIFEOS-070 §12); this older fallback did not. Same shared predicate, so
-  // "deferred into the future" means one thing everywhere on Today (LIFEOS-072 §5).
-  const parked = new Set(
-    (state.nextActions ?? []).filter((a) => isDeferredAhead(a, today)).map((a) => `action:${a.id}`),
+  // …and neither must an action whose silence is already EXPLAINED. `dormancyView`
+  // reads every action regardless of status or date, so this fallback offered an
+  // item parked a month out (LIFEOS-072) and — the LIFEOS-073 audit found — an
+  // action **due today**, as "No recorded activity in 116 days". Both were the
+  // surface answering a question the user had already answered.
+  //
+  // LIFEOS-073 §8 replaced the 072 deferral-only set with the shared eligibility
+  // rule, which covers dated, deferred, waiting and finished in one place rather
+  // than four. Non-action records keep the older behaviour: the rule is about
+  // Actions, which are the only records carrying dates and deferrals.
+  const explained = new Set(
+    (state.nextActions ?? []).filter((a) => !canGoQuiet(a, today)).map((a) => `action:${a.id}`),
   );
   const suggested = returnSuggestion(state, ix.activity, undefined, today);
   const suggestedKey = suggested ? `${suggested.ref.kind}:${suggested.ref.id}` : "";
-  const returnItem = suggested && !signalled.has(suggestedKey) && !parked.has(suggestedKey)
+  const returnItem = suggested && !signalled.has(suggestedKey) && !explained.has(suggestedKey)
     ? suggested
     : null;
 

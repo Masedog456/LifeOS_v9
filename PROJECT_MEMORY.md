@@ -5090,3 +5090,85 @@ connectors require repeated beta demand **and** stable API support, both.
   as its fixture: three false sentences shipped past 87 passing assertions
   because every fixture gave the runner-up the property the clause assumed.
   Printing real product output found all three in one pass.
+
+- **LIFEOS-073 — Daily Executive Loop.** The day became a loop instead of a
+  dashboard: a compact orientation at the top of Today, the existing engines
+  doing the acting, and a derived "Review today" closing it. **ZERO migrations —
+  head stays 0042; 46 store domains; no new life noun; nothing persisted.**
+
+  **The day is a loop, not a dashboard.** The audit found ELEVEN headings on
+  Today and no way to know the shape of a day without reading all of them.
+  `DailyExecutiveView` composes one reading path — FIXED, then ATTENTION, then
+  NEXT — from engines that already existed: `recommendNextAction` (072),
+  `buildCommitmentSignals` (070), `buildRangeReview` (064), `resolutionsForAction`
+  (071). No second recommender, no second attention model, no second tomorrow
+  engine. If two surfaces ever disagree about the day, that is a bug in one
+  shared model rather than a difference of opinion between two.
+
+  **Morning is orientation, not planning.** The orientation states counts of
+  records and names what is fixed. It never schedules flexible work into slots:
+  an Event and an explicit due TIME are `fixedToday`; a bare due date, today's
+  recurring occurrence and planned-today work are `flexibleToday` and are labelled
+  "yours to place". Implying Conqify had put them in the calendar would be the
+  product inventing a schedule it never made.
+
+  **Evening is closure, not judgment — and not a form.** `/today/review` requires
+  nothing, writes nothing, and creates no `DailyReview` by being visited. The
+  seven-step `/daily` wizard remains, named as what it is: optional reflection on
+  top of evidence the user did not have to type. "Review today" is a thing you
+  can do, never "your day is complete".
+
+  **One grouping, two ranges.** `buildWeekReview` became a thin wrapper over
+  `buildRangeReview(state, range)`, so Week in Review supplies a week and the
+  daily loop supplies one local calendar day — with the same three refusals:
+  scheduled ≠ attended, created ≠ completed, touched ≠ progressed.
+
+  **"Unblocked today" is not something the product can say.** The §11 audit
+  found `removeActionDependency` writes an `unblocked` event for EVERY edge
+  removal regardless of whether other blockers remain, that completing a blocker
+  — the common route — writes nothing on the dependent at all, and that
+  `pruneDependencies` removes edges silently. So the timeline maps the truthful
+  fact, `prerequisite_removed`, and the limitation is stated rather than the
+  transition inferred from present state.
+
+  **Five recorded transitions that no reader read.** Returned, restored,
+  planned/moved, stopped-waiting and due-cleared were all in the store and
+  produced ZERO autobiographical lines. Stopping a wait is read STRUCTURALLY —
+  `fromStatus: "waiting"` on the generic `edited` event LIFEOS-071 deliberately
+  reused — never by matching its detail string, so rewording the detail cannot
+  silently drop the fact.
+
+  **One predicate for "gone quiet".** `canGoQuiet`/`actionDormancy` centralise
+  LIFEOS-070's rule: open, not waiting, not deferred, not finished, and no date
+  already explaining the silence. Three call sites had been deciding it
+  differently, which is how one page came to show an action **due today** as "No
+  recorded activity in 116 days" and the same record as "30 days" in one place
+  and "120 days" in another — the blocker explanation had been printing the
+  THRESHOLD where the elapsed count belonged.
+
+  **Four defects the model found only when its output was printed.** Same-day
+  create+complete listed twice in `changedToday` (the dedup had been applied to
+  `added` alone, and `changedToday` reads the raw timeline); a parked deferral
+  shown as still open under its stale pre-deferral due date; a wait duplicated
+  between Still Open and Waiting; and untimed rows sorting ABOVE an 11:00
+  appointment because `localeCompare` ranks a punctuation sentinel below digits.
+
+  **And one the §29 claim retest found.** `overdueActions` covers the "overdue"
+  bucket and `upcomingActions` covers "tomorrow"|"soon" — the "today" bucket
+  belonged to neither, so work due today and unfinished dropped out of "still
+  open" entirely. The retest printed an empty Still Open on a day whose headline
+  item was due that afternoon.
+
+  **Validation.** Full regression **3952/3952 across 40 suites** (new daily suite
+  125/125); browser smoke-073 **41/41**; smokes 060–063, 065–072 at the 072
+  baseline — 063's single wall-clock NOW-event failure proved pre-existing by an
+  EMPTY DIFF across `indexes.ts`, `events.ts`, `recurrence.ts` and every
+  `isNow`/`nowEvent`/`nextEvent` line. Migration rehearsal 96/96 at 0042; release
+  audit 17/17; audit:security PASS; tsc clean; eslint 0 errors. The daily view is
+  8ms at 100 actions, 67ms at 1,000, 315ms at 5,000, reusing `TodayIndexes` and
+  the activity index the page already built.
+
+  **Durable lesson.** Every one of the five defects above was invisible to a
+  green test suite and visible in one printed page of real output. A model that
+  passes 121 assertions can still say "Added X" directly above "Completed X",
+  because no assertion had thought to ask. Print the thing before believing it.

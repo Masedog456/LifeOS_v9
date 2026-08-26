@@ -29,6 +29,7 @@ import Link from "next/link";
 import { completeOccurrence, useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildTodayView, waitingDays, COVERAGE_NOTE, EMPTY_PROMPT } from "@/lib/today/view";
+import { buildDailyExecutiveView, orientationLine, REVIEW_TODAY_LABEL } from "@/lib/today/daily";
 import { formatLocalTime } from "@/lib/time/localtime";
 import { formatDayKey, todayKey } from "@/lib/reviews/dates";
 import { nowLocalTime } from "@/lib/time/events";
@@ -73,6 +74,9 @@ export default function TodayCommandCenter() {
   // a button needs are the ones the page already built.
   const ix = useMemo(() => buildTodayIndexes(state, today, now), [state, today, now]);
   const view = useMemo(() => buildTodayView(state, ix), [state, ix]);
+  // The same indexes again — the daily loop composes existing engines and adds
+  // one grouping pass, so orientation costs no extra store scan (§26).
+  const daily = useMemo(() => buildDailyExecutiveView(state, ix, today), [state, ix, today]);
   // Split once, from the already-deduplicated list. Each section renders its own
   // slice; no section re-derives what belongs in it.
   const attention = useMemo(() => signalsForSection(view.signals, "attention"), [view.signals]);
@@ -113,6 +117,44 @@ export default function TodayCommandCenter() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* ---- ORIENTATION (LIFEOS-073 §2, §4, §6) ----
+          The audit found eleven headings on Today and no way to know the shape
+          of the day without reading all of them. This is the reading path —
+          FIXED, then what needs attention, then what to do next — stated in one
+          line of counts before any section expands.
+
+          It composes; it does not compute. Every number below is a length of a
+          list the sections themselves render, so the summary and the detail can
+          never disagree. */}
+      <section data-daily-orientation className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
+        <p data-orientation-line className="text-sm text-zinc-800 dark:text-zinc-100">
+          {orientationLine(daily)}
+        </p>
+        {daily.fixedToday.length > 0 && (
+          <ul data-orientation-fixed className="mt-2 flex flex-col gap-0.5">
+            {daily.fixedToday.map((f) => (
+              <li key={`${f.kind}:${f.id}`} className="text-[11px] text-zinc-500">
+                {/* An Event is on the calendar; a timed action is a commitment
+                    the user made for a time. Neither is claimed as attended. */}
+                <span className="tabular-nums">{f.time ? formatLocalTime(f.time) : f.detail ?? "All day"}</span>
+                {" · "}{f.title}
+              </li>
+            ))}
+          </ul>
+        )}
+        {/* §3. Flexible work is named as flexible. Listing it under the clock
+            would imply Conqify had put it in a slot, which it never did. */}
+        {daily.flexibleToday.length > 0 && (
+          <p data-orientation-flexible className="mt-2 text-[11px] text-zinc-500">
+            Yours to place: {daily.flexibleToday.map((f) => f.action.title).join(" · ")}
+          </p>
+        )}
+        <Link href="/today/review" data-review-today-link
+          className="mt-3 inline-block text-[11px] text-zinc-500 underline-offset-4 hover:underline">
+          {REVIEW_TODAY_LABEL} →
+        </Link>
+      </section>
+
       {/* ---- NOW ---- */}
       {(view.nowEvent || view.nextEvent) && (
         <section data-today-now className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">

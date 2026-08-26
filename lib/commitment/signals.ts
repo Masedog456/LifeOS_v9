@@ -50,6 +50,7 @@ import {
 } from "@/lib/actions/due";
 import { isFollowUpDue } from "@/lib/actions/waiting";
 import { isDeferredAhead } from "@/lib/actions/defer";
+import { actionDormancy, dormancyLine } from "@/lib/actions/dormancy";
 import { blockersOf } from "@/lib/actions/dependencies";
 import { readRule } from "@/lib/time/recurrence";
 import { occurrenceFor } from "@/lib/mvpStore";
@@ -319,7 +320,25 @@ export function buildCommitmentSignals(
   // LATER. A blockage is attention-worthy when the thing waiting is already due,
   // or when the blocker itself has stopped moving — which are both dated facts.
   const lastActivity = lastActivityByRecord(ix.activity);
+  // LIFEOS-073 §8: one predicate, and one REAL elapsed number. This used to be
+  // a local copy that ignored `updatedAt`, and its explanation printed the
+  // threshold constant where the elapsed count belonged.
+  const dormancyOf = (a: NextAction) => actionDormancy(a, lastActivity, today, dormantAfter);
+  /** The blocker's real elapsed silence, for the explanation above. */
+  const elapsedDaysOf = (a: NextAction): number => {
+    const d = dormancyOf(a);
+    if (d) return d.inactiveDays;
+    const at = [lastActivity.get(`action:${a.id}`), a.updatedAt, a.createdAt]
+      .filter((x): x is string => !!x).sort().pop();
+    const day = at?.slice(0, 10);
+    return day && day < today ? dayDiff(today, day) : 0;
+  };
   const quiet = (a: NextAction): boolean => {
+    const d = dormancyOf(a);
+    // A blocker carrying its own date is not "quiet" — but it is also not
+    // eligible for the shared predicate, and silence there is explained by the
+    // date rather than by neglect. Fall back to the raw index for that case.
+    if (d) return d.quiet;
     const at = lastActivity.get(`action:${a.id}`);
     if (!at) return true;
     const day = at.slice(0, 10);
@@ -355,9 +374,13 @@ export function buildCommitmentSignals(
           // date in it. Lower-casing it to splice mid-sentence produced
           // "was due sat, aug 22", so the label is used as written and the
           // blocker's name leads instead.
+          // …and the number is the blocker's ACTUAL elapsed silence. This
+          // printed `dormantAfter` — the threshold — so the same record read
+          // "no recorded activity in 30 days" here and "120 days" in its own
+          // dormant signal, on the same page (LIFEOS-073 §8C).
           text: dueKeyOf(stuckBlocker) && dueKeyOf(stuckBlocker)! < today
             ? `${stuckBlocker.title}: ${dueLabel(stuckBlocker, today)}.`
-            : `${stuckBlocker.title} has no recorded activity in ${dormantAfter} days.`,
+            : `${stuckBlocker.title} has no recorded activity in ${elapsedDaysOf(stuckBlocker)} days.`,
           evidence: "blocker.dueDate | activity index",
         }]
         : [],
@@ -457,29 +480,16 @@ export function dormantSignals(
 ): CommitmentSignal[] {
   const out: CommitmentSignal[] = [];
   for (const a of actions) {
-    if (a.status === "waiting" || a.status === "deferred") continue;
-    if (dueKeyOf(a)) continue;
-    // The LATER of indexed activity and the record's own `updatedAt`.
-    //
-    // The activity index carries status transitions, not field edits, so an
-    // action changed five minutes ago can have no index entry at all. That
-    // matters as of LIFEOS-071: `stopWaiting` moves an item out of `waiting`
-    // (where dormancy never applies) into `open` (where it does), and reading
-    // only the index would flag a wait the user JUST resolved as forgotten.
-    // `updatedAt` is recorded evidence that the record changed, so it counts.
-    const indexed = lastActivity.get(`action:${a.id}`);
-    const at = [indexed, a.updatedAt, a.createdAt]
-      .filter((x): x is string => !!x)
-      .sort()
-      .pop();
-    if (!at) continue;
-    const day = at.slice(0, 10);
-    if (day >= today) continue;
-    const days = dayDiff(today, day);
-    if (days < thresholdDays) continue;
+    // LIFEOS-073 §8: the eligibility rule and the elapsed count both come from
+    // the shared predicate now. It encodes exactly what this loop encoded —
+    // open, not waiting, not deferred, no date explaining the silence, measured
+    // from the LATER of indexed activity and the record's own `updatedAt` — and
+    // three other callers were each deciding it slightly differently.
+    const d = actionDormancy(a, lastActivity, today, thresholdDays);
+    if (!d || !d.quiet) continue;
     out.push({
       kind: "dormant", recordRef: { kind: "action", id: a.id }, title: a.title,
-      explanation: `No recorded activity in ${days} days.`,
+      explanation: dormancyLine(d),
       projectRef: a.projectId ? { kind: "project", id: a.projectId } : undefined,
       evidence: "activity index",
       secondaryReasons: [],
