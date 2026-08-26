@@ -33,17 +33,13 @@
  * something this script can substitute for.
  */
 
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const adapter = readFileSync(join(root, "lib/adapters/supabaseAdapter.ts"), "utf8");
 const types = readFileSync(join(root, "types/mvp.ts"), "utf8");
-
-const migDir = join(root, "supabase", "migrations");
-let sql = "";
-for (const f of readdirSync(migDir).sort()) sql += "\n" + readFileSync(join(migDir, f), "utf8");
 
 const results = [];
 const ok = (name, pass, detail = "") => results.push({ name, pass, detail });
