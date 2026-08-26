@@ -1,0 +1,42 @@
+-- LIFEOS-074 — workspace_sessions: the three execution pointers it already keeps.
+--
+-- ## What was wrong
+--
+-- `WorkspaceSession` has carried `goalId`, `projectId` and `currentActionId`
+-- since LIFEOS-031/036, and `workspace_sessions` never had columns for them.
+-- The mapper matched the table, so nothing looked broken locally — the whole
+-- store serialises to localStorage — but on remote adoption (a second device, or
+-- cleared local data) all three came back absent.
+--
+-- Each was proved ACTIVELY USED before being added here, which is the bar the
+-- repair was scoped to:
+--
+--   currentActionId  written by `startActionInSession`, cleared when the action
+--                    is completed or deleted, read by `lib/actions/tracking.ts`
+--   goalId           written by `setSessionExecution` and `startProjectSession`
+--   projectId        same writers, and explicitly CLEARED on project deletion —
+--                    cleanup logic that is meaningless if the field never persists
+--
+-- Nothing else on the type qualified, and nothing else is added.
+--
+-- ## Soft references, deliberately
+--
+-- Plain nullable uuids with NO foreign key, matching the rule 0027 states for
+-- `next_actions`: the client syncs whole arrays in one bulk upsert, so a hard FK
+-- could reject a batch depending on row order, and deleting a project must never
+-- cascade away a session. An orphaned pointer degrades gracefully — the store
+-- already clears these at mutation time, and the projections are orphan-safe.
+--
+-- No cascade, no trigger, no index: these are read as part of a session row that
+-- is already fetched by user, never queried on their own.
+--
+-- ## Rollback
+--
+-- Genuinely reversible. Dropping the three columns loses only the pointers,
+-- returning the table to exactly its pre-0044 shape; no other row, constraint or
+-- policy depends on them. That is worth saying plainly, because 0043's rollback
+-- is NOT free and the difference matters to whoever reads this next.
+
+alter table public.workspace_sessions add column if not exists goal_id           uuid;
+alter table public.workspace_sessions add column if not exists project_id        uuid;
+alter table public.workspace_sessions add column if not exists current_action_id uuid;

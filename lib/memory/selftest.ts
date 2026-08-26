@@ -304,6 +304,30 @@ export function runMemorySelfTests(): SelfTestReport {
   check(results, "purity: store untouched after all engines", JSON.stringify(state) === frozen);
 
   // ---- Performance budget over a larger synthetic state ----
+  //
+  // MACHINE-RELATIVE, not a wall-clock constant (LIFEOS-074 §10).
+  //
+  // The budget was a flat `< 1500ms`, which measures the hardware as much as the
+  // code. The audit hit it directly: the suite passed at 1400-ish ms, the
+  // container was replaced mid-session, and the identical commit then failed at
+  // 1566ms with a load average of 0.77 and nothing else running. A fixed budget
+  // cannot tell a slower VM from a real regression — so it false-alarms in one
+  // direction and, on fast hardware, would happily hide a 2x algorithmic
+  // regression in the other.
+  //
+  // Calibrating against a fixed unit of arithmetic removes the hardware term.
+  // The ratio is what the assertion actually cares about: engines-time divided
+  // by machine-speed should stay roughly constant as the code changes.
+  //
+  // The multiplier is set from measurement, and honestly it is ONE measurement:
+  // 1566ms of engine work against an 81ms calibration is a ratio near 20. The
+  // ceiling below leaves generous headroom for a slow or noisy host while still
+  // catching the doubling that a genuine O(n^2) slip would produce.
+  const c0 = Date.now();
+  let calib = 0;
+  for (let i = 0; i < 8e6; i++) calib += Math.sqrt(i) % 7;
+  const calibMs = Math.max(1, Date.now() - c0);
+
   const big = scaleState(300);
   const p0 = Date.now();
   buildLivingMemory(big, { now: NOW });
@@ -312,7 +336,11 @@ export function runMemorySelfTests(): SelfTestReport {
   buildContinueThinking(big, { now: NOW });
   buildReflectionPrompts(big);
   const perfMs = Date.now() - p0;
-  check(results, "perf: all engines under budget", perfMs < 1500, `${perfMs}ms for 300× records`);
+  const ratio = perfMs / calibMs;
+  check(results, "perf: all engines under budget", ratio < 40,
+    `${perfMs}ms for 300x records; ${calibMs}ms calibration; ratio ${ratio.toFixed(1)} (ceiling 40)`);
+  // `calib` is consumed so the calibration loop cannot be optimised away.
+  check(results, "perf: the calibration actually ran", calib > 0, String(calib));
 
   const passed = results.filter((r) => r.pass).length;
   return {

@@ -125,7 +125,7 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 43, `found ${files.length} migration files, expected 43`);
+  ok("migration files present", files.length === 44, `found ${files.length} migration files, expected 44`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
@@ -307,6 +307,21 @@ function run() {
       where conname = 'next_actions_due_time_needs_date';`).trim();
     ok("074: exactly one due_time constraint exists after the chain",
       dueTimeChecks === "1", `found ${dueTimeChecks}`);
+
+    // 0044 (LIFEOS-074): the three execution pointers a session already kept.
+    // SOFT references, matching 0027's rule — plain uuids with no foreign key,
+    // so deleting a project never cascades away a session and the client's bulk
+    // array upsert cannot be rejected on row order.
+    const sessCols = asA(`select count(*) from information_schema.columns
+      where table_schema='public' and table_name='workspace_sessions'
+        and column_name in ('goal_id','project_id','current_action_id');`).trim();
+    ok("074: workspace_sessions carries all three execution pointers",
+      sessCols === "3", `found ${sessCols}`);
+    const sessFks = asA(`select count(*) from information_schema.table_constraints tc
+      join information_schema.key_column_usage k on k.constraint_name = tc.constraint_name
+      where tc.table_name='workspace_sessions' and tc.constraint_type='FOREIGN KEY'
+        and k.column_name in ('goal_id','project_id','current_action_id');`).trim();
+    ok("074: …as soft references, with no foreign key", sessFks === "0", `found ${sessFks}`);
 
     // Occurrence identity: the anti-duplicate guarantee.
     asA(`insert into public.recurrence_completions(id, action_id, occurrence_date) values (gen_random_uuid(), '${AID}', date '2026-08-23');`);

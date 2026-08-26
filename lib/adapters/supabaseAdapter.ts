@@ -1938,26 +1938,40 @@ function rowToWorkspace(r: any): Workspace {
 
 interface SessionRow {
   id: string; workspace_id: string; type: string; goal: string; notes: string;
+  // Soft references (0044). `goal` is the session's stated intent as free text;
+  // `goal_id` is a pointer to a Goal record — different things, easily confused,
+  // and both persisted.
+  goal_id: string | null; project_id: string | null; current_action_id: string | null;
   activity: unknown; started_at: string; ended_at: string | null;
 }
-function sessionToRow(s: WorkspaceSession): SessionRow {
+export function sessionToRow(s: WorkspaceSession): SessionRow {
   return {
     id: s.id,
     workspace_id: s.workspaceId,
     type: s.type,
     goal: s.goal,
+    goal_id: s.goalId ?? null,
+    project_id: s.projectId ?? null,
+    current_action_id: s.currentActionId ?? null,
     notes: s.notes,
     activity: s.activity,
     started_at: s.startedAt,
     ended_at: s.endedAt ?? null,
   };
 }
-function rowToSession(r: any): WorkspaceSession {
+export function rowToSession(r: any): WorkspaceSession {
   return {
     id: r.id,
     workspaceId: r.workspace_id,
     type: (r.type ?? "thinking") as WorkspaceSession["type"],
     goal: r.goal ?? "",
+    goalId: r.goal_id ?? undefined,
+    projectId: r.project_id ?? undefined,
+    // A pointer to an action that no longer exists degrades gracefully rather
+    // than being repaired here: the store clears it at mutation time (action
+    // completed or deleted), and every reader treats an unresolvable pointer as
+    // no current action. Resurrecting the target would be inventing a record.
+    currentActionId: r.current_action_id ?? undefined,
     notes: r.notes ?? "",
     activity: Array.isArray(r.activity) ? r.activity : [],
     startedAt: r.started_at,

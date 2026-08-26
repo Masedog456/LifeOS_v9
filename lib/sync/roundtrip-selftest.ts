@@ -24,7 +24,7 @@
  */
 
 import type { NextAction, StoreState } from "@/types/mvp";
-import { actionToRow, rowToAction } from "@/lib/adapters/supabaseAdapter";
+import { actionToRow, rowToAction, sessionToRow, rowToSession } from "@/lib/adapters/supabaseAdapter";
 import { STORE_DOMAINS } from "@/lib/ux/backup";
 import { readRule } from "@/lib/time/recurrence";
 import { occurrenceFor } from "@/lib/mvpStore";
@@ -174,6 +174,50 @@ export function runRoundTripSelfTests(): SelfTestReport {
     eq("5.3 …and no rule invented either", row.recurrence, null);
     ok("5.4 …which is precisely the shape the database refuses",
       row.due_time !== null && row.due_date === null && row.recurrence === null);
+  }
+
+  // ============ 6. WORKSPACE SESSION POINTERS (LIFEOS-074 §4–§6) ============
+  //
+  // `goalId`, `projectId` and `currentActionId` had no columns until 0044, so
+  // they survived a local reload (the whole store serialises to localStorage)
+  // and vanished on remote adoption. All three were proved actively written and
+  // read before the columns were added.
+  {
+    const base = {
+      id: "s1", workspaceId: "w1", type: "focus", goal: "Ship the survey pack",
+      notes: "", startedAt: iso(T), activity: [],
+    } as unknown as Parameters<typeof sessionToRow>[0];
+
+    const withPointers = { ...base, goalId: "g1", projectId: "p1", currentActionId: "a1" };
+    const back = rowToSession(sessionToRow(withPointers) as unknown as Record<string, unknown>);
+    eq("6.1 a session keeps the action it is working on",
+      back.currentActionId, "a1");
+    eq("6.2 …and its goal pointer", back.goalId, "g1");
+    eq("6.3 …and its project pointer", back.projectId, "p1");
+    eq("6.4 …without confusing the free-text goal with the goal POINTER",
+      [back.goal, back.goalId], ["Ship the survey pack", "g1"]);
+
+    // Absent stays absent — not null, and not resurrected.
+    const bare = rowToSession(sessionToRow(base) as unknown as Record<string, unknown>);
+    eq("6.5 an absent pointer stays absent",
+      [bare.currentActionId, bare.goalId, bare.projectId], [undefined, undefined, undefined]);
+    const row = sessionToRow(base) as unknown as Record<string, unknown>;
+    eq("6.6 …written as SQL null, matching every other optional column",
+      [row.current_action_id, row.goal_id, row.project_id], [null, null, null]);
+
+    // §5: cleared means cleared. Starting an action then clearing it must not
+    // round-trip back to the old pointer.
+    const cleared = rowToSession(
+      sessionToRow({ ...withPointers, currentActionId: undefined }) as unknown as Record<string, unknown>);
+    eq("6.7 a cleared current action stays cleared", cleared.currentActionId, undefined);
+    eq("6.8 …while the other pointers are untouched", [cleared.goalId, cleared.projectId], ["g1", "p1"]);
+
+    // §6: a pointer to a record that no longer exists is carried, not repaired.
+    // The store clears it at mutation time; the mapper does not invent a target
+    // and does not silently drop a value it was given.
+    const dangling = rowToSession(
+      sessionToRow({ ...withPointers, currentActionId: "gone" }) as unknown as Record<string, unknown>);
+    eq("6.9 a dangling pointer is neither repaired nor resurrected", dangling.currentActionId, "gone");
   }
 
   const passed = results.filter((x) => x.pass).length;
