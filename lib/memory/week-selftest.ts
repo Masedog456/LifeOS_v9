@@ -51,7 +51,16 @@ function completed(title: string, day: string, extra: Partial<NextAction> = {}):
   } as Partial<NextAction> & { title: string; createdAt: string });
 }
 
-/** A recurring source with one occurrence closed — as `completeOccurrence` writes it. */
+/**
+ * A recurring source with one occurrence closed — as `completeOccurrence`
+ * writes it: a history entry AND a `recurrenceCompletions` row.
+ *
+ * The row used to be missing (LIFEOS-074 §14). The fixture and the timeline
+ * had made the SAME assumption — that the history entry alone proves an
+ * occurrence was kept — so both were wrong together and the suite stayed green
+ * while an occurrence the user had UNDONE still reported as completed. The
+ * caller registers the row; the id is derived so it stays deterministic.
+ */
 function recurringWithOccurrence(title: string, day: string): NextAction {
   return act({
     title, createdAt: at(MON, 8),
@@ -116,6 +125,13 @@ export function tortureWeek(): StoreState {
     recurringWithOccurrence("Take my medication", TUE),
     recurringWithOccurrence("Refill the medication box", SUN),
   ];
+  // The completion ROWS those occurrences produce. Without them the actions
+  // carry a keystroke and no kept commitment, which is exactly the state
+  // `uncompleteOccurrence` leaves behind.
+  s.recurrenceCompletions = [
+    { id: "rc1", actionId: recurring[0].id, occurrenceDate: TUE, completedAt: at(TUE, 7) },
+    { id: "rc2", actionId: recurring[1].id, occurrenceDate: SUN, completedAt: at(SUN, 7) },
+  ] as StoreState["recurrenceCompletions"];
 
   // Ten new actions created during the week, none of them completed.
   const created: NextAction[] = Array.from({ length: 10 }, (_, i) =>

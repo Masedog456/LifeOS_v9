@@ -169,6 +169,8 @@ interface Lookups {
   actions: Map<string, NextAction>;
   projects: Map<string, Project>;
   events: Map<string, LifeEvent>;
+  /** `actionId:occurrenceDate` for every recorded occurrence completion. */
+  completions: Set<string>;
 }
 
 function lookups(state: StoreState): Lookups {
@@ -178,7 +180,11 @@ function lookups(state: StoreState): Lookups {
   for (const p of state.projects ?? []) projects.set(p.id, p);
   const events = new Map<string, LifeEvent>();
   for (const e of state.events ?? []) events.set(e.id, e);
-  return { actions, projects, events };
+  // `actionId:occurrenceDate` — the record that makes an occurrence completion
+  // TRUE. Built once here rather than scanned per timeline entry (LIFEOS-074).
+  const completions = new Set<string>();
+  for (const c of state.recurrenceCompletions ?? []) completions.add(`${c.actionId}:${c.occurrenceDate}`);
+  return { actions, projects, events, completions };
 }
 
 const dayOf = (iso: string): DayKey => iso.slice(0, 10);
@@ -246,9 +252,25 @@ export function buildAutobiographicalTimeline(
           // is finished forever". Reading it wrong would claim a recurring
           // action had ended.
           const occurrence = /^\d{4}-\d{2}-\d{2}$/.test(e.detail ?? "") ? e.detail : undefined;
-          out.push(occurrence
-            ? { ...base, kind: "recurring_completion", detail: occurrence, evidence: "recurrenceCompletions[].occurrenceDate" }
-            : { ...base, kind: "completed_action", evidence: "action.completedAt" });
+          if (!occurrence) {
+            out.push({ ...base, kind: "completed_action", evidence: "action.completedAt" });
+            break;
+          }
+          // …and the COMPLETION ROW is what makes it true, not the history entry
+          // (LIFEOS-074 §12).
+          //
+          // `uncompleteOccurrence` deletes the row and — correctly — leaves the
+          // history alone, because history records that the user pressed the
+          // button, which really happened. Reading the history as the fact meant
+          // an occurrence the user had explicitly UNDONE still reported as kept,
+          // under an evidence label naming a row that no longer existed. Undo
+          // removes the fact, not the keystroke, so the fact is read from where
+          // it actually lives.
+          if (!lk.completions.has(`${a.id}:${occurrence}`)) break;
+          out.push({
+            ...base, kind: "recurring_completion", detail: occurrence,
+            evidence: "recurrenceCompletions[].occurrenceDate",
+          });
           break;
         }
         case "action_created":
