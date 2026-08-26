@@ -308,6 +308,15 @@ function run() {
     ok("074: exactly one due_time constraint exists after the chain",
       dueTimeChecks === "1", `found ${dueTimeChecks}`);
 
+    // 0040's cascade, stated as a fact the APP must match (LIFEOS-074 §2).
+    // `recurrence_completions.action_id` references `next_actions` ON DELETE
+    // CASCADE, so a completion whose action is gone cannot be inserted at all.
+    // That is what makes a locally-orphaned completion row dangerous: adoption
+    // re-adds it as "local-only by id" and the next push is rejected forever.
+    ok("074: a completion for a NON-EXISTENT action is refused",
+      !tryA(`insert into public.recurrence_completions(id, action_id, occurrence_date)
+             values (gen_random_uuid(), gen_random_uuid(), date '2026-08-25');`));
+
     // 0044 (LIFEOS-074): the three execution pointers a session already kept.
     // SOFT references, matching 0027's rule — plain uuids with no foreign key,
     // so deleting a project never cascades away a session and the client's bulk

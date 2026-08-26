@@ -29,6 +29,7 @@ import { STORE_DOMAINS } from "@/lib/ux/backup";
 import { readRule } from "@/lib/time/recurrence";
 import { threeWayMerge, type Rec } from "@/lib/sync/merge";
 import { mergeLocalOnly } from "@/lib/persistence-reconcile";
+import { deleteAction, replaceState, getSnapshot } from "@/lib/mvpStore";
 import { occurrenceFor } from "@/lib/mvpStore";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
@@ -282,6 +283,42 @@ export function runRoundTripSelfTests(): SelfTestReport {
     const withNew = { nextActions: [base, act({ id: "fresh", title: "Just captured" })] } as unknown as StoreState;
     ok("7.9 …but a local-only NEW record survives adoption",
       mergeLocalOnly(remote, withNew).nextActions!.some((a) => a.id === "fresh"));
+  }
+
+  // ============ 8. DELETE MATCHES THE DATABASE'S CASCADE (D-10) ============
+  //
+  // `recurrence_completions.action_id` cascades in the schema (0040), and
+  // `deleteAction` used to leave the rows behind locally. The orphan is then
+  // absent remotely, so adoption re-adds it as "local-only by id", the next diff
+  // pushes it, and the foreign key rejects a completion whose action is gone —
+  // wedging `flush()` for EVERY domain, permanently, on retry.
+  {
+    const empty = Object.fromEntries((STORE_DOMAINS as string[]).map((d) => [d, []])) as unknown as StoreState;
+    const a = act({ id: "rec", title: "Medication", recurrence: { frequency: "daily", interval: 1 } });
+    replaceState({
+      ...empty,
+      nextActions: [a],
+      recurrenceCompletions: [
+        { id: "rc1", actionId: "rec", occurrenceDate: T, completedAt: iso(T, 8) },
+        { id: "rc2", actionId: "other", occurrenceDate: T, completedAt: iso(T, 8) },
+      ],
+    } as unknown as StoreState);
+
+    deleteAction("rec");
+    const after = getSnapshot();
+    eq("8.1 deleting an action takes its occurrence completions with it",
+      (after.recurrenceCompletions ?? []).map((c) => c.id), ["rc2"]);
+    ok("8.2 …leaving another action's completions alone",
+      (after.recurrenceCompletions ?? []).every((c) => c.actionId !== "rec"));
+    eq("8.3 …and the action itself is gone", (after.nextActions ?? []).length, 0);
+
+    // The orphan can no longer be resurrected by adoption, because it no longer
+    // exists to be resurrected.
+    const remote = { ...empty } as unknown as StoreState;
+    const readopted = mergeLocalOnly(remote, after);
+    ok("8.4 adoption cannot re-add a completion for the deleted action",
+      !(readopted.recurrenceCompletions ?? []).some((c) => c.actionId === "rec"),
+      JSON.stringify(readopted.recurrenceCompletions));
   }
 
   const passed = results.filter((x) => x.pass).length;

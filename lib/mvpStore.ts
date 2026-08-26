@@ -708,7 +708,16 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-function getSnapshot(): StoreState {
+/**
+ * The current store snapshot.
+ *
+ * Exported so store MUTATIONS are reachable from a test at all (LIFEOS-074).
+ * `useStore` is a React hook and `getSnapshot` was private, which meant every
+ * `export function` in this file that changes state could only be verified by
+ * reading it — and D-10 (`deleteAction` leaving orphaned completion rows that
+ * wedge sync) is exactly what that blind spot hides.
+ */
+export function getSnapshot(): StoreState {
   return state;
 }
 
@@ -5280,6 +5289,17 @@ export function deleteAction(actionId: string): void {
     nextActions: (state.nextActions ?? []).filter((a) => a.id !== actionId),
     actionDependencies: pruneDependencies(state.actionDependencies ?? [], actionId),
     sessions: state.sessions.map((s) => (s.currentActionId === actionId ? { ...s, currentActionId: undefined } : s)),
+    // Occurrence completions go WITH the action, because the database already
+    // takes that decision: `recurrence_completions.action_id` references
+    // `next_actions` ON DELETE CASCADE (migration 0040).
+    //
+    // Leaving them behind locally was not merely untidy (LIFEOS-074 §2). The
+    // orphan is absent remotely once the cascade runs, so adoption re-adds it as
+    // a "local-only" record, the next diff pushes it, and the foreign key
+    // rejects a completion whose action no longer exists — proved against real
+    // PostgreSQL in the rehearsal. `flush()` then throws on every retry, and
+    // sync stops for EVERY domain, not just this row.
+    recurrenceCompletions: (state.recurrenceCompletions ?? []).filter((c) => c.actionId !== actionId),
   });
 }
 
