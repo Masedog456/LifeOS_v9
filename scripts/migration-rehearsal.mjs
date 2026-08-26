@@ -125,7 +125,7 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 42, `found ${files.length} migration files, expected 42`);
+  ok("migration files present", files.length === 43, `found ${files.length} migration files, expected 43`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
@@ -282,6 +282,31 @@ function run() {
       !tryA(`update public.next_actions set due_time = '24:00' where id = '${AID}';`));
     ok("061: 23:59 is accepted",
       tryA(`update public.next_actions set due_time = '23:59' where id = '${AID}';`));
+
+    // 0043 (LIFEOS-074): a RECURRENCE RULE also names the day.
+    //
+    // The 0040 check encoded "a time with no day names no moment" and predated
+    // LIFEOS-063 R-2, which made "every day at 8" a first-class shape — a time
+    // with a rule and no standalone date. The mismatch was invisible only
+    // because the Supabase mapper never wrote either column; once it did, this
+    // row was the one that would have wedged sync.
+    ok("074: due_time with a RECURRENCE and no due_date is accepted",
+      tryA(`insert into public.next_actions(id, title, due_time, recurrence)
+            values (gen_random_uuid(), 'every day at 8', '08:00', '{"frequency":"daily","interval":1}'::jsonb);`));
+    // …and the shape that is still meaningless is still refused. 0043 adds one
+    // disjunct; it does not legitimize a time attached to nothing.
+    ok("074: due_time with NEITHER a due_date nor a recurrence is still refused",
+      !tryA(`insert into public.next_actions(id, title, due_time)
+             values (gen_random_uuid(), 'no day at all', '09:00');`));
+    ok("074: …and a malformed time is still refused even WITH a recurrence",
+      !tryA(`insert into public.next_actions(id, title, due_time, recurrence)
+             values (gen_random_uuid(), 'bad time', '25:99', '{"frequency":"daily","interval":1}'::jsonb);`));
+    // Exactly one constraint of this name survives the chain — the drop/recreate
+    // in 0043 must not leave the 0040 version behind alongside it.
+    const dueTimeChecks = asA(`select count(*) from pg_constraint
+      where conname = 'next_actions_due_time_needs_date';`).trim();
+    ok("074: exactly one due_time constraint exists after the chain",
+      dueTimeChecks === "1", `found ${dueTimeChecks}`);
 
     // Occurrence identity: the anti-duplicate guarantee.
     asA(`insert into public.recurrence_completions(id, action_id, occurrence_date) values (gen_random_uuid(), '${AID}', date '2026-08-23');`);

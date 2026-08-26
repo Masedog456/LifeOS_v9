@@ -32,15 +32,15 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 42", files.length === 42, `found ${files.length}`);
+ok("migration count == 43", files.length === 43, `found ${files.length}`);
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
 // Head is 0041 (0041_external_calendar_identity.sql, LIFEOS-067). A
 // release-blocking DB defect would add exactly one narrowly-scoped
 // 0042_v1_release_fix.sql beyond it — the escape hatch is one unplanned
 // migration, not an open door, and it moves with the head.
-const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > 42);
-ok("no migration beyond 0042 except allowed 0043 fix", beyondHead.every((f) => f === "0043_v1_release_fix.sql"), `unexpected: ${beyondHead.join(", ")}`);
+const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > 43);
+ok("no migration beyond 0043 except allowed 0044 fix", beyondHead.every((f) => f === "0044_v1_release_fix.sql"), `unexpected: ${beyondHead.join(", ")}`);
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");

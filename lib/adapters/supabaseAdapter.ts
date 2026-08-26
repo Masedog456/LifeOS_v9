@@ -2059,19 +2059,39 @@ function rowToDailyReview(r: any): DailyReview {
 }
 
 // ---------------------------- Next actions (LIFEOS-036) ----------------------------
+//
+// `due_time` and `recurrence` were added to the table and to `NextAction` by
+// LIFEOS-061 (migration 0040) and never wired through here. The LIFEOS-074
+// audit found the consequence: an action the user made recurring — "take the
+// medication every day at 8" — pushed to Supabase WITHOUT its rule or its time,
+// and came back on the next device as a plain, undated, non-recurring task. The
+// completions kept syncing, so the reloaded state also held occurrence rows for
+// an action that no longer recurred.
+//
+// Both columns are carried here now. Every other value keeps the `?? null`
+// shape the rest of this mapper uses, so absent stays absent rather than
+// becoming a JSON `null` the reader would have to special-case.
 interface NextActionRow {
   id: string; user_id?: string; title: string; description: string; status: string;
   completed_at: string | null; cancelled_at: string | null; due_date: string | null; deferred_until: string | null;
+  due_time: string | null; recurrence: unknown | null;
   waiting_on: string | null; waiting_since: string | null; follow_up_date: string | null; notes: string;
   workspace_id: string | null; goal_id: string | null; project_id: string | null; milestone_id: string | null;
   source_capture_id: string | null; source_review_id: string | null;
   linked_entity_refs: unknown; tags: unknown; estimated_size: string; energy: string; context: string | null;
   order: number; pinned: boolean; history: unknown; created_at: string; updated_at: string;
 }
-function actionToRow(a: NextAction): NextActionRow {
+/**
+ * Exported for the round-trip suite (LIFEOS-074 §5).
+ *
+ * These two functions were the site of a P1 that shipped precisely because
+ * nothing could reach them: a mapper with no test is a contract with no reader.
+ */
+export function actionToRow(a: NextAction): NextActionRow {
   return {
     id: a.id, title: a.title, description: a.description, status: a.status,
     completed_at: a.completedAt ?? null, cancelled_at: a.cancelledAt ?? null, due_date: a.dueDate ?? null, deferred_until: a.deferredUntil ?? null,
+    due_time: a.dueTime ?? null, recurrence: a.recurrence ?? null,
     waiting_on: a.waitingOn ?? null, waiting_since: a.waitingSince ?? null, follow_up_date: a.followUpDate ?? null, notes: a.notes,
     workspace_id: a.workspaceId ?? null, goal_id: a.goalId ?? null, project_id: a.projectId ?? null, milestone_id: a.milestoneId ?? null,
     source_capture_id: a.sourceCaptureId ?? null, source_review_id: a.sourceReviewId ?? null,
@@ -2079,10 +2099,16 @@ function actionToRow(a: NextAction): NextActionRow {
     order: a.order, pinned: !!a.pinned, history: a.history, created_at: a.createdAt, updated_at: a.updatedAt,
   };
 }
-function rowToAction(r: any): NextAction {
+export function rowToAction(r: any): NextAction {
   return {
     id: r.id, title: r.title ?? "", description: r.description ?? "", status: (r.status ?? "open") as NextAction["status"],
     completedAt: r.completed_at ?? undefined, cancelledAt: r.cancelled_at ?? undefined, dueDate: r.due_date ?? undefined, deferredUntil: r.deferred_until ?? undefined,
+    dueTime: r.due_time ?? undefined,
+    // Validated on the way in, not trusted. A malformed rule stored by an older
+    // client (or hand-edited) would otherwise reach every recurrence consumer;
+    // `readRule` is the same gate `setActionRecurrence` uses, so a rule that
+    // cannot be read becomes absent rather than a rule that cannot be honoured.
+    recurrence: readRule(r.recurrence) ? (r.recurrence as NextAction["recurrence"]) : undefined,
     waitingOn: r.waiting_on ?? undefined, waitingSince: r.waiting_since ?? undefined, followUpDate: r.follow_up_date ?? undefined, notes: r.notes ?? "",
     workspaceId: r.workspace_id ?? undefined, goalId: r.goal_id ?? undefined, projectId: r.project_id ?? undefined, milestoneId: r.milestone_id ?? undefined,
     sourceCaptureId: r.source_capture_id ?? undefined, sourceReviewId: r.source_review_id ?? undefined,

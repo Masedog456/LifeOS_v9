@@ -20,7 +20,7 @@
 import { CURRENT_STATE_VERSION } from "@/lib/migrations/state-version";
 
 /** The latest migration number this build ships (keep in step with supabase/migrations). */
-export const EXPECTED_MIGRATION_VERSION = 42;   // 0042_integration_accounts (LIFEOS-068)
+export const EXPECTED_MIGRATION_VERSION = 43;   // 0043_next_action_due_time_recurrence_constraint (LIFEOS-074)
 
 export type CompatMode = "ok" | "read-only" | "upgrade" | "blocked";
 
