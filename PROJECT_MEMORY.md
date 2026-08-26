@@ -5172,3 +5172,48 @@ connectors require repeated beta demand **and** stable API support, both.
   green test suite and visible in one printed page of real output. A model that
   passes 121 assertions can still say "Added X" directly above "Completed X",
   because no assertion had thought to ask. Print the thing before believing it.
+
+- **LIFEOS-074 D-8 — CROSS-DEVICE SYNC INTEGRITY (accepted broad P2, deferred to
+  a dedicated future sprint).** The integrity audit found that `lib/sync/merge.ts`
+  and `lib/sync/conflicts.ts` — three-way field merge and conflict detection,
+  complete and covered by the sync suite — are called by **no production code
+  path**. `threeWayMerge` is reachable only from the selftest and
+  `/dev/sync-tests`; sync `detectConflicts` only from the selftest;
+  `setConflicts` only from a `/dev` button labelled "Inject sample conflict". The
+  `ConflictCenter` mounted on `/health` is real and, in production, can only ever
+  be empty.
+
+  **The live cross-device strategy is therefore last-write-wins on the whole
+  row.** The push path diffs local rows and upserts them blind — no read of the
+  remote row, no version check. Adoption takes remote wholesale and re-adds only
+  records whose *id* is absent remotely, so an unpushed edit to an existing
+  record is discarded. Simulated against the real functions: A completes an
+  action, B (stale) defers it, B pushes last, and the completion **and its
+  history event** are both gone; A edits `dueDate` while B edits `dueTime` —
+  non-overlapping fields the merge layer handles cleanly — and the later push
+  reverts the other.
+
+  **Severity P2, not P1, and the reason matters.** `/health` already discloses
+  this as a gap ("Cross-device conflict strategy is last-write-wins per domain"),
+  the behaviour needs genuine concurrency, and no single-client path loses data.
+  A disclosed architectural limitation is a different thing from a hidden false
+  claim, and inflating it would have been the easier and less honest call.
+
+  **D-9, fixed here:** `SYNC_INTEGRITY.md` had described the layer as live —
+  "never last-write-wins on user content" — which is true of the function and
+  false of the product. It now opens with a §0 separating what is LIVE from what
+  is BUILT BUT NOT WIRED, states the last-write-wins strategy plainly, and marks
+  the three affected guarantees.
+
+  **Pinned at runtime, not by grep.** `lib/sync/roundtrip-selftest.ts` §7 drives
+  the real mapper and the real adoption function and asserts the limitation,
+  alongside what the merge layer *would* have done. It is written to FAIL when
+  the wiring lands — that is its purpose, so the document and the implementation
+  move together instead of drifting apart again.
+
+  **Future sprint — CROSS-DEVICE SYNC INTEGRITY.** North star: *"two devices
+  should not silently erase each other's life facts."* Scope: base-version
+  tracking, read-before-push, three-way merge plumbing, per-record conflict
+  generation, conflict UX, resolution persistence, stale-client browser torture,
+  retry/idempotency semantics. The existing layer is deliberately preserved as
+  its groundwork — not deleted, not partially wired.

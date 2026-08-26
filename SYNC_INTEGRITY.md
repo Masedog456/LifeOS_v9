@@ -6,7 +6,59 @@ rule is one sentence:
 
 > **The system must never silently discard newer user work.**
 
-Everything below serves that rule. All conflict detection and merging is
+Everything below serves that rule — but read §0 first, because one part of it
+is groundwork rather than live behaviour.
+
+---
+
+## 0. What is LIVE, and what is BUILT BUT NOT WIRED
+
+**Read this before relying on anything below.** The LIFEOS-074 integrity audit
+found that this document described the conflict layer as though it governed the
+running product. It does not, and the difference matters more than the
+capability does.
+
+**Live today.** Tombstones, idempotent operation ids, the sync journal, recovery
+mode, referential-integrity validation, restore safety, and the reactive status
+store are all wired into the running product.
+
+**Built, tested, and NOT wired.** `merge.ts` (three-way field merge) and
+`conflicts.ts` (conflict detection) are complete and covered by the sync suite,
+and **no production code path calls them**. `threeWayMerge` is reached only by
+the selftest and `/dev/sync-tests`; sync `detectConflicts` only by the selftest;
+`setConflicts` only by a `/dev` button labelled "Inject sample conflict". The
+`ConflictCenter` on `/health` is real, and in production it can only ever be
+empty.
+
+**So the current live cross-device strategy is LAST-WRITE-WINS**, per record, on
+the whole row:
+
+  - the push path diffs local rows and upserts them blind — no read of the
+    remote row, no version check, no merge
+  - adoption takes remote wholesale and re-adds only records whose **id** is
+    absent remotely, so a local edit to an EXISTING record is discarded
+
+Measured consequences, from the audit's simulations:
+
+  - A completes an action; B (stale) defers it; B pushes last → the completion
+    **and its history event** are gone
+  - A edits `dueDate`, B edits `dueTime` → the later push reverts the other,
+    although these are non-overlapping fields `threeWayMerge` would have merged
+    cleanly
+
+`/health` already discloses this as a gap ("Cross-device conflict strategy is
+last-write-wins per domain"). This section exists so that this document says the
+same thing.
+
+Wiring the layer is tracked as a dedicated future sprint — **CROSS-DEVICE SYNC
+INTEGRITY**, north star *"two devices should not silently erase each other's
+life facts"* — covering base-version tracking, read-before-push, merge plumbing,
+per-record conflict generation, resolution UX and persistence, and stale-client
+browser torture. The layer below is deliberately preserved as its groundwork.
+
+Everything in §2 describes what the conflict layer DOES when called. Until the
+wiring lands, treat those points as a specification of the component, not as a
+guarantee of the product. All conflict detection and merging is
 **deterministic and client-side** — no AI, no embeddings, no automatic prose
 merging, no server round-trip required to decide what changed. The only durable
 server-side addition is a privacy-safe tombstone ledger (migration `0024`).
@@ -46,7 +98,8 @@ supabase/migrations/
 
 The reactive store is surfaced on **`/health`** (Conflict Center, Sync
 Reliability, Recovery & integrity, Data integrity, Backup/Restore) and exercised
-deterministically on the dev route **`/dev/sync-tests`**.
+deterministically on the dev route **`/dev/sync-tests`**. The Conflict Center is
+mounted and functional; per §0, in production it has nothing to list.
 
 ---
 
@@ -56,14 +109,18 @@ deterministically on the dev route **`/dev/sync-tests`**.
    `deletedAt`); a `revision` is *derived* from these plus a content hash rather
    than trusting a client clock alone. Server timestamps win when present
    (`lib/sync/schema.ts`).
-2. **Three-way conflict detection.** `detectConflicts(base, local, remote)`
-   compares each side against the last-synced **base** snapshot. A field is only
-   a conflict when *both* sides changed it to *different* values — never
-   last-write-wins on user content (`lib/sync/conflicts.ts`).
-3. **Field-level three-way merge.** Non-overlapping field changes auto-merge;
+2. **Three-way conflict detection.** *(BUILT, NOT WIRED — see §0.)*
+   `detectConflicts(base, local, remote)` compares each side against the
+   last-synced **base** snapshot. A field is only a conflict when *both* sides
+   changed it to *different* values, so the FUNCTION never resolves user content
+   by last-write-wins (`lib/sync/conflicts.ts`). The live sync path does not call
+   it, and the live path *is* last-write-wins.
+3. **Field-level three-way merge.** *(BUILT, NOT WIRED — see §0.)*
+   Non-overlapping field changes auto-merge;
    child collections (arrays of `{id}`) union by id; overlapping edits escalate.
    Prose is **never** auto-concatenated (`lib/sync/merge.ts`).
-4. **Shared resolution UI.** One `ConflictDialog` offers keep-local /
+4. **Shared resolution UI.** *(BUILT, NOT WIRED — see §0: nothing in production
+   produces a conflict for it to show.)* One `ConflictDialog` offers keep-local /
    keep-remote / use-merge / keep-both (duplicate) / postpone. Focus defaults to
    the **safest** action (Postpone), Escape postpones, and no destructive option
    is ever the default. Works on desktop and as a mobile bottom sheet.

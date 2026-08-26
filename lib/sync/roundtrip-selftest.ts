@@ -27,6 +27,8 @@ import type { NextAction, StoreState } from "@/types/mvp";
 import { actionToRow, rowToAction, sessionToRow, rowToSession } from "@/lib/adapters/supabaseAdapter";
 import { STORE_DOMAINS } from "@/lib/ux/backup";
 import { readRule } from "@/lib/time/recurrence";
+import { threeWayMerge, type Rec } from "@/lib/sync/merge";
+import { mergeLocalOnly } from "@/lib/persistence-reconcile";
 import { occurrenceFor } from "@/lib/mvpStore";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
@@ -218,6 +220,68 @@ export function runRoundTripSelfTests(): SelfTestReport {
     const dangling = rowToSession(
       sessionToRow({ ...withPointers, currentActionId: "gone" }) as unknown as Record<string, unknown>);
     eq("6.9 a dangling pointer is neither repaired nor resurrected", dangling.currentActionId, "gone");
+  }
+
+  // ============ 7. THE LIVE CROSS-DEVICE STRATEGY, PINNED (D-8/D-9) ============
+  //
+  // These assertions describe a LIMITATION, not a desired behaviour.
+  //
+  // `merge.ts` and `conflicts.ts` are complete and tested, and no production
+  // path calls them: `threeWayMerge` is reached only by a selftest and a /dev
+  // page, and `setConflicts` only by a /dev "Inject sample conflict" button. So
+  // the live cross-device strategy is last-write-wins on the whole row, and
+  // SYNC_INTEGRITY.md §0 now says exactly that after describing the opposite for
+  // three sprints.
+  //
+  // They are pinned at RUNTIME — driving the real mapper and the real adoption
+  // function — rather than by grepping for call sites, because a grep proves
+  // nothing about what actually happens.
+  //
+  // WHEN THE CROSS-DEVICE SYNC INTEGRITY SPRINT WIRES THE MERGE LAYER, THIS
+  // SECTION MUST FAIL. That is its purpose: it forces the document and the
+  // implementation to move together instead of drifting apart again.
+  {
+    const base = act({ id: "race", title: "File the return", dueDate: T });
+    const completedByA = { ...base, status: "completed" as const, completedAt: iso(T, 9),
+      history: [{ id: "hA", action: "completed", at: iso(T, 9) }] } as NextAction;
+    const deferredByB = { ...base, status: "deferred" as const, deferredUntil: "2026-09-15",
+      history: [{ id: "hB", action: "deferred", at: iso(T, 10) }] } as NextAction;
+
+    // B holds the stale base and pushes last. The push is a blind row upsert.
+    const afterB = roundTrip(deferredByB);
+    eq("7.1 the later stale push wins the whole row", afterB.status, "deferred");
+    eq("7.2 …erasing a completion it never saw", afterB.completedAt, undefined);
+    eq("7.3 …and the history event that recorded it",
+      afterB.history.map((h) => h.action), ["deferred"]);
+
+    // The layer that would have caught it is present and disagrees.
+    const merged = threeWayMerge(base as unknown as Rec, deferredByB as unknown as Rec, completedByA as unknown as Rec);
+    eq("7.4 the unwired merge layer WOULD have flagged this as a conflict", merged.status, "conflict");
+    ok("7.5 …and would have kept both history events",
+      ((merged.merged.history as Array<{ action: string }>) ?? []).length === 2,
+      JSON.stringify(merged.merged.history));
+
+    // Even NON-overlapping field edits lose, because nothing merges fields.
+    const aDate = { ...base, dueDate: "2026-09-01" } as NextAction;
+    const bTime = { ...base, dueTime: "14:00" } as NextAction;
+    eq("7.6 a non-overlapping field edit is reverted by the other client's push",
+      roundTrip(bTime).dueDate, T);
+    const m2 = threeWayMerge(base as unknown as Rec, bTime as unknown as Rec, aDate as unknown as Rec);
+    eq("7.7 …though the merge layer would have kept both",
+      [m2.merged.dueDate, m2.merged.dueTime], ["2026-09-01", "14:00"]);
+
+    // Adoption keeps local-only records BY ID, so an edit to an existing record
+    // that has not been pushed is discarded when remote is adopted.
+    const remote = { nextActions: [base] } as unknown as StoreState;
+    const localEdited = { nextActions: [completedByA] } as unknown as StoreState;
+    const adopted = mergeLocalOnly(remote, localEdited);
+    eq("7.8 adoption discards an unpushed edit to an EXISTING record",
+      adopted.nextActions![0].status, "open");
+    // …while a genuinely new local record survives, which is the case the
+    // function exists for.
+    const withNew = { nextActions: [base, act({ id: "fresh", title: "Just captured" })] } as unknown as StoreState;
+    ok("7.9 …but a local-only NEW record survives adoption",
+      mergeLocalOnly(remote, withNew).nextActions!.some((a) => a.id === "fresh"));
   }
 
   const passed = results.filter((x) => x.pass).length;
