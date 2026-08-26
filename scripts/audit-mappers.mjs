@@ -70,18 +70,6 @@ function interfaceFields(name) {
   return [...body.matchAll(/^\s*([a-zA-Z_][A-Za-z0-9_]*)\??\s*:/gm)].map((x) => x[1]);
 }
 
-const snake = (s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-
-function columnsOf(table) {
-  const m = new RegExp(`create table if not exists public\\.${table}\\s*\\(([\\s\\S]*?)\\n\\);`).exec(sql);
-  const base = m ? [...m[1].matchAll(/^\s+([a-z_]+)\s+/gm)].map((x) => x[1]) : [];
-  // Columns added later by ALTER are just as real as columns in the CREATE.
-  for (const a of sql.matchAll(new RegExp(`alter table public\\.${table} add column if not exists\\s+([a-z_]+)`, "g"))) {
-    base.push(a[1]);
-  }
-  return base;
-}
-
 // NO table inference. See the header: three separate heuristics for pairing a
 // mapper with its table each produced a different phantom finding, and a
 // checker that invents defects is worse than no checker — the next reader
