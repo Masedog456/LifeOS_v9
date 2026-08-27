@@ -186,7 +186,9 @@ export default function Nav() {
             <kbd className="hidden rounded border border-black/[.12] px-1 text-[10px] lg:inline dark:border-white/[.15]">⌘K</kbd>
           </button>
           <span className="hidden sm:block"><WorkspaceSelector /></span>
-          <span className="hidden sm:block"><SyncStatus /></span>
+          {/* NOT wrapped in `hidden sm:block` any more: the component decides,
+              because a failed save has to stay visible on a phone (074 §3). */}
+          <SyncStatus />
           <AuthControl />
         </div>
       </div>
