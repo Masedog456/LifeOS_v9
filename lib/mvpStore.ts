@@ -4844,7 +4844,10 @@ export function stopActionRecurrence(actionId: string, from: string): boolean {
  * record the user deleted must go with it, or deletion would leave behind
  * personal history the user has no way to remove. Autobiographical memory never
  * outranks a deletion. The UI states this consequence in those words before
- * asking — see `components/actions/RecurringActionControls.tsx`.
+ * asking — see the delete confirmation in `components/actions/ActionDetail.tsx`,
+ * which names the exact number of completions it will destroy. (This cited
+ * `RecurringActionControls.tsx`, a file that has never existed; the copy itself
+ * was confirmed in the browser — LIFEOS-074 §2.)
  *
  * STOPPING recurrence is the other door, and it preserves everything.
  *
