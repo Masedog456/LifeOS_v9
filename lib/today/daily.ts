@@ -147,8 +147,11 @@ export interface DailyExecutiveView {
  * Kinds that answer "what changed today?" (§10, §25).
  *
  * Every member is a recorded transition. There is deliberately no
- * `action_worked_on` and no `became_unblocked`: nothing in the schema records
- * either, and §25 excludes exactly those.
+ * `action_worked_on` and no `became_unblocked`, and §25 excludes exactly those.
+ * Nothing records the second at all. For the first, `started`/`resumed` history
+ * events do exist — but they mark picking a task up, not effort spent on it,
+ * and there is no autobiographical kind for that; calling a start "worked on"
+ * would be the timeline claiming more than its source.
  */
 export const CHANGE_KINDS: readonly AutobiographicalEvent["kind"][] = [
   "completed_action", "recurring_completion", "action_created", "action_cancelled",

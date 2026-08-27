@@ -170,7 +170,7 @@ import { extractConditional } from "@/lib/capture/classify";
 import type { CommitCandidate } from "@/lib/capture/commit";
 // Time foundation (LIFEOS-061).
 import { isLocalTime, isValidTimeRange } from "@/lib/time/localtime";
-import { currentOccurrence, readRule, type RecurrenceRule } from "@/lib/time/recurrence";
+import { currentOccurrence, readRule, describeRule, type RecurrenceRule } from "@/lib/time/recurrence";
 import type { LifeEvent, RecurrenceCompletion } from "@/types/mvp";
 import { type NotePromotionKey } from "@/lib/notes/promotion";
 import { planSplit } from "@/lib/inbox/split";
@@ -4728,7 +4728,12 @@ export function setActionRecurrence(actionId: string, rule?: RecurrenceRule): bo
   if (!a) return false;
   const valid = rule === undefined ? undefined : (readRule(rule) ?? undefined);
   if (rule !== undefined && !valid) return false;
-  bumpAction(actionId, (x) => appendActionHistory({ ...x, recurrence: valid }, makeActionEvent({ action: "edited", at: now() })));
+  // Say WHAT changed. A bare `edited` cannot distinguish "this became a daily
+  // habit" from a title tweak, and `setActionDueTime` — the other half of the
+  // same feature — has always carried its value (LIFEOS-074 §1).
+  bumpAction(actionId, (x) => appendActionHistory({ ...x, recurrence: valid }, makeActionEvent({
+    action: "edited", at: now(), detail: valid ? describeRule(valid) : "recurrence cleared",
+  })));
   return true;
 }
 
@@ -5051,8 +5056,30 @@ function bumpAction(actionId: string, mutate: (a: NextAction) => NextAction): vo
 }
 
 /** Apply a status transition + append a history event in one shot. */
+/**
+ * Move an action to a new status, recording the transition.
+ *
+ * Fields that DESCRIBE the status being left are cleared with it (LIFEOS-074
+ * §1). `ActionDetail` offers Start on a waiting or deferred action, and it went
+ * through here without touching `waitingOn`/`waitingSince`/`deferredUntil` — so
+ * an `in_progress` action still carried "waiting on Marcus since Tuesday", and
+ * pausing it left an OPEN action claiming to be deferred until Friday. Every
+ * reader gates on `status`, so nothing rendered the contradiction, which is
+ * exactly why it survived three sprints. `stopWaiting` and `restoreAction`
+ * already clean up; two doors out of the same state should not leave different
+ * debris (the D-11 class).
+ *
+ * `followUpDate` goes with the wait — it is the date of the follow-up on that
+ * wait and means nothing without it. An explicit `patch` still wins.
+ */
 function transitionAction(actionId: string, to: ActionStatus, kind: ActionEventKind, patch: Partial<NextAction> = {}): void {
-  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: to, ...patch }, makeActionEvent({ action: kind, at: now(), fromStatus: a.status, toStatus: to })));
+  bumpAction(actionId, (a) => {
+    const shed: Partial<NextAction> = {
+      ...(a.status === "waiting" && to !== "waiting" ? { waitingOn: undefined, waitingSince: undefined, followUpDate: undefined } : {}),
+      ...(a.status === "deferred" && to !== "deferred" ? { deferredUntil: undefined } : {}),
+    };
+    return appendActionHistory({ ...a, status: to, ...shed, ...patch }, makeActionEvent({ action: kind, at: now(), fromStatus: a.status, toStatus: to }));
+  });
 }
 
 /**
@@ -5332,9 +5359,27 @@ export function addActionDependency(blockerId: string, blockedId: string): AddDe
   return "ok";
 }
 
-/** Remove a dependency edge. If it was the blocked action's last open blocker, log `unblocked`. */
+/**
+ * Remove a dependency edge, recording that the LINK was removed.
+ *
+ * The event is `unblocked` for historical reasons and is NOT a claim that the
+ * action became unblocked — other blockers may remain, and the commoner route
+ * (the blocker being completed) writes nothing here at all. Every consumer
+ * reads it under its true name: `action_prerequisite_removed` in the activity
+ * index, `prerequisite_removed` in Week in Review.
+ *
+ * The JSDoc used to promise "if it was the last open blocker" — a condition the
+ * code has never implemented (LIFEOS-074 §1). The behaviour is right and the
+ * description was wrong, so the description changed.
+ *
+ * Removing an edge that does not exist is a no-op, and now writes no history:
+ * it used to append an "Unblocked" entry naming a prerequisite the action never
+ * had, which the timeline then reported as a prerequisite removed.
+ */
 export function removeActionDependency(blockerId: string, blockedId: string): void {
-  const deps = (state.actionDependencies ?? []).filter((d) => !(d.blockerId === blockerId && d.blockedId === blockedId));
+  const before = state.actionDependencies ?? [];
+  const deps = before.filter((d) => !(d.blockerId === blockerId && d.blockedId === blockedId));
+  if (deps.length === before.length) return;
   const at = now();
   setState({
     ...state,
@@ -5382,7 +5427,11 @@ export function batchAction(ids: string[], op: BatchActionOp, payload?: { id?: s
         case "set_context": return stamp({ ...a, context: payload?.context?.trim() || undefined });
         case "set_energy": return stamp({ ...a, energy: payload?.energy ?? a.energy });
         case "set_size": return stamp({ ...a, estimatedSize: payload?.size ?? a.estimatedSize });
-        case "defer": return stamp(appendActionHistory({ ...a, status: "deferred", deferredUntil: actionDeferKeyFor(payload?.option ?? "tomorrow") }, makeActionEvent({ action: "deferred", at, fromStatus: a.status, toStatus: "deferred", detail: "batch" })));
+        // The detail carries the TARGET DAY, exactly as `deferAction` writes it.
+        // "batch" was not a day, and Week in Review renders this detail through
+        // `formatDayKey` — so a batch defer read back as "until Invalid Date"
+        // (LIFEOS-074 §1). The two defer paths now record the same fact.
+        case "defer": { const key = actionDeferKeyFor(payload?.option ?? "tomorrow"); return stamp(appendActionHistory({ ...a, status: "deferred", deferredUntil: key }, makeActionEvent({ action: "deferred", at, fromStatus: a.status, toStatus: "deferred", detail: key ?? "someday" }))); }
         case "mark_waiting": return stamp(appendActionHistory({ ...a, status: "waiting", waitingOn: payload?.waitingOn?.trim() || a.waitingOn, waitingSince: at }, makeActionEvent({ action: "waiting", at, fromStatus: a.status, toStatus: "waiting", detail: "batch" })));
         case "complete": return stamp(appendActionHistory({ ...a, status: "completed", completedAt: at }, makeActionEvent({ action: "completed", at, fromStatus: a.status, toStatus: "completed", detail: "batch" })));
         case "cancel": return stamp(appendActionHistory({ ...a, status: "cancelled", cancelledAt: at }, makeActionEvent({ action: "cancelled", at, fromStatus: a.status, toStatus: "cancelled", detail: "batch" })));

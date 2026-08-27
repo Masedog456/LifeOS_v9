@@ -95,6 +95,22 @@ export function buildActivityIndex(state: StoreState): ActivityEvent[] {
       // here at all. So this proves "a prerequisite link was removed", and it is
       // named for that. It must never be read as "became unblocked".
       if (!t && e.action === "unblocked") t = "action_prerequisite_removed";
+      // LIFEOS-074 §1. `startAction` — ONE function, ONE button — records the
+      // same user act under two kinds: `started` from `open`, and `resumed`
+      // from `deferred`/`waiting`, because those are status changes the event
+      // has to describe honestly. `ActionDetail` offers Start in all three
+      // states and toasts "Started" in all three. Only `started` was in this
+      // map, so picking work back up off the deferred or waiting shelf was
+      // invisible to every consumer built on this stream — "Actions started",
+      // the project rollups, the period summary and constitution evidence
+      // alike. Read the transition, not the label.
+      //
+      // A `resumed` from `open` is `resumeAction` after a pause: the same work
+      // continuing, already counted at its start, and it must not inflate the
+      // count a second time. That is why this reads `fromStatus`.
+      if (!t && e.action === "resumed" && (e.fromStatus === "deferred" || e.fromStatus === "waiting")) {
+        t = "action_started";
+      }
       if (t) push({ at: e.at, type: t, recordKind: "action", recordId: a.id, ...attr, detail: e.detail });
     }
   }

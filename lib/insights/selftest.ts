@@ -112,6 +112,29 @@ export function runInsightsSelfTests(): SelfTestReport {
     ok("3.4 coverage reports open session", cov.openSessions === 1 && cov.notes.some((n) => /open/.test(n)));
     ok("3.5 coverage reports history start", cov.notes.some((n) => /history begins/.test(n)));
     ok("3.6 empty index → no activity note", buildCoverage(emptyState(), []).notes.some((n) => /No recorded activity/.test(n)));
+
+    // LIFEOS-074 §1. `startAction` records the SAME button press as `started`
+    // from `open` and as `resumed` from `deferred`/`waiting` — and only the
+    // first was mapped, so picking work back up off the shelf was invisible to
+    // every consumer of this stream.
+    const st = emptyState();
+    const h = (id: string, action: string, from: string, to: string) =>
+      ({ id, at: at("2026-07-12"), action, fromStatus: from, toStatus: to });
+    st.nextActions = [
+      { id: "d1", title: "From deferred", status: "in_progress", createdAt: at("2026-07-10"), updatedAt: at("2026-07-12"), tags: [], linkedEntityRefs: [], notes: "", description: "", order: 0,
+        history: [h("x1", "deferred", "open", "deferred"), h("x2", "resumed", "deferred", "in_progress")] } as never,
+      { id: "w2", title: "From waiting", status: "in_progress", createdAt: at("2026-07-10"), updatedAt: at("2026-07-12"), tags: [], linkedEntityRefs: [], notes: "", description: "", order: 1,
+        history: [h("x3", "waiting", "open", "waiting"), h("x4", "resumed", "waiting", "in_progress")] } as never,
+      // Started, paused, resumed: ONE start. A resume after a pause is the same
+      // work continuing and must not inflate the count a second time.
+      { id: "p3", title: "Paused then resumed", status: "in_progress", createdAt: at("2026-07-10"), updatedAt: at("2026-07-12"), tags: [], linkedEntityRefs: [], notes: "", description: "", order: 2,
+        history: [h("x5", "started", "open", "in_progress"), h("x6", "paused", "in_progress", "open"), h("x7", "resumed", "open", "in_progress")] } as never,
+    ];
+    const starts = buildActivityIndex(st).filter((e) => e.type === "action_started");
+    ok("3.7 starting a DEFERRED action is a recorded start", starts.some((e) => e.recordId === "d1"));
+    ok("3.8 starting a WAITING action is a recorded start", starts.some((e) => e.recordId === "w2"));
+    ok("3.9 resuming after a pause is not a second start",
+      starts.filter((e) => e.recordId === "p3").length === 1, String(starts.filter((e) => e.recordId === "p3").length));
   }
 
   // ---- 4. Home metrics + definitions ----
