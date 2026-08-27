@@ -21,7 +21,7 @@
  */
 
 import type { DayKey } from "@/lib/reviews/dates";
-import { addDays, dayDiff, weekStartKey, formatDayKey } from "@/lib/reviews/dates";
+import { addDays, dayDiff, weekStartKey } from "@/lib/reviews/dates";
 import {
   isValidRule, nextOccurrenceOnOrAfter, currentOccurrence, occurrencesBetween, readRule,
 } from "@/lib/time/recurrence";
