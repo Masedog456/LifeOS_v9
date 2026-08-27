@@ -4842,12 +4842,23 @@ export function stopActionRecurrence(actionId: string, from: string): boolean {
  * asking — see `components/actions/RecurringActionControls.tsx`.
  *
  * STOPPING recurrence is the other door, and it preserves everything.
+ *
+ * It is a SUPERSET of `deleteAction`, never a divergent branch. It used to
+ * prune only the action and its completions, leaving the dependency edges and
+ * the session pointer that `deleteAction` clears — so which residue a delete
+ * left behind depended on whether the action happened to have completions,
+ * which is a criterion unrelated to either (LIFEOS-074 §2). The edges are inert
+ * (`action_dependencies` uses soft references with no FK, and the projections
+ * are orphan-safe — verified, not assumed), but two functions deleting the same
+ * noun should not leave different debris.
  */
 export function deleteActionWithHistory(actionId: string): void {
   setState({
     ...state,
     nextActions: (state.nextActions ?? []).filter((a) => a.id !== actionId),
     recurrenceCompletions: (state.recurrenceCompletions ?? []).filter((c) => c.actionId !== actionId),
+    actionDependencies: pruneDependencies(state.actionDependencies ?? [], actionId),
+    sessions: state.sessions.map((s) => (s.currentActionId === actionId ? { ...s, currentActionId: undefined } : s)),
   });
 }
 

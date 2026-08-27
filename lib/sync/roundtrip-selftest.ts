@@ -29,7 +29,7 @@ import { STORE_DOMAINS } from "@/lib/ux/backup";
 import { readRule } from "@/lib/time/recurrence";
 import { threeWayMerge, type Rec } from "@/lib/sync/merge";
 import { mergeLocalOnly } from "@/lib/persistence-reconcile";
-import { deleteAction, replaceState, getSnapshot } from "@/lib/mvpStore";
+import { deleteAction, deleteActionWithHistory, replaceState, getSnapshot } from "@/lib/mvpStore";
 import { occurrenceFor } from "@/lib/mvpStore";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
@@ -319,6 +319,41 @@ export function runRoundTripSelfTests(): SelfTestReport {
     ok("8.4 adoption cannot re-add a completion for the deleted action",
       !(readopted.recurrenceCompletions ?? []).some((c) => c.actionId === "rec"),
       JSON.stringify(readopted.recurrenceCompletions));
+  }
+
+  // ============ 9. BOTH DELETE PATHS LEAVE THE SAME RESIDUE (D-11) ============
+  //
+  // `ActionDetail` picks between `deleteAction` and `deleteActionWithHistory`
+  // on whether the action has recorded completions — a privacy decision about
+  // history, unrelated to dependencies or session pointers. The with-history
+  // path pruned neither, so which debris a delete left behind depended on a
+  // criterion that has nothing to do with either.
+  {
+    const empty = Object.fromEntries((STORE_DOMAINS as string[]).map((d) => [d, []])) as unknown as StoreState;
+    const seed = () => replaceState({
+      ...empty,
+      nextActions: [act({ id: "gone", title: "Blocker" }), act({ id: "keep", title: "Dependent" })],
+      actionDependencies: [{ id: "e1", blockerId: "gone", blockedId: "keep", createdAt: iso(T) }],
+      recurrenceCompletions: [{ id: "rc", actionId: "gone", occurrenceDate: T, completedAt: iso(T, 8) }],
+      sessions: [{ id: "s1", workspaceId: "w1", type: "focus", goal: "", notes: "",
+        startedAt: iso(T), activity: [], currentActionId: "gone" }],
+    } as unknown as StoreState);
+
+    seed(); deleteAction("gone");
+    const plain = getSnapshot();
+    seed(); deleteActionWithHistory("gone");
+    const withHist = getSnapshot();
+
+    const residue = (s: StoreState) => ({
+      deps: (s.actionDependencies ?? []).length,
+      completions: (s.recurrenceCompletions ?? []).length,
+      pointer: (s.sessions ?? [])[0]?.currentActionId ?? null,
+    });
+    eq("9.1 the plain delete leaves no dependency edge, completion or pointer",
+      residue(plain), { deps: 0, completions: 0, pointer: null });
+    eq("9.2 the with-history delete leaves exactly the same",
+      residue(withHist), residue(plain));
+    eq("9.3 …and both keep the surviving action", (withHist.nextActions ?? []).map((a) => a.id), ["keep"]);
   }
 
   const passed = results.filter((x) => x.pass).length;
