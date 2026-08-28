@@ -8,6 +8,20 @@
  * still surfaces as a delete-vs-edit conflict instead. Privacy-safe: a tombstone
  * stores only `{domain, recordId, deletedAt}` — never the deleted content.
  * Retention is bounded; old tombstones are cleaned up. Pure and deterministic.
+ *
+ * ## THIS MODULE IS NOT WIRED (LIFEOS-074 D-24, P1)
+ *
+ * Everything below works and is tested. Nothing calls it. `applyTombstones` has
+ * no production caller; `SupabasePersistenceAdapter.writeTombstones` inserts
+ * rows into `sync_tombstones` that `loadState` never selects back. The table is
+ * write-only, so the suppression this file implements never runs, and a record
+ * deleted on one device is resurrected by any other client that still holds it —
+ * proved by driving the real adoption and push path, including a control run
+ * where the tombstone WAS written successfully and changed nothing.
+ *
+ * Read the header of `lib/persistence-reconcile.ts` for the full lifecycle and
+ * scope before changing anything here: the repair belongs in the adoption path,
+ * not in this file, which is already correct.
  */
 
 export interface Tombstone {

@@ -17,6 +17,39 @@
  * remote wins), but any local-only record (a just-created capture, or offline
  * work) is preserved AND flagged to be pushed up. Wrong-user safety is kept:
  * local data belonging to a different account is never merged into this one.
+ *
+ * ## KNOWN DEFECT — D-24: deletions do not propagate to a second client (P1)
+ *
+ * "Absent from remote" is read here as "new on this device". For a capture typed
+ * during sign-in that is exactly right. For a record ANOTHER DEVICE DELETED it is
+ * exactly wrong, and the two are indistinguishable without consulting a deletion
+ * marker. Nothing consults one.
+ *
+ * Driven end-to-end (LIFEOS-074 tombstone gate), not inferred: device A deletes a
+ * record, the remote row is really removed, then a client still holding it adopts
+ * — the record is merged back, flagged `pushLocalOnly`, and written back into the
+ * database. Its dependency edges and recurrence completions come back with it.
+ * The device that performed the delete then adopts the resurrection in turn, so
+ * the deletion is undone rather than merely delayed. `INITIAL_SESSION` drives
+ * adoption on every app load, so this does not wait for a fresh sign-in.
+ *
+ * The tombstone layer that exists to stop this is NEVER CONSULTED:
+ * `lib/sync/tombstones.ts` is correct and fully tested, `applyTombstones` has no
+ * production caller, and `loadState` never reads `sync_tombstones` — the table is
+ * written and never read. A tombstone that WRITES SUCCESSFULLY prevents nothing,
+ * which was proved as the control case. So the earlier reading of the swallowed
+ * tombstone write as the hazard was wrong: the swallow is not the cause and
+ * repairing it would fix nothing.
+ *
+ * SCOPE, stated precisely: a single client is unaffected — local is authoritative,
+ * the delete lands locally and remotely, and the next load agrees. This needs a
+ * second client (or the same account in another browser/profile) holding state
+ * from before the delete.
+ *
+ * NOT REPAIRED HERE. Wiring a deletion marker into adoption changes what "adopt"
+ * means and touches load, merge and push together; it was reported for a decision
+ * rather than attempted inside an audit. Pinned by assertions 55-57 in
+ * `lib/sync/selftest.ts`, written to FAIL once a marker is honoured.
  */
 
 import type { StoreState } from "@/types/mvp";
