@@ -63,7 +63,7 @@ import type {
   Note,
   Protocol,
 } from "@/types/mvp";
-import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
+import type { DomainPushReport, PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import { readRule } from "@/lib/time/recurrence";
 import {
   allDocumentRows, citationToRow, diffById, documentToImportPayload, newDocumentIds, rowsToDocuments,
@@ -71,6 +71,30 @@ import {
 } from "@/lib/library/rows";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * The order `saveState` writes domains in, extracted from its own statements.
+ *
+ * NOT alphabetical and not `STORE_DOMAINS` order: `nextActions` must precede
+ * `actionDependencies` and `recurrenceCompletions`, whose rows carry foreign
+ * keys to `next_actions`, and `documents` precedes `citations`. Isolating the
+ * push per domain (LIFEOS-074 D-22) must not silently reorder those writes, so
+ * the order lives here explicitly and is asserted against the chain.
+ */
+export const SYNC_DOMAIN_ORDER: (keyof StoreState)[] = [
+  "sources", "captures", "proposals", "beliefs",
+  "feedback", "comparisons", "inquiries", "megathreads",
+  "reflections", "practices", "reviews", "reasonings",
+  "embeddings", "decisions", "formationSessions", "concepts",
+  "conceptRelationships", "principles", "frameworks", "knowledgeProjects",
+  "researchProjects", "dialogueSessions", "tensions", "syntheses",
+  "recommendations", "documents", "citations", "workspaces",
+  "sessions", "goals", "projects", "dailyReviews",
+  "nextActions", "actionDependencies", "actionTemplates", "planningAssignments",
+  "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews",
+  "notes", "protocols", "events", "recurrenceCompletions",
+  "constitutionElements", "constitutionRevisions",
+];
 
 export class SupabasePersistenceAdapter implements PersistenceAdapter {
   readonly mode = "supabase" as const;
@@ -236,6 +260,101 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       constitutionElements,
       constitutionRevisions,
     };
+  }
+
+  /**
+   * Push each dirty domain in its OWN failure boundary (LIFEOS-074 D-22).
+   *
+   * ## Why this exists rather than a restructured `saveState`
+   *
+   * `saveState` is one sequential await chain of 46 independent `if (w(domain))`
+   * statements. The first rejection aborted every statement after it, so a
+   * persistent failure in an early domain — a CHECK constraint on
+   * `next_actions` (D-1), an FK on `recurrence_completions` (D-10), both real
+   * findings from this same audit — starved every later domain for as long as
+   * it lasted, while local data stayed safe and health honestly said "failed".
+   *
+   * Every one of those 46 blocks is independent: the only local shared across
+   * them is the `w` predicate itself, verified before this was written. So one
+   * domain is isolated by calling `saveState` with a single-domain `dirty` set,
+   * which the existing `w` guard already honours exactly. No statement moves, no
+   * ordering changes, nothing runs in parallel, and the 350-line body is
+   * untouched — the smallest change that satisfies the new contract.
+   *
+   * ORDER IS PRESERVED, deliberately: `SYNC_DOMAIN_ORDER` mirrors the chain's
+   * own statement order, so `next_actions` is still written before
+   * `action_dependencies` and `recurrence_completions`, whose rows reference it.
+   * Sorting these alphabetically would break a first sync on a foreign key.
+   *
+   * Never throws. The caller decides what a partial run means.
+   */
+  /**
+   * ## Idempotency classification of every remote write (LIFEOS-074 §7)
+   *
+   * Retrying a domain is only safe if replaying its writes cannot duplicate or
+   * lose a fact. The commit-then-timeout case was proven safe for ONE upsert;
+   * that finding is not generalised here, it is checked per operation class.
+   *
+   * 1. IDEMPOTENT UPSERT BY PRIMARY KEY — the large majority. Every
+   *    `from(t).upsert(rows)` where rows carry `id`, and every `diffById`
+   *    upsert. Replay rewrites the same row. SAFE.
+   *
+   * 2. IDEMPOTENT UPSERT ON A COMPOSITE NATURAL KEY — `embeddings`
+   *    (`user_id,record_id`) and `sync_tombstones` (`user_id,domain,record_id`).
+   *    Replay collapses onto the same row. SAFE.
+   *
+   * 3. IDEMPOTENT DELETE — every `.delete().in("id", ids)`. Deleting an id that
+   *    is already gone affects nothing. SAFE on replay.
+   *
+   * 4. CONDITIONALLY IDEMPOTENT — `insertIgnore` into append-only tables keyed
+   *    by a natural key: `saved_quotes` (`source_id,text`), `retrieval_feedback`
+   *    (`user_id,record_id,at`), and `belief_revisions` / `user_judgments`
+   *    (`belief_id,seq`). A retry never duplicates, because the conflicting row
+   *    is ignored. But `seq` is an ARRAY INDEX: if a revision is ever inserted
+   *    or removed mid-list, later entries shift, and `ignoreDuplicates` then
+   *    keeps the OLD row and silently drops the new content. That is a
+   *    reordering hazard, not a retry hazard — retries stay safe — and it is
+   *    recorded here rather than fixed, because nothing in the product reorders
+   *    or removes a revision today (revisions are append-only by construction).
+   *
+   * 5. POTENTIALLY NON-IDEMPOTENT SIDE EFFECT — `writeTombstones` runs AFTER a
+   *    successful delete and SWALLOWS its own failure (deliberately: migration
+   *    0024 may not be present). If the delete lands and the tombstone write
+   *    does not, the domain still counts as succeeded, its baseline advances,
+   *    and the tombstone is never retried. The record is genuinely deleted
+   *    remotely, so this is not data loss; the cost is that a stale device
+   *    holding an old copy loses the suppression that would stop it
+   *    resurrecting the row. Narrow (needs a tombstone-only failure AND a stale
+   *    device) and pre-existing, so it is classified and reported, not repaired
+   *    inside a bounded isolation fix.
+   *
+   * Conclusion: per-domain retry is safe for classes 1-4. Class 5 is a
+   * best-effort auxiliary write that was already best-effort before this change,
+   * and isolation does not make it worse.
+   */
+  async saveStateByDomain(
+    state: StoreState,
+    dirty?: Set<keyof StoreState>,
+    base?: StoreState | null,
+  ): Promise<DomainPushReport> {
+    const report: DomainPushReport = { succeeded: [], failed: [], attempted: [] };
+    for (const domain of SYNC_DOMAIN_ORDER) {
+      if (dirty && !dirty.has(domain)) continue;
+      report.attempted.push(domain);
+      try {
+        await this.saveState(state, new Set([domain]), base);
+        report.succeeded.push(domain);
+      } catch (e) {
+        report.failed.push({ domain, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    // A run that failed anywhere leaves the adapter's own state honest, so a
+    // caller reading `health()` cannot see "synced" after a partial push.
+    this.lastState = report.failed.length ? "failed" : "synced";
+    this.lastError = report.failed.length
+      ? `${report.failed.length} domain(s) failed: ${report.failed.map((f) => f.domain).join(", ")}`
+      : undefined;
+    return report;
   }
 
   async saveState(state: StoreState, dirty?: Set<keyof StoreState>, base?: StoreState | null): Promise<void> {

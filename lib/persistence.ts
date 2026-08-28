@@ -15,7 +15,7 @@ import type { Session } from "@supabase/supabase-js";
 import type { StoreState } from "@/types/mvp";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { SupabasePersistenceAdapter } from "@/lib/adapters/supabaseAdapter";
-import type { PersistenceHealth } from "@/lib/adapters/types";
+import type { PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import { reconcileAdoption } from "@/lib/persistence-reconcile";
 import * as authStore from "@/lib/authStore";
 import { markBootstrap } from "@/lib/security/auth-bootstrap";
@@ -32,6 +32,9 @@ let lastSaved: StoreState | null = null;
 let lastSyncedState: StoreState | null = null;
 /** ISO time of the last successful remote flush (LIFEOS-032 diagnostics). */
 let lastSyncAt: string | null = null;
+/** Domains whose last push attempt failed (LIFEOS-074 D-22). Runtime only — no
+ *  new persisted domain and no migration; a reload re-derives it on next push. */
+let failedDomains: string[] = [];
 
 /**
  * Which domains changed since the last successful sync. Because the store
@@ -281,15 +284,41 @@ async function flush(): Promise<void> {
   // successful flush. First sync (no baseline) pushes everything.
   const dirty = dirtyDomainsOf(snapshot, lastSyncedState);
   try {
-    await remote.saveState(snapshot, dirty, lastSyncedState);
-    lastSyncedState = snapshot;
-    lastSyncAt = new Date().toISOString();
-    retryAttempt = 0;
-    if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
-    setHealth({ state: "synced", error: undefined, retryAttempt: undefined });
+    const report = await remote.saveStateByDomain(snapshot, dirty, lastSyncedState);
+
+    // ---- advance the baseline PER DOMAIN (LIFEOS-074 D-22) ----------------
+    //
+    // The baseline is what `dirtyDomainsOf` diffs against, and it diffs by
+    // array REFERENCE per top-level key. So "this domain is now clean" is
+    // expressed by taking that domain's array from the snapshot we just
+    // pushed, and "this one is still dirty" by leaving the previous baseline
+    // value in place. No new bookkeeping structure, and a failed domain stays
+    // dirty for exactly as long as it keeps failing.
+    //
+    // The domains come from the SNAPSHOT, never from `pending`: a mutation that
+    // lands mid-flush must stay dirty even in a domain that just synced, or the
+    // successful push of the older value would silently clear the newer one.
+    lastSyncedState = nextBaseline(lastSyncedState, snapshot, report.succeeded);
+    failedDomains = report.failed.map((f) => f.domain);
+
+    if (report.failed.length === 0) {
+      lastSyncAt = new Date().toISOString();
+      retryAttempt = 0;
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
+      setHealth({ state: "synced", error: undefined, retryAttempt: undefined, failedDomains: undefined });
+    } else {
+      // PARTIAL. Some rows are durable remotely and some are not, and saying
+      // "Saved" here is the false success this whole repair exists to prevent.
+      const detail = `${report.failed.length} of ${report.attempted.length} domain(s) failed: ${report.failed.map((f) => `${f.domain} (${f.error})`).join("; ")}`;
+      recordSaveError(`Remote sync incomplete: ${detail}`);
+      if (!pending) pending = snapshot;
+      scheduleAutoRetry(detail, "incomplete");
+    }
   } catch (e) {
+    // `saveStateByDomain` does not throw per domain, so reaching here means the
+    // run itself broke (an adapter without the isolated method, a client that
+    // threw outside a domain). Treat it as a total failure, as before.
     recordSaveError(`Remote sync failed: ${msg(e)}`);
-    // Re-queue the snapshot (unless a newer one arrived while we were failing).
     if (!pending) pending = snapshot;
     scheduleAutoRetry(msg(e));
   } finally {
@@ -301,17 +330,43 @@ async function flush(): Promise<void> {
   }
 }
 
-function scheduleAutoRetry(error: string): void {
+/**
+ * The sync baseline after a partial push: succeeded domains adopt the pushed
+ * snapshot, everything else keeps whatever it had (LIFEOS-074 D-22).
+ *
+ * When there was no baseline at all, a domain that did NOT succeed gets a fresh
+ * empty array — reference-unequal to the snapshot's array, so it reads as dirty
+ * rather than as "synced and empty".
+ */
+function nextBaseline(base: StoreState | null, snapshot: StoreState, succeeded: string[]): StoreState {
+  const done = new Set(succeeded);
+  const out = {} as Record<string, unknown>;
+  for (const key of Object.keys(snapshot)) {
+    if (done.has(key)) out[key] = (snapshot as unknown as Record<string, unknown>)[key];
+    else if (base) out[key] = (base as unknown as Record<string, unknown>)[key];
+    else out[key] = [];
+  }
+  return out as unknown as StoreState;
+}
+
+/**
+ * `exhausted` is the state to settle on once automatic retries run out.
+ *
+ * A partial run settles on "incomplete", not "failed" (LIFEOS-074 D-22): some
+ * domains ARE durable remotely, and flattening that to a bare failure is as
+ * untrue in the pessimistic direction as "Saved" was in the optimistic one.
+ */
+function scheduleAutoRetry(error: string, exhausted: SyncState = "failed"): void {
   if (retryAttempt >= MAX_AUTO_RETRIES) {
     // Give up automatically retrying; the user can still retry by hand and
     // every new write re-arms the cycle. Local data is safe throughout.
-    setHealth({ state: "failed", error, retryAttempt: undefined });
+    setHealth({ state: exhausted, error, retryAttempt: undefined, failedDomains: failedDomains.length ? [...failedDomains] : undefined });
     retryAttempt = 0;
     return;
   }
   retryAttempt += 1;
   const delay = Math.min(RETRY_BASE_MS * 2 ** (retryAttempt - 1), RETRY_MAX_MS);
-  setHealth({ state: "retrying", error, retryAttempt });
+  setHealth({ state: "retrying", error, retryAttempt, failedDomains: failedDomains.length ? [...failedDomains] : undefined });
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = setTimeout(() => void flush(), delay);
 }
@@ -332,11 +387,51 @@ if (typeof window !== "undefined") {
   });
 }
 
+/**
+ * Test seams for the D-22 isolation pins (LIFEOS-074 §8).
+ *
+ * The flush loop, the per-domain baseline and the health transitions are the
+ * thing under test, so the pins have to drive THIS module rather than a
+ * reimplementation of it — and `remote` is otherwise only reachable through a
+ * real authenticated Supabase session. These three change no behaviour: they
+ * install an adapter, run one flush synchronously, and read the dirty set.
+ * Nothing in the app calls them.
+ */
+export function __setRemoteForTest(adapter: SupabasePersistenceAdapter | null): void {
+  remote = adapter;
+  lastSyncedState = null;
+  lastSyncAt = null;
+  failedDomains = [];
+  retryAttempt = 0;
+  adoptionSettled = true;
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
+  if (timer) { clearTimeout(timer); timer = undefined; }
+  health = { mode: "supabase", state: "syncing", lastSyncAt: null };
+}
+export async function __flushNowForTest(state: StoreState): Promise<void> {
+  pending = state;
+  lastSaved = state;
+  await flush();
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
+  if (timer) { clearTimeout(timer); timer = undefined; }
+}
+/** Drive the live health store, so the RENDERED indicator can be measured in
+ *  each state (LIFEOS-074 D-22 §9). Used by the /dev/sync-tests harness. */
+export function __setHealthForTest(next: Partial<PersistenceHealth>): void {
+  setHealth(next);
+}
+export function __dirtyAgainstForTest(state: StoreState): string[] {
+  return [...dirtyDomainsOf(state, lastSyncedState)] as string[];
+}
+
 /** Diagnostics (LIFEOS-021, Phase 8): current dirty domains + sync-queue state. */
-export function getSyncDiagnostics(): { dirtyDomains: string[]; queued: boolean; hasBaseline: boolean; mode: string } {
+export function getSyncDiagnostics(): { dirtyDomains: string[]; failedDomains: string[]; queued: boolean; hasBaseline: boolean; mode: string } {
   const dirty = lastSaved ? dirtyDomainsOf(lastSaved, lastSyncedState) : new Set<string>();
   return {
     dirtyDomains: [...dirty] as string[],
+    // Which domains the LAST push could not write, as opposed to which are
+    // merely unsent (LIFEOS-074 D-22).
+    failedDomains: [...failedDomains],
     queued: pending !== null,
     hasBaseline: lastSyncedState !== null,
     mode: remote ? "supabase" : "local",

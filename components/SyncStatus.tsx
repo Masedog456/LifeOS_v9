@@ -15,6 +15,7 @@ const DOT: Record<PersistenceHealth["state"], string> = {
   disabled: "bg-zinc-400",
   syncing: "bg-amber-500",
   synced: "bg-emerald-500",
+  incomplete: "bg-amber-600",
   failed: "bg-red-500",
   offline: "bg-sky-500",
   retrying: "bg-amber-500",
@@ -25,6 +26,10 @@ const LABEL: Record<PersistenceHealth["state"], string> = {
   disabled: "Saved locally",
   syncing: "Saving…",
   synced: "Saved",
+  // Some domains reached the server and some did not (LIFEOS-074 D-22). It is
+  // deliberately NOT "Saved": claiming remote durability for the whole state
+  // when only part of it landed is the false success this state exists to stop.
+  incomplete: "Sync incomplete",
   failed: "Sync error",
   offline: "Offline — saved locally",
   retrying: "Retrying…",
@@ -55,7 +60,7 @@ export default function SyncStatus() {
    *
    * So the breakpoint now depends on whether there is anything wrong.
    */
-  const alarming = !!h.localError || h.state === "failed" || h.state === "retrying";
+  const alarming = !!h.localError || h.state === "failed" || h.state === "retrying" || h.state === "incomplete";
   return (
     <span
       data-sync-status={h.localError ? "local-error" : h.state}
@@ -65,7 +70,7 @@ export default function SyncStatus() {
       <span className={`h-2 w-2 rounded-full ${dot}`} />
       {label}
       {h.state === "retrying" && h.retryAttempt ? <span className="text-[10px]">({h.retryAttempt}/5)</span> : null}
-      {(h.state === "failed" || h.state === "retrying") && (
+      {(h.state === "failed" || h.state === "retrying" || h.state === "incomplete") && (
         <button
           type="button"
           onClick={() => void retrySync()}

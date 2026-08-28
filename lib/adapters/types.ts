@@ -21,10 +21,31 @@ export type SyncState =
   | "local"
   | "syncing"
   | "synced"
+  /** Some domains pushed, others did not (LIFEOS-074 D-22). NEVER "synced". */
+  | "incomplete"
   | "failed"
   | "disabled"
   | "offline"
   | "retrying";
+
+/**
+ * What one isolated push run actually achieved, per domain (LIFEOS-074 D-22).
+ *
+ * `saveState` used to be a single sequential await chain across all 46 domains,
+ * so the first failure aborted every domain after it — a push was a PREFIX, and
+ * a persistent failure in an early domain starved every later one indefinitely.
+ * The isolated run attempts every dirty domain and reports each outcome, so the
+ * caller can advance the sync baseline for exactly the domains that succeeded
+ * and leave the rest dirty.
+ */
+export interface DomainPushReport {
+  /** Domains whose push completed. Safe to mark clean. */
+  succeeded: string[];
+  /** Domains that failed, with the message, in attempt order. Stay dirty. */
+  failed: { domain: string; error: string }[];
+  /** Domains that were dirty and attempted (succeeded ∪ failed). */
+  attempted: string[];
+}
 
 export interface PersistenceHealth {
   mode: "local" | "supabase";
@@ -38,6 +59,9 @@ export interface PersistenceHealth {
    * (LIFEOS-042A). Lets the UI say "Not yet synced" instead of alarming with a
    * "Sync error" when a first attempt fails before anything has ever synced. */
   lastSyncAt?: string | null;
+  /** Domains the last push could not write (LIFEOS-074 D-22). Present when the
+   *  state is "incomplete"/"retrying"; runtime-only, never persisted. */
+  failedDomains?: string[];
 }
 
 export interface PersistenceAdapter {

@@ -114,17 +114,29 @@ const rowsIn = (db, table) => [...(db.get(table)?.values() ?? [])];
     log.push(`3.3 calls after goals failure: ${JSON.stringify(calls)}`);
     ok("3.3 the failure surfaces", !!threw, String(threw));
     ok("3.4 domains BEFORE the bad one are already committed", wsWritten === 1, `workspaces=${wsWritten}`);
-    // PINNED, NOT ENDORSED (D-22, a BROAD P2 reported rather than rewritten).
+    // `saveState` KEEPS its all-or-nothing contract on purpose (LIFEOS-074 D-22).
     //
-    // `saveState` is one sequential await chain across ~46 domains with no
-    // per-domain isolation, so a persistent failure in an early domain starves
-    // every later one for as long as it persists. This asserts the CURRENT
-    // behaviour so it is visible and measured; it is written to FAIL the day
-    // isolation is implemented, which is the signal to delete it.
-    ok("3.5 PINNED: one failing domain aborts every domain after it (D-22, broad P2)",
-      naWritten === 0, `next_actions=${naWritten} — isolation appears to be implemented; retire this pin`);
-    ok("3.5b …while domains before it stay committed, so a push is a PREFIX, not all-or-nothing",
+    // It is the whole-state push used by callers that want exactly that; the
+    // repair did not change one line of its 350-line chain. The live flush path
+    // now goes through `saveStateByDomain`, which runs the same chain once per
+    // domain inside its own failure boundary — asserted directly below, so the
+    // two contracts are pinned side by side and neither can drift unnoticed.
+    ok("3.5 saveState is still a single all-or-nothing chain (unchanged by the repair)",
+      naWritten === 0, `next_actions=${naWritten}`);
+    ok("3.5b …committing a PREFIX: domains before the failure land, later ones do not",
       wsWritten === 1 && naWritten === 0, JSON.stringify({ wsWritten, naWritten }));
+  }
+
+  // ---- 3.5c the LIVE path isolates per domain (D-22 repaired) -----------
+  {
+    const { client, db } = fakeClient({ fail: { table: "goals", shape: "error" } });
+    const ad = new SupabasePersistenceAdapter(client);
+    const report = await ad.saveStateByDomain(world(), new Set(["workspaces", "goals", "nextActions", "recurrenceCompletions"]), null);
+    ok("3.5c the isolated push attempts every dirty domain", report.attempted.length === 4, JSON.stringify(report.attempted));
+    ok("3.5d …a failure in `goals` no longer starves `next_actions`",
+      rowsIn(db, "next_actions").length === 2, `next_actions=${rowsIn(db, "next_actions").length}`);
+    ok("3.5e …and the failure is still reported, by name",
+      report.failed.length === 1 && report.failed[0].domain === "goals", JSON.stringify(report.failed));
   }
 
   // ---- 3.6 one malformed ROW among valid rows ---------------------------
