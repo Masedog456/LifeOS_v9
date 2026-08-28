@@ -206,6 +206,43 @@ pinned (F5-F8 in the same script).
 **Scope.** A single client was never affected: local is authoritative, the delete
 lands locally and remotely, and the next load agrees.
 
+## 2C. Wiring register (LIFEOS-074 §4)
+
+D-24, D-8 and D-9 were all one pattern: **implementation existed + tests existed
++ documentation said live + no production path called it.** Presence is not
+evidence of life. `scripts/audit-wiring.mjs` now measures the property and fails
+when the register below goes stale in either direction — a newly stranded module
+is noticed, and a newly wired one has to have its entry retired.
+
+The checker was validated against the pre-repair adapter and does detect
+`sync_tombstones` as write-only, so it can fail for the reason it exists.
+
+**Write-only tables: none.** `sync_tombstones` was the only one; D-24 closed it.
+
+**Dead modules — no importer at all, not even a self-test (6).** These cannot
+misbehave because they never run; the risk is that a reader assumes the
+capability exists. Reported, not deleted: removal is not an integrity repair.
+
+  lib/accessibility/announcements.ts   lib/adapters/localAdapter.ts
+  lib/inbox/processing.ts              lib/insights/search.ts
+  lib/maintenance/search.ts            lib/sync/schema.ts
+
+**Test-only modules (26).** Six of them are the per-domain `merge-rules.ts`
+files — `actions`, `inbox`, `insights`, `maintenance`, `onboarding`, `planning`.
+That is D-8's real blast radius: the conflict layer is unwired, so every
+per-domain merge rule written for it is unwired too. It is six modules more than
+"merge.ts and conflicts.ts" suggested, and the accepted D-8 deferral covers it.
+The rest are design tokens, threat models and audit models — descriptive
+documents in TypeScript, not runtime paths.
+
+**Unlinked product route (1): `/plan/week`.** It renders `WeeklyPlan`, a real
+feature. The Planning board links to `/plan/today` and never to `/plan/week`, so
+it is reachable only by typing the URL. Function reachability is not human
+reachability. Reported rather than linked: making a built feature newly
+reachable is a product decision, not an audit repair. `/dev/*` routes are
+excluded — they are deliberately unlinked and 404 in production without
+`LIFEOS_ENABLE_DEV_ROUTES=1`.
+
 ## 3. The ten cross-device scenarios
 
 Each is asserted in `lib/sync/selftest.ts` (run at `/dev/sync-tests`):
