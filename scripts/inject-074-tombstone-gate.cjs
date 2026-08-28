@@ -12,7 +12,7 @@ const orig = Module._resolveFilename;
 Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: ["/home/user/LifeOS/node_modules"] }); } };
 
 const { SupabasePersistenceAdapter } = require("@/lib/adapters/supabaseAdapter");
-const { reconcileAdoption, mergeLocalOnly } = require("@/lib/persistence-reconcile");
+const { reconcileAdoption, mergeLocalOnly, suppressDeleted } = require("@/lib/persistence-reconcile");
 const { applyTombstones, makeTombstone, shouldSuppress } = require("@/lib/sync/tombstones");
 const { STORE_DOMAINS } = require("@/lib/ux/backup");
 
@@ -57,18 +57,22 @@ const rows = (db, t) => [...(db.get(t)?.values() ?? [])];
   const loadStateBody = adapterSrc.slice(lsStart, adapterSrc.indexOf("\n  }", lsStart));
   ok("T0 `loadState` never reads sync_tombstones", !/sync_tombstones/.test(loadStateBody),
     "loadState reads tombstones after all — re-examine");
-  ok("T0b …and no SELECT on sync_tombstones exists anywhere in the adapter",
-    !/from\("sync_tombstones"\)[\s\S]{0,40}\.select/.test(adapterSrc),
-    "a select exists — re-examine");
+  ok("T0b the adapter now SELECTs sync_tombstones (the D-24 repair)",
+    /from\("sync_tombstones"\)[\s\S]{0,40}\.select/.test(adapterSrc),
+    "the read is gone — D-24 has regressed");
   // An IMPORT or a CALL, not a mention: the finding is now documented in
   // `persistence-reconcile.ts`, and a filename grep counted that prose as a
   // caller on the first run.
-  const importers = require("child_process").execSync(
-    `grep -rlE "applyTombstones\\(|import[^\n]*applyTombstones" /home/user/LifeOS/lib /home/user/LifeOS/app /home/user/LifeOS/components 2>/dev/null || true`)
-    .toString().trim().split("\n").filter(Boolean);
-  const nonTest = importers.filter((f) => !/tombstones\.ts$|selftest/.test(f));
-  ok("T1 `applyTombstones` is never imported or called outside its own module + tests",
-    nonTest.length === 0, JSON.stringify(nonTest));
+  // A CALL, not a mention. The first version embedded a literal newline in the
+  // shell pattern and matched nothing, which read as "still unwired" while the
+  // wiring was in place two files away.
+  const callers = require("child_process").execSync(
+    `grep -rlE "applyTombstones\\(" /home/user/LifeOS/lib /home/user/LifeOS/app /home/user/LifeOS/components 2>/dev/null || true`)
+    .toString().trim().split("\n").filter(Boolean)
+    .filter((f) => !/tombstones\.ts$|selftest/.test(f));
+  ok("T1 `applyTombstones` IS called from production code now",
+    callers.length > 0, JSON.stringify(callers));
+  ok("T1b …specifically from the adoption path", callers.some((f) => /persistence-reconcile/.test(f)), JSON.stringify(callers));
 
   // =====================================================================
   // 1-4. The lifecycle: delete succeeds, tombstone write fails.
@@ -88,8 +92,8 @@ const rows = (db, t) => [...(db.get(t)?.values() ?? [])];
   delete fc.fails.sync_tombstones;
   ok("T3 the remote DELETE succeeded", rows(fc.db, "next_actions").length === 1 && !rows(fc.db, "next_actions").some((r) => r.id === "a2"));
   ok("T4 …and the tombstone write did NOT land", rows(fc.db, "sync_tombstones").length === 0, JSON.stringify(rows(fc.db, "sync_tombstones")));
-  ok("T5 …yet the domain still counts as SUCCEEDED, so it is never retried",
-    rep.failed.length === 0 && rep.succeeded.includes("nextActions"), JSON.stringify(rep.failed));
+  ok("T5 …and the domain is now reported FAILED, so the marker is retried (D-24 §5)",
+    rep.failed.some((f) => f.domain === "nextActions"), JSON.stringify(rep.failed));
 
   // =====================================================================
   // 5. Later: another device that still holds a2 signs in and adopts.
@@ -103,40 +107,122 @@ const rows = (db, t) => [...(db.get(t)?.values() ?? [])];
     remote: remoteNow, local: deviceB, remoteHasData: true, localHasData: true,
     migratedFor: "u1", userId: "u1", empty: empty(),
   });
+  // With the ledger UNREADABLE (or empty), nothing is suppressed — the D-24
+  // behaviour, kept as the control so the repair is measured against it.
   const resurrected = decision.state.nextActions.some((a) => a.id === "a2");
-  ok("T6 RESURRECTION: the deleted record comes back on adoption", resurrected === true,
+  ok("T6 CONTROL: with no deletion marker the record still comes back", resurrected === true,
     `resurrected=${resurrected} action=${decision.action}`);
   ok("T7 …and is flagged to be PUSHED BACK to the server", decision.pushLocalOnly === true, JSON.stringify(decision.action));
-  ok("T8 RELATED DATA returns too — the dependency edge",
-    decision.state.actionDependencies.some((d) => d.id === "d1"));
-  ok("T9 …and the completion row", decision.state.recurrenceCompletions.some((c) => c.id === "rc1"));
+  ok("T8 …with its dependency edge", decision.state.actionDependencies.some((d) => d.id === "d1"));
+  ok("T9 …and its completion row", decision.state.recurrenceCompletions.some((c) => c.id === "rc1"));
 
-  // Drive the push, so this is not an inference about what "would" happen.
-  const ad2 = new SupabasePersistenceAdapter(fc.client);
-  await ad2.saveStateByDomain(decision.state, undefined, decision.baseline);
-  ok("T10 …and the resurrected record is BACK IN THE DATABASE",
-    rows(fc.db, "next_actions").some((r) => r.id === "a2"), JSON.stringify(rows(fc.db, "next_actions").map((r) => r.id)));
+  // ===================== §7 A-G: THE REPAIRED LIFECYCLE =====================
+  {
+    const fcR = fakeClient();
+    const adR = new SupabasePersistenceAdapter(fcR.client);
+    // A. Both devices hold X.
+    const start = deviceA();
+    await adR.saveStateByDomain(start, undefined, null);
+    ok("G-A both devices' record starts out remote", rows(fcR.db, "next_actions").length === 2);
 
-  // =====================================================================
-  // 6. THE CONTROL: would a SUCCESSFUL tombstone have prevented any of it?
-  // =====================================================================
-  const fc2 = fakeClient();
-  const ad3 = new SupabasePersistenceAdapter(fc2.client);
-  await ad3.saveStateByDomain(deviceA(), undefined, null);
-  await ad3.saveStateByDomain(afterDelete, new Set(["nextActions", "actionDependencies", "recurrenceCompletions"]), deviceA());
-  ok("T11 CONTROL: this time the tombstone DID land", rows(fc2.db, "sync_tombstones").length > 0,
-    JSON.stringify(rows(fc2.db, "sync_tombstones")));
-  const remote2 = empty();
-  remote2.nextActions = rows(fc2.db, "next_actions").map((r) => act({ id: r.id, title: r.title, createdAt: iso(T) }));
-  remote2.sources = [{ id: "s1", title: "x", keyQuotes: [] }];
-  const decision2 = reconcileAdoption({
-    remote: remote2, local: deviceA(), remoteHasData: true, localHasData: true,
-    migratedFor: "u1", userId: "u1", empty: empty(),
-  });
-  ok("T12 …and the record is resurrected ANYWAY — the tombstone changes nothing",
-    decision2.state.nextActions.some((a) => a.id === "a2"),
-    "a written tombstone DID prevent resurrection — the mechanism is wired after all");
+    // B-C-D. Device A deletes X; remote delete succeeds; tombstone succeeds.
+    const del = { ...start, nextActions: start.nextActions.filter((a) => a.id !== "a2"), actionDependencies: [], recurrenceCompletions: [] };
+    const repR = await adR.saveStateByDomain(del, new Set(["nextActions", "actionDependencies", "recurrenceCompletions"]), start);
+    ok("G-B the delete reports success", repR.failed.length === 0, JSON.stringify(repR.failed));
+    ok("G-C the remote row is gone", !rows(fcR.db, "next_actions").some((r) => r.id === "a2"));
+    const tombs = await adR.loadTombstones();
+    ok("G-D the tombstone is READABLE now — the ledger is no longer write-only",
+      Array.isArray(tombs) && tombs.some((t) => t.domain === "nextActions" && t.recordId === "a2"),
+      JSON.stringify(tombs));
 
+    // E. Device B (stale) adopts.
+    const remoteR = empty();
+    remoteR.nextActions = rows(fcR.db, "next_actions").map((r) => act({ id: r.id, title: r.title, createdAt: iso(T) }));
+    remoteR.sources = [{ id: "s1", title: "x", keyQuotes: [] }];
+    const staleB = suppressDeleted(deviceA(), tombs);
+    const dB = reconcileAdoption({ remote: remoteR, local: staleB, remoteHasData: true, localHasData: true, migratedFor: "u1", userId: "u1", empty: empty() });
+    ok("G-E X does NOT return on adoption", !dB.state.nextActions.some((a) => a.id === "a2"),
+      JSON.stringify(dB.state.nextActions.map((a) => a.id)));
+    ok("G-E2 …nor does its dependency edge", !dB.state.actionDependencies.some((d) => d.id === "d1"),
+      JSON.stringify(dB.state.actionDependencies));
+    ok("G-E3 …nor its completion row (the DB already cascades this)",
+      !dB.state.recurrenceCompletions.some((c) => c.id === "rc1"), JSON.stringify(dB.state.recurrenceCompletions));
+    ok("G-E4 the surviving record is untouched", dB.state.nextActions.some((a) => a.id === "a1"));
+
+    // F. Device B pushes its state.
+    await adR.saveStateByDomain(dB.state, undefined, dB.baseline);
+    ok("G-F X does NOT reappear remotely", !rows(fcR.db, "next_actions").some((r) => r.id === "a2"),
+      JSON.stringify(rows(fcR.db, "next_actions").map((r) => r.id)));
+
+    // G. Device A reloads.
+    const remoteAfter = empty();
+    remoteAfter.nextActions = rows(fcR.db, "next_actions").map((r) => act({ id: r.id, title: r.title, createdAt: iso(T) }));
+    remoteAfter.sources = [{ id: "s1", title: "x", keyQuotes: [] }];
+    const tombs2 = await adR.loadTombstones();
+    const dA = reconcileAdoption({ remote: remoteAfter, local: suppressDeleted(del, tombs2), remoteHasData: true, localHasData: true, migratedFor: "u1", userId: "u1", empty: empty() });
+    ok("G-G X remains deleted on the device that deleted it", !dA.state.nextActions.some((a) => a.id === "a2"));
+  }
+
+  // ============ §9 a genuine edit AFTER the delete is NOT suppressed ========
+  {
+    const tomb = makeTombstone("nextActions", "a2", iso(T, 12));
+    const edited = empty();
+    edited.nextActions = [act({ id: "a2", title: "Re-created deliberately", createdAt: iso(T), updatedAt: iso(T, 20) })];
+    const kept = suppressDeleted(edited, [tomb]);
+    ok("N1 an edit made AFTER the delete survives — resurrection intent is honoured",
+      kept.nextActions.some((a) => a.id === "a2"), JSON.stringify(kept.nextActions.map((a) => a.id)));
+    const stale = empty();
+    stale.nextActions = [act({ id: "a2", title: "Stale copy", createdAt: iso(T), updatedAt: iso(T, 8) })];
+    ok("N2 …while a copy older than the delete is suppressed",
+      suppressDeleted(stale, [tomb]).nextActions.length === 0);
+  }
+
+  // ============ §8 FAILED TOMBSTONE: no false durability ==================
+  {
+    const fcF = fakeClient();
+    const adF = new SupabasePersistenceAdapter(fcF.client);
+    const start = deviceA();
+    await adF.saveStateByDomain(start, undefined, null);
+    const del = { ...start, nextActions: start.nextActions.filter((a) => a.id !== "a2"), actionDependencies: [], recurrenceCompletions: [] };
+    fcF.fails.sync_tombstones = true;
+    const repF = await adF.saveStateByDomain(del, new Set(["nextActions", "actionDependencies", "recurrenceCompletions"]), start);
+    ok("F1 a failed tombstone now FAILS the domain — no false success",
+      repF.failed.some((f) => f.domain === "nextActions"), JSON.stringify(repF));
+    ok("F2 …so the domain stays dirty and retryable", !repF.succeeded.includes("nextActions"));
+    ok("F3 the remote delete is NOT undone", !rows(fcF.db, "next_actions").some((r) => r.id === "a2"));
+    ok("F4 …and no tombstone exists yet", rows(fcF.db, "sync_tombstones").length === 0);
+    // The residual window: a stale client adopting BEFORE the retry resurrects.
+    const remoteF = empty();
+    remoteF.nextActions = rows(fcF.db, "next_actions").map((r) => act({ id: r.id, title: r.title, createdAt: iso(T) }));
+    remoteF.sources = [{ id: "s1", title: "x", keyQuotes: [] }];
+    const tombsF = await adF.loadTombstones();
+    const dWindow = reconcileAdoption({ remote: remoteF, local: suppressDeleted(deviceA(), tombsF ?? []), remoteHasData: true, localHasData: true, migratedFor: "u1", userId: "u1", empty: empty() });
+    ok("F5 RESIDUAL WINDOW (documented, not hidden): before the retry a stale client still resurrects",
+      dWindow.state.nextActions.some((a) => a.id === "a2"),
+      "the window has closed — re-read the residual-window note");
+    // Retry: the tombstone is written and the window closes.
+    delete fcF.fails.sync_tombstones;
+    const repF2 = await adF.saveStateByDomain(del, new Set(["nextActions", "actionDependencies", "recurrenceCompletions"]), start);
+    ok("F6 the retry succeeds", repF2.failed.length === 0, JSON.stringify(repF2.failed));
+    ok("F7 …and writes the missing tombstone", rows(fcF.db, "sync_tombstones").some((r) => r.record_id === "a2"));
+    const tombsF2 = await adF.loadTombstones();
+    const dAfter = reconcileAdoption({ remote: remoteF, local: suppressDeleted(deviceA(), tombsF2), remoteHasData: true, localHasData: true, migratedFor: "u1", userId: "u1", empty: empty() });
+    ok("F8 after recovery a later adoption suppresses the stale record",
+      !dAfter.state.nextActions.some((a) => a.id === "a2"));
+    ok("F9 the delete was never undone by any of it", !rows(fcF.db, "next_actions").some((r) => r.id === "a2"));
+  }
+
+  // ============ §10 retention: tombstones are permanent today =============
+  {
+    const src = require("fs").readFileSync("/home/user/LifeOS/lib/sync/tombstones.ts", "utf8");
+    ok("R1 a retention helper exists but is still unwired, so tombstones are permanent",
+      /cleanupTombstones/.test(src) &&
+      require("child_process").execSync(`grep -rlE "cleanupTombstones\\(" /home/user/LifeOS/lib /home/user/LifeOS/app /home/user/LifeOS/components 2>/dev/null || true`)
+        .toString().trim().split("\n").filter(Boolean).filter((f) => !/tombstones\.ts$|selftest/.test(f)).length === 0,
+      "cleanup is now wired — expiry could let an old client resurrect; re-audit");
+  }
+
+  // The pure layer works; it is simply never consulted.
   // The pure layer works; it is simply never consulted.
   const tomb = makeTombstone("nextActions", "a2", iso(T, 12));
   const applied = applyTombstones("nextActions", [{ id: "a2", updatedAt: iso(T, 8) }], [tomb]);
@@ -170,25 +256,26 @@ const rows = (db, t) => [...(db.get(t)?.values() ?? [])];
     /INITIAL_SESSION/.test(persistSrc) && /queueSession\(session, replaceState\)/.test(persistSrc));
 
   // The empty-remote branch resurrects too, by a different route.
-  const decision3 = reconcileAdoption({
+  // The migrate-local branch is the OTHER route to resurrection, and suppression
+  // has to cover it too — `migrateOrAdopt` suppresses before reconciling, so
+  // every branch sees an already-cleaned local snapshot.
+  const rawLocal = reconcileAdoption({
     remote: empty(), local: deviceA(), remoteHasData: false, localHasData: true,
     migratedFor: "u1", userId: "u1", empty: empty(),
   });
-  ok("T20 with an 'empty' remote the stale local copy wins wholesale",
-    decision3.action === "migrate-local" && decision3.state.nextActions.some((a) => a.id === "a2"),
-    decision3.action);
-
-  // And the round trip: once B pushes it back, A adopts the resurrection.
-  const remoteAfterB = empty();
-  remoteAfterB.nextActions = rows(fc.db, "next_actions").map((r) => act({ id: r.id, title: r.title, createdAt: iso(T) }));
-  remoteAfterB.sources = [{ id: "s1", title: "x", keyQuotes: [] }];
-  const onA = reconcileAdoption({
-    remote: remoteAfterB, local: afterDelete, remoteHasData: true, localHasData: true,
+  ok("T20 unsuppressed, an 'empty' remote lets the stale local copy win wholesale",
+    rawLocal.action === "migrate-local" && rawLocal.state.nextActions.some((a) => a.id === "a2"),
+    rawLocal.action);
+  const tombMigrate = [makeTombstone("nextActions", "a2", iso(T, 12))];
+  const suppressedLocal = reconcileAdoption({
+    remote: empty(), local: suppressDeleted(deviceA(), tombMigrate), remoteHasData: false, localHasData: true,
     migratedFor: "u1", userId: "u1", empty: empty(),
   });
-  ok("T21 the device that DID the delete then adopts the record back",
-    onA.state.nextActions.some((a) => a.id === "a2"),
-    JSON.stringify(onA.state.nextActions.map((a) => a.id)));
+  ok("T20b …and with the marker the migrate-local branch drops it too",
+    !suppressedLocal.state.nextActions.some((a) => a.id === "a2"),
+    JSON.stringify(suppressedLocal.state.nextActions.map((a) => a.id)));
+
+  // (The delete-side device is covered by G-G above, against the repaired path.)
 
   const pass = results.filter((r) => r.p).length;
   console.log(`\n=== ${pass}/${results.length} tombstone-gate assertions ===`);

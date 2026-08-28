@@ -64,6 +64,7 @@ import type {
   Protocol,
 } from "@/types/mvp";
 import type { DomainPushReport, PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
+import { makeTombstone, type Tombstone } from "@/lib/sync/tombstones";
 import { readRule } from "@/lib/time/recurrence";
 import {
   allDocumentRows, citationToRow, diffById, documentToImportPayload, newDocumentIds, rowsToDocuments,
@@ -535,16 +536,67 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
   }
 
   /**
+   * Load every tombstone for this user (LIFEOS-074 D-24).
+   *
+   * This method is the repair. The rows were being written since LIFEOS-033 and
+   * NEVER read, so the suppression in `lib/sync/tombstones.ts` never ran and a
+   * record deleted on one device came back on the next client that still held
+   * it. `loadState` deliberately does not carry these: a tombstone is sync
+   * metadata, not a life record, and making it a `StoreState` domain would add a
+   * domain noun for something the user never sees.
+   *
+   * Returns `null`, distinctly from `[]`, when the ledger cannot be read at all.
+   * The caller must NOT treat "unreadable" as "nothing was deleted" — that is
+   * precisely the assumption that produced D-24.
+   */
+  async loadTombstones(): Promise<Tombstone[] | null> {
+    try {
+      const { data, error } = await this.client.from("sync_tombstones").select("*");
+      if (error) return null;
+      return (data ?? []).map((r: { domain: string; record_id: string; deleted_at: string }) =>
+        makeTombstone(r.domain, r.record_id, r.deleted_at));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Record tombstones for deleted independently-synced records (LIFEOS-033) so a
-   * stale device can't resurrect them. Best-effort + guarded: a missing 0024
-   * table is a no-op, never a sync failure. Stores only {domain, record_id}.
+   * stale device can't resurrect them. Stores only {domain, record_id}.
+   *
+   * ## This is no longer best-effort (LIFEOS-074 D-24 §5)
+   *
+   * It used to swallow every failure, so a run where the remote DELETE landed
+   * and the tombstone did not still reported SUCCESS — the domain's baseline
+   * advanced and the marker was never retried. Once the marker is what makes a
+   * deletion durable across devices, that is a false success. A failed write now
+   * fails the domain: it stays dirty, sync reads "Sync incomplete", and the
+   * retry re-runs the same diff — the delete is idempotent, so the retry simply
+   * writes the missing tombstone. The already-successful remote delete is never
+   * undone.
+   *
+   * The ONE tolerated case is a genuinely absent table: `MIN_SUPPORTED_MIGRATION_VERSION`
+   * is below 0024, so a client may legitimately run against a schema that has no
+   * tombstone ledger, and failing every delete forever there would be worse than
+   * the gap. Detection is by Postgres `42P01` / "does not exist", which is
+   * best-effort — it has NOT been verified against a production PostgREST, and
+   * that limitation is stated rather than assumed away.
    */
   private async writeTombstones(domain: string, deleteIds: string[]): Promise<void> {
     if (!deleteIds.length) return;
+    const rows = deleteIds.map((id) => ({ domain, record_id: id, deleted_at: new Date().toISOString() }));
+    let err: { message?: string; code?: string } | null = null;
     try {
-      const rows = deleteIds.map((id) => ({ domain, record_id: id, deleted_at: new Date().toISOString() }));
-      await this.client.from("sync_tombstones").upsert(rows, { onConflict: "user_id,domain,record_id" });
-    } catch { /* 0024 table may not exist yet — tombstones are additive */ }
+      const res = await this.client.from("sync_tombstones").upsert(rows, { onConflict: "user_id,domain,record_id" });
+      err = (res as { error?: { message?: string; code?: string } | null })?.error ?? null;
+    } catch (e) {
+      err = { message: e instanceof Error ? e.message : String(e) };
+    }
+    if (!err) return;
+    if (err.code === "42P01" || /does not exist|undefined table|schema cache/i.test(err.message ?? "")) return;
+    this.lastState = "failed";
+    this.lastError = `tombstone write failed for ${domain}: ${err.message ?? "unknown"}`;
+    throw new Error(this.lastError);
   }
 
   /** Row-level upsert/delete for workspaces (LIFEOS-030). */

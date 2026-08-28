@@ -9,19 +9,19 @@
  * stores only `{domain, recordId, deletedAt}` — never the deleted content.
  * Retention is bounded; old tombstones are cleaned up. Pure and deterministic.
  *
- * ## THIS MODULE IS NOT WIRED (LIFEOS-074 D-24, P1)
+ * ## Wired into adoption by LIFEOS-074 (D-24)
  *
- * Everything below works and is tested. Nothing calls it. `applyTombstones` has
- * no production caller; `SupabasePersistenceAdapter.writeTombstones` inserts
- * rows into `sync_tombstones` that `loadState` never selects back. The table is
- * write-only, so the suppression this file implements never runs, and a record
- * deleted on one device is resurrected by any other client that still holds it —
- * proved by driving the real adoption and push path, including a control run
- * where the tombstone WAS written successfully and changed nothing.
+ * For three sprints nothing called this. `applyTombstones` had no caller and
+ * `loadState` never selected `sync_tombstones`, so the table was write-only and
+ * the suppression below never ran — a record deleted on one device was
+ * resurrected by any other client that still held it. `SupabasePersistenceAdapter.loadTombstones`
+ * now reads the ledger and `suppressDeleted` in `lib/persistence-reconcile.ts`
+ * applies these functions before adoption can push a stale record back.
  *
- * Read the header of `lib/persistence-reconcile.ts` for the full lifecycle and
- * scope before changing anything here: the repair belongs in the adoption path,
- * not in this file, which is already correct.
+ * `cleanupTombstones` below remains deliberately UNWIRED: tombstones are
+ * permanent today, which is the conservative choice — an expired marker would
+ * let an old client resurrect a record again, and inventing a retention policy
+ * was out of scope for the repair.
  */
 
 export interface Tombstone {

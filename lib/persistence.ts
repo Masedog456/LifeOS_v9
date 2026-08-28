@@ -16,7 +16,7 @@ import type { StoreState } from "@/types/mvp";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { SupabasePersistenceAdapter } from "@/lib/adapters/supabaseAdapter";
 import type { PersistenceHealth, SyncState } from "@/lib/adapters/types";
-import { reconcileAdoption } from "@/lib/persistence-reconcile";
+import { reconcileAdoption, suppressDeleted } from "@/lib/persistence-reconcile";
 import * as authStore from "@/lib/authStore";
 import { markBootstrap } from "@/lib/security/auth-bootstrap";
 import { INTERVIEW_STORAGE_KEY } from "@/lib/interview/session";
@@ -35,6 +35,10 @@ let lastSyncAt: string | null = null;
 /** Domains whose last push attempt failed (LIFEOS-074 D-22). Runtime only — no
  *  new persisted domain and no migration; a reload re-derives it on next push. */
 let failedDomains: string[] = [];
+/** False when the last adoption could not read the deletion ledger at all
+ *  (LIFEOS-074 D-24). Surfaced in diagnostics; never treated as "nothing was
+ *  deleted", which is the assumption that produced the defect. */
+let tombstonesReadable = true;
 
 /**
  * Which domains changed since the last successful sync. Because the store
@@ -425,13 +429,14 @@ export function __dirtyAgainstForTest(state: StoreState): string[] {
 }
 
 /** Diagnostics (LIFEOS-021, Phase 8): current dirty domains + sync-queue state. */
-export function getSyncDiagnostics(): { dirtyDomains: string[]; failedDomains: string[]; queued: boolean; hasBaseline: boolean; mode: string } {
+export function getSyncDiagnostics(): { dirtyDomains: string[]; failedDomains: string[]; tombstonesReadable: boolean; queued: boolean; hasBaseline: boolean; mode: string } {
   const dirty = lastSaved ? dirtyDomainsOf(lastSaved, lastSyncedState) : new Set<string>();
   return {
     dirtyDomains: [...dirty] as string[],
     // Which domains the LAST push could not write, as opposed to which are
     // merely unsent (LIFEOS-074 D-22).
     failedDomains: [...failedDomains],
+    tombstonesReadable,
     queued: pending !== null,
     hasBaseline: lastSyncedState !== null,
     mode: remote ? "supabase" : "local",
@@ -621,17 +626,29 @@ async function migrateOrAdopt(
 ): Promise<void> {
   if (!remote) return;
   const remoteState = await remote.loadState();
+  // The deletion ledger, read on the SAME authoritative path as the snapshot
+  // (LIFEOS-074 D-24). Every adoption goes through here — INITIAL_SESSION, a
+  // second device, a re-auth — so there is no UI route with its own rules.
+  const tombstones = await remote.loadTombstones();
   // Read local AFTER the remote load — this window is exactly when a user can
   // create a capture; it must survive.
   const local = loadState();
   const migratedFor = readMigratedFor();
   const empty = normalize(null);
 
+  // Suppress BEFORE reconciling. Doing it afterwards would still let a record
+  // deleted elsewhere be marked `pushLocalOnly` and written back, which is what
+  // D-24 reproduced. `tombstones === null` means the ledger could not be read at
+  // all: suppress nothing (there is no evidence of any deletion) and let the
+  // caller report the sync honestly rather than pretend deletion is durable.
+  const localNormalized = tombstones ? suppressDeleted(normalize(local), tombstones) : normalize(local);
+  tombstonesReadable = tombstones !== null;
+
   const decision = reconcileAdoption({
     remote: normalize(remoteState),
-    local: normalize(local),
+    local: localNormalized,
     remoteHasData: hasData(remoteState),
-    localHasData: hasData(local),
+    localHasData: hasData(localNormalized),
     migratedFor,
     userId,
     empty,

@@ -19,7 +19,7 @@ import { validateIntegrity } from "@/lib/sync/integrity";
 import { upgradeState } from "@/lib/migrations/upgrade-state";
 import { upgradeBackup } from "@/lib/migrations/upgrade-backup";
 import { budget } from "@/lib/ux/performance";
-import { reconcileAdoption, mergeLocalOnly } from "@/lib/persistence-reconcile";
+import { reconcileAdoption, mergeLocalOnly, suppressDeleted } from "@/lib/persistence-reconcile";
 import type { StoreState } from "@/types/mvp";
 import { STORE_DOMAINS } from "@/lib/ux/backup";
 // Section 58-61 drives the REAL store: whether belief revisions can be reordered
@@ -201,25 +201,27 @@ export function runSyncSelfTests(): SelfTestReport {
     // 54. Neither side destroyed: after adopt-merge the union has BOTH captures.
     ok("54. adoption never destroys either side (union has both)", d.state.captures.length === 2);
 
-    // 55-57. RESURRECTION, pinned (LIFEOS-074 tombstone gate).
+    // 55-57. RESURRECTION is now prevented (LIFEOS-074 D-24).
     //
-    // `mergeLocalOnly` treats "absent from remote" as "new here", which is
-    // right for a capture typed during sign-in and wrong for a record another
-    // device deleted — the two are indistinguishable without consulting a
-    // deletion marker, and nothing consults one. These assertions state the
-    // CURRENT behaviour so the defect is measured rather than assumed; they are
-    // written to fail once a deletion marker is honoured, which is the signal
-    // to revisit them.
+    // `mergeLocalOnly` still treats "absent from remote" as "new here" — that is
+    // correct for a capture typed during sign-in. What changed is that the
+    // adoption path suppresses tombstoned records BEFORE reconciling, so a
+    // record deleted on another device never reaches this function as local-only.
     const remoteAfterDelete = { ...emptyS, sources: [{ id: "s1" }], captures: [{ id: "c-keep" }] } as unknown as StoreState;
-    const staleLocal = { ...emptyS, captures: [{ id: "c-keep" }, { id: "c-deleted-elsewhere" }] } as unknown as StoreState;
-    const dRes = reconcileAdoption({ remote: remoteAfterDelete, local: staleLocal, remoteHasData: true, localHasData: true, migratedFor: "user-1", userId: "user-1", empty: emptyS });
-    ok("55. PINNED: a record deleted on another device returns on adoption",
-      (dRes.state.captures as { id: string }[]).some((c) => c.id === "c-deleted-elsewhere"),
-      "a deletion marker is now honoured — revisit this pin and the gate report");
-    ok("56. …and is queued to be pushed back to the server", dRes.pushLocalOnly === true);
-    ok("57. the tombstone layer that would stop it is never consulted here",
-      applyTombstones("captures", [{ id: "c-deleted-elsewhere", updatedAt: at(10) }],
-        [makeTombstone("captures", "c-deleted-elsewhere", at(50))]).suppressed.includes("c-deleted-elsewhere"));
+    const staleLocal = { ...emptyS, captures: [{ id: "c-keep", updatedAt: at(10) }, { id: "c-deleted-elsewhere", updatedAt: at(10) }] } as unknown as StoreState;
+    const tombs = [makeTombstone("captures", "c-deleted-elsewhere", at(50))];
+    const cleaned = suppressDeleted(staleLocal, tombs);
+    const dRes = reconcileAdoption({ remote: remoteAfterDelete, local: cleaned, remoteHasData: true, localHasData: true, migratedFor: "user-1", userId: "user-1", empty: emptyS });
+    ok("55. a record deleted on another device does NOT return on adoption",
+      !(dRes.state.captures as { id: string }[]).some((c) => c.id === "c-deleted-elsewhere"),
+      JSON.stringify((dRes.state.captures as { id: string }[]).map((c) => c.id)));
+    ok("56. …and is therefore never queued to be pushed back", dRes.pushLocalOnly === false, JSON.stringify(dRes.action));
+    ok("57. …while an unrelated local-only record still survives adoption",
+      (reconcileAdoption({ remote: remoteAfterDelete, local: suppressDeleted({ ...emptyS, captures: [{ id: "c-brand-new", updatedAt: at(99) }] } as unknown as StoreState, tombs), remoteHasData: true, localHasData: true, migratedFor: "user-1", userId: "user-1", empty: emptyS })
+        .state.captures as { id: string }[]).some((c) => c.id === "c-brand-new"));
+    ok("57b. a record edited AFTER the delete is kept — resurrection intent is honoured",
+      (suppressDeleted({ ...emptyS, captures: [{ id: "c-deleted-elsewhere", updatedAt: at(99) }] } as unknown as StoreState, tombs)
+        .captures as { id: string }[]).some((c) => c.id === "c-deleted-elsewhere"));
   }
 
   // 58-61. Belief revisions are strictly APPEND-ONLY (LIFEOS-074 §7).

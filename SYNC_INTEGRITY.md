@@ -22,6 +22,23 @@ capability does.
 mode, referential-integrity validation, restore safety, and the reactive status
 store are all wired into the running product.
 
+> **Correction (LIFEOS-074 D-24).** The sentence above was written by the D-9
+> repair, whose whole purpose was to separate what is live from what is not —
+> and it got tombstones wrong. They were **written and never read**:
+> `sync_tombstones` had no `select` anywhere, `applyTombstones` had no caller,
+> and the suppression never ran. A record deleted on one device was resurrected
+> by any other client that still held it, pushed back to the server, and then
+> re-adopted by the device that deleted it. The tombstone is now genuinely live —
+> `loadTombstones` reads the ledger on the adoption path and `suppressDeleted`
+> applies it before a stale record can be merged — and the claim above is true as
+> of this correction. It is left visible rather than silently edited, because
+> "documented as live" is exactly the kind of evidence that stopped anyone
+> looking.
+>
+> `cleanupTombstones` remains unwired on purpose: tombstones are permanent, which
+> is the conservative choice, since an expired marker would allow resurrection
+> again.
+
 **Built, tested, and NOT wired.** `merge.ts` (three-way field merge) and
 `conflicts.ts` (conflict detection) are complete and covered by the sync suite,
 and **no production code path calls them**. `threeWayMerge` is reached only by
@@ -162,6 +179,32 @@ mounted and functional; per §0, in production it has nothing to list.
     so it is unit-testable without a live backend.
 
 ---
+
+## 2B. Cross-device deletion claim (LIFEOS-074 D-24)
+
+> **Conqify does not resurrect a record deleted on another device.**
+
+PASS. Proved by driving the real adapter, the real adoption path and a real push
+end to end (`scripts/inject-074-tombstone-gate.cjs`, section G):
+
+  A. Device A and Device B both hold record X.
+  B. Device A deletes X.
+  C. The remote row is genuinely removed.
+  D. The tombstone is written — and, unlike before, is READ back.
+  E. Device B adopts: X does not return, and neither does its dependency edge
+     nor its recurrence completion.
+  F. Device B pushes its state: X does not reappear remotely.
+  G. Device A reloads: X remains deleted.
+
+**One residual window, stated rather than hidden.** If the remote delete succeeds
+and the tombstone write fails, there is no marker until the retry lands. The
+domain stays dirty and sync reads "Sync incomplete" for the whole interval — it
+never claims durability it does not have — but a stale client adopting inside
+that window still resurrects the record. Both the window and its closure are
+pinned (F5-F8 in the same script).
+
+**Scope.** A single client was never affected: local is authoritative, the delete
+lands locally and remotely, and the next load agrees.
 
 ## 3. The ten cross-device scenarios
 
