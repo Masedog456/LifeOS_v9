@@ -5,6 +5,12 @@
  * person, so every state below is asserted on the RENDERED indicator, measured.
  * The health module is driven directly through its test seams, because there is
  * no production Supabase in this environment to fail on demand.
+ *
+ * LIFEOS-075 §14 renamed two of these labels: `synced` reads "Synced" (was
+ * "Saved") and `syncing` reads "Syncing…" (was "Saving…"), because the old set
+ * gave the WEAKER state — local-only — the longer, more reassuring phrase. The
+ * assertions below moved with the product; the property each one tests is
+ * unchanged, and 9 additionally still forbids a bare "Saved".
  */
 const { chromium } = require("playwright-core");
 const BASE = "http://localhost:3111";
@@ -78,12 +84,12 @@ const BREAK_LOCAL = `(() => { const p = Object.getPrototypeOf(window.localStorag
 
     ok(`${vp.label} 6 the dev health harness is reachable`, await press("synced"));
     const synced = await indicator();
-    ok(`${vp.label} 7 a full sync reads "Saved"`, /^Saved$/.test(synced.text), JSON.stringify(synced));
+    ok(`${vp.label} 7 a full sync reads "Synced"`, /^Synced$/.test(synced.text), JSON.stringify(synced));
 
     await press("incomplete");
     const inc = await indicator();
     ok(`${vp.label} 8 a PARTIAL sync reads "Sync incomplete"`, /Sync incomplete/.test(inc.text), JSON.stringify(inc));
-    ok(`${vp.label} 9 …and never reads "Saved"`, !/^Saved$/.test(inc.text), inc.text);
+    ok(`${vp.label} 9 …and never reads "Synced" or a bare "Saved"`, !/^Synced$/.test(inc.text) && !/^Saved$/.test(inc.text), inc.text);
     ok(`${vp.label} 10 …and is VISIBLE without opening /health`, visible(inc), JSON.stringify(inc));
     ok(`${vp.label} 11 …offering a retry`, !!(await page.$("[data-sync-status] button")), "no retry control");
 
@@ -97,7 +103,7 @@ const BREAK_LOCAL = `(() => { const p = Object.getPrototypeOf(window.localStorag
 
     await press("synced");
     const back = await indicator();
-    ok(`${vp.label} 14 recovery returns to "Saved"`, /^Saved$/.test(back.text), JSON.stringify(back));
+    ok(`${vp.label} 14 recovery returns to "Synced"`, /^Synced$/.test(back.text), JSON.stringify(back));
     if (MOBILE) ok(`${vp.label} 15 …and stops shouting on a phone once healthy`, back.display === "none", JSON.stringify(back));
     else ok(`${vp.label} 15 …and stays visible on a wide screen`, visible(back), JSON.stringify(back));
 

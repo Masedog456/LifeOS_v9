@@ -47,9 +47,46 @@
 
 import type { StoreState } from "@/types/mvp";
 import { applyTombstones, type Tombstone } from "@/lib/sync/tombstones";
+import { STORE_DOMAINS } from "@/lib/ux/backup";
 
 /** A record with an id — every synced domain row has one. */
 type Ided = { id?: string };
+
+/**
+ * Does this snapshot hold ANY of the user's records? (LIFEOS-075 C-1.)
+ *
+ * This decides, at sign-in, whether remote is worth adopting and whether local
+ * is worth migrating up. It used to be four hand-written domain names —
+ * `sources`, `beliefs`, `captures`, `proposals` — the whole store as it stood
+ * when the check was written. Persistence has synced 46 domains for many
+ * sprints, so a person whose life in Conqify is actions, projects, goals,
+ * notes, events and readings, and who never once used Quick Capture, had a
+ * remote snapshot that read as EMPTY. A cold second device took the
+ * "migrate-local" branch, installed its own empty state, and showed them
+ * nothing — while the indicator read "Saved".
+ *
+ * The repair is not a fifth list. `STORE_DOMAINS` is the canonical enumeration
+ * of what a Conqify account IS: `upgradeState` already treats it as the
+ * allow-list that decides which keys survive a restore, and LIFEOS-052 already
+ * fixed exactly this defect class there (nine execution domains missing, so a
+ * restore silently dropped every next action). Deriving from it means a domain
+ * added in a future sprint is counted here the moment it can be backed up, and
+ * `syncDomainListsAgree` in lib/sync/selftest.ts fails the build if the three
+ * lists that exist — this one, `SYNC_DOMAIN_ORDER`, and the keys `normalize()`
+ * produces — ever drift apart again.
+ *
+ * Deliberately NOT a record count or a "meaningful data" heuristic: one row in
+ * one domain is someone's data, and the only safe question is whether anything
+ * is there at all.
+ */
+export function snapshotHasData(s: Partial<StoreState> | null | undefined): boolean {
+  if (!s) return false;
+  for (const domain of STORE_DOMAINS) {
+    const v = s[domain];
+    if (Array.isArray(v) && v.length > 0) return true;
+  }
+  return false;
+}
 
 /**
  * Union any LOCAL-ONLY records (by id, per domain) into the remote snapshot.
@@ -106,6 +143,7 @@ export function suppressDeleted(local: StoreState, tombstones: Tombstone[]): Sto
   const out: Record<string, unknown> = { ...(local as unknown as Record<string, unknown>) };
   let changed = false;
   const suppressedActions = new Set<string>();
+  const suppressedDocuments = new Set<string>();
 
   for (const key of Object.keys(local) as (keyof StoreState)[]) {
     const arr = local[key] as unknown;
@@ -119,6 +157,7 @@ export function suppressDeleted(local: StoreState, tombstones: Tombstone[]): Sto
     );
     if (!suppressed.length) continue;
     if (key === "nextActions") for (const id of suppressed) suppressedActions.add(id);
+    if (key === "documents") for (const id of suppressed) suppressedDocuments.add(id);
     out[key] = survivors;
     changed = true;
   }
@@ -128,6 +167,21 @@ export function suppressDeleted(local: StoreState, tombstones: Tombstone[]): Sto
     const kept = (out.recurrenceCompletions as typeof comps | undefined) ?? comps;
     const pruned = kept.filter((c) => !suppressedActions.has(c.actionId));
     if (pruned.length !== kept.length) { out.recurrenceCompletions = pruned; changed = true; }
+  }
+
+  // Citations follow their document, for the same reason completions follow
+  // their action (LIFEOS-075 C-2): `document_citations.document_id` references
+  // `reading_documents(id) ON DELETE CASCADE` since 0021, so the row is already
+  // gone server-side. Pushing a stale citation back would re-create a pointer
+  // into a document this account no longer has — the foreign-key wedge D-10
+  // documented. Sections, passages, highlights and annotations need no entry
+  // here: they live INSIDE the ReadingDocument object, so suppressing the
+  // document already removed them.
+  if (suppressedDocuments.size) {
+    const cites = local.citations ?? [];
+    const kept = (out.citations as typeof cites | undefined) ?? cites;
+    const pruned = kept.filter((c) => !suppressedDocuments.has(c.documentId));
+    if (pruned.length !== kept.length) { out.citations = pruned; changed = true; }
   }
 
   return changed ? (out as unknown as StoreState) : local;

@@ -16,10 +16,11 @@ import type { StoreState } from "@/types/mvp";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 import { SupabasePersistenceAdapter } from "@/lib/adapters/supabaseAdapter";
 import type { PersistenceHealth, SyncState } from "@/lib/adapters/types";
-import { reconcileAdoption, suppressDeleted } from "@/lib/persistence-reconcile";
+import { reconcileAdoption, snapshotHasData, suppressDeleted } from "@/lib/persistence-reconcile";
 import * as authStore from "@/lib/authStore";
 import { markBootstrap } from "@/lib/security/auth-bootstrap";
 import { INTERVIEW_STORAGE_KEY } from "@/lib/interview/session";
+import { STORE_DOMAINS, emptyStoreState } from "@/lib/ux/backup";
 
 const STORAGE_KEY = "lifeos.mvp.v1";
 const MIGRATED_KEY = "lifeos.migrated.v1";
@@ -77,62 +78,33 @@ function setHealth(next: Partial<PersistenceHealth>): void {
   listeners.forEach((l) => l());
 }
 
+/**
+ * Fill every canonical domain, defaulting to an empty array (LIFEOS-075 C-1).
+ *
+ * This used to be a 46-line literal repeating `STORE_DOMAINS` by hand — a
+ * third copy of the domain list, alongside the backup allow-list and
+ * `SYNC_DOMAIN_ORDER`. Keys unknown to `STORE_DOMAINS` are dropped, which is
+ * the same allow-list behaviour `upgradeState` already applies on restore.
+ */
 function normalize(partial: Partial<StoreState> | null): StoreState {
-  return {
-    captures: partial?.captures ?? [],
-    proposals: partial?.proposals ?? [],
-    beliefs: partial?.beliefs ?? [],
-    sources: partial?.sources ?? [],
-    feedback: partial?.feedback ?? [],
-    comparisons: partial?.comparisons ?? [],
-    inquiries: partial?.inquiries ?? [],
-    megathreads: partial?.megathreads ?? [],
-    reflections: partial?.reflections ?? [],
-    practices: partial?.practices ?? [],
-    reviews: partial?.reviews ?? [],
-    reasonings: partial?.reasonings ?? [],
-    embeddings: partial?.embeddings ?? [],
-    decisions: partial?.decisions ?? [],
-    formationSessions: partial?.formationSessions ?? [],
-    concepts: partial?.concepts ?? [],
-    conceptRelationships: partial?.conceptRelationships ?? [],
-    principles: partial?.principles ?? [],
-    frameworks: partial?.frameworks ?? [],
-    knowledgeProjects: partial?.knowledgeProjects ?? [],
-    researchProjects: partial?.researchProjects ?? [],
-    dialogueSessions: partial?.dialogueSessions ?? [],
-    tensions: partial?.tensions ?? [],
-    syntheses: partial?.syntheses ?? [],
-    recommendations: partial?.recommendations ?? [],
-    documents: partial?.documents ?? [],
-    citations: partial?.citations ?? [],
-    workspaces: partial?.workspaces ?? [],
-    sessions: partial?.sessions ?? [],
-    goals: partial?.goals ?? [],
-    projects: partial?.projects ?? [],
-    dailyReviews: partial?.dailyReviews ?? [],
-    nextActions: partial?.nextActions ?? [],
-    actionDependencies: partial?.actionDependencies ?? [],
-    actionTemplates: partial?.actionTemplates ?? [],
-    planningAssignments: partial?.planningAssignments ?? [],
-    focusSessions: partial?.focusSessions ?? [],
-    maintenanceEvents: partial?.maintenanceEvents ?? [],
-    duplicateCandidates: partial?.duplicateCandidates ?? [],
-    savedInsightViews: partial?.savedInsightViews ?? [],
-    notes: partial?.notes ?? [],
-    protocols: partial?.protocols ?? [],
-    constitutionElements: partial?.constitutionElements ?? [],
-    constitutionRevisions: partial?.constitutionRevisions ?? [],
-    events: partial?.events ?? [],
-    recurrenceCompletions: partial?.recurrenceCompletions ?? [],
-  };
+  const out = emptyStoreState() as unknown as Record<string, unknown>;
+  if (partial) {
+    for (const d of STORE_DOMAINS as string[]) {
+      const v = (partial as unknown as Record<string, unknown>)[d];
+      if (Array.isArray(v)) out[d] = v;
+    }
+  }
+  return out as unknown as StoreState;
 }
 
-function hasData(s: Partial<StoreState> | null): boolean {
-  return Boolean(
-    s && ((s.sources?.length ?? 0) || (s.beliefs?.length ?? 0) || (s.captures?.length ?? 0) || (s.proposals?.length ?? 0)),
-  );
-}
+/**
+ * Whether a snapshot holds any of the user's records at all (LIFEOS-075 C-1).
+ *
+ * Delegated to the canonical, `STORE_DOMAINS`-derived predicate rather than
+ * re-listing domains here. See `snapshotHasData` for why the previous
+ * four-domain version cost a cold second device its entire account.
+ */
+const hasData = snapshotHasData;
 
 // ---------------- local (synchronous) ----------------
 

@@ -43,6 +43,22 @@ export const STORE_DOMAINS: (keyof StoreState)[] = [
   "events", "recurrenceCompletions",
 ];
 
+/**
+ * A StoreState with every canonical domain present and empty (LIFEOS-075 C-1).
+ *
+ * Built from `STORE_DOMAINS` so there is exactly ONE place that knows what a
+ * Conqify account contains. `lib/persistence.ts:normalize` previously carried
+ * its own 46-line literal of the same names, and `lib/sync/selftest.ts` a third
+ * — the four-domain `hasData()` that cost a cold second device its whole
+ * account was the same failure one step further along. Fewer lists is a better
+ * repair than a test that watches lists drift.
+ */
+export function emptyStoreState(): StoreState {
+  const s: Record<string, unknown[]> = {};
+  for (const d of STORE_DOMAINS) s[d as string] = [];
+  return s as unknown as StoreState;
+}
+
 export interface LifeOSBackup {
   schemaVersion: number;
   exportedAt: string;

@@ -332,6 +332,72 @@ function run() {
         and k.column_name in ('goal_id','project_id','current_action_id');`).trim();
     ok("074: …as soft references, with no foreign key", sessFks === "0", `found ${sessFks}`);
 
+    // ---- LIFEOS-075 C-2: ONE tombstone on the parent is enough --------------
+    //
+    // The repair mints a single `documents` tombstone when a reading is
+    // deleted, on the argument that the database already owns every child row.
+    // §2 of the brief says to prove that rather than assume it, because "the
+    // cascade handles it" is exactly the kind of belief that produced D-24.
+    // So: build a full reading — section, passage, highlight, annotation,
+    // citation, and a file-metadata row — delete ONLY the parent, and count.
+    const DOCID = "11111111-1111-4111-8111-111111111111";
+    const SECID = "22222222-2222-4222-8222-222222222222";
+    const PASID = "33333333-3333-4333-8333-333333333333";
+    const HLID  = "44444444-4444-4444-8444-444444444444";
+    // user_id auto-fills from the auth.uid() column default, as everywhere else here.
+    asA(`insert into public.reading_documents(id, title, kind, status, authors, tags, notes, source_metadata, progress)
+         values ('${DOCID}', 'Being and Time', 'book', 'reading', '{}', '{}', '', '{}'::jsonb, '{}'::jsonb);`);
+    asA(`insert into public.document_sections(id, document_id, title, "order")
+         values ('${SECID}', '${DOCID}', 'I', 1);`);
+    asA(`insert into public.document_passages(id, document_id, section_id, text, "order")
+         values ('${PASID}', '${DOCID}', '${SECID}', 'Dasein', 1);`);
+    asA(`insert into public.document_highlights(id, document_id, passage_id, color, text, start_offset, end_offset)
+         values ('${HLID}', '${DOCID}', '${PASID}', 'yellow', 'Dasein', 0, 6);`);
+    asA(`insert into public.document_annotations(id, document_id, passage_id, text)
+         values (gen_random_uuid(), '${DOCID}', '${PASID}', 'note to self');`);
+    asA(`insert into public.document_citations(id, document_id, passage_id, record_kind, record_id)
+         values (gen_random_uuid(), '${DOCID}', '${PASID}', 'belief', 'b1');`);
+    asA(`insert into public.reading_document_files(id, document_id, storage_path, filename, checksum)
+         values (gen_random_uuid(), '${DOCID}', '${A}/${DOCID}/being.pdf', 'being.pdf', repeat('a', 64));`);
+
+    const childCount = () => Number(asA(`select
+        (select count(*) from public.document_sections    where document_id = '${DOCID}')
+      + (select count(*) from public.document_passages    where document_id = '${DOCID}')
+      + (select count(*) from public.document_highlights  where document_id = '${DOCID}')
+      + (select count(*) from public.document_annotations where document_id = '${DOCID}')
+      + (select count(*) from public.document_citations   where document_id = '${DOCID}');`).trim());
+    ok("075: a reading with all five child kinds is set up", childCount() === 5, `found ${childCount()}`);
+
+    // Delete ONLY the parent row — exactly what the adapter now does.
+    asA(`delete from public.reading_documents where id = '${DOCID}';`);
+    ok("075: deleting the reading cascades away every child row",
+      childCount() === 0, `${childCount()} child rows survived the parent delete`);
+
+    // And the one row that does NOT cascade, stated rather than assumed:
+    // `reading_document_files.document_id` is a SOFT reference (0032 declares no
+    // foreign key), so the app deletes it explicitly in removeOriginalsForDocument.
+    const fileRows = asA(`select count(*) from public.reading_document_files where document_id = '${DOCID}';`).trim();
+    ok("075: file metadata does NOT cascade — the app owns that cleanup",
+      fileRows === "1", `found ${fileRows}`);
+    const fileFks = asA(`select count(*) from information_schema.table_constraints tc
+      join information_schema.key_column_usage k on k.constraint_name = tc.constraint_name
+      where tc.table_name='reading_document_files' and tc.constraint_type='FOREIGN KEY'
+        and k.column_name = 'document_id';`).trim();
+    ok("075: …because document_id carries no foreign key (0027 soft-reference doctrine)",
+      fileFks === "0", `found ${fileFks}`);
+    asA(`delete from public.reading_document_files where document_id = '${DOCID}';`);
+
+    // C-4: the checksum column must hold a 64-character SHA-256 hex digest.
+    // Checked before writing any code that assumed it — the alternative was a
+    // migration, and the brief's rule is zero migrations unless forced.
+    const sumType = asA(`select data_type from information_schema.columns
+      where table_schema='public' and table_name='reading_document_files' and column_name='checksum';`).trim();
+    ok("075: checksum is an unbounded text column, so SHA-256 needs no migration",
+      sumType === "text", `type is ${sumType}`);
+    ok("075: …and a full 64-character digest is accepted",
+      tryA(`insert into public.reading_document_files(id, document_id, storage_path, filename, checksum)
+            values (gen_random_uuid(), gen_random_uuid(), '${A}/x/y.pdf', 'y.pdf', repeat('9', 64));`));
+
     // Occurrence identity: the anti-duplicate guarantee.
     asA(`insert into public.recurrence_completions(id, action_id, occurrence_date) values (gen_random_uuid(), '${AID}', date '2026-08-23');`);
     ok("061: a duplicate (action, occurrence) completion is refused",

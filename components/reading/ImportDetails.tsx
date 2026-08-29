@@ -66,7 +66,11 @@ export default function ImportDetails({ doc }: { doc: ReadingDocument }) {
                 <dt>Searchable sections</dt><dd className="text-right tabular-nums text-zinc-700 dark:text-zinc-200">{fmt(chunkCount)}</dd>
                 <dt>Original file</dt>
                 <dd className="text-right text-zinc-700 dark:text-zinc-200">
-                  {doc.sourceMetadata.originalStored ? "Safely stored" : "Not stored"}
+                  {/* The recorded state, not a live check. The reader strip
+                      verifies the object is actually resolvable before it says
+                      "safely stored" (LIFEOS-075 §4); this panel must not make
+                      the stronger claim on weaker evidence. */}
+                  {doc.sourceMetadata.originalStored ? "Stored" : "Not stored"}
                 </dd>
               </dl>
               {report.warnings.length > 0 && (

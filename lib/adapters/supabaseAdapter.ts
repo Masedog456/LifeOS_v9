@@ -524,7 +524,27 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (dHl.deleteIds.length) await this.throwing(this.client.from("document_highlights").delete().in("id", dHl.deleteIds));
     if (dPas.deleteIds.length) await this.throwing(this.client.from("document_passages").delete().in("id", dPas.deleteIds));
     if (dSec.deleteIds.length) await this.throwing(this.client.from("document_sections").delete().in("id", dSec.deleteIds));
-    if (removedDocIds.length) await this.throwing(this.client.from("reading_documents").delete().in("id", removedDocIds));
+    if (removedDocIds.length) {
+      await this.throwing(this.client.from("reading_documents").delete().in("id", removedDocIds));
+      // LIFEOS-075 C-2 — a deleted reading needs a deletion marker like every
+      // other record class, and until now it was the ONLY row-level delete in
+      // this adapter without one. Deleting a book on one device removed the row
+      // AND the stored original, but left no marker; a second device still
+      // holding it treated it as local-only, pushed it back, and the deleting
+      // device re-adopted it — with `originalStored: true` and a storage path
+      // pointing at bytes that no longer exist. That is D-24's shape landing
+      // directly in the metadata-without-blob state.
+      //
+      // ONE tombstone, on the PARENT. Sections, passages, highlights and
+      // annotations are nested inside the ReadingDocument object in StoreState,
+      // so suppressing the document takes the whole tree with it locally; and
+      // server-side all four child tables plus `document_citations` are
+      // `references public.reading_documents(id) on delete cascade` (0021), so
+      // the database already owns their cleanup. Minting a tombstone per child
+      // row would be inventing a cascade the schema already guarantees. The
+      // migration rehearsal proves that cascade rather than assuming it.
+      await this.writeTombstones("documents", removedDocIds);
+    }
   }
 
   private async syncCitations(current: Citation[], base: Citation[]): Promise<void> {

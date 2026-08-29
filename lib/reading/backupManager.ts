@@ -21,7 +21,8 @@
 
 import { setDocumentOriginal } from "@/lib/mvpStore";
 import {
-  backupOriginal, removeOriginalsForDocument, getOriginalsBackend, originalsConfigured,
+  backupOriginal, classifyResolveFailure, removeOriginalsForDocument, resolveOriginalUrl,
+  getOriginalsBackend, originalsConfigured,
 } from "@/lib/reading/originals";
 
 interface PendingBackup {
@@ -29,7 +30,8 @@ interface PendingBackup {
   filename: string;
   contentType: string;
   sizeBytes: number;
-  checksum: string;
+  /** SHA-256 of the raw file bytes, or null when it could not be computed. */
+  checksum: string | null;
 }
 
 // docId -> the picked File + provenance, kept only for this session (for Retry).
@@ -44,6 +46,59 @@ export function originalsCapabilityConfigured(): boolean {
 /** Whether a failed backup can be retried right now (the File is still in memory). */
 export function canRetryOriginalBackup(docId: string): boolean {
   return pending.has(docId);
+}
+
+/**
+ * Is an upload for this document being driven by THIS session? (LIFEOS-075 C-5.)
+ *
+ * `originalBackup: "uploading" | "failed"` describes an operation owned by one
+ * browser tab and one in-memory `File`. It used to be written into the
+ * document's `sourceMetadata`, which syncs — so a second device could render
+ * "Uploading original…" forever for an upload that finished (or died) somewhere
+ * else, beside a Retry button that could not possibly work. It survived a
+ * reload on the SAME device for the same reason: the `File` is gone, but the
+ * word stayed on disk.
+ *
+ * The truthful test is not what the string says, it is whether this session
+ * actually holds the file. `documentToRows` additionally strips the transient
+ * value on the way to the server, so it never travels at all.
+ */
+export function ownsOriginalBackup(docId: string): boolean {
+  return pending.has(docId) || inFlight.has(docId);
+}
+
+export type OriginalAvailability = "available" | "missing" | "unknown" | "no-capability";
+
+export interface OriginalUrlResult {
+  availability: OriginalAvailability;
+  url?: string;
+  reason?: string;
+}
+
+/**
+ * Resolve a fresh, short-lived signed URL for a document's stored original
+ * (LIFEOS-075 C-3).
+ *
+ * `resolveOriginalUrl` has existed since LIFEOS-047A and, until now, was called
+ * by nothing but a self-test: the reader said "✓ Original safely stored" and
+ * offered no way to open it, on any device. This is the production caller.
+ *
+ * The URL is resolved FRESH each time and never written to the store. Signed
+ * URLs expire in 60 seconds by design; persisting one as document metadata
+ * would sync a credential-bearing link to every device and have it be dead on
+ * arrival. Nothing here caches.
+ *
+ * A failure is classified rather than flattened, because "the file is gone" and
+ * "we couldn't reach storage just now" must not read the same to a user:
+ * a not-found-shaped error is `missing`; anything else is `unknown`.
+ */
+export async function resolveStoredOriginal(docId: string, storagePath?: string): Promise<OriginalUrlResult> {
+  if (!originalsConfigured()) return { availability: "no-capability" };
+  const backend = await getOriginalsBackend();
+  if (!backend) return { availability: "no-capability" };
+  const res = await resolveOriginalUrl(backend, { documentId: docId, storagePath });
+  if (res.ok && res.url) return { availability: "available", url: res.url };
+  return { availability: classifyResolveFailure(res.error), reason: res.error ?? "unknown" };
 }
 
 async function run(docId: string): Promise<void> {
@@ -89,7 +144,7 @@ async function run(docId: string): Promise<void> {
  * freshly-created ReadingDocument. Only meaningful for real file uploads; paste
  * and link have no original binary. Fire-and-forget — safe to call then navigate.
  */
-export function startOriginalBackup(docId: string, file: File, prov: { filename: string; contentType: string; sizeBytes: number; checksum: string }): void {
+export function startOriginalBackup(docId: string, file: File, prov: { filename: string; contentType: string; sizeBytes: number; checksum: string | null }): void {
   if (!originalsConfigured()) return; // local-only mode: no cloud, nothing to back up
   pending.set(docId, { file, ...prov });
   void run(docId);

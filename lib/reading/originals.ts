@@ -92,7 +92,8 @@ export interface BackupInput {
   filename: string;
   contentType: string;
   sizeBytes: number;
-  checksum: string;
+  /** SHA-256 of the raw file bytes (LIFEOS-075 C-4), or null when unavailable. */
+  checksum: string | null;
   data: Blob | ArrayBuffer | Uint8Array;
 }
 export type BackupResult =
@@ -183,6 +184,20 @@ export async function resolveOriginalUrl(
     if (!path) return { ok: false, error: "not-found" };
   }
   return backend.signedUrl(path, SIGNED_URL_TTL_SECONDS);
+}
+
+/**
+ * Why a signed URL could not be produced (LIFEOS-075 C-3 / §4).
+ *
+ * "The file is gone" and "we couldn't reach storage just now" must not read the
+ * same to a user: the first means the original is genuinely not there and
+ * "safely stored" would be a false claim; the second means we do not know, and
+ * saying the file is missing would be its own false claim. Kept pure and here,
+ * beside the resolver, so both the classification and the wording that depends
+ * on it are testable without a browser.
+ */
+export function classifyResolveFailure(reason: string | undefined): "missing" | "unknown" {
+  return /not[-\s]?found|no such|does not exist|no-url/i.test(reason ?? "") ? "missing" : "unknown";
 }
 
 // --------------------------------------------------------------- real backend --
