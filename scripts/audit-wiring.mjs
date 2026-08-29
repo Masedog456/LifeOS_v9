@@ -103,6 +103,85 @@ const writeOnly = [...tables].filter((t) =>
 console.log(`\nTables the adapter WRITES but never READS (${writeOnly.length}): ${writeOnly.join(", ") || "(none)"}`);
 ok("no table is written and never read (the D-24 shape)", writeOnly.length === 0, writeOnly.join(", "));
 
+// ---- the file path, link by link (LIFEOS-075 §17) --------------------------
+//
+// The 074 register works at FILE level, which is right for whole stranded
+// modules but blind to the shape 075 found: `lib/reading/originals.ts` was
+// imported (for backup) while `resolveOriginalUrl` inside it had no caller at
+// all, and `lib/reading/semanticIndex.ts` was imported (for delete) while
+// `indexDocument` had none. A module can be alive and its most important
+// function dead.
+//
+// So the file-storage chain is pinned CALL BY CALL. "Exists" is not the
+// question — each link asserts that some production file other than the
+// definition actually calls the next one.
+const prodFiles = [...src.entries()].filter(([f]) => {
+  const r = rel(f);
+  return !isTest(f) && /^(lib|app|components)\//.test(r);
+});
+/** Production files that CALL `sym`, excluding the modules it is defined in. */
+const callersOf = (sym, exclude = []) => prodFiles
+  .filter(([f]) => !exclude.some((e) => rel(f) === e))
+  .filter(([, t]) => new RegExp(`\\b${sym}\\s*\\(`).test(t))
+  .map(([f]) => rel(f));
+
+const CHAIN = [
+  ["upload UI reaches the backup manager", "startOriginalBackup", ["lib/reading/backupManager.ts"]],
+  ["the backup manager reaches the storage orchestration", "backupOriginal", ["lib/reading/originals.ts"]],
+  ["upload computes a checksum from the RAW FILE BYTES", "sha256Hex", ["lib/reading/fileIntegrity.ts"]],
+  ["the reader reaches signed-URL resolution", "resolveStoredOriginal", ["lib/reading/backupManager.ts"]],
+  ["…which reaches the one signed-URL implementation", "resolveOriginalUrl", ["lib/reading/originals.ts"]],
+  ["delete reaches blob removal", "removeStoredOriginal", ["lib/reading/backupManager.ts"]],
+  ["…which reaches the folder-scoped object delete", "removeOriginalsForDocument", ["lib/reading/originals.ts"]],
+  ["adoption reaches the deletion ledger", "loadTombstones", ["lib/adapters/supabaseAdapter.ts"]],
+  ["adoption reaches tombstone suppression", "suppressDeleted", ["lib/persistence-reconcile.ts"]],
+];
+
+// The sync indicator is checked separately rather than through `callersOf`:
+// it PASSES `getHealth` and `subscribeHealth` to `useSyncExternalStore` instead
+// of calling them, so a call-shaped sweep finds the diagnostics pages and not
+// the indicator — evidence that would not match the claim.
+{
+  const status = src.get(join(ROOT, "components/SyncStatus.tsx")) ?? "";
+  ok("chain: the sync indicator reads the live health store",
+    /from "@\/lib\/persistence"/.test(status) &&
+    /useSyncExternalStore\(\s*subscribeHealth,\s*getHealth/.test(status),
+    "SyncStatus no longer subscribes to the real persistence health store");
+  ok("chain: …and its retry button reaches the real retry path",
+    /retrySync\(\)/.test(status), "the Retry control is not wired to retrySync");
+}
+console.log("\nFILE-PATH CHAIN (LIFEOS-075 §17):");
+for (const [label, sym, exclude] of CHAIN) {
+  const cs = callersOf(sym, exclude);
+  console.log(`  ${cs.length ? "✓" : "✗"} ${sym} <- ${cs.join(", ") || "(NO PRODUCTION CALLER)"}`);
+  ok(`chain: ${label}`, cs.length > 0, `${sym} has no production caller`);
+}
+
+// The document delete must reach the tombstone write, not merely the row delete.
+const adapterDocDelete = adapter.slice(adapter.indexOf("private async syncReadingDocuments"));
+const docBlock = adapterDocDelete.slice(0, adapterDocDelete.indexOf("\n  }"));
+ok("chain: deleting a reading writes a deletion marker",
+  /writeTombstones\("documents"/.test(docBlock),
+  "syncReadingDocuments deletes reading_documents without a tombstone (LIFEOS-075 C-2)");
+
+/**
+ * Functions that are DELIBERATELY unwired — the register, not an allowlist.
+ *
+ * `indexDocument` builds the reading semantic index. It is complete and tested
+ * and nothing in production calls it, so `reading_chunk_embeddings` is never
+ * populated and retrieval never loads a vector. LIFEOS-075 §13 decided NOT to
+ * wire it: extracted-text cross-device durability is the sprint's claim, and
+ * semantic-index durability is not. Waking a dormant subsystem because it
+ * exists is how it got here. The entry stays until someone decides otherwise,
+ * and the check below fails if it is quietly wired without retiring the entry.
+ */
+const KNOWN_UNWIRED_FUNCTIONS = [["indexDocument", ["lib/reading/semanticIndex.ts"]]];
+for (const [sym, exclude] of KNOWN_UNWIRED_FUNCTIONS) {
+  const cs = callersOf(sym, exclude);
+  ok(`register: ${sym} is still unwired, as recorded`, cs.length === 0,
+    `${sym} is now called from ${cs.join(", ")} — retire its register entry and state the decision`);
+}
+
 const failed = results.filter((r) => !r.pass);
 console.log("");
 for (const r of results) console.log(`${r.pass ? "✓" : "✗"} ${r.name}${r.pass ? "" : ` — ${r.detail}`}`);

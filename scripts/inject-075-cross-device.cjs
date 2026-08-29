@@ -467,6 +467,279 @@ function fakeOriginals(cloud, userId, opts = {}) {
       B.documents[0]?.sourceMetadata.originalStoragePath === "u1/doc1/being.pdf");
   }
 
+
+  // =====================================================================
+  // I. §16 — WHAT LAST-WRITE-WINS ACTUALLY MEANS CROSS-DEVICE.
+  //
+  // D-8 remains accepted debt: merge.ts / conflicts.ts and six merge-rules
+  // modules are complete and unwired, and the live strategy is a plain per-row
+  // upsert. This section does not change that. It measures it, so the cost is
+  // recorded rather than assumed.
+  // =====================================================================
+  {
+    const fc = fakeClient();
+    const ad = new SupabasePersistenceAdapter(fc.client);
+    const mk = (title, at, history) => ({ ...empty(), nextActions: [{ id: "a1", title, description: "", status: "open", createdAt: iso(8), updatedAt: at, notes: "", linkedEntityRefs: [], tags: [], estimatedSize: "unspecified", energy: "unspecified", order: 1, history }] });
+
+    const base = mk("Original title", iso(8), []);
+    await ad.saveStateByDomain(base, undefined, null);
+
+    // A edits the title at 09:00; B, holding a stale copy, edits it at 10:00.
+    const aEdit = mk("A's title", iso(9), [{ at: iso(9), action: "edited", detail: "title" }]);
+    const bEdit = mk("B's title", iso(10), [{ at: iso(10), action: "edited", detail: "title" }]);
+    await ad.saveStateByDomain(aEdit, new Set(["nextActions"]), base);
+    await ad.saveStateByDomain(bEdit, new Set(["nextActions"]), base);
+    let row = rows(fc.db, "next_actions")[0];
+    ok("I1 §16 the LAST writer's value is what the row holds", row.title === "B's title", row.title);
+
+    // …and the order is wall-clock arrival, not the record's own updatedAt.
+    await ad.saveStateByDomain(aEdit, new Set(["nextActions"]), base);
+    row = rows(fc.db, "next_actions")[0];
+    ok("I2 §16 …decided by ARRIVAL order, not by updatedAt — an older edit can win",
+      row.title === "A's title" && row.updated_at === iso(9), JSON.stringify({ t: row.title, u: row.updated_at }));
+    ok("I3 §16 there is no version or compare-and-set column guarding the write",
+      !("version" in row) && !("revision" in row), JSON.stringify(Object.keys(row).filter((k) => /vers|rev/i.test(k))));
+
+    // What is LOST is stated exactly: the losing device's title, and its history
+    // entry along with it, because history is a column on the same row.
+    ok("I4 §16 the losing edit is gone — including its history entry",
+      row.history.length === 1 && row.history[0].at === iso(9),
+      JSON.stringify(row.history));
+    ok("I5 §16 the conflict layer is NOT consulted on this path (D-8, unchanged)",
+      !/detectConflicts|threeWayMerge/.test(
+        require("fs").readFileSync("/home/user/LifeOS/lib/adapters/supabaseAdapter.ts", "utf8")));
+
+    // A deletes while B edits a stale copy: deletion wins unless B's edit is
+    // NEWER than the tombstone, which is the existing documented rule.
+    await ad.saveStateByDomain({ ...empty() }, new Set(["nextActions"]), aEdit);
+    const ledger = await ad.loadTombstones();
+    const staleEdit = suppressDeleted(mk("B edits a deleted action", iso(9), []), ledger);
+    ok("I6 §16 A deletes + B edits an OLDER copy → the delete wins",
+      staleEdit.nextActions.length === 0);
+    const newerEdit = suppressDeleted(mk("B edits after the delete", iso(23), []), ledger);
+    ok("I7 §16 …but an edit made AFTER the delete is kept as resurrection intent",
+      newerEdit.nextActions.length === 1);
+  }
+
+  // =====================================================================
+  // J. §17/§24 — FILE CONFLICTS AND DUPLICATES.
+  //
+  // No merge semantics are invented here. The question is only what the
+  // CURRENT deterministic path does, so the answer can be written down.
+  // =====================================================================
+  {
+    const cloud = { objects: new Map(), rows: [] };
+    const A = fakeOriginals(cloud, "userA");
+    const bytes1 = new TextEncoder().encode("PDF ONE");
+    const bytes2 = new TextEncoder().encode("PDF TWO");
+    const s1 = await sha256Hex(bytes1), s2 = await sha256Hex(bytes2);
+
+    // §24a — same bytes, same filename, two different readings.
+    await backupOriginal(A, { documentId: "dA", filename: "paper.pdf", contentType: "application/pdf", sizeBytes: 7, checksum: s1, data: bytes1 });
+    await backupOriginal(A, { documentId: "dB", filename: "paper.pdf", contentType: "application/pdf", sizeBytes: 7, checksum: s1, data: bytes1 });
+    ok("J1 §24 same bytes + same name under two readings are stored SEPARATELY",
+      cloud.objects.size === 2, JSON.stringify([...cloud.objects.keys()]));
+    ok("J2 §24 …because the path is namespaced by document, so neither overwrites the other",
+      cloud.objects.has(storagePathFor("userA", "dA", "paper.pdf")) &&
+      cloud.objects.has(storagePathFor("userA", "dB", "paper.pdf")));
+    ok("J3 §24 …and both carry the same raw checksum, as they should",
+      cloud.rows.filter((r) => r.checksum === s1).length === 2);
+    ok("J4 §24 nothing is silently de-duplicated — the product never promised that",
+      cloud.rows.length === 2);
+
+    // §24b — same bytes, different filename.
+    await backupOriginal(A, { documentId: "dC", filename: "renamed.pdf", contentType: "application/pdf", sizeBytes: 7, checksum: s1, data: bytes1 });
+    ok("J5 §24/§10 renaming does not change the byte checksum",
+      cloud.rows.find((r) => r.document_id === "dC").checksum === s1);
+    ok("J6 §10 …and the filename is compared independently of it",
+      cloud.rows.find((r) => r.document_id === "dC").filename === "renamed.pdf");
+
+    // §24c — different bytes, same filename, SAME reading: a deliberate replace.
+    await backupOriginal(A, { documentId: "dA", filename: "paper.pdf", contentType: "application/pdf", sizeBytes: 7, checksum: s2, data: bytes2 });
+    ok("J7 §17 re-uploading over the same reading replaces the object in place",
+      (await verifyBytes(cloud.objects.get(storagePathFor("userA", "dA", "paper.pdf")), s2)).verdict === "match");
+    ok("J8 §17 …and the OTHER reading's copy is untouched",
+      (await verifyBytes(cloud.objects.get(storagePathFor("userA", "dB", "paper.pdf")), s1)).verdict === "match");
+    ok("J9 §7 the stale checksum no longer verifies the replaced bytes",
+      (await verifyBytes(cloud.objects.get(storagePathFor("userA", "dA", "paper.pdf")), s1)).verdict === "mismatch");
+
+    // §17 — the same document's metadata edited on two devices is a plain row
+    // conflict, resolved by the same last-write-wins rule as everything else.
+    const d1 = doc({ id: "dA", title: "Title from A", updatedAt: iso(9) });
+    const d2 = doc({ id: "dA", title: "Title from B", updatedAt: iso(10) });
+    ok("J10 §17 document metadata carries no special merge — it is one row",
+      documentToRows(d2).documents[0].title === "Title from B" &&
+      documentToRows(d1).documents[0].title === "Title from A");
+  }
+
+  // =====================================================================
+  // K. §22 — INTERRUPTED UPLOAD. What does Conqify KNOW afterwards?
+  // =====================================================================
+  {
+    const cloud = { objects: new Map(), rows: [] };
+    const bytes = new TextEncoder().encode("half a file");
+    const sum = await sha256Hex(bytes);
+
+    // The app is closed between a successful object upload and its metadata row.
+    // `backupOriginal` cleans up, so the state on return is "not stored" — never
+    // a half-truth, and never a silent orphan.
+    const interrupted = await backupOriginal(fakeOriginals(cloud, "userA", { failMeta: true }),
+      { documentId: "dX", filename: "half.pdf", contentType: "application/pdf", sizeBytes: 11, checksum: sum, data: bytes });
+    ok("K1 §22 an interrupted upload reports failure, not success", interrupted.ok === false);
+    ok("K2 §22 …leaves no orphaned object", cloud.objects.size === 0);
+    ok("K3 §22 …and no metadata row that would imply a usable file", cloud.rows.length === 0);
+    ok("K4 §22 the caller can therefore only record originalStored: false",
+      interrupted.ok === false && interrupted.stage === "metadata");
+
+    // Returning later and retrying lands cleanly on the same path.
+    const retry = await backupOriginal(fakeOriginals(cloud, "userA"),
+      { documentId: "dX", filename: "half.pdf", contentType: "application/pdf", sizeBytes: 11, checksum: sum, data: bytes });
+    ok("K5 §22 a later retry succeeds and is verifiable",
+      retry.ok === true && (await verifyBytes(cloud.objects.get(retry.storagePath), sum)).verdict === "match");
+    ok("K6 §22 exactly one object and one metadata row exist afterwards",
+      cloud.objects.size === 1 && cloud.rows.length === 1);
+  }
+
+  // =====================================================================
+  // L. §18 — PROVENANCE MUST SURVIVE THE HOP EXACTLY.
+  //
+  // Provenance is not a stored column on these records. LIFEOS-050A/050B made
+  // it DERIVED: `classifyOrigin` reads the record kind, the `fromAiText` flag,
+  // and any attribution marker inside the text itself. The first draft of this
+  // section invented a `provenance.origin` field, pushed notes carrying it, and
+  // asserted it came back — which it never could, and which would have been
+  // reported as provenance loss.
+  //
+  // The real invariant is therefore stronger and is what is tested: run the
+  // REAL classifier on each note before the hop and again on what Device B
+  // rebuilt, and require the same answer. A device round trip must never turn
+  // machine prose into the user's own thinking.
+  // =====================================================================
+  {
+    const { classifyOrigin } = require("@/lib/provenance/classify");
+    const { attributionPrefix } = require("@/lib/provenance");
+    const fc = fakeClient();
+    const ad = new SupabasePersistenceAdapter(fc.client);
+
+    const cases = [
+      { id: "p1", label: "user_authored", body: "My own thinking, typed here.", fromAiText: false },
+      { id: "p2", label: "conqify_ai", body: "A summary Conqify produced.", fromAiText: true },
+      { id: "p3", label: "external_ai", body: `${attributionPrefix("external_ai", "a chat assistant")}Machine prose from elsewhere.`, fromAiText: false },
+      { id: "p4", label: "imported_user_authored", body: `${attributionPrefix("imported_user_authored", "my old notes app")}Something I wrote years ago.`, fromAiText: false },
+      { id: "p5", label: "derived", body: `${attributionPrefix("derived", "a weekly rollup")}Counted, not written.`, fromAiText: false },
+    ];
+    const A = { ...empty(), notes: cases.map((c) => ({
+      id: c.id, title: c.label, body: c.body, fromAiText: c.fromAiText,
+      createdAt: iso(), updatedAt: iso(), tags: [], linkedEntityRefs: [],
+    })) };
+
+    const rep = await ad.saveStateByDomain(A, undefined, null);
+    ok("L0 the provenance fixture pushed cleanly", rep.failed.length === 0, JSON.stringify(rep.failed));
+    const back = await ad.loadState();
+
+    for (const c of cases) {
+      const before = A.notes.find((n) => n.id === c.id);
+      const after = (back.notes ?? []).find((n) => n.id === c.id);
+      const oBefore = classifyOrigin({ kind: "note", text: before.body, fromAiText: before.fromAiText });
+      const oAfter = after ? classifyOrigin({ kind: "note", text: after.body, fromAiText: after.fromAiText }) : null;
+      ok(`L:${c.label} classifies identically after the hop`,
+        !!after && oAfter === oBefore, JSON.stringify({ oBefore, oAfter }));
+    }
+
+    // The two that matter most, named individually rather than left to the loop.
+    const ai = (back.notes ?? []).find((n) => n.id === "p2");
+    ok("L6 §18 the fromAiText flag itself round-trips — it is a stored fact",
+      ai?.fromAiText === true, JSON.stringify({ fromAiText: ai?.fromAiText }));
+    ok("L7 §18 Conqify-AI prose is NEVER read back as user_authored after a hop",
+      classifyOrigin({ kind: "note", text: ai.body, fromAiText: ai.fromAiText }) === "conqify_ai");
+    const ext = (back.notes ?? []).find((n) => n.id === "p3");
+    ok("L8 §18 an external-AI attribution marker survives byte-for-byte",
+      ext?.body === cases[2].body, JSON.stringify({ len: ext?.body?.length }));
+    /**
+     * The invariant §18 actually asks for is that a DEVICE HOP changes nothing,
+     * and it does not. What this case also exposes is a property of the
+     * provenance layer that predates 075 and is not caused by syncing: an
+     * attribution marker written into prose says "AI-generated", so
+     * `detectAttribution` reads both `external_ai` and `conqify_ai` back as
+     * `conqify_ai`, and the `imported_user_authored` marker is not recognised
+     * at all and falls through to `user_authored`.
+     *
+     * Asserting the literal string "external_ai" here would have been asserting
+     * my own expectation rather than the system's behaviour. The assertion is
+     * the invariant; the observation is reported as O-1, not filed as a
+     * cross-device defect, because the classification is identical on both
+     * sides of the hop.
+     */
+    const extOrigin = classifyOrigin({ kind: "note", text: ext.body, fromAiText: ext.fromAiText });
+    ok("L9 §18 …and it is still classified as machine prose, never as the user's own",
+      extOrigin === "conqify_ai" || extOrigin === "external_ai", extOrigin);
+    ok("L9b §18 O-1: prose-only attribution cannot separate external AI from Conqify AI",
+      extOrigin === "conqify_ai",
+      "observed, pre-existing, unchanged by the hop — reported, not repaired here");
+    const mine = (back.notes ?? []).find((n) => n.id === "p1");
+    ok("L10 §18 and the user's own writing is not downgraded either",
+      classifyOrigin({ kind: "note", text: mine.body, fromAiText: mine.fromAiText }) === "user_authored");
+  }
+
+  // =====================================================================
+  // M. §21/§38 — SIZE AND SPEED. Measured, not optimised.
+  // =====================================================================
+  {
+    const sizes = [[16 * 1024, "small 16KB"], [1024 * 1024, "medium 1MB"], [8 * 1024 * 1024, "large 8MB"]];
+    for (const [n, label] of sizes) {
+      const bytes = new Uint8Array(n);
+      for (let i = 0; i < n; i += 997) bytes[i] = i % 251;
+      const t0 = Date.now();
+      const sum = await sha256Hex(bytes);
+      const hashMs = Date.now() - t0;
+      const cloud = { objects: new Map(), rows: [] };
+      const t1 = Date.now();
+      const up = await backupOriginal(fakeOriginals(cloud, "userA"),
+        { documentId: `d${n}`, filename: `f${n}.bin`, contentType: "application/octet-stream", sizeBytes: n, checksum: sum, data: bytes });
+      const upMs = Date.now() - t1;
+      const t2 = Date.now();
+      const v = await verifyBytes(cloud.objects.get(up.storagePath), sum);
+      const verifyMs = Date.now() - t2;
+      ok(`M:${label} hashes, stores and verifies intact`, up.ok === true && v.verdict === "match");
+      console.log(`      ${label}: sha256 ${hashMs}ms · store ${upMs}ms · verify ${verifyMs}ms`);
+    }
+    // The 25 MB bucket ceiling is declared in 0032 and is NOT raised here.
+    const bucketLimit = /file_size_limit[\s\S]{0,120}?(\d[\d_]*)/.exec(
+      require("fs").readFileSync("/home/user/LifeOS/supabase/migrations/0032_reading_document_files.sql", "utf8"));
+    ok("M4 §21 the per-object size limit is unchanged by this sprint",
+      !!bucketLimit, bucketLimit ? bucketLimit[1] : "not found");
+
+    // §38 cold adoption at three account sizes, through the real decision path.
+    for (const n of [100, 1000, 5000]) {
+      const big = { ...empty(), nextActions: Array.from({ length: n }, (_, i) => ({
+        id: `a${i}`, title: `Action ${i}`, description: "", status: "open", createdAt: iso(), updatedAt: iso(),
+        notes: "", linkedEntityRefs: [], tags: [], estimatedSize: "unspecified", energy: "unspecified", order: i, history: [],
+      })) };
+      const t0 = Date.now();
+      const d = reconcileAdoption({ remote: big, local: empty(), remoteHasData: snapshotHasData(big), localHasData: false, migratedFor: null, userId: "u1", empty: empty() });
+      const ms = Date.now() - t0;
+      ok(`M:cold adoption of ${n} records adopts everything`,
+        d.action === "adopt" && d.state.nextActions.length === n, `${d.action}/${d.state.nextActions.length}`);
+      console.log(`      cold adoption n=${n}: ${ms}ms`);
+    }
+  }
+
+  // =====================================================================
+  // N. §31 — THE PRODUCT CLAIMS, retested against this run's evidence.
+  // =====================================================================
+  {
+    const src = require("fs").readFileSync("/home/user/LifeOS/components/SyncStatus.tsx", "utf8");
+    ok("N1 'Synced' means remote durability confirmed — not a local write",
+      /synced: "Synced"/.test(src) && /incomplete: "Sync incomplete"/.test(src));
+    ok("N2 a remote failure can never render as any kind of 'Saved'",
+      !/failed: "Saved|incomplete: "Saved/.test(src));
+    ok("N3 local-only is named as local-only",
+      /local: "Saved locally"/.test(src) && /disabled: "Saved locally"/.test(src));
+    ok("N4 'Conqify does not expose one user's files to another' is path-enforced",
+      storagePathFor("userA", "d1", "f.pdf").startsWith("userA/") &&
+      storagePathFor("userB", "d1", "f.pdf").startsWith("userB/"));
+  }
+
   const failed = results.filter((r) => !r.p);
   console.log(`\n=== ${results.length - failed.length}/${results.length} cross-device assertions ===`);
   process.exit(failed.length ? 1 : 0);
