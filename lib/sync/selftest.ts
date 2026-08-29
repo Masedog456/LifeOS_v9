@@ -19,19 +19,25 @@ import { validateIntegrity } from "@/lib/sync/integrity";
 import { upgradeState } from "@/lib/migrations/upgrade-state";
 import { upgradeBackup } from "@/lib/migrations/upgrade-backup";
 import { budget } from "@/lib/ux/performance";
-import { reconcileAdoption, mergeLocalOnly, suppressDeleted } from "@/lib/persistence-reconcile";
+import { reconcileAdoption, mergeLocalOnly, snapshotHasData, suppressDeleted } from "@/lib/persistence-reconcile";
 import type { StoreState } from "@/types/mvp";
-import { STORE_DOMAINS } from "@/lib/ux/backup";
+import { STORE_DOMAINS, emptyStoreState } from "@/lib/ux/backup";
+import { SYNC_DOMAIN_ORDER } from "@/lib/adapters/supabaseAdapter";
 // Section 58-61 drives the REAL store: whether belief revisions can be reordered
 // is a property of the mutators, not of a fixture (LIFEOS-074 §7).
 import * as StoreForTest from "@/lib/mvpStore";
 
-/** A minimal empty StoreState (all 41 domains as empty arrays) for pure tests. */
+/**
+ * A minimal empty StoreState for pure tests.
+ *
+ * Derived from `STORE_DOMAINS` rather than a literal (LIFEOS-075 C-1). The
+ * literal it replaces listed 44 domains under a comment claiming 41, and was
+ * missing `events` and `recurrenceCompletions` — a fourth hand-maintained copy
+ * of the domain list, drifting exactly the way the four-domain `hasData()`
+ * drifted. One source, and section 62 fails the build if the others leave it.
+ */
 function emptyStore(): StoreState {
-  const domains = ["captures", "proposals", "beliefs", "sources", "feedback", "comparisons", "inquiries", "megathreads", "reflections", "practices", "reviews", "reasonings", "embeddings", "decisions", "formationSessions", "concepts", "conceptRelationships", "principles", "frameworks", "knowledgeProjects", "researchProjects", "dialogueSessions", "tensions", "syntheses", "recommendations", "documents", "citations", "workspaces", "sessions", "goals", "projects", "dailyReviews", "nextActions", "actionDependencies", "actionTemplates", "planningAssignments", "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews", "notes", "protocols", "constitutionElements", "constitutionRevisions"];
-  const s: Record<string, unknown[]> = {};
-  for (const d of domains) s[d] = [];
-  return s as unknown as StoreState;
+  return emptyStoreState();
 }
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
@@ -255,6 +261,163 @@ export function runSyncSelfTests(): SelfTestReport {
     St.affirmBelief(bid);
     ok("61. a further write never rewrites an existing seq",
       before.every((t, i) => (revs()[i]?.text ?? null) === t), JSON.stringify(revs().map((r) => r.text)));
+  }
+
+  // 62. THE DOMAIN LISTS MUST AGREE (LIFEOS-075 C-1).
+  //
+  // Independent enumerations of "what a Conqify account contains" are how this
+  // family of defect happens: LIFEOS-052 lost nine execution domains on restore
+  // because the backup allow-list fell behind, and C-1 lost a whole account on
+  // a cold device because `hasData()` still named the four domains that existed
+  // when it was written.
+  //
+  // 075 removed two of the copies outright — `normalize()` and this file's own
+  // empty-state builder are now derived from STORE_DOMAINS — so only one real
+  // pairing is left to police, and it is compared by IMPORTING both lists
+  // rather than by reading source files. An earlier version of this guard
+  // scraped the two modules with `fs` via `globalThis.require`, which is absent
+  // under the compiled CommonJS runner: the check silently could not run. It
+  // reported that honestly instead of passing, which is how it was caught.
+  {
+    const canon = new Set(STORE_DOMAINS as string[]);
+    const order = SYNC_DOMAIN_ORDER as string[];
+    const missingFromSync = [...canon].filter((d) => !order.includes(d));
+    const extraInSync = order.filter((d) => !canon.has(d));
+    ok("62. SYNC_DOMAIN_ORDER covers exactly STORE_DOMAINS",
+      missingFromSync.length === 0 && extraInSync.length === 0,
+      JSON.stringify({ missingFromSync, extraInSync }));
+    ok("62b. …with no domain pushed twice", new Set(order).size === order.length,
+      `${order.length} entries, ${new Set(order).size} distinct`);
+    ok("62c. normalize()'s domain set is derived, not a third literal",
+      Object.keys(emptyStoreState()).length === STORE_DOMAINS.length &&
+      Object.keys(emptyStoreState()).every((k) => canon.has(k)),
+      JSON.stringify(Object.keys(emptyStoreState()).length));
+  }
+
+  // 63-69. C-1 — DOES REMOTE HOLD ANYTHING? (LIFEOS-075.)
+  //
+  // The reproduction: a person whose Conqify life is actions, projects, goals,
+  // notes, events and readings, who never once opened Quick Capture. Their
+  // remote snapshot is full. `hasData()` looked at four domains — sources,
+  // beliefs, captures, proposals — and reported EMPTY. A cold second device
+  // therefore took the migrate-local branch, installed its own empty state, and
+  // showed them nothing, under a "Saved" indicator.
+  //
+  // Against pre-075 main every assertion from 63 to 67 fails, because the
+  // predicate under test did not exist and the four-domain version answers
+  // false for each of these snapshots.
+  {
+    const only = (patch: Partial<Record<string, unknown[]>>): StoreState =>
+      ({ ...emptyStore(), ...patch }) as unknown as StoreState;
+
+    ok("63. a genuinely empty snapshot holds no data", snapshotHasData(emptyStore()) === false);
+    ok("63b. null/undefined is not data", snapshotHasData(null) === false && snapshotHasData(undefined) === false);
+
+    // Every execution domain, one at a time — no single one may be invisible.
+    const lifeDomains = ["nextActions", "projects", "goals", "notes", "events", "documents",
+      "sessions", "recurrenceCompletions", "constitutionElements", "protocols"];
+    const blind = lifeDomains.filter((d) => !snapshotHasData(only({ [d]: [{ id: "x" }] })));
+    ok("64. a snapshot holding ONLY one life domain still counts as data",
+      blind.length === 0, `invisible domains: ${JSON.stringify(blind)}`);
+
+    // Every canonical domain, exhaustively — the property is about the list, not
+    // about the ten names someone thought of.
+    const blindAll = (STORE_DOMAINS as string[]).filter((d) => !snapshotHasData(only({ [d]: [{ id: "x" }] })));
+    ok("64b. …and that holds for every one of the canonical domains",
+      blindAll.length === 0, `invisible: ${JSON.stringify(blindAll)}`);
+
+    // The end-to-end shape of the defect, through the real decision function.
+    const remoteLife = only({
+      nextActions: [{ id: "a1" }], projects: [{ id: "p1" }], goals: [{ id: "g1" }],
+      notes: [{ id: "n1" }], events: [{ id: "e1" }], documents: [{ id: "d1" }],
+    });
+    const coldB = emptyStore();
+    const dCold = reconcileAdoption({
+      remote: remoteLife, local: coldB,
+      remoteHasData: snapshotHasData(remoteLife), localHasData: snapshotHasData(coldB),
+      migratedFor: null, userId: "user-1", empty: emptyStore(),
+    });
+    ok("65. cold Device B ADOPTS a capture-free account instead of starting empty",
+      dCold.action === "adopt", dCold.action);
+    ok("66. …and actually receives every record",
+      (dCold.state.nextActions as unknown[]).length === 1 && (dCold.state.projects as unknown[]).length === 1 &&
+      (dCold.state.notes as unknown[]).length === 1 && (dCold.state.documents as unknown[]).length === 1 &&
+      (dCold.state.events as unknown[]).length === 1 && (dCold.state.goals as unknown[]).length === 1);
+
+    // The invariant the defect violated, stated directly.
+    const withCapture = { ...remoteLife, captures: [{ id: "c1" }] } as unknown as StoreState;
+    ok("67. an unrelated Capture never decides whether the rest of the account exists",
+      snapshotHasData(remoteLife) === snapshotHasData(withCapture));
+
+    // And the other direction: nothing is fabricated for a genuinely new user.
+    const dNew = reconcileAdoption({
+      remote: emptyStore(), local: emptyStore(),
+      remoteHasData: snapshotHasData(emptyStore()), localHasData: snapshotHasData(emptyStore()),
+      migratedFor: null, userId: "user-1", empty: emptyStore(),
+    });
+    ok("68. a truly empty remote is still empty — no data is invented",
+      dNew.action === "migrate-local" && dNew.pushLocalOnly === false &&
+      (STORE_DOMAINS as string[]).every((d) => ((dNew.state as unknown as Record<string, unknown[]>)[d] ?? []).length === 0));
+    ok("69. wrong-user safety is unchanged by the wider predicate",
+      reconcileAdoption({
+        remote: emptyStore(), local: only({ nextActions: [{ id: "a1" }] }),
+        remoteHasData: false, localHasData: true,
+        migratedFor: "someone-else", userId: "user-1", empty: emptyStore(),
+      }).action === "start-clean");
+  }
+
+  // 70-74. C-2 — A DELETED READING STAYS DELETED (LIFEOS-075.)
+  //
+  // `reading_documents` was the only row-level delete in the adapter with no
+  // tombstone. Deleting a book on Device A removed the row and the stored
+  // original; Device B still held it, adoption read it as local-only, pushed it
+  // back, and Device A re-adopted it carrying `originalStored: true` and a
+  // storage path whose bytes were already gone.
+  //
+  // Against pre-075 main, 70 and 71 fail: no tombstone is written for the
+  // documents domain, so `suppressDeleted` has nothing to act on.
+  {
+    const docTomb = [makeTombstone("documents", "doc-deleted", at(50))];
+    const staleB = {
+      ...emptyStore(),
+      documents: [
+        { id: "doc-keep", updatedAt: at(10) },
+        { id: "doc-deleted", updatedAt: at(10), sourceMetadata: { originalStored: true, originalStoragePath: "u/doc-deleted/x.pdf" } },
+      ],
+      citations: [{ id: "cit-1", documentId: "doc-deleted" }, { id: "cit-2", documentId: "doc-keep" }],
+    } as unknown as StoreState;
+    const cleanedB = suppressDeleted(staleB, docTomb);
+    const docIds = (cleanedB.documents as { id: string }[]).map((d) => d.id);
+    ok("70. a reading deleted on another device is suppressed before reconcile",
+      !docIds.includes("doc-deleted") && docIds.includes("doc-keep"), JSON.stringify(docIds));
+
+    // The nested tree goes with the parent because it IS the parent object;
+    // citations are a separate top-level array and must be pruned explicitly.
+    const citIds = (cleanedB.citations as { id: string }[]).map((c) => c.id);
+    ok("71. …and its citations go with it, while unrelated citations survive",
+      !citIds.includes("cit-1") && citIds.includes("cit-2"), JSON.stringify(citIds));
+
+    // Remote already holds everything the stale device legitimately has, so the
+    // ONLY thing that could be classed local-only is the deleted reading and
+    // its citation. If either survived suppression, `pushLocalOnly` turns true
+    // and the record is written back — which is the defect itself.
+    const dDoc = reconcileAdoption({
+      remote: { ...emptyStore(), documents: [{ id: "doc-keep" }], citations: [{ id: "cit-2", documentId: "doc-keep" }] } as unknown as StoreState,
+      local: cleanedB,
+      remoteHasData: true, localHasData: true,
+      migratedFor: "user-1", userId: "user-1", empty: emptyStore(),
+    });
+    ok("72. the deleted reading is never queued to be pushed back",
+      dDoc.pushLocalOnly === false && !(dDoc.state.documents as { id: string }[]).some((d) => d.id === "doc-deleted"),
+      JSON.stringify({ push: dDoc.pushLocalOnly, ids: (dDoc.state.documents as { id: string }[]).map((d) => d.id) }));
+    ok("73. no resurrected document carries a stale originalStored claim",
+      !(dDoc.state.documents as { sourceMetadata?: { originalStored?: boolean } }[])
+        .some((d) => d.sourceMetadata?.originalStored === true));
+
+    // The existing resurrection-intent rule is NOT special-cased for readings.
+    ok("74. a reading edited AFTER the delete is still kept as genuine intent",
+      (suppressDeleted({ ...emptyStore(), documents: [{ id: "doc-deleted", updatedAt: at(99) }] } as unknown as StoreState, docTomb)
+        .documents as { id: string }[]).some((d) => d.id === "doc-deleted"));
   }
 
   const passed = results.filter((r) => r.pass).length;

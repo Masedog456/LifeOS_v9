@@ -21,16 +21,30 @@ const DOT: Record<PersistenceHealth["state"], string> = {
   retrying: "bg-amber-500",
 };
 
+/**
+ * The words have to answer one question (LIFEOS-075 §14): "is this only on this
+ * device, or is it safely in the cloud?"
+ *
+ * They used to answer it backwards. Local-only read "Saved locally" and
+ * confirmed remote durability read "Saved" — so the state with LESS safety
+ * carried the longer, more reassuring phrase, and the strongest state was the
+ * vaguest word in the set. "Synced" names the thing that actually happened: a
+ * push in which every dirty domain was confirmed by the server. "Syncing…"
+ * replaces "Saving…" for the same reason — the local write already finished
+ * before this label ever appears; what is in progress is the remote copy.
+ *
+ * No provider terminology. The user never needs to know who stores it.
+ */
 const LABEL: Record<PersistenceHealth["state"], string> = {
   local: "Saved locally",
   disabled: "Saved locally",
-  syncing: "Saving…",
-  synced: "Saved",
+  syncing: "Syncing…",
+  synced: "Synced",
   // Some domains reached the server and some did not (LIFEOS-074 D-22). It is
-  // deliberately NOT "Saved": claiming remote durability for the whole state
+  // deliberately NOT "Synced": claiming remote durability for the whole state
   // when only part of it landed is the false success this state exists to stop.
   incomplete: "Sync incomplete",
-  failed: "Sync error",
+  failed: "Sync failed",
   offline: "Offline — saved locally",
   retrying: "Retrying…",
 };

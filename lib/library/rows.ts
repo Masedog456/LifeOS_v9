@@ -30,13 +30,36 @@ export interface ReadingRowSet {
 
 // ------------------------------------------------------------- model → rows ----
 
+/**
+ * The document's provenance as it should be STORED REMOTELY (LIFEOS-075 C-5).
+ *
+ * `originalBackup: "uploading" | "failed"` is not a fact about the document; it
+ * is a fact about one browser tab that is holding a `File` in memory right now.
+ * Because it lived in the same `source_metadata` blob as durable provenance, it
+ * synced — so a second device could show "Uploading original…" indefinitely for
+ * an upload happening (or long dead) elsewhere, next to a Retry button with no
+ * file to retry. Durable facts (`originalStored`, `originalStoragePath`,
+ * `originalFileId`, `contentHash`, filename/MIME/size) are untouched; only the
+ * in-flight words are dropped on the way out.
+ *
+ * `"stored"` is kept: it agrees with `originalStored` and describes a settled
+ * outcome rather than an operation in progress.
+ */
+function remoteSourceMetadata(meta: ReadingDocument["sourceMetadata"]): ReadingDocument["sourceMetadata"] {
+  const b = meta?.originalBackup;
+  if (b !== "uploading" && b !== "failed") return meta;
+  const rest = { ...meta };
+  delete rest.originalBackup;
+  return rest;
+}
+
 export function documentToRows(doc: ReadingDocument): ReadingRowSet {
   const documents: DocumentRow[] = [{
     id: doc.id, title: doc.title, subtitle: doc.subtitle ?? null, authors: doc.authors,
     publication: doc.publication ?? null, publication_date: doc.publicationDate ?? null,
     language: doc.language ?? null, description: doc.description ?? null, kind: doc.kind, status: doc.status,
     rating: doc.rating ?? null, cover_color: doc.coverColor ?? null, tags: doc.tags, notes: doc.notes,
-    source_metadata: doc.sourceMetadata, progress: doc.progress, created_at: doc.createdAt, updated_at: doc.updatedAt,
+    source_metadata: remoteSourceMetadata(doc.sourceMetadata), progress: doc.progress, created_at: doc.createdAt, updated_at: doc.updatedAt,
   }];
   const sections: SectionRow[] = [];
   const passages: PassageRow[] = [];

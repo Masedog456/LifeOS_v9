@@ -16,6 +16,7 @@ import {
   type ReadingFormat, type ProcessingState,
 } from "@/lib/reading/ingest";
 import { startOriginalBackup } from "@/lib/reading/backupManager";
+import { sha256Hex } from "@/lib/reading/fileIntegrity";
 import { buildIngestionReport } from "@/lib/reading/completeness";
 import { toast } from "@/lib/ux/feedback";
 
@@ -36,7 +37,7 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
   const [pasteTitle, setPasteTitle] = useState("");
   const [url, setUrl] = useState("");
 
-  const finish = useCallback((title: string, author: string | undefined, format: "plain" | "markdown", parsed: { sections: { title: string; passages: { heading?: string; text: string; page?: number; location?: string }[] }[] }, meta: Parameters<typeof createReadingFromParsed>[0]["sourceMetadata"], original?: { file: File; filename: string; contentType: string; sizeBytes: number; checksum: string }) => {
+  const finish = useCallback((title: string, author: string | undefined, format: "plain" | "markdown", parsed: { sections: { title: string; passages: { heading?: string; text: string; page?: number; location?: string }[] }[] }, meta: Parameters<typeof createReadingFromParsed>[0]["sourceMetadata"], original?: { file: File; filename: string; contentType: string; sizeBytes: number; checksum: string | null }) => {
     const id = createReadingFromParsed({ title, authors: author ? [author] : undefined, parsed, sourceMetadata: meta });
     // The parsed reading is saved immediately (the fast path). If this was a file
     // upload and remote storage is available, back up the ORIGINAL binary privately
@@ -99,7 +100,15 @@ export default function AddReadingPanel({ onDone, onCancel }: { onDone: (id: str
       });
       const meta = { importFormat: fmt === "markdown" ? "markdown" as const : fmt === "pdf" ? "pdf" as const : "plain" as const, ...out.doc.provenance, note, ingestion };
       const contentType = file.type || (fmt === "pdf" ? "application/pdf" : fmt === "markdown" ? "text/markdown" : "text/plain");
-      finish(out.doc.title, out.doc.author, out.doc.format, out.doc.parsed, meta as never, { file, filename: safeFilename(file.name), contentType, sizeBytes: file.size, checksum: hash });
+      // Two different fingerprints, deliberately (LIFEOS-075 C-4).
+      //   `hash`         — of the extracted TEXT, for duplicate detection above.
+      //   `fileChecksum` — SHA-256 of the FILE'S BYTES, so a retrieved original
+      //                    can actually be checked against what we stored.
+      // The file checksum was previously the text hash, which meant the stored
+      // "checksum" described the words, not the file. Null when Web Crypto is
+      // unavailable — we record no checksum rather than a misleading one.
+      const fileChecksum = await sha256Hex(file);
+      finish(out.doc.title, out.doc.author, out.doc.format, out.doc.parsed, meta as never, { file, filename: safeFilename(file.name), contentType, sizeBytes: file.size, checksum: fileChecksum });
     } catch {
       setStatus({ state: "failed", message: "Something went wrong reading that file. Your file wasn't changed — you can try again." });
     }
