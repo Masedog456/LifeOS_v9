@@ -16,6 +16,23 @@ import { setConflicts } from "@/lib/sync/status-store";
 import ConflictCenter from "@/components/sync/ConflictCenter";
 import type { RecordConflict } from "@/lib/sync/conflicts";
 import { threeWayMerge } from "@/lib/sync/merge";
+import { __setHealthForTest } from "@/lib/persistence";
+
+/**
+ * Sync-health states, drivable by hand (LIFEOS-074 D-22 §9).
+ *
+ * D-21 showed that a state the model reports correctly can still be invisible
+ * to the person looking at the screen, so the indicator has to be MEASURED in
+ * each state at each viewport. There is no production Supabase in a dev or CI
+ * environment to fail on demand, so the health store is driven directly and the
+ * real `SyncStatus` in the global nav is what gets asserted.
+ */
+const HEALTH_STATES: { label: string; patch: Parameters<typeof __setHealthForTest>[0] }[] = [
+  { label: "synced", patch: { mode: "supabase", state: "synced", error: undefined, localError: undefined, failedDomains: undefined } },
+  { label: "incomplete", patch: { mode: "supabase", state: "incomplete", error: "goals failed", localError: undefined, failedDomains: ["goals"] } },
+  { label: "failed", patch: { mode: "supabase", state: "failed", error: "network down", localError: undefined, failedDomains: undefined } },
+  { label: "local-error", patch: { mode: "supabase", state: "synced", localError: "Local save failed: quota" } },
+];
 
 function sampleConflict(): RecordConflict {
   const base = { id: "cap-x", text: "base thought", tags: [] as string[], updatedAt: "2026-12-01T00:00:00Z" };
@@ -42,6 +59,18 @@ export default function SyncTestsPage() {
         <p className="font-medium">{report.pass ? "✓ All sync self-tests pass" : "✗ Some sync self-tests failed"}</p>
         <p className="mt-1 text-zinc-500">{report.passed}/{report.total} passed{report.failed > 0 ? ` · ${report.failed} failed` : ""} · {report.ms}ms</p>
       </div>
+
+      <section className="mb-5 rounded-xl border border-black/10 p-4 dark:border-white/12">
+        <h2 className="mb-2 text-sm font-semibold">Sync-health harness (dev)</h2>
+        <p className="mb-2 text-xs text-zinc-500">Drives the real health store. Watch the indicator in the nav.</p>
+        <div className="flex flex-wrap gap-2">
+          {HEALTH_STATES.map((h) => (
+            <button key={h.label} type="button" data-health-state={h.label}
+              onClick={() => __setHealthForTest(h.patch)}
+              className="rounded-full border border-black/[.12] px-3 py-1 text-xs dark:border-white/[.15]">{h.label}</button>
+          ))}
+        </div>
+      </section>
 
       <section className="mb-5 rounded-xl border border-black/10 p-4 dark:border-white/12">
         <h2 className="mb-2 text-sm font-semibold">Conflict harness (dev)</h2>

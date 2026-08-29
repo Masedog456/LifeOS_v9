@@ -448,6 +448,24 @@ export function runDailySelfTests(): SelfTestReport {
     ok("8.9 …the series survives", (t7.nextActions ?? [])[0].status === "open");
     ok("8.10 …and tomorrow's occurrence is still previewed", v7.tomorrow.some((t) => t.id === "r"));
 
+    // …and UNDOING it stops the day claiming it (LIFEOS-074 §12).
+    //
+    // `uncompleteOccurrence` deletes the completion row and leaves the history
+    // entry alone — correctly, because the user really did press the button.
+    // The timeline used to read the history as the fact, so an occurrence the
+    // user had explicitly undone still reported as kept, citing a row that no
+    // longer existed. The completion ROW is the fact; the history is the
+    // keystroke.
+    const t7undone = stateWith({ nextActions: t7.nextActions, recurrenceCompletions: [] });
+    const v7u = daily(t7undone);
+    eq("8.10a an undone occurrence is not reported as completed",
+      v7u.completedToday.map((e) => e.title), []);
+    ok("8.10b …and not as a change either",
+      !v7u.changedToday.some((e) => e.kind === "recurring_completion"),
+      v7u.changedToday.map((e) => e.kind).join(","));
+    ok("8.10c …while the history entry is untouched",
+      (t7undone.nextActions ?? [])[0].history.length === 1);
+
     // 9. a scheduled event, never attended
     const t9 = stateWith({ events: [ev({ id: "e", title: "Dentist", date: T, startTime: "15:00" })] });
     const s9 = dailyStrings(daily(t9)).join(" | ");

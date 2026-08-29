@@ -2,7 +2,10 @@
  * Next-actions self-tests (LIFEOS-036).
  *
  * Deterministic in-memory assertions over the pure action core — no network, no
- * store, no AI. Mirrors the inbox/review self-test style. Covers lifecycle,
+ * AI. Sections 1–30 touch no store at all; section 31 deliberately does, because
+ * what a mutation LEAVES BEHIND is invisible to a pure helper and three sprints
+ * of residue proved it (LIFEOS-074 §1). Mirrors the inbox/review style. Covers
+ * lifecycle,
  * Next eligibility, manual ordering, context inheritance, defer/waiting/someday,
  * dependency cycles + unblocking + missing endpoints, template instantiation,
  * milestone/daily-review/Today projections, sync conflict rules, history dedup,
@@ -25,6 +28,10 @@ import {
 import { projectActionSummary, todayActions, dailyActions, openActionsForMilestone } from "@/lib/actions/relationships";
 import { mergeActionRecord, mergeDependencies } from "@/lib/actions/merge-rules";
 import { todayKey, addDays, dayDiff } from "@/lib/reviews/dates";
+// Section 31 drives the REAL store. Nothing else in this file does, and that is
+// the point: the helper-level suites above cannot see what a mutation leaves
+// behind (LIFEOS-074 §1).
+import * as St from "@/lib/mvpStore";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -198,6 +205,30 @@ export function runActionSelfTests(): SelfTestReport {
     a = appendHistory(a, makeEvent({ action: "completed", at: "2026-07-01T11:00:00.000Z", fromStatus: "in_progress", toStatus: "completed" }));
     ok("11.2 distinct event appended", a.history[a.history.length - 1].action === "completed");
     ok("11.3 history stores no full text", a.history.every((e) => !("description" in e)));
+
+    // LIFEOS-074 §1. The collapse used to ignore `detail` and `ref`, so two
+    // DIFFERENT facts written in the same second became one. `apply-edit`'s
+    // `change_recurrence` does exactly that: `setActionRecurrence` then
+    // `setActionDueTime`, both `edited` with no status change — and the second,
+    // the one carrying the time, was dropped while the field itself was saved.
+    let b = act(); const b0 = b.history.length;
+    b = appendHistory(b, makeEvent({ action: "edited", at: "2026-07-01T10:00:00.000Z", detail: "every day" }));
+    b = appendHistory(b, makeEvent({ action: "edited", at: "2026-07-01T10:00:00.010Z", detail: "08:00" }));
+    ok("11.4 same second, different detail — both kept", b.history.length === b0 + 2,
+      JSON.stringify(b.history.map((e) => e.detail)));
+    ok("11.5 …and the later fact is the one that survives",
+      b.history[b.history.length - 1].detail === "08:00");
+
+    let c = act(); const c0 = c.history.length;
+    c = appendHistory(c, makeEvent({ action: "linked", at: "2026-07-01T10:00:00.000Z", ref: { kind: "project", id: "p1" }, detail: "project" }));
+    c = appendHistory(c, makeEvent({ action: "linked", at: "2026-07-01T10:00:00.010Z", ref: { kind: "project", id: "p2" }, detail: "project" }));
+    ok("11.6 two links in one gesture are two events, not one", c.history.length === c0 + 2);
+
+    // The original purpose is untouched: identical fields still collapse.
+    let d = act(); const d0 = d.history.length;
+    d = appendHistory(d, makeEvent({ action: "edited", at: "2026-07-01T10:00:00.000Z", detail: "08:00" }));
+    d = appendHistory(d, makeEvent({ action: "edited", at: "2026-07-01T10:00:00.010Z", detail: "08:00" }));
+    ok("11.7 a genuine duplicate still collapses", d.history.length === d0 + 1);
   }
 
   // ---- 12. Projections: milestone, project, Today, daily ----
@@ -412,6 +443,73 @@ export function runActionSelfTests(): SelfTestReport {
   ok("30.60 actions carry no next-occurrence field", !("nextDue" in (due("x") as object)));
   ok("30.61 completing a dated action creates nothing",
     [{ ...due("x", DUE_TODAY), status: "completed" as const }].length === 1);
+
+  // ============ 31. Store mutations: residue and fabricated history (074 §1) ==
+  //
+  // Driven through the REAL store, not through the pure helpers above. Every
+  // one of these is a fact the helper-level suites cannot see, which is exactly
+  // why they held for three sprints.
+  {
+    const seed = () => {
+      const s = emptyState();
+      s.nextActions = [act({ id: "A", status: "open" }), act({ id: "B", status: "open" })];
+      St.restoreState(s);
+    };
+    const A = () => St.getSnapshot().nextActions?.find((x) => x.id === "A");
+
+    // Leaving a status sheds the fields that DESCRIBED it. `ActionDetail`
+    // offers Start on a waiting or deferred action, and it used to leave the
+    // record claiming both things at once.
+    seed();
+    St.markActionWaiting("A", "Marcus", "2026-09-01");
+    St.startAction("A");
+    ok("31.1 starting a waiting action ends the wait", A()?.status === "in_progress" && !A()?.waitingOn && !A()?.waitingSince,
+      JSON.stringify({ s: A()?.status, on: A()?.waitingOn, since: A()?.waitingSince }));
+    ok("31.2 …and drops the follow-up date that belonged to it", !A()?.followUpDate);
+    ok("31.3 …and the transition is still recorded",
+      (A()?.history ?? []).some((e) => e.action === "resumed" && e.fromStatus === "waiting"));
+
+    seed();
+    St.deferAction("A", "tomorrow");
+    St.startAction("A");
+    ok("31.4 starting a deferred action ends the deferral",
+      A()?.status === "in_progress" && !A()?.deferredUntil, JSON.stringify({ s: A()?.status, until: A()?.deferredUntil }));
+    St.pauseAction("A");
+    ok("31.5 …and pausing does not resurrect it", A()?.status === "open" && !A()?.deferredUntil);
+
+    // Deferring is still a deferral: the shed must not fire on a no-op.
+    seed();
+    St.deferAction("A", "tomorrow");
+    ok("31.6 deferring still sets the return date", A()?.status === "deferred" && !!A()?.deferredUntil);
+
+    // Removing an edge that never existed changes nothing — and says nothing.
+    seed();
+    const beforeLen = (A()?.history ?? []).length;
+    St.removeActionDependency("B", "A");
+    ok("31.7 removing a non-existent prerequisite writes no history",
+      (A()?.history ?? []).length === beforeLen, JSON.stringify((A()?.history ?? []).map((e) => e.action)));
+
+    seed();
+    St.addActionDependency("B", "A");
+    St.removeActionDependency("B", "A");
+    ok("31.8 removing a real prerequisite is recorded",
+      (A()?.history ?? []).some((e) => e.action === "unblocked" && e.ref?.id === "B"));
+
+    // The batch defer records the target DAY, exactly as the single one does —
+    // Week in Review renders this detail through `formatDayKey`.
+    seed();
+    St.batchAction(["A"], "defer", { option: "tomorrow" });
+    const dEv = (A()?.history ?? []).find((e) => e.action === "deferred");
+    ok("31.9 a batch defer records a day key, not 'batch'",
+      /^\d{4}-\d{2}-\d{2}$/.test(dEv?.detail ?? ""), dEv?.detail);
+    ok("31.10 …and it matches the field it set", dEv?.detail === A()?.deferredUntil);
+
+    // Setting a schedule says WHAT the schedule is.
+    seed();
+    St.setActionRecurrence("A", { frequency: "daily", interval: 1 });
+    const rEv = (A()?.history ?? []).find((e) => e.action === "edited");
+    ok("31.11 attaching a recurrence records the rule", !!rEv?.detail && rEv.detail !== "", rEv?.detail);
+  }
 
     const passed = results.filter((r) => r.pass).length;
   const failed = results.length - passed;

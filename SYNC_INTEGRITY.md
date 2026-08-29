@@ -6,7 +6,76 @@ rule is one sentence:
 
 > **The system must never silently discard newer user work.**
 
-Everything below serves that rule. All conflict detection and merging is
+Everything below serves that rule — but read §0 first, because one part of it
+is groundwork rather than live behaviour.
+
+---
+
+## 0. What is LIVE, and what is BUILT BUT NOT WIRED
+
+**Read this before relying on anything below.** The LIFEOS-074 integrity audit
+found that this document described the conflict layer as though it governed the
+running product. It does not, and the difference matters more than the
+capability does.
+
+**Live today.** Tombstones, idempotent operation ids, the sync journal, recovery
+mode, referential-integrity validation, restore safety, and the reactive status
+store are all wired into the running product.
+
+> **Correction (LIFEOS-074 D-24).** The sentence above was written by the D-9
+> repair, whose whole purpose was to separate what is live from what is not —
+> and it got tombstones wrong. They were **written and never read**:
+> `sync_tombstones` had no `select` anywhere, `applyTombstones` had no caller,
+> and the suppression never ran. A record deleted on one device was resurrected
+> by any other client that still held it, pushed back to the server, and then
+> re-adopted by the device that deleted it. The tombstone is now genuinely live —
+> `loadTombstones` reads the ledger on the adoption path and `suppressDeleted`
+> applies it before a stale record can be merged — and the claim above is true as
+> of this correction. It is left visible rather than silently edited, because
+> "documented as live" is exactly the kind of evidence that stopped anyone
+> looking.
+>
+> `cleanupTombstones` remains unwired on purpose: tombstones are permanent, which
+> is the conservative choice, since an expired marker would allow resurrection
+> again.
+
+**Built, tested, and NOT wired.** `merge.ts` (three-way field merge) and
+`conflicts.ts` (conflict detection) are complete and covered by the sync suite,
+and **no production code path calls them**. `threeWayMerge` is reached only by
+the selftest and `/dev/sync-tests`; sync `detectConflicts` only by the selftest;
+`setConflicts` only by a `/dev` button labelled "Inject sample conflict". The
+`ConflictCenter` on `/health` is real, and in production it can only ever be
+empty.
+
+**So the current live cross-device strategy is LAST-WRITE-WINS**, per record, on
+the whole row:
+
+  - the push path diffs local rows and upserts them blind — no read of the
+    remote row, no version check, no merge
+  - adoption takes remote wholesale and re-adds only records whose **id** is
+    absent remotely, so a local edit to an EXISTING record is discarded
+
+Measured consequences, from the audit's simulations:
+
+  - A completes an action; B (stale) defers it; B pushes last → the completion
+    **and its history event** are gone
+  - A edits `dueDate`, B edits `dueTime` → the later push reverts the other,
+    although these are non-overlapping fields `threeWayMerge` would have merged
+    cleanly
+
+`/health` already discloses this as a gap ("Cross-device conflict strategy is
+last-write-wins per domain"). This section exists so that this document says the
+same thing.
+
+Wiring the layer is tracked as a dedicated future sprint — **CROSS-DEVICE SYNC
+INTEGRITY**, north star *"two devices should not silently erase each other's
+life facts"* — covering base-version tracking, read-before-push, merge plumbing,
+per-record conflict generation, resolution UX and persistence, and stale-client
+browser torture. The layer below is deliberately preserved as its groundwork.
+
+Everything in §2 describes what the conflict layer DOES when called. Until the
+wiring lands, treat those points as a specification of the component, not as a
+guarantee of the product. All conflict detection and merging is
 **deterministic and client-side** — no AI, no embeddings, no automatic prose
 merging, no server round-trip required to decide what changed. The only durable
 server-side addition is a privacy-safe tombstone ledger (migration `0024`).
@@ -46,7 +115,8 @@ supabase/migrations/
 
 The reactive store is surfaced on **`/health`** (Conflict Center, Sync
 Reliability, Recovery & integrity, Data integrity, Backup/Restore) and exercised
-deterministically on the dev route **`/dev/sync-tests`**.
+deterministically on the dev route **`/dev/sync-tests`**. The Conflict Center is
+mounted and functional; per §0, in production it has nothing to list.
 
 ---
 
@@ -56,14 +126,18 @@ deterministically on the dev route **`/dev/sync-tests`**.
    `deletedAt`); a `revision` is *derived* from these plus a content hash rather
    than trusting a client clock alone. Server timestamps win when present
    (`lib/sync/schema.ts`).
-2. **Three-way conflict detection.** `detectConflicts(base, local, remote)`
-   compares each side against the last-synced **base** snapshot. A field is only
-   a conflict when *both* sides changed it to *different* values — never
-   last-write-wins on user content (`lib/sync/conflicts.ts`).
-3. **Field-level three-way merge.** Non-overlapping field changes auto-merge;
+2. **Three-way conflict detection.** *(BUILT, NOT WIRED — see §0.)*
+   `detectConflicts(base, local, remote)` compares each side against the
+   last-synced **base** snapshot. A field is only a conflict when *both* sides
+   changed it to *different* values, so the FUNCTION never resolves user content
+   by last-write-wins (`lib/sync/conflicts.ts`). The live sync path does not call
+   it, and the live path *is* last-write-wins.
+3. **Field-level three-way merge.** *(BUILT, NOT WIRED — see §0.)*
+   Non-overlapping field changes auto-merge;
    child collections (arrays of `{id}`) union by id; overlapping edits escalate.
    Prose is **never** auto-concatenated (`lib/sync/merge.ts`).
-4. **Shared resolution UI.** One `ConflictDialog` offers keep-local /
+4. **Shared resolution UI.** *(BUILT, NOT WIRED — see §0: nothing in production
+   produces a conflict for it to show.)* One `ConflictDialog` offers keep-local /
    keep-remote / use-merge / keep-both (duplicate) / postpone. Focus defaults to
    the **safest** action (Postpone), Escape postpones, and no destructive option
    is ever the default. Works on desktop and as a mobile bottom sheet.
@@ -105,6 +179,69 @@ deterministically on the dev route **`/dev/sync-tests`**.
     so it is unit-testable without a live backend.
 
 ---
+
+## 2B. Cross-device deletion claim (LIFEOS-074 D-24)
+
+> **Conqify does not resurrect a record deleted on another device.**
+
+PASS. Proved by driving the real adapter, the real adoption path and a real push
+end to end (`scripts/inject-074-tombstone-gate.cjs`, section G):
+
+  A. Device A and Device B both hold record X.
+  B. Device A deletes X.
+  C. The remote row is genuinely removed.
+  D. The tombstone is written — and, unlike before, is READ back.
+  E. Device B adopts: X does not return, and neither does its dependency edge
+     nor its recurrence completion.
+  F. Device B pushes its state: X does not reappear remotely.
+  G. Device A reloads: X remains deleted.
+
+**One residual window, stated rather than hidden.** If the remote delete succeeds
+and the tombstone write fails, there is no marker until the retry lands. The
+domain stays dirty and sync reads "Sync incomplete" for the whole interval — it
+never claims durability it does not have — but a stale client adopting inside
+that window still resurrects the record. Both the window and its closure are
+pinned (F5-F8 in the same script).
+
+**Scope.** A single client was never affected: local is authoritative, the delete
+lands locally and remotely, and the next load agrees.
+
+## 2C. Wiring register (LIFEOS-074 §4)
+
+D-24, D-8 and D-9 were all one pattern: **implementation existed + tests existed
++ documentation said live + no production path called it.** Presence is not
+evidence of life. `scripts/audit-wiring.mjs` now measures the property and fails
+when the register below goes stale in either direction — a newly stranded module
+is noticed, and a newly wired one has to have its entry retired.
+
+The checker was validated against the pre-repair adapter and does detect
+`sync_tombstones` as write-only, so it can fail for the reason it exists.
+
+**Write-only tables: none.** `sync_tombstones` was the only one; D-24 closed it.
+
+**Dead modules — no importer at all, not even a self-test (6).** These cannot
+misbehave because they never run; the risk is that a reader assumes the
+capability exists. Reported, not deleted: removal is not an integrity repair.
+
+  lib/accessibility/announcements.ts   lib/adapters/localAdapter.ts
+  lib/inbox/processing.ts              lib/insights/search.ts
+  lib/maintenance/search.ts            lib/sync/schema.ts
+
+**Test-only modules (26).** Six of them are the per-domain `merge-rules.ts`
+files — `actions`, `inbox`, `insights`, `maintenance`, `onboarding`, `planning`.
+That is D-8's real blast radius: the conflict layer is unwired, so every
+per-domain merge rule written for it is unwired too. It is six modules more than
+"merge.ts and conflicts.ts" suggested, and the accepted D-8 deferral covers it.
+The rest are design tokens, threat models and audit models — descriptive
+documents in TypeScript, not runtime paths.
+
+**Unlinked product route (1): `/plan/week`.** It renders `WeeklyPlan`, a real
+feature. The Planning board links to `/plan/today` and never to `/plan/week`, so
+it is reachable only by typing the URL. Function reachability is not human
+reachability. Reported rather than linked: making a built feature newly
+reachable is a product decision, not an audit repair. `/dev/*` routes are
+excluded — they are deliberately unlinked and 404 in production without
+`LIFEOS_ENABLE_DEV_ROUTES=1`.
 
 ## 3. The ten cross-device scenarios
 

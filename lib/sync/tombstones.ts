@@ -8,6 +8,20 @@
  * still surfaces as a delete-vs-edit conflict instead. Privacy-safe: a tombstone
  * stores only `{domain, recordId, deletedAt}` — never the deleted content.
  * Retention is bounded; old tombstones are cleaned up. Pure and deterministic.
+ *
+ * ## Wired into adoption by LIFEOS-074 (D-24)
+ *
+ * For three sprints nothing called this. `applyTombstones` had no caller and
+ * `loadState` never selected `sync_tombstones`, so the table was write-only and
+ * the suppression below never ran — a record deleted on one device was
+ * resurrected by any other client that still held it. `SupabasePersistenceAdapter.loadTombstones`
+ * now reads the ledger and `suppressDeleted` in `lib/persistence-reconcile.ts`
+ * applies these functions before adoption can push a stale record back.
+ *
+ * `cleanupTombstones` below remains deliberately UNWIRED: tombstones are
+ * permanent today, which is the conservative choice — an expired marker would
+ * let an old client resurrect a record again, and inventing a retention policy
+ * was out of scope for the repair.
  */
 
 export interface Tombstone {

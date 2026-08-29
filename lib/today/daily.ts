@@ -147,8 +147,11 @@ export interface DailyExecutiveView {
  * Kinds that answer "what changed today?" (§10, §25).
  *
  * Every member is a recorded transition. There is deliberately no
- * `action_worked_on` and no `became_unblocked`: nothing in the schema records
- * either, and §25 excludes exactly those.
+ * `action_worked_on` and no `became_unblocked`, and §25 excludes exactly those.
+ * Nothing records the second at all. For the first, `started`/`resumed` history
+ * events do exist — but they mark picking a task up, not effort spent on it,
+ * and there is no autobiographical kind for that; calling a start "worked on"
+ * would be the timeline claiming more than its source.
  */
 export const CHANGE_KINDS: readonly AutobiographicalEvent["kind"][] = [
   "completed_action", "recurring_completion", "action_created", "action_cancelled",
@@ -220,9 +223,20 @@ export function buildDailyExecutiveView(
   // An action is fixed ONLY when it carries an explicit time. A bare due date
   // is a day's worth of latitude, and calling it fixed would be the product
   // inventing an appointment the user never made.
+  //
+  // A RECURRENCE RULE names the day just as a due date does — the rule
+  // LIFEOS-063 R-2 established and 0043 taught the database. "Take the
+  // medication every day at 8" is a commitment at 08:00, and it was landing in
+  // `flexibleToday` as "yours to place", dropping the time the user had
+  // explicitly given (LIFEOS-074 §3). Whether the day is named by a date or by a
+  // rule, a time on it is a time.
   for (const a of live) {
     const t = timeOf(a);
-    if (!t || dueKeyOf(a) !== today) continue;
+    if (!t) continue;
+    const namedToday = readRule(a.recurrence)
+      ? occurrenceFor(a, today, ix.completions) === today
+      : dueKeyOf(a) === today;
+    if (!namedToday) continue;
     fixedToday.push({ kind: "action", id: a.id, title: a.title, time: t, action: a });
   }
   fixedToday.sort((x, y) => (x.time ?? "").localeCompare(y.time ?? ""));
@@ -242,6 +256,9 @@ export function buildDailyExecutiveView(
     const rule = readRule(a.recurrence);
     if (!rule) continue;
     if (occurrenceFor(a, today, ix.completions) !== today) continue;
+    // …unless it named a time, in which case it is already fixed above and
+    // listing it here would show one commitment twice, in two different senses.
+    if (timeOf(a)) continue;
     pushFlexible(a, "recurring_today", describeRule(rule));
   }
   for (const a of live) {

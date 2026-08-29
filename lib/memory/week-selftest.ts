@@ -51,7 +51,16 @@ function completed(title: string, day: string, extra: Partial<NextAction> = {}):
   } as Partial<NextAction> & { title: string; createdAt: string });
 }
 
-/** A recurring source with one occurrence closed — as `completeOccurrence` writes it. */
+/**
+ * A recurring source with one occurrence closed — as `completeOccurrence`
+ * writes it: a history entry AND a `recurrenceCompletions` row.
+ *
+ * The row used to be missing (LIFEOS-074 §14). The fixture and the timeline
+ * had made the SAME assumption — that the history entry alone proves an
+ * occurrence was kept — so both were wrong together and the suite stayed green
+ * while an occurrence the user had UNDONE still reported as completed. The
+ * caller registers the row; the id is derived so it stays deterministic.
+ */
 function recurringWithOccurrence(title: string, day: string): NextAction {
   return act({
     title, createdAt: at(MON, 8),
@@ -116,6 +125,13 @@ export function tortureWeek(): StoreState {
     recurringWithOccurrence("Take my medication", TUE),
     recurringWithOccurrence("Refill the medication box", SUN),
   ];
+  // The completion ROWS those occurrences produce. Without them the actions
+  // carry a keystroke and no kept commitment, which is exactly the state
+  // `uncompleteOccurrence` leaves behind.
+  s.recurrenceCompletions = [
+    { id: "rc1", actionId: recurring[0].id, occurrenceDate: TUE, completedAt: at(TUE, 7) },
+    { id: "rc2", actionId: recurring[1].id, occurrenceDate: SUN, completedAt: at(SUN, 7) },
+  ] as StoreState["recurrenceCompletions"];
 
   // Ten new actions created during the week, none of them completed.
   const created: NextAction[] = Array.from({ length: 10 }, (_, i) =>
@@ -422,6 +438,101 @@ export async function runWeekReviewSelfTests(): Promise<SelfTestReport> {
   eq("8.6 reflections", weekQueries.reflections(r).length, r.reflections.length);
   ok("8.7 the queries return exactly what the page shows",
     weekQueries.completed(r) === r.completed && weekQueries.waitingOn(r) === r.waiting);
+
+  // ============================== 8B. reversal: a fact undone is not a fact
+  //
+  // LIFEOS-074 §1. Every assertion here failed before the audit and none of the
+  // 4075 that already existed noticed, because they all asked whether a
+  // recorded keystroke reached the timeline — never whether it was still TRUE.
+
+  {
+    const reopened = emptyState();
+    reopened.nextActions = [act({
+      id: "rp", title: "Send the contract", createdAt: at(MON), status: "open",
+      history: [
+        { id: "h1", action: "completed", at: at(WED, 9), fromStatus: "open", toStatus: "completed" },
+        { id: "h2", action: "reopened", at: at(WED, 10), fromStatus: "completed", toStatus: "open" },
+      ],
+    })];
+    const rr = buildWeekReview(reopened, "this_week", opts);
+    const done = rr.timeline.filter((e) => e.kind === "completed_action");
+    eq("8B.1 a completion the user reopened is not on the timeline", done.length, 0);
+    ok("8B.2 …and the summary does not count it",
+      !/completed \d/.test(rr.summary), rr.summary);
+    ok("8B.3 the reopening itself is still reported",
+      rr.timeline.some((e) => e.kind === "action_restored"));
+
+    // Complete → reopen → complete. Only the completion that STANDS counts,
+    // and it is the later one — `completedAt` names it.
+    const twice = emptyState();
+    twice.nextActions = [act({
+      id: "tw", title: "Send the contract", createdAt: at(MON),
+      status: "completed", completedAt: at(FRI, 11),
+      history: [
+        { id: "h1", action: "completed", at: at(WED, 9), fromStatus: "open", toStatus: "completed" },
+        { id: "h2", action: "reopened", at: at(THU, 10), fromStatus: "completed", toStatus: "open" },
+        { id: "h3", action: "completed", at: at(FRI, 11), fromStatus: "open", toStatus: "completed" },
+      ],
+    })];
+    const tr = buildWeekReview(twice, "this_week", opts);
+    const twiceDone = tr.timeline.filter((e) => e.kind === "completed_action");
+    eq("8B.4 two completions, one undone, counted once", twiceDone.length, 1);
+    eq("8B.5 …and it is the one that still stands", twiceDone[0]?.day, FRI);
+
+    // Legacy tolerance: a record whose `completedAt` matches no history entry
+    // is still reported rather than silently dropped.
+    const legacy = emptyState();
+    legacy.nextActions = [act({
+      id: "lg", title: "Imported task", createdAt: at(MON),
+      status: "completed", completedAt: at(WED, 15),
+      history: [{ id: "h1", action: "completed", at: at(WED, 9), fromStatus: "open", toStatus: "completed" }],
+    })];
+    eq("8B.6 a completion whose stamps never matched is not dropped",
+      buildWeekReview(legacy, "this_week", opts).timeline.filter((e) => e.kind === "completed_action").length, 1);
+
+    // A cancellation that was restored: `cancelledAt` is gone, so it cannot be
+    // the evidence. Nothing counts cancellations, so the line stays.
+    const restored = emptyState();
+    restored.nextActions = [act({
+      id: "rs", title: "Book the venue", createdAt: at(MON), status: "open",
+      history: [
+        { id: "h1", action: "cancelled", at: at(WED, 9), fromStatus: "open", toStatus: "cancelled" },
+        { id: "h2", action: "restored", at: at(WED, 10), fromStatus: "cancelled", toStatus: "open" },
+      ],
+    })];
+    const cancelLine = buildWeekReview(restored, "this_week", opts).timeline.find((e) => e.kind === "action_cancelled");
+    eq("8B.7 a restored cancellation cites the history, not the cleared field",
+      cancelLine?.evidence, "action.history[].cancelled");
+  }
+
+  // ===================== 8C. a deferral detail that does not name a day
+  //
+  // "Defer → Someday" is a button on every action detail page and writes the
+  // literal "someday"; a batch defer used to write "batch". Both went into
+  // `formatDayKey`, which answers "Invalid Date" — and that string was shown
+  // to the user (LIFEOS-074 §1).
+
+  {
+    for (const [detail, label] of [["someday", "someday"], ["batch", "a legacy batch marker"]] as const) {
+      const s = emptyState();
+      s.nextActions = [act({
+        id: `df-${detail}`, title: "Replace the filter", createdAt: at(MON),
+        status: "deferred",
+        history: [{ id: "h1", action: "deferred", at: at(WED), fromStatus: "open", toStatus: "deferred", detail }],
+      })];
+      const line = buildWeekReview(s, "this_week", opts).timeline.find((e) => e.kind === "action_deferred");
+      eq(`8C.1 ${label} reads as an undated deferral`, line?.detail, "with no date");
+    }
+    const dated = emptyState();
+    dated.nextActions = [act({
+      id: "df-d", title: "Replace the filter", createdAt: at(MON), status: "deferred", deferredUntil: SUN,
+      history: [{ id: "h1", action: "deferred", at: at(WED), fromStatus: "open", toStatus: "deferred", detail: SUN }],
+    })];
+    const dline = buildWeekReview(dated, "this_week", opts).timeline.find((e) => e.kind === "action_deferred");
+    ok("8C.2 a real day key still formats as a day", !!dline?.detail?.startsWith("until ") && !/Invalid/.test(dline.detail), dline?.detail);
+    ok("8C.3 no review string anywhere reads 'Invalid Date'",
+      !reviewStrings(r).some((s) => /Invalid Date/.test(s)));
+  }
 
   // ================================================ 9. index reuse and purity
 

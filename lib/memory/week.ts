@@ -169,6 +169,8 @@ interface Lookups {
   actions: Map<string, NextAction>;
   projects: Map<string, Project>;
   events: Map<string, LifeEvent>;
+  /** `actionId:occurrenceDate` for every recorded occurrence completion. */
+  completions: Set<string>;
 }
 
 function lookups(state: StoreState): Lookups {
@@ -178,10 +180,17 @@ function lookups(state: StoreState): Lookups {
   for (const p of state.projects ?? []) projects.set(p.id, p);
   const events = new Map<string, LifeEvent>();
   for (const e of state.events ?? []) events.set(e.id, e);
-  return { actions, projects, events };
+  // `actionId:occurrenceDate` — the record that makes an occurrence completion
+  // TRUE. Built once here rather than scanned per timeline entry (LIFEOS-074).
+  const completions = new Set<string>();
+  for (const c of state.recurrenceCompletions ?? []) completions.add(`${c.actionId}:${c.occurrenceDate}`);
+  return { actions, projects, events, completions };
 }
 
 const dayOf = (iso: string): DayKey => iso.slice(0, 10);
+/** A history detail only names a day when it looks like one. `formatDayKey` on
+ *  anything else answers the literal string "Invalid Date" (LIFEOS-074 §1). */
+const isDayKey = (s: string | undefined): boolean => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const projectRef = (id?: string): RecordRefLite | undefined => (id ? { kind: "project", id } : undefined);
 
 /** A date-only fact is placed at midday so it sorts inside its own day. */
@@ -246,9 +255,48 @@ export function buildAutobiographicalTimeline(
           // is finished forever". Reading it wrong would claim a recurring
           // action had ended.
           const occurrence = /^\d{4}-\d{2}-\d{2}$/.test(e.detail ?? "") ? e.detail : undefined;
-          out.push(occurrence
-            ? { ...base, kind: "recurring_completion", detail: occurrence, evidence: "recurrenceCompletions[].occurrenceDate" }
-            : { ...base, kind: "completed_action", evidence: "action.completedAt" });
+          if (!occurrence) {
+            // The COMPLETION STILL HAS TO STAND — the same rule the recurring
+            // branch below already enforces, and for the same reason
+            // (LIFEOS-074 §1).
+            //
+            // `reopenAction` and `restoreAction` clear `completedAt` and leave
+            // the `completed` history entry alone, exactly as
+            // `uncompleteOccurrence` leaves its own. Reading the keystroke as
+            // the fact meant an action the user had explicitly reopened still
+            // counted: Week in Review said "you completed 1 action" about an
+            // item sitting open in front of them, the Daily Executive listed
+            // "Completed <title>" under what changed today, and the evidence
+            // label named `action.completedAt` — a field that was `undefined`.
+            // The recurring path was repaired earlier in this same audit and
+            // the one-time path was left with the identical bug.
+            if (a.status !== "completed" || !a.completedAt) break;
+            // Which completion, when there are several. Complete → reopen →
+            // complete leaves two `completed` entries and only the later one is
+            // still true; `completeAction` stamps `completedAt` and the history
+            // event from the same `now()`, so the standing one is identifiable
+            // by instant. Older records whose stamps never matched are left
+            // alone rather than silently dropped.
+            const stamps = (a.history ?? []).filter((h) => h.action === "completed" && !/^\d{4}-\d{2}-\d{2}$/.test(h.detail ?? ""));
+            if (stamps.some((h) => h.at === a.completedAt) && e.at !== a.completedAt) break;
+            out.push({ ...base, kind: "completed_action", evidence: "action.completedAt" });
+            break;
+          }
+          // …and the COMPLETION ROW is what makes it true, not the history entry
+          // (LIFEOS-074 §12).
+          //
+          // `uncompleteOccurrence` deletes the row and — correctly — leaves the
+          // history alone, because history records that the user pressed the
+          // button, which really happened. Reading the history as the fact meant
+          // an occurrence the user had explicitly UNDONE still reported as kept,
+          // under an evidence label naming a row that no longer existed. Undo
+          // removes the fact, not the keystroke, so the fact is read from where
+          // it actually lives.
+          if (!lk.completions.has(`${a.id}:${occurrence}`)) break;
+          out.push({
+            ...base, kind: "recurring_completion", detail: occurrence,
+            evidence: "recurrenceCompletions[].occurrenceDate",
+          });
           break;
         }
         case "action_created":
@@ -259,13 +307,25 @@ export function buildAutobiographicalTimeline(
           // `deferAction` appends a history entry carrying the target day. So
           // "deferred during this week" is a recorded fact, not a guess from
           // the current `deferredUntil`.
+          //
+          // The detail is only a DAY KEY when the deferral had a date. "Defer →
+          // Someday" — a button on every action detail page — writes the
+          // literal "someday", and a batch defer used to write "batch"; both
+          // went straight into `formatDayKey`, which answers "Invalid Date",
+          // and that string was shown to the user in Week in Review and in the
+          // Daily Executive's change list (LIFEOS-074 §1). A detail that does
+          // not name a day is reported as what it is.
           out.push({
             ...base, kind: "action_deferred", evidence: "action.history[].deferred",
-            detail: e.detail ? `until ${formatDayKey(e.detail)}` : "with no date",
+            detail: isDayKey(e.detail) ? `until ${formatDayKey(e.detail!)}` : "with no date",
           });
           break;
         case "action_cancelled":
-          out.push({ ...base, kind: "action_cancelled", evidence: "action.cancelledAt" });
+          // `action.cancelledAt` is cleared by `restoreAction`, so it cannot be
+          // the evidence for a cancellation that was later undone — and unlike
+          // a completion, nothing counts or summarises this, so the line stays
+          // and only its provenance is corrected to what is actually read.
+          out.push({ ...base, kind: "action_cancelled", evidence: "action.history[].cancelled" });
           break;
         case "action_waiting":
           out.push({ ...base, kind: "waiting_started", detail: e.detail, evidence: "action.waitingSince" });

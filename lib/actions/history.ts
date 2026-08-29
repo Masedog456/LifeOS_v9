@@ -64,12 +64,29 @@ export function makeEvent(input: {
 
 /**
  * Append an event, collapsing an immediate duplicate (same action + same
- * from/to within the same second) so start/pause churn doesn't duplicate. Never
- * mutates the input.
+ * from/to + same detail/ref within the same second) so start/pause churn
+ * doesn't duplicate. Never mutates the input.
+ *
+ * ## Why `detail` and `ref` are part of "duplicate"
+ *
+ * They were not, and two DIFFERENT facts recorded in the same second silently
+ * became one (LIFEOS-074 §1). `change_recurrence` in `lib/capture/apply-edit`
+ * calls `setActionRecurrence` and then `setActionDueTime` in the same handler;
+ * both write `edited` with no status transition, so the second — the one
+ * carrying the time — was dropped. The due time landed in the record with no
+ * history entry behind it, which is precisely the shape this log exists to
+ * prevent. Same for two links added in one gesture: different `ref`, same kind.
+ *
+ * Narrowing the collapse cannot invent duplicates that were not already being
+ * written, and the original purpose survives untouched: repeated start/pause
+ * churn carries identical fields and still collapses.
  */
 export function appendHistory(a: NextAction, event: ActionHistoryEvent): NextAction {
   const last = a.history[a.history.length - 1];
+  const sameRef = (x?: RecordRefLite, y?: RecordRefLite) =>
+    (!x && !y) || (!!x && !!y && x.kind === y.kind && x.id === y.id);
   if (last && last.action === event.action && last.fromStatus === event.fromStatus && last.toStatus === event.toStatus
+    && last.detail === event.detail && sameRef(last.ref, event.ref)
     && Math.abs(new Date(last.at).getTime() - new Date(event.at).getTime()) < 1000) {
     return a;
   }

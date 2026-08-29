@@ -53,8 +53,31 @@ function idsOf(arr: unknown[]): Set<string> {
 export function previewImport(current: StoreState, archive: AccountArchive, mode: ImportMode = "merge"): ImportPreview {
   const verify = verifyArchive(archive);
   const warnings: string[] = [];
-  const importable = verify.parsed && verify.metadataOk && isArchiveVersionSupported(archive?.metadata?.archiveVersion ?? -1);
+  /**
+   * A CORRUPT archive is not importable (LIFEOS-074).
+   *
+   * `verifyArchive` computes a per-collection checksum and correctly catches a
+   * tampered field, a removed record and a collection that is no longer an
+   * array — and this gate read none of it. Importability was decided by
+   * metadata and version alone, so an archive whose contents had been altered
+   * still reported `importable: true` and `restore()` let it through. A backup
+   * format that carries a checksum and then ignores it on the one path where
+   * the user is trusting the file is not offering integrity, only the look of
+   * it.
+   *
+   * Deliberately narrow: an archive with NO manifest at all still imports, as
+   * it always did. Older exports predate the manifest, and refusing them would
+   * strand real data to punish a format change. What is refused is an archive
+   * that CARRIES a manifest and does not match it — corruption, not age.
+   */
+  const manifestPresent = Boolean(archive?.manifest);
+  const manifestBroken = manifestPresent && !verify.manifestOk;
+  const importable = verify.parsed && verify.metadataOk
+    && isArchiveVersionSupported(archive?.metadata?.archiveVersion ?? -1)
+    && !manifestBroken;
   if (!importable) warnings.push("Archive is not importable (see verification problems).");
+  if (manifestBroken) warnings.push("Archive contents do not match its manifest — the file has been altered or truncated.");
+  else if (!manifestPresent) warnings.push("Archive has no manifest; contents could not be checksum-verified.");
 
   const plans: DomainPlan[] = [];
   let totalIncoming = 0;

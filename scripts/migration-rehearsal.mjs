@@ -125,7 +125,7 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 42, `found ${files.length} migration files, expected 42`);
+  ok("migration files present", files.length === 44, `found ${files.length} migration files, expected 44`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
@@ -282,6 +282,55 @@ function run() {
       !tryA(`update public.next_actions set due_time = '24:00' where id = '${AID}';`));
     ok("061: 23:59 is accepted",
       tryA(`update public.next_actions set due_time = '23:59' where id = '${AID}';`));
+
+    // 0043 (LIFEOS-074): a RECURRENCE RULE also names the day.
+    //
+    // The 0040 check encoded "a time with no day names no moment" and predated
+    // LIFEOS-063 R-2, which made "every day at 8" a first-class shape — a time
+    // with a rule and no standalone date. The mismatch was invisible only
+    // because the Supabase mapper never wrote either column; once it did, this
+    // row was the one that would have wedged sync.
+    ok("074: due_time with a RECURRENCE and no due_date is accepted",
+      tryA(`insert into public.next_actions(id, title, due_time, recurrence)
+            values (gen_random_uuid(), 'every day at 8', '08:00', '{"frequency":"daily","interval":1}'::jsonb);`));
+    // …and the shape that is still meaningless is still refused. 0043 adds one
+    // disjunct; it does not legitimize a time attached to nothing.
+    ok("074: due_time with NEITHER a due_date nor a recurrence is still refused",
+      !tryA(`insert into public.next_actions(id, title, due_time)
+             values (gen_random_uuid(), 'no day at all', '09:00');`));
+    ok("074: …and a malformed time is still refused even WITH a recurrence",
+      !tryA(`insert into public.next_actions(id, title, due_time, recurrence)
+             values (gen_random_uuid(), 'bad time', '25:99', '{"frequency":"daily","interval":1}'::jsonb);`));
+    // Exactly one constraint of this name survives the chain — the drop/recreate
+    // in 0043 must not leave the 0040 version behind alongside it.
+    const dueTimeChecks = asA(`select count(*) from pg_constraint
+      where conname = 'next_actions_due_time_needs_date';`).trim();
+    ok("074: exactly one due_time constraint exists after the chain",
+      dueTimeChecks === "1", `found ${dueTimeChecks}`);
+
+    // 0040's cascade, stated as a fact the APP must match (LIFEOS-074 §2).
+    // `recurrence_completions.action_id` references `next_actions` ON DELETE
+    // CASCADE, so a completion whose action is gone cannot be inserted at all.
+    // That is what makes a locally-orphaned completion row dangerous: adoption
+    // re-adds it as "local-only by id" and the next push is rejected forever.
+    ok("074: a completion for a NON-EXISTENT action is refused",
+      !tryA(`insert into public.recurrence_completions(id, action_id, occurrence_date)
+             values (gen_random_uuid(), gen_random_uuid(), date '2026-08-25');`));
+
+    // 0044 (LIFEOS-074): the three execution pointers a session already kept.
+    // SOFT references, matching 0027's rule — plain uuids with no foreign key,
+    // so deleting a project never cascades away a session and the client's bulk
+    // array upsert cannot be rejected on row order.
+    const sessCols = asA(`select count(*) from information_schema.columns
+      where table_schema='public' and table_name='workspace_sessions'
+        and column_name in ('goal_id','project_id','current_action_id');`).trim();
+    ok("074: workspace_sessions carries all three execution pointers",
+      sessCols === "3", `found ${sessCols}`);
+    const sessFks = asA(`select count(*) from information_schema.table_constraints tc
+      join information_schema.key_column_usage k on k.constraint_name = tc.constraint_name
+      where tc.table_name='workspace_sessions' and tc.constraint_type='FOREIGN KEY'
+        and k.column_name in ('goal_id','project_id','current_action_id');`).trim();
+    ok("074: …as soft references, with no foreign key", sessFks === "0", `found ${sessFks}`);
 
     // Occurrence identity: the anti-duplicate guarantee.
     asA(`insert into public.recurrence_completions(id, action_id, occurrence_date) values (gen_random_uuid(), '${AID}', date '2026-08-23');`);

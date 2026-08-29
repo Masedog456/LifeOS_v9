@@ -1,11 +1,28 @@
 /**
  * Accessibility audit model (LIFEOS-041, Feature 29).
  *
- * A deterministic checklist + pure checks the E2E/self-test run against a
- * simplified DOM description: target size (≥44px where practical), icon-only
- * controls have accessible names, form controls are labelled, focus is never
- * suppressed without replacement, and status is not color-only. We DOCUMENT
- * exceptions rather than hide them.
+ * A deterministic checklist + pure checks over a simplified DOM description:
+ * target size (≥44px where practical), icon-only controls have accessible
+ * names, form controls are labelled, focus is never suppressed without
+ * replacement, and status is not color-only. We DOCUMENT exceptions rather than
+ * hide them.
+ *
+ * ## What this does NOT do, stated because the header used to imply otherwise
+ *
+ * `auditElement` has never been pointed at a rendered page. Its only caller is
+ * `lib/accessibility/selftest.ts`, which passes four hand-written `ElementDesc`
+ * literals — so the ≥44px rule below is a STANDARD, not an enforced gate, and
+ * no assertion in the suite can fail because of a real control's size
+ * (LIFEOS-074 §2).
+ *
+ * Measured against the production build at a 390px viewport, the shipped UI is
+ * reachable but does not meet that standard everywhere: of 68 interactive
+ * controls on Today and 29 on Action detail, four buttons are under 24px — the
+ * occurrence "Mark done" (23px), "Delete permanently…" and "Stop repeating"
+ * (17px each), and the skip link (16px). All four are on-screen and
+ * hit-testable at their centre; none sits behind a horizontal scroll. Closing
+ * the gap between the standard and the build is a design decision, not an
+ * audit repair, so it is recorded rather than quietly done.
  */
 
 import { MIN_TOUCH_TARGET } from "@/lib/design/tokens";

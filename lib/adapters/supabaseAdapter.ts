@@ -63,7 +63,8 @@ import type {
   Note,
   Protocol,
 } from "@/types/mvp";
-import type { PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
+import type { DomainPushReport, PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
+import { makeTombstone, type Tombstone } from "@/lib/sync/tombstones";
 import { readRule } from "@/lib/time/recurrence";
 import {
   allDocumentRows, citationToRow, diffById, documentToImportPayload, newDocumentIds, rowsToDocuments,
@@ -71,6 +72,30 @@ import {
 } from "@/lib/library/rows";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * The order `saveState` writes domains in, extracted from its own statements.
+ *
+ * NOT alphabetical and not `STORE_DOMAINS` order: `nextActions` must precede
+ * `actionDependencies` and `recurrenceCompletions`, whose rows carry foreign
+ * keys to `next_actions`, and `documents` precedes `citations`. Isolating the
+ * push per domain (LIFEOS-074 D-22) must not silently reorder those writes, so
+ * the order lives here explicitly and is asserted against the chain.
+ */
+export const SYNC_DOMAIN_ORDER: (keyof StoreState)[] = [
+  "sources", "captures", "proposals", "beliefs",
+  "feedback", "comparisons", "inquiries", "megathreads",
+  "reflections", "practices", "reviews", "reasonings",
+  "embeddings", "decisions", "formationSessions", "concepts",
+  "conceptRelationships", "principles", "frameworks", "knowledgeProjects",
+  "researchProjects", "dialogueSessions", "tensions", "syntheses",
+  "recommendations", "documents", "citations", "workspaces",
+  "sessions", "goals", "projects", "dailyReviews",
+  "nextActions", "actionDependencies", "actionTemplates", "planningAssignments",
+  "focusSessions", "maintenanceEvents", "duplicateCandidates", "savedInsightViews",
+  "notes", "protocols", "events", "recurrenceCompletions",
+  "constitutionElements", "constitutionRevisions",
+];
 
 export class SupabasePersistenceAdapter implements PersistenceAdapter {
   readonly mode = "supabase" as const;
@@ -236,6 +261,101 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       constitutionElements,
       constitutionRevisions,
     };
+  }
+
+  /**
+   * Push each dirty domain in its OWN failure boundary (LIFEOS-074 D-22).
+   *
+   * ## Why this exists rather than a restructured `saveState`
+   *
+   * `saveState` is one sequential await chain of 46 independent `if (w(domain))`
+   * statements. The first rejection aborted every statement after it, so a
+   * persistent failure in an early domain — a CHECK constraint on
+   * `next_actions` (D-1), an FK on `recurrence_completions` (D-10), both real
+   * findings from this same audit — starved every later domain for as long as
+   * it lasted, while local data stayed safe and health honestly said "failed".
+   *
+   * Every one of those 46 blocks is independent: the only local shared across
+   * them is the `w` predicate itself, verified before this was written. So one
+   * domain is isolated by calling `saveState` with a single-domain `dirty` set,
+   * which the existing `w` guard already honours exactly. No statement moves, no
+   * ordering changes, nothing runs in parallel, and the 350-line body is
+   * untouched — the smallest change that satisfies the new contract.
+   *
+   * ORDER IS PRESERVED, deliberately: `SYNC_DOMAIN_ORDER` mirrors the chain's
+   * own statement order, so `next_actions` is still written before
+   * `action_dependencies` and `recurrence_completions`, whose rows reference it.
+   * Sorting these alphabetically would break a first sync on a foreign key.
+   *
+   * Never throws. The caller decides what a partial run means.
+   */
+  /**
+   * ## Idempotency classification of every remote write (LIFEOS-074 §7)
+   *
+   * Retrying a domain is only safe if replaying its writes cannot duplicate or
+   * lose a fact. The commit-then-timeout case was proven safe for ONE upsert;
+   * that finding is not generalised here, it is checked per operation class.
+   *
+   * 1. IDEMPOTENT UPSERT BY PRIMARY KEY — the large majority. Every
+   *    `from(t).upsert(rows)` where rows carry `id`, and every `diffById`
+   *    upsert. Replay rewrites the same row. SAFE.
+   *
+   * 2. IDEMPOTENT UPSERT ON A COMPOSITE NATURAL KEY — `embeddings`
+   *    (`user_id,record_id`) and `sync_tombstones` (`user_id,domain,record_id`).
+   *    Replay collapses onto the same row. SAFE.
+   *
+   * 3. IDEMPOTENT DELETE — every `.delete().in("id", ids)`. Deleting an id that
+   *    is already gone affects nothing. SAFE on replay.
+   *
+   * 4. CONDITIONALLY IDEMPOTENT — `insertIgnore` into append-only tables keyed
+   *    by a natural key: `saved_quotes` (`source_id,text`), `retrieval_feedback`
+   *    (`user_id,record_id,at`), and `belief_revisions` / `user_judgments`
+   *    (`belief_id,seq`). A retry never duplicates, because the conflicting row
+   *    is ignored. But `seq` is an ARRAY INDEX: if a revision is ever inserted
+   *    or removed mid-list, later entries shift, and `ignoreDuplicates` then
+   *    keeps the OLD row and silently drops the new content. That is a
+   *    reordering hazard, not a retry hazard — retries stay safe — and it is
+   *    recorded here rather than fixed, because nothing in the product reorders
+   *    or removes a revision today (revisions are append-only by construction).
+   *
+   * 5. POTENTIALLY NON-IDEMPOTENT SIDE EFFECT — `writeTombstones` runs AFTER a
+   *    successful delete and SWALLOWS its own failure (deliberately: migration
+   *    0024 may not be present). If the delete lands and the tombstone write
+   *    does not, the domain still counts as succeeded, its baseline advances,
+   *    and the tombstone is never retried. The record is genuinely deleted
+   *    remotely, so this is not data loss; the cost is that a stale device
+   *    holding an old copy loses the suppression that would stop it
+   *    resurrecting the row. Narrow (needs a tombstone-only failure AND a stale
+   *    device) and pre-existing, so it is classified and reported, not repaired
+   *    inside a bounded isolation fix.
+   *
+   * Conclusion: per-domain retry is safe for classes 1-4. Class 5 is a
+   * best-effort auxiliary write that was already best-effort before this change,
+   * and isolation does not make it worse.
+   */
+  async saveStateByDomain(
+    state: StoreState,
+    dirty?: Set<keyof StoreState>,
+    base?: StoreState | null,
+  ): Promise<DomainPushReport> {
+    const report: DomainPushReport = { succeeded: [], failed: [], attempted: [] };
+    for (const domain of SYNC_DOMAIN_ORDER) {
+      if (dirty && !dirty.has(domain)) continue;
+      report.attempted.push(domain);
+      try {
+        await this.saveState(state, new Set([domain]), base);
+        report.succeeded.push(domain);
+      } catch (e) {
+        report.failed.push({ domain, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    // A run that failed anywhere leaves the adapter's own state honest, so a
+    // caller reading `health()` cannot see "synced" after a partial push.
+    this.lastState = report.failed.length ? "failed" : "synced";
+    this.lastError = report.failed.length
+      ? `${report.failed.length} domain(s) failed: ${report.failed.map((f) => f.domain).join(", ")}`
+      : undefined;
+    return report;
   }
 
   async saveState(state: StoreState, dirty?: Set<keyof StoreState>, base?: StoreState | null): Promise<void> {
@@ -416,16 +536,67 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
   }
 
   /**
+   * Load every tombstone for this user (LIFEOS-074 D-24).
+   *
+   * This method is the repair. The rows were being written since LIFEOS-033 and
+   * NEVER read, so the suppression in `lib/sync/tombstones.ts` never ran and a
+   * record deleted on one device came back on the next client that still held
+   * it. `loadState` deliberately does not carry these: a tombstone is sync
+   * metadata, not a life record, and making it a `StoreState` domain would add a
+   * domain noun for something the user never sees.
+   *
+   * Returns `null`, distinctly from `[]`, when the ledger cannot be read at all.
+   * The caller must NOT treat "unreadable" as "nothing was deleted" — that is
+   * precisely the assumption that produced D-24.
+   */
+  async loadTombstones(): Promise<Tombstone[] | null> {
+    try {
+      const { data, error } = await this.client.from("sync_tombstones").select("*");
+      if (error) return null;
+      return (data ?? []).map((r: { domain: string; record_id: string; deleted_at: string }) =>
+        makeTombstone(r.domain, r.record_id, r.deleted_at));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Record tombstones for deleted independently-synced records (LIFEOS-033) so a
-   * stale device can't resurrect them. Best-effort + guarded: a missing 0024
-   * table is a no-op, never a sync failure. Stores only {domain, record_id}.
+   * stale device can't resurrect them. Stores only {domain, record_id}.
+   *
+   * ## This is no longer best-effort (LIFEOS-074 D-24 §5)
+   *
+   * It used to swallow every failure, so a run where the remote DELETE landed
+   * and the tombstone did not still reported SUCCESS — the domain's baseline
+   * advanced and the marker was never retried. Once the marker is what makes a
+   * deletion durable across devices, that is a false success. A failed write now
+   * fails the domain: it stays dirty, sync reads "Sync incomplete", and the
+   * retry re-runs the same diff — the delete is idempotent, so the retry simply
+   * writes the missing tombstone. The already-successful remote delete is never
+   * undone.
+   *
+   * The ONE tolerated case is a genuinely absent table: `MIN_SUPPORTED_MIGRATION_VERSION`
+   * is below 0024, so a client may legitimately run against a schema that has no
+   * tombstone ledger, and failing every delete forever there would be worse than
+   * the gap. Detection is by Postgres `42P01` / "does not exist", which is
+   * best-effort — it has NOT been verified against a production PostgREST, and
+   * that limitation is stated rather than assumed away.
    */
   private async writeTombstones(domain: string, deleteIds: string[]): Promise<void> {
     if (!deleteIds.length) return;
+    const rows = deleteIds.map((id) => ({ domain, record_id: id, deleted_at: new Date().toISOString() }));
+    let err: { message?: string; code?: string } | null = null;
     try {
-      const rows = deleteIds.map((id) => ({ domain, record_id: id, deleted_at: new Date().toISOString() }));
-      await this.client.from("sync_tombstones").upsert(rows, { onConflict: "user_id,domain,record_id" });
-    } catch { /* 0024 table may not exist yet — tombstones are additive */ }
+      const res = await this.client.from("sync_tombstones").upsert(rows, { onConflict: "user_id,domain,record_id" });
+      err = (res as { error?: { message?: string; code?: string } | null })?.error ?? null;
+    } catch (e) {
+      err = { message: e instanceof Error ? e.message : String(e) };
+    }
+    if (!err) return;
+    if (err.code === "42P01" || /does not exist|undefined table|schema cache/i.test(err.message ?? "")) return;
+    this.lastState = "failed";
+    this.lastError = `tombstone write failed for ${domain}: ${err.message ?? "unknown"}`;
+    throw new Error(this.lastError);
   }
 
   /** Row-level upsert/delete for workspaces (LIFEOS-030). */
@@ -1938,26 +2109,40 @@ function rowToWorkspace(r: any): Workspace {
 
 interface SessionRow {
   id: string; workspace_id: string; type: string; goal: string; notes: string;
+  // Soft references (0044). `goal` is the session's stated intent as free text;
+  // `goal_id` is a pointer to a Goal record — different things, easily confused,
+  // and both persisted.
+  goal_id: string | null; project_id: string | null; current_action_id: string | null;
   activity: unknown; started_at: string; ended_at: string | null;
 }
-function sessionToRow(s: WorkspaceSession): SessionRow {
+export function sessionToRow(s: WorkspaceSession): SessionRow {
   return {
     id: s.id,
     workspace_id: s.workspaceId,
     type: s.type,
     goal: s.goal,
+    goal_id: s.goalId ?? null,
+    project_id: s.projectId ?? null,
+    current_action_id: s.currentActionId ?? null,
     notes: s.notes,
     activity: s.activity,
     started_at: s.startedAt,
     ended_at: s.endedAt ?? null,
   };
 }
-function rowToSession(r: any): WorkspaceSession {
+export function rowToSession(r: any): WorkspaceSession {
   return {
     id: r.id,
     workspaceId: r.workspace_id,
     type: (r.type ?? "thinking") as WorkspaceSession["type"],
     goal: r.goal ?? "",
+    goalId: r.goal_id ?? undefined,
+    projectId: r.project_id ?? undefined,
+    // A pointer to an action that no longer exists degrades gracefully rather
+    // than being repaired here: the store clears it at mutation time (action
+    // completed or deleted), and every reader treats an unresolvable pointer as
+    // no current action. Resurrecting the target would be inventing a record.
+    currentActionId: r.current_action_id ?? undefined,
     notes: r.notes ?? "",
     activity: Array.isArray(r.activity) ? r.activity : [],
     startedAt: r.started_at,
@@ -2059,19 +2244,39 @@ function rowToDailyReview(r: any): DailyReview {
 }
 
 // ---------------------------- Next actions (LIFEOS-036) ----------------------------
+//
+// `due_time` and `recurrence` were added to the table and to `NextAction` by
+// LIFEOS-061 (migration 0040) and never wired through here. The LIFEOS-074
+// audit found the consequence: an action the user made recurring — "take the
+// medication every day at 8" — pushed to Supabase WITHOUT its rule or its time,
+// and came back on the next device as a plain, undated, non-recurring task. The
+// completions kept syncing, so the reloaded state also held occurrence rows for
+// an action that no longer recurred.
+//
+// Both columns are carried here now. Every other value keeps the `?? null`
+// shape the rest of this mapper uses, so absent stays absent rather than
+// becoming a JSON `null` the reader would have to special-case.
 interface NextActionRow {
   id: string; user_id?: string; title: string; description: string; status: string;
   completed_at: string | null; cancelled_at: string | null; due_date: string | null; deferred_until: string | null;
+  due_time: string | null; recurrence: unknown | null;
   waiting_on: string | null; waiting_since: string | null; follow_up_date: string | null; notes: string;
   workspace_id: string | null; goal_id: string | null; project_id: string | null; milestone_id: string | null;
   source_capture_id: string | null; source_review_id: string | null;
   linked_entity_refs: unknown; tags: unknown; estimated_size: string; energy: string; context: string | null;
   order: number; pinned: boolean; history: unknown; created_at: string; updated_at: string;
 }
-function actionToRow(a: NextAction): NextActionRow {
+/**
+ * Exported for the round-trip suite (LIFEOS-074 §5).
+ *
+ * These two functions were the site of a P1 that shipped precisely because
+ * nothing could reach them: a mapper with no test is a contract with no reader.
+ */
+export function actionToRow(a: NextAction): NextActionRow {
   return {
     id: a.id, title: a.title, description: a.description, status: a.status,
     completed_at: a.completedAt ?? null, cancelled_at: a.cancelledAt ?? null, due_date: a.dueDate ?? null, deferred_until: a.deferredUntil ?? null,
+    due_time: a.dueTime ?? null, recurrence: a.recurrence ?? null,
     waiting_on: a.waitingOn ?? null, waiting_since: a.waitingSince ?? null, follow_up_date: a.followUpDate ?? null, notes: a.notes,
     workspace_id: a.workspaceId ?? null, goal_id: a.goalId ?? null, project_id: a.projectId ?? null, milestone_id: a.milestoneId ?? null,
     source_capture_id: a.sourceCaptureId ?? null, source_review_id: a.sourceReviewId ?? null,
@@ -2079,10 +2284,16 @@ function actionToRow(a: NextAction): NextActionRow {
     order: a.order, pinned: !!a.pinned, history: a.history, created_at: a.createdAt, updated_at: a.updatedAt,
   };
 }
-function rowToAction(r: any): NextAction {
+export function rowToAction(r: any): NextAction {
   return {
     id: r.id, title: r.title ?? "", description: r.description ?? "", status: (r.status ?? "open") as NextAction["status"],
     completedAt: r.completed_at ?? undefined, cancelledAt: r.cancelled_at ?? undefined, dueDate: r.due_date ?? undefined, deferredUntil: r.deferred_until ?? undefined,
+    dueTime: r.due_time ?? undefined,
+    // Validated on the way in, not trusted. A malformed rule stored by an older
+    // client (or hand-edited) would otherwise reach every recurrence consumer;
+    // `readRule` is the same gate `setActionRecurrence` uses, so a rule that
+    // cannot be read becomes absent rather than a rule that cannot be honoured.
+    recurrence: readRule(r.recurrence) ? (r.recurrence as NextAction["recurrence"]) : undefined,
     waitingOn: r.waiting_on ?? undefined, waitingSince: r.waiting_since ?? undefined, followUpDate: r.follow_up_date ?? undefined, notes: r.notes ?? "",
     workspaceId: r.workspace_id ?? undefined, goalId: r.goal_id ?? undefined, projectId: r.project_id ?? undefined, milestoneId: r.milestone_id ?? undefined,
     sourceCaptureId: r.source_capture_id ?? undefined, sourceReviewId: r.source_review_id ?? undefined,

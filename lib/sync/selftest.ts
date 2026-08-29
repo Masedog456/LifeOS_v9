@@ -19,8 +19,12 @@ import { validateIntegrity } from "@/lib/sync/integrity";
 import { upgradeState } from "@/lib/migrations/upgrade-state";
 import { upgradeBackup } from "@/lib/migrations/upgrade-backup";
 import { budget } from "@/lib/ux/performance";
-import { reconcileAdoption, mergeLocalOnly } from "@/lib/persistence-reconcile";
+import { reconcileAdoption, mergeLocalOnly, suppressDeleted } from "@/lib/persistence-reconcile";
 import type { StoreState } from "@/types/mvp";
+import { STORE_DOMAINS } from "@/lib/ux/backup";
+// Section 58-61 drives the REAL store: whether belief revisions can be reordered
+// is a property of the mutators, not of a fixture (LIFEOS-074 §7).
+import * as StoreForTest from "@/lib/mvpStore";
 
 /** A minimal empty StoreState (all 41 domains as empty arrays) for pure tests. */
 function emptyStore(): StoreState {
@@ -196,6 +200,61 @@ export function runSyncSelfTests(): SelfTestReport {
 
     // 54. Neither side destroyed: after adopt-merge the union has BOTH captures.
     ok("54. adoption never destroys either side (union has both)", d.state.captures.length === 2);
+
+    // 55-57. RESURRECTION is now prevented (LIFEOS-074 D-24).
+    //
+    // `mergeLocalOnly` still treats "absent from remote" as "new here" — that is
+    // correct for a capture typed during sign-in. What changed is that the
+    // adoption path suppresses tombstoned records BEFORE reconciling, so a
+    // record deleted on another device never reaches this function as local-only.
+    const remoteAfterDelete = { ...emptyS, sources: [{ id: "s1" }], captures: [{ id: "c-keep" }] } as unknown as StoreState;
+    const staleLocal = { ...emptyS, captures: [{ id: "c-keep", updatedAt: at(10) }, { id: "c-deleted-elsewhere", updatedAt: at(10) }] } as unknown as StoreState;
+    const tombs = [makeTombstone("captures", "c-deleted-elsewhere", at(50))];
+    const cleaned = suppressDeleted(staleLocal, tombs);
+    const dRes = reconcileAdoption({ remote: remoteAfterDelete, local: cleaned, remoteHasData: true, localHasData: true, migratedFor: "user-1", userId: "user-1", empty: emptyS });
+    ok("55. a record deleted on another device does NOT return on adoption",
+      !(dRes.state.captures as { id: string }[]).some((c) => c.id === "c-deleted-elsewhere"),
+      JSON.stringify((dRes.state.captures as { id: string }[]).map((c) => c.id)));
+    ok("56. …and is therefore never queued to be pushed back", dRes.pushLocalOnly === false, JSON.stringify(dRes.action));
+    ok("57. …while an unrelated local-only record still survives adoption",
+      (reconcileAdoption({ remote: remoteAfterDelete, local: suppressDeleted({ ...emptyS, captures: [{ id: "c-brand-new", updatedAt: at(99) }] } as unknown as StoreState, tombs), remoteHasData: true, localHasData: true, migratedFor: "user-1", userId: "user-1", empty: emptyS })
+        .state.captures as { id: string }[]).some((c) => c.id === "c-brand-new"));
+    ok("57b. a record edited AFTER the delete is kept — resurrection intent is honoured",
+      (suppressDeleted({ ...emptyS, captures: [{ id: "c-deleted-elsewhere", updatedAt: at(99) }] } as unknown as StoreState, tombs)
+        .captures as { id: string }[]).some((c) => c.id === "c-deleted-elsewhere"));
+  }
+
+  // 58-61. Belief revisions are strictly APPEND-ONLY (LIFEOS-074 §7).
+  //
+  // `belief_revisions` is keyed `(belief_id, seq)` where seq is the ARRAY INDEX,
+  // and the push uses `ignoreDuplicates` — so if an entry were ever inserted or
+  // removed mid-list, every later index would shift and the older row would
+  // silently win, dropping the new content. That hazard is only real if some
+  // mutation path can reorder. None can today: every writer is
+  // `[...existing, entry]`. This drives the REAL store rather than reading the
+  // source, so a writer added later that inserts or removes trips it here
+  // instead of shipping.
+  {
+    const St = StoreForTest;
+    St.restoreState(Object.fromEntries(STORE_DOMAINS.map((d) => [d, []])) as unknown as StoreState);
+    const bid = St.createBeliefFromText("A first claim");
+    const revs = () => St.getSnapshot().beliefs.find((b) => b.id === bid)?.revisions ?? [];
+    const judg = () => St.getSnapshot().beliefs.find((b) => b.id === bid)?.judgments ?? [];
+    const afterCreate = revs().map((r) => r.text);
+    St.reviseBelief(bid, "A revised claim");
+    St.affirmBelief(bid);
+    St.questionBelief(bid);
+    const after = revs();
+    ok("58. every earlier revision keeps its index and text after later writes",
+      afterCreate.every((t, i) => after[i]?.text === t), JSON.stringify({ afterCreate, after: after.map((r) => r.text) }));
+    ok("59. each write appends exactly one entry at the highest index",
+      after.length === afterCreate.length + 3, `${after.length} vs ${afterCreate.length}+3`);
+    ok("60. judgments append in step, so their (belief_id, seq) is stable too",
+      judg().length >= 3, String(judg().length));
+    const before = after.map((r) => r.text);
+    St.affirmBelief(bid);
+    ok("61. a further write never rewrites an existing seq",
+      before.every((t, i) => (revs()[i]?.text ?? null) === t), JSON.stringify(revs().map((r) => r.text)));
   }
 
   const passed = results.filter((r) => r.pass).length;
