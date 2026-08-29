@@ -26,13 +26,59 @@ const STORAGE_KEY = "lifeos.mvp.v1";
 const MIGRATED_KEY = "lifeos.migrated.v1";
 /** Where a corrupt local blob is preserved before starting clean (LIFEOS-025). */
 const CORRUPT_BACKUP_KEY = "lifeos.mvp.v1.corrupt";
+/**
+ * The last FULLY successful remote push, per device (LIFEOS-076 §5).
+ *
+ * Runtime-only until now, so every reload reported "Not yet synced" even when
+ * the account had synced minutes earlier — and the honest thing to do with an
+ * unknown time was to omit it, which is what /health did. This key makes the
+ * fact survive a reload without inventing it.
+ *
+ * Deliberately NOT a StoreState domain and never pushed: it describes THIS
+ * device's relationship with the server, not the user's life. A second device
+ * has its own answer, and syncing one device's clock reading to another would
+ * be a new way to lie. Written only when zero domains failed.
+ */
+const LAST_SYNC_KEY = "lifeos.lastSync.v1";
 
 let remote: SupabasePersistenceAdapter | null = null;
 let lastSaved: StoreState | null = null;
 /** The state at the last successful remote flush — for dirty-domain diffing. */
 let lastSyncedState: StoreState | null = null;
 /** ISO time of the last successful remote flush (LIFEOS-032 diagnostics). */
-let lastSyncAt: string | null = null;
+let lastSyncAt: string | null = readLastSyncAt();
+
+/**
+ * The persisted last-success time, or null when absent or unusable.
+ *
+ * A malformed value is treated as absent rather than repaired or displayed:
+ * showing a wrong "last synced" is worse than showing none (LIFEOS-076 §5).
+ */
+function readLastSyncAt(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(LAST_SYNC_KEY);
+    if (!raw) return null;
+    const t = Date.parse(raw);
+    if (!Number.isFinite(t)) return null;
+    // A timestamp from the future is not a clock we can reason about.
+    if (t > Date.now() + 60_000) return null;
+    return new Date(t).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/** Record a CONFIRMED full sync. Never called for incomplete, failed or local. */
+function writeLastSyncAt(at: string): void {
+  lastSyncAt = at;
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_SYNC_KEY, at);
+  } catch {
+    // Quota or a blocked store: the in-memory value still serves this session.
+  }
+}
 /** Domains whose last push attempt failed (LIFEOS-074 D-22). Runtime only — no
  *  new persisted domain and no migration; a reload re-derives it on next push. */
 let failedDomains: string[] = [];
@@ -70,10 +116,11 @@ export function getHealth(): PersistenceHealth {
   return health;
 }
 function setHealth(next: Partial<PersistenceHealth>): void {
-  // Any confirmed successful sync stamps lastSyncAt (LIFEOS-042A) so the header
-  // and diagnostics read one consistent "last synced" value, and a stale
-  // "failed" that later recovers is never left without a timestamp.
-  if (next.state === "synced" && !lastSyncAt) lastSyncAt = new Date().toISOString();
+  // LIFEOS-076 §5: the timestamp is written by `flush` when a push actually
+  // confirms, and by nothing else. This used to mint one here on any transition
+  // into "synced" — including the adoption path, where nothing had been pushed
+  // — so the displayed "last synced" could be the moment the app decided it had
+  // nothing to do. A time the server never confirmed is not a sync time.
   health = { ...health, ...next, lastSyncAt };
   listeners.forEach((l) => l());
 }
@@ -142,18 +189,62 @@ export function hasCorruptBackup(): boolean {
   }
 }
 
-function writeLocal(state: StoreState): void {
-  if (typeof window === "undefined") return;
+function writeLocal(state: StoreState): boolean {
+  if (typeof window === "undefined") return false;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     if (health.localError) setHealth({ localError: undefined });
+    return true;
   } catch (e) {
     // Silent-save-failure hardening (LIFEOS-025): a quota/serialization error
     // is no longer swallowed — it is surfaced on the indicator and logged.
     const m = `Local save failed: ${msg(e)}`;
     recordSaveError(m);
     setHealth({ localError: m });
+    return false;
   }
+}
+
+/**
+ * Try again to write the latest state to THIS DEVICE (LIFEOS-076 §4 / E-2).
+ *
+ * The audit found "Local save failed" — the one state where the newest change
+ * may not survive a refresh — offering no action at all. It is also the one
+ * state where the obvious instinct, "reload the page", is precisely what
+ * destroys the work.
+ *
+ * A retry is genuinely possible: the failed state is still in memory as
+ * `lastSaved`, and the usual cause is a transient quota condition that clearing
+ * another tab or deleting a large draft can relieve. So this re-attempts the
+ * LOCAL write and nothing else — it makes no remote claim and triggers no push.
+ * `writeLocal` clears `localError` itself on success, so the indicator leaves
+ * the alarming state only when a durable write actually happened.
+ *
+ * Returns false when there is nothing to retry (nothing has been saved yet) or
+ * the write failed again — the caller must not report success either way.
+ */
+export function retryLocalSave(): boolean {
+  if (!lastSaved) return false;
+  return writeLocal(lastSaved);
+}
+
+/** Is there an in-memory state that a local retry could write? */
+export function canRetryLocalSave(): boolean {
+  return lastSaved !== null;
+}
+
+/**
+ * Are there changes this device has NOT had confirmed by the server?
+ *
+ * Used by the status popover and the sign-out warning (LIFEOS-076 §8). True
+ * whenever remote sync is active and something is still dirty or failed —
+ * deliberately false in local-only mode, where "unsynced" is not a meaningful
+ * warning because nothing was ever going to sync.
+ */
+export function hasUnsyncedChanges(): boolean {
+  if (!remote) return false;
+  if (failedDomains.length > 0 || pending !== null) return true;
+  return lastSaved ? dirtyDomainsOf(lastSaved, lastSyncedState).size > 0 : false;
 }
 
 /** Write locally now, and (if remote is active) schedule a debounced sync. */
@@ -183,12 +274,17 @@ export function clearState(): void {
       // takes them too: an unfinished answer about someone's marriage or faith
       // must not outlive the account on this machine.
       window.localStorage.removeItem(INTERVIEW_STORAGE_KEY);
+      // The device's own sync clock is meaningless once its data is gone, and
+      // leaving it behind would let a fresh start claim a sync that never
+      // happened for the new content (LIFEOS-076 §5).
+      window.localStorage.removeItem(LAST_SYNC_KEY);
     } catch {
       // no-op
     }
   }
   lastSaved = null;
   lastSyncedState = null;
+  lastSyncAt = null;
   if (remote) {
     setHealth({ state: "syncing" });
     remote
@@ -278,7 +374,7 @@ async function flush(): Promise<void> {
     failedDomains = report.failed.map((f) => f.domain);
 
     if (report.failed.length === 0) {
-      lastSyncAt = new Date().toISOString();
+      writeLastSyncAt(new Date().toISOString());
       retryAttempt = 0;
       if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
       setHealth({ state: "synced", error: undefined, retryAttempt: undefined, failedDomains: undefined });

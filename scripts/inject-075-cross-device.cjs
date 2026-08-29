@@ -38,8 +38,18 @@ const results = [];
 const ok = (n, p, d) => { results.push({ n, p, d }); console.log(`${p ? "PASS" : "FAIL"}  ${n}${p ? "" : ` — ${d ?? ""}`}`); };
 
 const LIB = "/home/user/LifeOS";
-/** The commit this branch forked from — the "pre-075" state for red proofs. */
-const BASE = execSync(`git -C ${LIB} merge-base origin/main HEAD`).toString().trim();
+/**
+ * The pre-075 tree, PINNED.
+ *
+ * This was `merge-base origin/main HEAD`, which was right while 075 was in
+ * flight and wrong the moment it merged: the merge-base became the 075 merge
+ * commit, so every "RED against base" proof below started comparing the
+ * repairs against themselves and reported that base already had them. These
+ * assertions record a historical fact — what the code looked like BEFORE 075 —
+ * so they must name that commit, not a moving pointer. 8e7cde2 is the 074 merge
+ * that 075 forked from.
+ */
+const BASE = "8e7cde2ac748808116a58b6369b91ff4fa4865ce";
 const baseFile = (p) => execSync(`git -C ${LIB} show ${BASE}:${p}`, { maxBuffer: 32 << 20 }).toString();
 
 const T = "2026-08-29";

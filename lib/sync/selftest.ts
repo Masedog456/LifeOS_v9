@@ -23,6 +23,7 @@ import { reconcileAdoption, mergeLocalOnly, snapshotHasData, suppressDeleted } f
 import type { StoreState } from "@/types/mvp";
 import { STORE_DOMAINS, emptyStoreState } from "@/lib/ux/backup";
 import { SYNC_DOMAIN_ORDER } from "@/lib/adapters/supabaseAdapter";
+import { formatLastSync } from "@/lib/sync/last-sync";
 // Section 58-61 drives the REAL store: whether belief revisions can be reordered
 // is a property of the mutators, not of a fixture (LIFEOS-074 §7).
 import * as StoreForTest from "@/lib/mvpStore";
@@ -418,6 +419,78 @@ export function runSyncSelfTests(): SelfTestReport {
     ok("74. a reading edited AFTER the delete is still kept as genuine intent",
       (suppressDeleted({ ...emptyStore(), documents: [{ id: "doc-deleted", updatedAt: at(99) }] } as unknown as StoreState, docTomb)
         .documents as { id: string }[]).some((d) => d.id === "doc-deleted"));
+  }
+
+  // 75-84. LIFEOS-076 — LAST SUCCESSFUL SYNC, SAID TRUTHFULLY (§5, §6, §11).
+  //
+  // The old behaviour minted a timestamp inside `setHealth` on ANY transition
+  // into "synced" — including the adoption path, where nothing had been pushed
+  // — and kept it in memory only, so every reload reported "Not yet synced"
+  // even for an account that had synced minutes earlier. Both halves were
+  // wrong in opposite directions: a time the server never confirmed, and no
+  // time at all when it had.
+  //
+  // `formatLastSync` is the display half, and these fail against pre-076 main
+  // because the function does not exist there.
+  {
+    const T = Date.parse("2026-08-29T12:00:00.000Z");
+    ok("75. an absent timestamp yields nothing to display, never an invented one",
+      formatLastSync(null, T) === null && formatLastSync(undefined, T) === null);
+    ok("76. a malformed timestamp is treated as absent, not repaired",
+      formatLastSync("not a date", T) === null);
+    ok("77. §6: a FUTURE timestamp is unusable rather than rendered",
+      formatLastSync(new Date(T + 10 * 60_000).toISOString(), T) === null);
+    ok("77b. …while a minute of clock skew is tolerated as 'just now'",
+      formatLastSync(new Date(T + 30_000).toISOString(), T) === "just now");
+    ok("78. under a minute reads 'just now'",
+      formatLastSync(new Date(T - 45_000).toISOString(), T) === "just now");
+    ok("79. minutes read as minutes",
+      formatLastSync(new Date(T - 5 * 60_000).toISOString(), T) === "5 min ago");
+    ok("80. hours are singular and plural correctly",
+      formatLastSync(new Date(T - 60 * 60_000).toISOString(), T) === "1 hour ago" &&
+      formatLastSync(new Date(T - 3 * 3600_000).toISOString(), T) === "3 hours ago");
+    ok("81. days too",
+      formatLastSync(new Date(T - 24 * 3600_000).toISOString(), T) === "1 day ago" &&
+      formatLastSync(new Date(T - 3 * 24 * 3600_000).toISOString(), T) === "3 days ago");
+    ok("82. beyond a week it becomes a date rather than a growing day count",
+      /\d/.test(formatLastSync(new Date(T - 30 * 24 * 3600_000).toISOString(), T) ?? "") &&
+      !/ago/.test(formatLastSync(new Date(T - 30 * 24 * 3600_000).toISOString(), T) ?? "ago"));
+    ok("83. §11: 'Synced' never depends on having a time to show",
+      formatLastSync(null) === null);
+  }
+
+  // 85-88. LIFEOS-076 O-3 — the LAST hand-maintained domain list is gone.
+  //
+  // `resetStore()` is the function whose whole job is to leave nothing behind.
+  // It carried a fifth literal of all 46 names; it happened to be complete when
+  // audited, but a domain added later and forgotten there would survive "wipe
+  // all data" silently — a privacy failure, not a stale-list annoyance.
+  {
+    const src = emptyStoreState() as unknown as Record<string, unknown[]>;
+    ok("85. the canonical empty state covers every domain, and only those",
+      Object.keys(src).length === STORE_DOMAINS.length &&
+      (STORE_DOMAINS as string[]).every((d) => Array.isArray(src[d])));
+    ok("86. every domain in it starts empty",
+      Object.values(src).every((v) => Array.isArray(v) && v.length === 0));
+    // Drive the REAL reset: create something, wipe, and confirm nothing survives
+    // in ANY canonical domain rather than in the handful someone thought to check.
+    /**
+     * The BEHAVIOURAL half of this — actually creating a record, wiping, and
+     * confirming nothing survives — lives in scripts/inject-076-sync-recovery.cjs
+     * and NOT here.
+     *
+     * The first draft drove the real `resetStore()` from this suite, which
+     * `/dev/sync-tests` renders. Visiting that page therefore destroyed the
+     * viewer's entire account: a browser probe caught a seeded record vanishing
+     * between one navigation and the next, and the same wipe took the
+     * last-sync key with it. A self-test that deletes the data it is run
+     * beside is worse than the drift it was written to catch.
+     *
+     * What stays here is the pure property, which needs no store at all.
+     */
+    ok("87. the canonical empty state is what a reset installs",
+      Object.keys(src).length === STORE_DOMAINS.length &&
+      Object.values(src).every((v) => Array.isArray(v) && v.length === 0));
   }
 
   const passed = results.filter((r) => r.pass).length;

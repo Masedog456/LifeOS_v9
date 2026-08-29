@@ -213,7 +213,17 @@ const BREAK = `(() => {
   // it keeps the fix honest about what it did and did not change.
   const clean = await syncIndicator();
   ok("B19 MOBILE: a healthy save state stays out of the way on a phone",
-    clean.found && clean.display === "none", JSON.stringify(clean));
+    await page.evaluate(() => {
+      // LIFEOS-076 §4: quiet now means a collapsed LABEL on a reachable 44x44
+      // control, not an absent element. C-6 showed that hiding it entirely left
+      // a phone user unable to tell local-only from synced at all.
+      const el = document.querySelector("[data-sync-status]");
+      if (!el) return false;
+      const lbl = [...el.querySelectorAll("span")].find((x) => (x.textContent || "").trim().length > 2);
+      const box = lbl ? lbl.getBoundingClientRect() : { width: 0, height: 0 };
+      const r = el.getBoundingClientRect();
+      return box.width === 0 && r.width >= 44 && r.height >= 44;
+    }))
 
   await page.evaluate(BREAK);
   await clickText(/^Complete$/);

@@ -178,6 +178,7 @@ import { planMerge } from "@/lib/inbox/merge";
 import type { CaptureProcessingStatus, RecordRefLite as RefLite, Note, Protocol, ProtocolStatus } from "@/types/mvp";
 import { setCurrentGoal, setCurrentProject, forgetGoal, forgetProject } from "@/lib/execution/current";
 import { clearRollback, setRecovery } from "@/lib/sync/status-store";
+import { emptyStoreState } from "@/lib/ux/backup";
 // Next actions & commitments (LIFEOS-036).
 import { makeAction, inheritFromMilestone, inheritFromProject, inheritFromCapture, type NewActionInput } from "@/lib/actions/action";
 import { makeEvent as makeActionEvent, appendHistory as appendActionHistory, type ActionEventKind } from "@/lib/actions/history";
@@ -658,19 +659,22 @@ export function applyResolvedRecord(domain: keyof StoreState, record: { id: stri
   setState({ ...state, [domain]: next } as StoreState);
 }
 
-/** Wipe all data (local + remote, if configured). */
+/**
+ * Wipe all data (local + remote, if configured).
+ *
+ * The domain set comes from `emptyStoreState()` (LIFEOS-076 O-3). It used to be
+ * a hand-written literal of all 46 names — the fifth copy of that list, after
+ * the backup allow-list, `SYNC_DOMAIN_ORDER`, `normalize()` and the sync
+ * self-test's builder. It happened to be complete when audited, but this is the
+ * function whose job is to leave nothing behind: a domain added later and
+ * forgotten here would survive "wipe all data" silently, which is a privacy
+ * failure rather than a stale-list annoyance. LIFEOS-075 removed two of those
+ * copies; this removes the last one, and section 62 of the sync self-tests
+ * fails the build if the remaining pair ever drift.
+ */
 export function resetStore() {
   clearState();
-  setState({
-    captures: [], proposals: [], beliefs: [], sources: [], feedback: [],
-    dailyReviews: [],
-    comparisons: [], inquiries: [], megathreads: [], reflections: [], practices: [], reviews: [], reasonings: [], embeddings: [], decisions: [], formationSessions: [],
-    concepts: [], conceptRelationships: [], principles: [], frameworks: [], knowledgeProjects: [], researchProjects: [], dialogueSessions: [],
-    tensions: [], syntheses: [], recommendations: [], documents: [], citations: [],
-    workspaces: [], sessions: [], goals: [], projects: [],
-    nextActions: [], actionDependencies: [], actionTemplates: [], planningAssignments: [], focusSessions: [],
-    maintenanceEvents: [], duplicateCandidates: [], savedInsightViews: [], notes: [], protocols: [], constitutionElements: [], constitutionRevisions: [], events: [], recurrenceCompletions: [],
-  });
+  setState(emptyStoreState());
 }
 
 /** Record user feedback on a surfaced retrieval record (append-only). */
