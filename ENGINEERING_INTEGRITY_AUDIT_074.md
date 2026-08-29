@@ -1,38 +1,65 @@
 # LIFEOS-074 — Engineering Integrity Audit
 
-**Verdict: BLOCKED — deployment migration parity is unresolved (repository head
-0044, Supabase 0042) and cannot be resolved from this environment.**
+**Verdict: BLOCKED — deployed migration parity is asserted by the operator but
+cannot be verified from this environment.**
 
-Everything else in the audit is complete. The blocker is stated first because a
-report that buries its own blocker is the thing this audit exists to prevent.
+The blocker is stated first because a report that buries its own blocker is the
+thing this audit exists to prevent.
 
 ---
 
 ## 0. The blocker, precisely
 
-| | |
+Migrations 0043 and 0044 have been reported as applied to Supabase. **I cannot
+confirm that, and I will not record it as confirmed.** This environment holds no
+Supabase credentials and no Supabase CLI, so I cannot:
+
+- read `supabase_migrations.schema_migrations` and report the exact remote rows
+- inspect the deployed schema
+- run a real remote round trip
+- run a two-client deletion retest against the deployed database
+
+Accepting "it has been applied" as evidence is the same move that produced D-24,
+where `SYNC_INTEGRITY.md` said tombstones were live and nothing had ever checked.
+The audit's own standard applies to the audit.
+
+**What IS proven, against a real PostgreSQL 16 running the full chain 0001→0044
+three times (`npm run release:migrations`, 103/103):**
+
+| 0043 semantics | Result |
 |---|---|
-| Repository migration head | **0044** |
-| Deployed Supabase | **0042** |
-| Missing remotely | 0043, 0044 |
-| Rehearsal against real PostgreSQL 16 | **103/103, clean through 0044** |
-| Release audit | **17/17** |
+| `due_time` with a `due_date` | accepted |
+| `due_time` with a `recurrence` and no date | **accepted** (the repair) |
+| `due_time` with neither | still refused |
+| a malformed time, even with a recurrence | still refused |
+| exactly one `due_time` constraint after the chain | confirmed |
 
-This environment holds **no Supabase credentials and no Supabase CLI**, so the
-remote migration history cannot be advanced from here. Both pending migrations
-were separately approved and both are bounded integrity repairs:
+| 0044 semantics | Result |
+|---|---|
+| `workspace_sessions` carries all three execution pointers | confirmed |
+| …as soft references, with no foreign key | confirmed |
+| a completion for a non-existent action | refused |
 
-- **0043** widens one CHECK so a recurrence rule can name the day for a
-  `due_time`. Its rollback is **not free**: reverting fails while any row has a
-  `due_time` with a rule and no date, which is exactly the shape it exists to
-  allow.
-- **0044** adds three nullable soft-reference columns to `workspace_sessions`.
-  Rollback **is** free.
+So the migrations do what they claim. What is unverified is only whether the
+deployed database has them.
 
-**0043 is not optional.** The mapper repair (D-1) means a recurring action with
-a time now reaches the database; against a 0042 schema that row violates the old
-CHECK and, before D-22, would have wedged every later domain. Deploying the
-application without 0043 is worse than not deploying it.
+**To close this in about two minutes**, from an environment with credentials:
+
+```
+supabase db remote list          # expect 0043 and 0044 present, head 0044
+psql "$DB_URL" -c "select version, name from supabase_migrations.schema_migrations order by version desc limit 3;"
+```
+
+Paste the rows into the PR. If they show 0044 with
+`0044_workspace_session_current_action`, the blocker is discharged and the
+verdict becomes COMPLETE with no code change.
+
+**Cross-device deletion retest (§4): not performed against the deployed
+database**, for the same reason. The deterministic gate evidence is retained —
+43 assertions driving the real adapter, the real adoption path and a real push,
+including a control run proving a successfully-written tombstone changed nothing
+before the repair. That is not a live two-client claim and is not presented as
+one.
 
 ---
 
