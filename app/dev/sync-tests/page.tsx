@@ -16,7 +16,8 @@ import { setConflicts } from "@/lib/sync/status-store";
 import ConflictCenter from "@/components/sync/ConflictCenter";
 import type { RecordConflict } from "@/lib/sync/conflicts";
 import { threeWayMerge } from "@/lib/sync/merge";
-import { __setHealthForTest } from "@/lib/persistence";
+import { __setHealthForTest, saveState } from "@/lib/persistence";
+import { getSnapshot } from "@/lib/mvpStore";
 
 /**
  * Sync-health states, drivable by hand (LIFEOS-074 D-22 §9).
@@ -78,6 +79,18 @@ export default function SyncTestsPage() {
               onClick={() => __setHealthForTest(h.patch)}
               className="rounded-full border border-black/[.12] px-3 py-1 text-xs dark:border-white/[.15]">{h.label}</button>
           ))}
+          {/*
+            A real save of the CURRENT state — the same call an ordinary edit
+            makes. It exists because "Local save failed" only offers a retry
+            when there is something in memory to rewrite, and that precondition
+            used to be met by accident: this page seeded fixtures through the
+            store and thereby set it. Repairing E-7 removed the accident, so the
+            precondition is now established deliberately instead of a browser
+            test depending on a side effect that should never have existed.
+          */}
+          <button type="button" data-dev-real-save
+            onClick={() => saveState(getSnapshot())}
+            className="rounded-full border border-black/[.12] px-3 py-1 text-xs dark:border-white/[.15]">Save now (real)</button>
         </div>
       </section>
 

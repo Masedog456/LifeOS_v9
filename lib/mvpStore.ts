@@ -254,11 +254,63 @@ let hydrated = false;
 const listeners = new Set<() => void>();
 
 function emit() {
+  // Suppressed inside `withIsolatedStore`: a subscriber must never render
+  // fixture data, not even for one frame. The single emit at the end of the
+  // isolation block, after the real state is restored, is the only one.
+  if (isolated) return;
   listeners.forEach((l) => l());
 }
 
+/**
+ * True only inside `withIsolatedStore` (LIFEOS-076 §26 / E-7).
+ *
+ * While it is set, the singleton still mutates — that is the whole point, the
+ * suites must drive the REAL code paths — but nothing about those mutations
+ * leaves this module: no local write, no remote push, no subscriber render.
+ */
+let isolated = false;
+
 function persist() {
+  if (isolated) return;
   saveState(state);
+}
+
+/**
+ * Run `fn` against the real store without the viewer's data being touched.
+ *
+ * ## The defect this exists for
+ *
+ * `/dev/action-tests` and `/dev/sync-tests` render suites that seed fixtures
+ * with `restoreState({...})`. `restoreState` goes through `setState`, and
+ * `setState` calls `persist()` — which is `saveState`, which is `writeLocal`
+ * PLUS `scheduleRemotePush`. So opening either page overwrote the viewer's
+ * localStorage with two fixture actions and then pushed that emptiness to the
+ * server, deleting the account's real rows. A browser probe caught a seeded
+ * record vanishing between one navigation and the next.
+ *
+ * The suites were not wrong to drive the real store — LIFEOS-074 §1 added them
+ * precisely because helper-level tests had missed three sprints of defects.
+ * What was missing was a seam that lets them do it safely, so this is that
+ * seam rather than a rule people must remember.
+ *
+ * `finally` restores the previous snapshot even if the suite throws, and the
+ * single `emit()` afterwards happens only once the real state is back, so no
+ * component ever renders fixture data.
+ */
+export function withIsolatedStore<T>(fn: () => T): T {
+  const before = state;
+  const wasIsolated = isolated;
+  isolated = true;
+  try {
+    return fn();
+  } finally {
+    state = before;
+    isolated = wasIsolated;
+    // Not `emit()` — that is suppressed while isolated, and a nested block must
+    // still stay silent. This wakes subscribers only at the outermost exit,
+    // when the store already holds the viewer's own state again.
+    if (!isolated) listeners.forEach((l) => l());
+  }
 }
 
 function setState(next: StoreState) {
@@ -275,7 +327,7 @@ function setState(next: StoreState) {
  * immediately clear the rollback buffer it is about to set. */
 let restoreInProgress = false;
 function clearRollbackOnMutation() {
-  if (restoreInProgress) return;
+  if (restoreInProgress || isolated) return;
   try { clearRollback(); } catch { /* status store optional */ }
 }
 
@@ -707,7 +759,13 @@ export function replaceState(next: StoreState) {
 
 // ---------- Subscription plumbing ----------
 
-function subscribe(listener: () => void): () => void {
+/**
+ * Exported for the same reason `getSnapshot` is: without it, "no subscriber
+ * ever rendered fixture data" — the property `withIsolatedStore` exists to
+ * guarantee — is an invariant nothing outside this file can observe, and an
+ * unobservable invariant is the kind that quietly stops holding.
+ */
+export function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }

@@ -27,6 +27,7 @@ import { formatLastSync } from "@/lib/sync/last-sync";
 // Section 58-61 drives the REAL store: whether belief revisions can be reordered
 // is a property of the mutators, not of a fixture (LIFEOS-074 §7).
 import * as StoreForTest from "@/lib/mvpStore";
+import { withIsolatedStore } from "@/lib/mvpStore";
 
 /**
  * A minimal empty StoreState for pure tests.
@@ -241,7 +242,13 @@ export function runSyncSelfTests(): SelfTestReport {
   // `[...existing, entry]`. This drives the REAL store rather than reading the
   // source, so a writer added later that inserts or removes trips it here
   // instead of shipping.
-  {
+  //
+  // E-7 (LIFEOS-076 §26): this block seeds with `restoreState`, and until now it
+  // ran against the VIEWER's store. `/dev/sync-tests` renders this suite, so
+  // opening that page replaced a real account with an empty fixture and pushed
+  // the emptiness to the server. `withIsolatedStore` keeps the real code paths
+  // and takes away the blast radius.
+  withIsolatedStore(() => {
     const St = StoreForTest;
     St.restoreState(Object.fromEntries(STORE_DOMAINS.map((d) => [d, []])) as unknown as StoreState);
     const bid = St.createBeliefFromText("A first claim");
@@ -262,7 +269,7 @@ export function runSyncSelfTests(): SelfTestReport {
     St.affirmBelief(bid);
     ok("61. a further write never rewrites an existing seq",
       before.every((t, i) => (revs()[i]?.text ?? null) === t), JSON.stringify(revs().map((r) => r.text)));
-  }
+  });
 
   // 62. THE DOMAIN LISTS MUST AGREE (LIFEOS-075 C-1).
   //

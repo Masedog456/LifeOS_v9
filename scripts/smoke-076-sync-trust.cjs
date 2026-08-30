@@ -153,6 +153,18 @@ const ALARMING = ["incomplete", "failed", "local-error", "retrying"];
       !/goals|next_actions|nextActions/i.test(pn.text), pn.text.slice(0, 160));
     await page.keyboard.press("Escape");
 
+    /*
+     * A local-save retry rewrites the state still held in memory, so it is only
+     * offered when there IS one. In the product that is always true whenever a
+     * local save can have failed: `localError` is set by `writeLocal`, and every
+     * caller of `writeLocal` assigns `lastSaved` first. What the browser needs
+     * is that same precondition, established the way the product establishes it
+     * — a real save. It used to arrive by accident, because this page seeded
+     * fixtures through the store; repairing E-7 (§26) removed the accident, so
+     * the save is now explicit rather than a side effect of data destruction.
+     */
+    await page.click("[data-dev-real-save]");
+    await page.waitForTimeout(150);
     await setState(page, "local-error");
     await openPanel(page);
     pn = await panel(page);
@@ -337,6 +349,12 @@ const ALARMING = ["incomplete", "failed", "local-error", "retrying"];
     await page.click("[data-sync-retry]");
     await page.waitForTimeout(300);
     await page.keyboard.press("Escape");
+    // A local-save retry is only offered when there is a real in-memory state to
+    // rewrite. That used to be true by accident — this page seeded fixtures
+    // through the store, which set it — and repairing E-7 removed the accident.
+    // The precondition is now established the way the product establishes it.
+    await page.click("[data-dev-real-save]");
+    await page.waitForTimeout(150);
     await setState(page, "local-error");
     await openPanel(page);
     await page.click("[data-sync-retry-local]");
@@ -348,10 +366,85 @@ const ALARMING = ["incomplete", "failed", "local-error", "retrying"];
       JSON.stringify({ before: (beforeUi ?? "").length, after: (afterUi ?? "").length }));
     ok("D2 §12 …and the store is still valid JSON afterwards",
       (() => { try { return typeof JSON.parse(afterUi ?? "") === "object"; } catch { return false; } })());
-    // E-7, stated as measured: the dev route IS destructive, and gated.
-    ok("D3 E-7: /dev/sync-tests mutates the real store (pre-existing since 074)",
-      beforeUi !== null && !beforeUi.includes("ZZFileTheReturn"),
-      "the seeded account survived after all — re-examine E-7");
+    // E-7 REPAIRED (§26). The assertion is inverted from the audit's finding:
+    // the seeded account must now SURVIVE a visit to the self-test page.
+    ok("D3 §26 E-7 repaired: /dev/sync-tests no longer mutates the viewer's store",
+      beforeUi !== null && beforeUi.includes("ZZFileTheReturn"),
+      "the seeded account was destroyed by the dev route — E-7 is not repaired");
+
+    // ================================================================
+    // W. §9/§10 — THE CONFLICT SURFACE, RENDERED.
+    //
+    // A refused write is only recovered if the person can SEE it. The
+    // deterministic harness proves the record is kept; this proves it reaches a
+    // screen, on the record itself, with reachable controls.
+    // ================================================================
+    {
+      const CONFLICT = [{
+        domain: "notes", id: "zzn1", reason: "stale_write",
+        detectedAt: "2026-08-29T09:00:00.000Z",
+        local: { id: "zzn1", title: "Interview notes", body: "ZZMineBody the advisor said Friday", tags: [], linkedEntityRefs: [], createdAt: iso(), updatedAt: iso() },
+        remote: { id: "zzn1", title: "Interview notes", body: "ZZTheirsBody call the accountant", tags: [], linkedEntityRefs: [], createdAt: iso(), updatedAt: iso() },
+      }];
+      const world = WORLD();
+      world.notes = [{ id: "zzn1", title: "Interview notes", body: "ZZTheirsBody call the accountant", tags: [], linkedEntityRefs: [], createdAt: iso(), updatedAt: iso() }];
+      await page.goto(`${BASE}/today`, { waitUntil: "domcontentloaded" });
+      await page.evaluate(([k, s, ck, c]) => { localStorage.setItem(k, s); localStorage.setItem(ck, c); },
+        [KEY, JSON.stringify(world), "lifeos.conflicts.v1", JSON.stringify(CONFLICT)]);
+      await page.goto(`${BASE}/notes?note=zzn1`, { waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(500);
+
+      const notice = await page.$('[data-conflict-notice="notes"]');
+      ok("W1 §9 the refused write is shown on the record it belongs to", !!notice);
+
+      if (notice) {
+        const txt = (await notice.innerText()).replace(/\s+/g, " ");
+        ok("W2 §9 …saying plainly that it was not saved", /not saved/i.test(txt), txt.slice(0, 90));
+        ok("W3 §9 …showing BOTH versions, not a merge",
+          txt.includes("ZZTheirsBody") && txt.includes("ZZMineBody"), txt.slice(0, 160));
+        ok("W4 §6 …without naming the mechanism",
+          !/sync_version|CAS|409|rpc|upsert|postgres|supabase/i.test(txt), txt.slice(0, 120));
+        ok("W5 §11 …and without telling anyone to refresh the page",
+          !/refresh/i.test(txt), txt.slice(0, 120));
+
+        for (const [sel, name] of [["[data-conflict-keep]", "keep the saved version"],
+                                   ["[data-conflict-use-mine]", "use my version"],
+                                   ["[data-conflict-copy]", "copy my version"]]) {
+          const el = await page.$(sel);
+          const box = el ? await el.boundingBox() : null;
+          ok(`W6 §9 the "${name}" control is present and reachable`,
+            !!box && box.height >= 32 && box.width >= 44,
+            JSON.stringify(box));
+        }
+        ok("W7 §9 the notice is announced, not merely coloured",
+          (await notice.getAttribute("role")) === "alert");
+      }
+
+      // §10: discoverable from the shell, for someone not already on the note.
+      await openPanel(page);
+      const panel = await page.$("[data-sync-panel]");
+      const ptxt = panel ? (await panel.innerText()).replace(/\s+/g, " ") : "";
+      ok("W8 §10 the sync popover reports the unsaved change too",
+        /not saved/i.test(ptxt), ptxt.slice(0, 120));
+      ok("W9 §10 …and links straight to the record",
+        !!(await page.$("[data-sync-conflict-link]")));
+      await page.keyboard.press("Escape");
+
+      // Choosing must actually clear it, through the ordinary mutators.
+      await page.click("[data-conflict-use-mine]");
+      await page.waitForTimeout(400);
+      ok("W10 §9 choosing a version resolves the conflict",
+        !(await page.$('[data-conflict-notice="notes"]')));
+      const stored = await page.evaluate(() => localStorage.getItem("lifeos.conflicts.v1"));
+      ok("W11 §9 …and it is not offered again after a reload",
+        (JSON.parse(stored || "[]")).length === 0, stored);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForTimeout(400);
+      const body = await page.$eval("textarea[aria-label='Note body']", (e) => e.value).catch(() => "");
+      ok("W12 §9 'Use my version' actually applied the version the person chose",
+        body.includes("ZZMineBody"), body.slice(0, 80));
+      await page.evaluate(() => localStorage.removeItem("lifeos.conflicts.v1"));
+    }
 
     await ctx.close();
   }

@@ -16,6 +16,7 @@ import { activeNotes, notesInTopic, notesWithoutTopic, searchNotes, topicsWithNo
 import { availableTopics, topicName, TOPIC_LABEL } from "@/lib/notes/topics";
 import { NOTE_PROMOTIONS, previewPromotion, type NotePromotionKey } from "@/lib/notes/promotion";
 import { toast } from "@/lib/ux/feedback";
+import ConflictNotice from "@/components/sync/ConflictNotice";
 import type { Note } from "@/types/mvp";
 
 export default function NotesPage({ initialNoteId }: { initialNoteId?: string }) {
@@ -174,6 +175,13 @@ function NoteDetail({ note, onDeleted }: { note: Note; onDeleted: () => void }) 
               <button type="button" onClick={() => { deleteNote(note.id); onDeleted(); toast({ kind: "info", message: "Deleted" }); }} className="rounded-full bg-rose-600 px-3 py-1 font-medium text-white">Yes</button>
               <button type="button" onClick={() => setConfirmDelete(false)} className="text-zinc-400">No</button></span>}
       </div>
+
+      {/*
+        Shown on the record itself: this is where the person is when they find
+        their edit missing, and a global banner could not tell them WHICH note
+        (LIFEOS-076 §9).
+      */}
+      <ConflictNotice domain="notes" id={note.id} />
 
       {note.fromAiText && (
         <p className="mt-3 rounded-lg bg-amber-500/[.08] px-3 py-2 text-[11px] text-amber-800 dark:text-amber-200">

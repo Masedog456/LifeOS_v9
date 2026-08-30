@@ -66,6 +66,7 @@ import type {
 import type { DomainPushReport, PersistenceAdapter, PersistenceHealth, SyncState } from "@/lib/adapters/types";
 import { makeTombstone, type Tombstone } from "@/lib/sync/tombstones";
 import { readRule } from "@/lib/time/recurrence";
+import { recordConflicts, type GuardedDomain } from "@/lib/sync/conflicts-store";
 import {
   allDocumentRows, citationToRow, diffById, documentToImportPayload, newDocumentIds, rowsToDocuments,
   type AnnotationRow, type CitationRow, type DocumentRow, type HighlightRow, type PassageRow, type SectionRow,
@@ -96,6 +97,18 @@ export const SYNC_DOMAIN_ORDER: (keyof StoreState)[] = [
   "notes", "protocols", "events", "recurrenceCompletions",
   "constitutionElements", "constitutionRevisions",
 ];
+
+/**
+ * What `push_guarded_rows` (migration 0045) returns.
+ *
+ * Both arrays are optional on purpose: this is parsed from an untyped RPC
+ * payload, so a malformed or truncated response must degrade to "nothing was
+ * accepted, nothing was refused" rather than throwing inside the sync worker.
+ */
+interface GuardedPushResult {
+  accepted?: string[];
+  stale?: { id: string; current: unknown }[];
+}
 
 export class SupabasePersistenceAdapter implements PersistenceAdapter {
   readonly mode = "supabase" as const;
@@ -673,11 +686,119 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     if (d.deleteIds.length) { await this.throwing(this.client.from("daily_reviews").delete().in("id", d.deleteIds)); await this.writeTombstones("dailyReviews", d.deleteIds); }
   }
 
-  /** Row-level upsert/delete for next actions (LIFEOS-036). */
+  /**
+   * Row-level guarded push/delete for next actions (LIFEOS-036, guarded 076).
+   *
+   * `.upsert` is deliberately NOT used here any more. Migration 0045 makes an
+   * update to this table legal only when it advances `sync_version`, and a bulk
+   * upsert is one statement — a single stale row would roll back every healthy
+   * row alongside it, undoing the per-domain isolation D-22 established. The
+   * RPC applies rows individually and reports each outcome.
+   */
   private async syncNextActions(current: NextAction[], base: NextAction[]): Promise<void> {
     const d = diffById<NextActionRow>(current.map(actionToRow), base.map(actionToRow));
-    if (d.upsert.length) await this.throwing(this.client.from("next_actions").upsert(d.upsert));
+    if (d.upsert.length) await this.pushGuarded("next_actions", "nextActions", d.upsert, current, rowToAction);
     if (d.deleteIds.length) { await this.throwing(this.client.from("next_actions").delete().in("id", d.deleteIds)); await this.writeTombstones("nextActions", d.deleteIds); }
+  }
+
+  /**
+   * The version this device last saw from the server, per guarded table.
+   *
+   * Held in memory, not persisted and NOT put on the record type. Adoption
+   * already reads every row before any push is allowed (`adoptionSettled` gates
+   * the flush), so after a reload the versions are current before they are
+   * needed. Putting `syncVersion` on `NextAction` / `Note` would survive a
+   * reload for free but would oblige ~200 store mutators to preserve it, and
+   * this codebase's repeated lesson is that hand-maintained invariants drift.
+   */
+  private versions = new Map<string, Map<string, number>>();
+
+  private versionMap(table: string): Map<string, number> {
+    let m = this.versions.get(table);
+    if (!m) { m = new Map(); this.versions.set(table, m); }
+    return m;
+  }
+
+  /** Remember what the server told us, from any authoritative read. */
+  captureVersions(table: string, rows: { id: string; sync_version?: number }[]): void {
+    const m = this.versionMap(table);
+    for (const r of rows) if (typeof r.sync_version === "number") m.set(r.id, r.sync_version);
+  }
+
+  /**
+   * Fill in versions we do not know for ids that may already exist remotely.
+   *
+   * This is the §6 case: a device that reloaded while offline never ran
+   * adoption, so it holds durable local edits and no version knowledge. It must
+   * NOT guess — one narrow read of `id, sync_version` settles it, and a row
+   * that genuinely does not exist yet stays absent from the map and is inserted
+   * at version 1.
+   *
+   * It is also the §20/§21 answer: after any ambiguous outcome the cache for
+   * that table is dropped, so the next attempt re-reads the authoritative
+   * version instead of blindly incrementing one it only assumed.
+   */
+  private async ensureVersions(table: string, ids: string[]): Promise<void> {
+    const m = this.versionMap(table);
+    const missing = ids.filter((id) => !m.has(id));
+    if (!missing.length) return;
+    const res = await this.client.from(table).select("id,sync_version").in("id", missing);
+    if (res.error) throw new Error(res.error.message);
+    this.captureVersions(table, (res.data ?? []) as { id: string; sync_version?: number }[]);
+  }
+
+  /**
+   * Push rows through the 0045 guard, and preserve whatever it refuses.
+   *
+   * A stale result is NOT a transport failure: the sync worked, the server
+   * simply declined to let an older write destroy a newer fact. So the domain
+   * is not failed for it — that would read as "Sync failed" forever — and the
+   * rejected local record is handed to the conflict store so the person can
+   * still recover what they wrote.
+   */
+  private async pushGuarded<R extends { id: string }>(
+    table: "next_actions" | "notes",
+    domain: GuardedDomain,
+    rows: R[],
+    localRecords: { id: string }[],
+    toDomain: (row: Record<string, unknown>) => unknown,
+  ): Promise<void> {
+    await this.ensureVersions(table, rows.map((r) => r.id));
+    const m = this.versionMap(table);
+    const payload = rows.map((r) => ({ ...r, sync_version: (m.get(r.id) ?? 0) + 1 }));
+
+    let data: GuardedPushResult | null = null;
+    try {
+      const res = await this.client.rpc("push_guarded_rows", { target: table, payload });
+      if (res.error) throw new Error(res.error.message);
+      data = res.data as GuardedPushResult | null;
+    } catch (e) {
+      // Ambiguous: the write may have committed before the response was lost.
+      // Drop what we think we know so the retry re-reads rather than assuming.
+      this.versions.delete(table);
+      throw e;
+    }
+
+    for (const id of data?.accepted ?? []) {
+      m.set(id, (m.get(id) ?? 0) + 1);
+    }
+    const stale = data?.stale ?? [];
+    if (stale.length) {
+      // The server handed back each current row, so its version is known
+      // exactly — no extra round trip, and the next attempt is not stale.
+      this.captureVersions(table, stale.map((x) => (x.current ?? {}) as { id: string; sync_version?: number }));
+      recordConflicts(stale.map((x) => ({
+        domain,
+        id: x.id,
+        local: localRecords.find((r) => r.id === x.id) ?? null,
+        // Mapped to the DOMAIN shape, not stored as the raw row. Two reasons:
+        // the UI can then compare like with like, and `user_id` — plus any
+        // future server-only column — never reaches device storage.
+        remote: x.current ? toDomain(x.current as Record<string, unknown>) : null,
+        detectedAt: new Date().toISOString(),
+        reason: "stale_write" as const,
+      })));
+    }
   }
 
   /** Row-level upsert/delete for action dependencies (LIFEOS-036). */
@@ -825,7 +946,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
   /** Row-level upsert/delete for notes (LIFEOS-052). */
   private async syncNotes(current: Note[], base: Note[]): Promise<void> {
     const d = diffById<NoteRow>(current.map(noteToRow), base.map(noteToRow));
-    if (d.upsert.length) await this.throwing(this.client.from("notes").upsert(d.upsert));
+    if (d.upsert.length) await this.pushGuarded("notes", "notes", d.upsert, current, rowToNote);
     if (d.deleteIds.length) { await this.throwing(this.client.from("notes").delete().in("id", d.deleteIds)); await this.writeTombstones("notes", d.deleteIds); }
   }
 
@@ -834,6 +955,7 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     try {
       const res = await this.client.from("notes").select("*").order("updated_at", { ascending: false });
       if (res.error) return [];
+      this.captureVersions("notes", (res.data ?? []) as { id: string; sync_version?: number }[]);
       return (res.data ?? []).map(rowToNote);
     } catch { return []; }
   }
@@ -887,7 +1009,12 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
       ]);
       if (actions.error || deps.error || templates.error) return { nextActions: [], actionDependencies: [], actionTemplates: [] };
       return {
-        nextActions: (actions.data ?? []).map(rowToAction),
+        nextActions: (() => {
+          // Every authoritative read feeds the version map, so the first push
+          // after adoption already knows what the server holds (LIFEOS-076 §5).
+          this.captureVersions("next_actions", (actions.data ?? []) as { id: string; sync_version?: number }[]);
+          return (actions.data ?? []).map(rowToAction);
+        })(),
         actionDependencies: (deps.data ?? []).map(rowToDependency),
         actionTemplates: (templates.data ?? []).map(rowToTemplate),
       };

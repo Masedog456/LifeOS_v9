@@ -32,6 +32,7 @@ import { writeActionMemory } from "@/lib/actions/memory";
 import EntityPicker from "@/components/reviews/EntityPicker";
 import ActionHistory from "@/components/actions/ActionHistory";
 import ActionDependencies from "@/components/actions/ActionDependencies";
+import ConflictNotice from "@/components/sync/ConflictNotice";
 
 type Panel = "links" | "dependencies" | "history";
 
@@ -101,6 +102,11 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
           </div>
           <Link href="/actions" className="shrink-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">← Queue</Link>
         </header>
+
+        {/* A refused write is shown against the action it belongs to, above the
+            editor, so it is read BEFORE the person types over it again
+            (LIFEOS-076 §9). */}
+        <ConflictNotice domain="nextActions" id={action.id} />
 
         {/* Editable title/description. */}
         <section className="mb-4 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">

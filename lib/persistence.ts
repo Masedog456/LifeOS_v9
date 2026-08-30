@@ -21,6 +21,7 @@ import * as authStore from "@/lib/authStore";
 import { markBootstrap } from "@/lib/security/auth-bootstrap";
 import { INTERVIEW_STORAGE_KEY } from "@/lib/interview/session";
 import { STORE_DOMAINS, emptyStoreState } from "@/lib/ux/backup";
+import { purgeConflicts } from "@/lib/sync/conflicts-store";
 
 const STORAGE_KEY = "lifeos.mvp.v1";
 const MIGRATED_KEY = "lifeos.migrated.v1";
@@ -282,6 +283,11 @@ export function clearState(): void {
       // no-op
     }
   }
+  // A rejected write is evidence about ONE account's row on THIS device. Once
+  // the account's data is gone the local half is meaningless, and worse, an
+  // orphaned conflict would offer to re-apply a previous user's text into a
+  // different session (LIFEOS-076 §8).
+  purgeConflicts();
   lastSaved = null;
   lastSyncedState = null;
   lastSyncAt = null;

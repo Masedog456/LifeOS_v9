@@ -82,11 +82,36 @@ function fakeClient(fails = {}) {
       in: (_c, ids) => { calls.push({ table: t, op: "delete", n: ids.length }); if (fails[t]) return Promise.resolve({ error: { message: `delete failed: ${t}` } }); const m = db.get(t); if (m) for (const i of ids) m.delete(i); return Promise.resolve({ error: null }); },
       eq: (_c, v) => { calls.push({ table: t, op: "delete-eq" }); const m = db.get(t); if (m) for (const [k, r] of m) if (r.document_id === v || r.user_id === v) m.delete(k); return Promise.resolve({ error: null }); },
     }),
-    select: () => { const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; return q; },
+    select: () => {
+      const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null });
+      q.order = () => q; q.eq = () => q;
+      // LIFEOS-076: `ensureVersions` narrows by id on the guarded tables.
+      q.in = (_c, ids) => Promise.resolve({ data: [...(db.get(t)?.values() ?? [])].filter((r) => ids.includes(r.id)), error: null });
+      return q;
+    },
   });
   const rpc = (name, args) => {
     calls.push({ table: `rpc:${name}`, op: "rpc" });
     if (fails[`rpc:${name}`]) return Promise.reject(new Error(`rpc failed: ${name}`));
+    /*
+     * LIFEOS-076 migration 0045. `next_actions` and `notes` stopped being
+     * written by a bare upsert after this harness was written, so the fake has
+     * to honour the same contract or these scenarios would silently write
+     * nothing: an insert passes (the trigger is BEFORE UPDATE), an existing id
+     * is accepted only at current + 1, and anything else comes back stale.
+     */
+    if (name === "push_guarded_rows") {
+      const target = args.target;
+      const m = db.get(target) ?? new Map(); db.set(target, m);
+      const accepted = [], stale = [];
+      for (const item of args.payload) {
+        const cur = m.get(item.id) ?? null;
+        if (!cur) { m.set(item.id, { ...item }); accepted.push(item.id); continue; }
+        if (item.sync_version !== (cur.sync_version ?? 1) + 1) { stale.push({ id: item.id, current: { ...cur } }); continue; }
+        m.set(item.id, { ...cur, ...item }); accepted.push(item.id);
+      }
+      return Promise.resolve({ error: null, data: { accepted, stale } });
+    }
     // Mirror import_reading_document: write the parent + children transactionally.
     const p = args?.payload ?? {};
     if (p.document) put("reading_documents", [p.document]);
@@ -481,10 +506,28 @@ function fakeOriginals(cloud, userId, opts = {}) {
   // =====================================================================
   // I. §16 — WHAT LAST-WRITE-WINS ACTUALLY MEANS CROSS-DEVICE.
   //
-  // D-8 remains accepted debt: merge.ts / conflicts.ts and six merge-rules
-  // modules are complete and unwired, and the live strategy is a plain per-row
-  // upsert. This section does not change that. It measures it, so the cost is
-  // recorded rather than assumed.
+  // ## UPDATED BY LIFEOS-076
+  //
+  // As written for 075 this section recorded accepted debt: the live strategy
+  // was a plain per-row upsert, so the last write to ARRIVE won, and the losing
+  // device's edit — and its history entry with it — was gone. That measurement
+  // is what escalated to findings F-1 and F-2 and produced migration 0045.
+  //
+  // The claims below have therefore been re-derived, not merely re-run. Two of
+  // them were left passing for the wrong reason after 0045 landed: everything
+  // here drives ONE adapter, which holds one version map and so can never
+  // conflict with itself, and the old "there is no compare-and-set column"
+  // check looked for the literal keys `version`/`revision` and so stayed green
+  // beside a column named `sync_version`. A test that cannot notice the defect
+  // it was written for has stopped being evidence.
+  //
+  // What this section measures now is the SAME-DEVICE sequence, where a later
+  // write legitimately supersedes an earlier one. The cross-device case — two
+  // devices, two version maps, which is the situation 0045 exists for — is
+  // proved in scripts/inject-076-cas-client.cjs, sections O and P.
+  //
+  // D-8 itself is unchanged: merge.ts / conflicts.ts and the six merge-rules
+  // modules remain complete and unwired.
   // =====================================================================
   {
     const fc = fakeClient();
@@ -500,22 +543,33 @@ function fakeOriginals(cloud, userId, opts = {}) {
     await ad.saveStateByDomain(aEdit, new Set(["nextActions"]), base);
     await ad.saveStateByDomain(bEdit, new Set(["nextActions"]), base);
     let row = rows(fc.db, "next_actions")[0];
-    ok("I1 §16 the LAST writer's value is what the row holds", row.title === "B's title", row.title);
+    ok("I1 §16 on ONE device, a later write supersedes an earlier one", row.title === "B's title", row.title);
 
-    // …and the order is wall-clock arrival, not the record's own updatedAt.
+    // Still true, and still worth stating: the row carries no ordering logic of
+    // its own. A later write wins because it is later, not because its
+    // `updatedAt` is newer — replaying the OLDER edit puts the older value back.
     await ad.saveStateByDomain(aEdit, new Set(["nextActions"]), base);
     row = rows(fc.db, "next_actions")[0];
-    ok("I2 §16 …decided by ARRIVAL order, not by updatedAt — an older edit can win",
+    ok("I2 §16 …and `updatedAt` never arbitrates — replaying an older edit restores the older value",
       row.title === "A's title" && row.updated_at === iso(9), JSON.stringify({ t: row.title, u: row.updated_at }));
-    ok("I3 §16 there is no version or compare-and-set column guarding the write",
-      !("version" in row) && !("revision" in row), JSON.stringify(Object.keys(row).filter((k) => /vers|rev/i.test(k))));
 
-    // What is LOST is stated exactly: the losing device's title, and its history
-    // entry along with it, because history is a column on the same row.
-    ok("I4 §16 the losing edit is gone — including its history entry",
+    // 076: the 075 finding is CLOSED. The old form of this check looked for a
+    // key called `version` or `revision` and would have stayed green forever
+    // beside a column named `sync_version`, so it is asserted the other way
+    // round — the guard must be PRESENT — which is a claim that can fail.
+    ok("I3 §16 CLOSED by 076: a compare-and-set column now guards the write",
+      typeof row.sync_version === "number" && row.sync_version > 0,
+      JSON.stringify(Object.keys(row).filter((k) => /vers|rev/i.test(k))));
+    ok("I3b §16 …and the client reaches this table only through the guarded path",
+      !/from\("next_actions"\)\s*\.upsert/.test(
+        require("fs").readFileSync("/home/user/LifeOS/lib/adapters/supabaseAdapter.ts", "utf8")));
+
+    // What a superseding write costs on ONE device is still stated exactly: the
+    // row's history is a column on that row, so it moves with it.
+    ok("I4 §16 a superseded row carries the superseding write's history, not both",
       row.history.length === 1 && row.history[0].at === iso(9),
       JSON.stringify(row.history));
-    ok("I5 §16 the conflict layer is NOT consulted on this path (D-8, unchanged)",
+    ok("I5 §16 the D-8 merge engine is still NOT consulted on this path",
       !/detectConflicts|threeWayMerge/.test(
         require("fs").readFileSync("/home/user/LifeOS/lib/adapters/supabaseAdapter.ts", "utf8")));
 

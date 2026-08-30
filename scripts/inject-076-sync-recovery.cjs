@@ -77,9 +77,57 @@ function fakeClient(fails = {}) {
       in: (_c, ids) => { calls.push(`delete:${t}`); if (fails[t]) return Promise.resolve({ error: { message: `delete failed: ${t}` } }); const m = db.get(t); if (m) for (const i of ids) m.delete(i); return Promise.resolve({ error: null }); },
       eq: () => { calls.push(`delete-eq:${t}`); return Promise.resolve({ error: null }); },
     }),
-    select: () => { const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; return q; },
+    select: () => {
+      const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null });
+      q.order = () => q; q.eq = () => q;
+      // `ensureVersions` narrows by id, so the fake has to support it or the
+      // adapter would appear to know versions it never asked for.
+      q.in = (_c, ids) => Promise.resolve({ data: [...(db.get(t)?.values() ?? [])].filter((r) => ids.includes(r.id)), error: null });
+      return q;
+    },
   });
-  return { client: { from, rpc: () => Promise.resolve({ error: null }), auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls, fails };
+
+  /**
+   * `push_guarded_rows`, modelled on migration 0045.
+   *
+   * This fake asserts NOTHING about Postgres — the trigger's real behaviour,
+   * including the old-client bypass property, is proved separately against a
+   * live PostgreSQL 16 cluster in scripts/migration-rehearsal.mjs. What this
+   * models is the CONTRACT the client codes against, so the client half can be
+   * driven deterministically.
+   */
+  const rpc = (name, args) => {
+    if (name !== "push_guarded_rows") return Promise.resolve({ error: null, data: null });
+    const target = args.target;
+    if (fails[target]) return Promise.resolve({ error: { message: `rpc failed: ${target}` }, data: null });
+    if (target !== "next_actions" && target !== "notes") {
+      return Promise.resolve({ error: { message: `LIFEOS_UNGUARDED_TARGET: ${target}` }, data: null });
+    }
+    const m = db.get(target) ?? new Map();
+    db.set(target, m);
+    const accepted = [], stale = [];
+    for (const item of args.payload) {
+      const cur = m.get(item.id) ?? null;
+      if (!cur) {
+        // BEFORE UPDATE only: an insert is never judged by the trigger.
+        m.set(item.id, { ...item });
+        accepted.push(item.id);
+        continue;
+      }
+      if (item.sync_version !== (cur.sync_version ?? 1) + 1) {
+        // §14: an existing id with a wrong expected version is STALE. It never
+        // becomes an insert.
+        stale.push({ id: item.id, current: { ...cur } });
+        continue;
+      }
+      m.set(item.id, { ...cur, ...item });   // merged onto the current row
+      accepted.push(item.id);
+    }
+    calls.push(`rpc:${target}`);
+    return Promise.resolve({ error: null, data: { accepted, stale } });
+  };
+
+  return { client: { from, rpc, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls, fails };
 }
 const rows = (db, t) => [...(db.get(t)?.values() ?? [])];
 const reset = (fc) => { P.__setRemoteForTest(new SupabasePersistenceAdapter(fc.client)); };
@@ -193,11 +241,16 @@ const reset = (fc) => { P.__setRemoteForTest(new SupabasePersistenceAdapter(fc.c
       JSON.stringify(P.getSyncDiagnostics().dirtyDomains));
     fc.calls.length = 0; fc.fails.next_actions = false;
     await P.retrySync();
+    // `calls` records WRITES. Actions now go through the 0045 guarded RPC
+    // rather than a bare upsert, so the expected call changed shape; what the
+    // assertion is for — that retry does not replay a domain the server already
+    // confirmed — is unchanged. (`ensureVersions` also issues one narrow
+    // `select id,sync_version`; reads are deliberately not counted here.)
     ok("D2 §7: Retry touches ONLY the outstanding work",
-      JSON.stringify([...new Set(fc.calls)]) === '["upsert:next_actions"]',
+      JSON.stringify([...new Set(fc.calls)]) === '["rpc:next_actions"]',
       JSON.stringify([...new Set(fc.calls)]));
     ok("D3 …and the already-confirmed domain is not replayed",
-      !fc.calls.some((c) => c === "upsert:notes"));
+      !fc.calls.some((c) => c === "upsert:notes" || c === "rpc:notes"));
     ok("D4 after a successful retry the state is Synced and nothing is dirty",
       P.getHealth().state === "synced" && P.getSyncDiagnostics().dirtyDomains.length === 0);
 
@@ -460,7 +513,11 @@ const reset = (fc) => { P.__setRemoteForTest(new SupabasePersistenceAdapter(fc.c
     // discusses domain names precisely because it explains why they must not be
     // shown — and reported the documentation as a leak.
     const code = ui.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    const visible = [...code.matchAll(/"([^"]{12,})"/g)].map((m) => m[1])
+    // Single-line only. `[^"]` also matches newlines, so the first version
+    // stitched together everything between two unrelated quotes in a JSX block
+    // and reported the code identifier `c.domain` as user-facing prose. No
+    // label in this file spans a line, so nothing real is lost.
+    const visible = [...code.matchAll(/"([^"\n]{12,})"/g)].map((m) => m[1])
       .filter((t) => !/^[a-z-]+$/.test(t) && !/className|flex|rounded|text-|bg-|dark:|min-h|sm:|focus-visible|absolute|shadow/.test(t));
     const leaks = visible.filter((t) => /supabase|postgres|\bdomain\b|\btable\b|tombstone|localStorage|quota|next_actions|\brls\b/i.test(t));
     ok("I1 §24 no user-facing string names a domain, table or provider",
@@ -538,6 +595,20 @@ const reset = (fc) => { P.__setRemoteForTest(new SupabasePersistenceAdapter(fc.c
 
   // =====================================================================
   // L. F-2 — IS A LOST NOTE BODY RECOVERABLE ANYWHERE? (gate §2)
+  //
+  // ## READ THIS BEFORE READING THE ASSERTIONS
+  //
+  // This section is the FINDING RECORD that reclassified F-2 as P1. It is
+  // deliberately preserved as measured, and it describes the world BEFORE
+  // migration 0045: it drives a single adapter, which holds one version map and
+  // therefore cannot conflict with itself, so both writes are accepted and
+  // adoption's remote-wins-by-id destroys the loser exactly as it did.
+  //
+  // In the shipped two-device world that is no longer what happens. The stale
+  // write is REFUSED and the refused body is preserved and offered back —
+  // proved in scripts/inject-076-cas-client.cjs section P, where P2/P3/P4 are
+  // the direct answer to L4 below. "A's body survives NOWHERE" is the record of
+  // a defect, not a claim about the current product.
   //
   // The gate asked for the COMPLETE lifecycle, not just the winning write:
   // both devices edit, both push, both adopt, then every ordinary recovery
