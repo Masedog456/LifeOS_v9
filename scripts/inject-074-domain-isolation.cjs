@@ -39,12 +39,45 @@ function fakeClient(fails = {}) {
     if (shape === "commit-timeout") { put(t, rows); return Promise.reject(new Error(`timeout after commit: ${t}`)); }
     return Promise.resolve({ error: { message: `constraint: ${t}` } });
   };
+
+  /*
+   * LIFEOS-076 migration 0045. `next_actions` and `notes` stopped being written
+   * by a bare upsert, so this fake has to honour the same contract or these
+   * scenarios would silently write nothing.
+   *
+   * The failure injection is routed through UNCHANGED: this suite is about
+   * failure isolation, and 0045 changed the transport for two domains, not
+   * which failures they must survive. `calls` records logical writes, so a
+   * guarded push is recorded as `rpc:<table>` and the isolation assertions read
+   * both prefixes.
+   */
+  const guardedApply = (t, payload) => {
+    const m = db.get(t) ?? new Map(); db.set(t, m);
+    const accepted = [], stale = [];
+    for (const item of payload) {
+      const cur = m.get(item.id) ?? null;
+      if (!cur) { m.set(item.id, { ...item }); accepted.push(item.id); continue; }
+      if (item.sync_version !== (cur.sync_version ?? 1) + 1) { stale.push({ id: item.id, current: { ...cur } }); continue; }
+      m.set(item.id, { ...cur, ...item }); accepted.push(item.id);
+    }
+    return { accepted, stale };
+  };
+  const guardedRpc = (name, args) => {
+    if (name !== "push_guarded_rows") return Promise.resolve({ error: null, data: null });
+    const t = args.target;
+    calls.push(`rpc:${t}`);
+    const shape = fails[t];
+    if (!shape) return Promise.resolve({ error: null, data: guardedApply(t, args.payload) });
+    if (shape === "reject") return Promise.reject(new Error(`network: ${t}`));
+    if (shape === "commit-timeout") { guardedApply(t, args.payload); return Promise.reject(new Error(`timeout after commit: ${t}`)); }
+    return Promise.resolve({ error: { message: `constraint: ${t}` } });
+  };
   const from = (t) => ({
     upsert: (rows) => res(t, "upsert", Array.isArray(rows) ? rows : [rows]),
     delete: () => ({ in: (_c, ids) => { calls.push(`delete:${t}`); if (fails[t]) return Promise.resolve({ error: { message: `constraint: ${t}` } }); const m = db.get(t); if (m) for (const i of ids) m.delete(i); return Promise.resolve({ error: null }); } }),
-    select: () => { const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; return q; },
+    select: () => { const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; q.in = (_c, ids) => Promise.resolve({ data: [...(db.get(t)?.values() ?? [])].filter((r) => ids.includes(r.id)), error: null }); return q; },
   });
-  return { client: { from, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls, fails };
+  return { client: { from, rpc: guardedRpc, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls, fails };
 }
 const rows = (db, t) => [...(db.get(t)?.values() ?? [])];
 
@@ -129,7 +162,7 @@ const world = (n = 1) => {
     const after = P.getSyncDiagnostics();
     const h = P.getHealth();
     ok("D1 the retry pushed only what was still dirty",
-      fc.calls.filter((c) => c.startsWith("upsert:")).every((c) => /goals/.test(c)) && fc.calls.some((c) => /goals/.test(c)),
+      fc.calls.filter((c) => /^(upsert|rpc):/.test(c)).every((c) => /goals/.test(c)) && fc.calls.some((c) => /goals/.test(c)),
       JSON.stringify({ retried: fc.calls, wasDirty: before.dirtyDomains }));
     ok("D2 nothing remains dirty after recovery", after.dirtyDomains.length === 0, JSON.stringify(after.dirtyDomains));
     ok("D3 …and health reaches synced", h.state === "synced", h.state);
@@ -161,7 +194,7 @@ const world = (n = 1) => {
   // the day the contract tightens, the pin fails and gets revisited.
   {
     const db2 = new Map();
-    const client = { from: () => ({ upsert: (r) => Promise.resolve({ data: r }), delete: () => ({ in: () => Promise.resolve({ error: null }) }), select: () => { const q = Promise.resolve({ data: [], error: null }); q.order = () => q; q.eq = () => q; return q; } }), auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } };
+    const client = { from: () => ({ upsert: (r) => Promise.resolve({ data: r }), delete: () => ({ in: () => Promise.resolve({ error: null }) }), select: () => { const q = Promise.resolve({ data: [], error: null }); q.order = () => q; q.eq = () => q; q.in = () => Promise.resolve({ data: [], error: null }); return q; } }), rpc: () => Promise.resolve({ data: { accepted: [], stale: [] } }), auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } };
     const ad = new SupabasePersistenceAdapter(client);
     const r = await ad.saveStateByDomain(world(), new Set(["nextActions"]), null);
     ok("F1 PINNED (D-23, P3): a response with no `error` key counts as success",

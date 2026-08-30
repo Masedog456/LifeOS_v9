@@ -32,15 +32,16 @@ const ok = (name, cond, detail = "") => results.push({ name, pass: !!cond, detai
 // ---- Parse migrations statically ----
 const files = readdirSync(migDir).filter((f) => /^\d{4}_.*\.sql$/.test(f)).sort();
 const numbers = files.map((f) => Number(f.slice(0, 4)));
-ok("migration count == 44", files.length === 44, `found ${files.length}`);
+// Deliberately NOT a literal. Restating the head here is how this check and the
+// release model drift apart — the model's own contract is that constants are
+// re-imported, not duplicated — so both migration checks below are deferred
+// until the model has been read (see "declared head" further down).
 ok("dense numbering 1..N", numbers.every((n, i) => n === i + 1), `numbers: ${numbers.join(",")}`);
 ok("no duplicate migration numbers", new Set(numbers).size === numbers.length);
-// Head is 0041 (0041_external_calendar_identity.sql, LIFEOS-067). A
-// release-blocking DB defect would add exactly one narrowly-scoped
-// 0042_v1_release_fix.sql beyond it — the escape hatch is one unplanned
-// migration, not an open door, and it moves with the head.
-const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > 44);
-ok("no migration beyond 0044 except allowed 0045 fix", beyondHead.every((f) => f === "0045_v1_release_fix.sql"), `unexpected: ${beyondHead.join(", ")}`);
+// (The head-relative checks live below, once the declared model is loaded. The
+// comment that used to sit here still named 0041 while the literal beside it
+// said 0044 — two stale numbers in three lines, which is the drift this move
+// removes.)
 
 let allSql = "";
 for (const f of files) allSql += "\n" + readFileSync(join(migDir, f), "utf8");
@@ -81,6 +82,8 @@ const modelJson = runTs(`
     inventoryOk:e.inventory.ok, routesOk:e.routes.ok, routeProblems:e.routes.problems,
     limitationsOk:e.limitations.ok, checklistOk:e.checklist.ok, acceptanceOk:e.acceptance.ok,
     fixtureOk:e.fixture.ok, migrationsOk:e.migrations.ok,
+    declaredHead:require(path.join(process.cwd(),"lib/release/versions.ts")).RELEASE_MIGRATION_COUNT,
+    allowedFix:require(path.join(process.cwd(),"lib/release/migrations.ts")).ALLOWED_RELEASE_FIX_MIGRATION,
     deterministicGatesPass:e.deterministicGatesPass, openBlockers:e.openBlockerCount,
     manualChecksRequired:e.manualChecksRequired, tagReady:e.tagReady,
     inventory: inv.buildInventory([${JSON.stringify("cohesion-tests")},${JSON.stringify("release-tests")}]),
@@ -95,6 +98,15 @@ ok("checklist complete", model.checklistOk);
 ok("acceptance matrix integrity", model.acceptanceOk);
 ok("release fixture valid", model.fixtureOk);
 ok("migration model valid", model.migrationsOk);
+
+// The head-relative migration checks, read from the declared model rather than
+// restated. `files` is the real directory listing, so this still compares the
+// declaration against what is actually on disk — it just no longer needs a
+// human to remember to edit two numbers in two files.
+ok(`migration count == ${model.declaredHead}`, files.length === model.declaredHead, `found ${files.length}`);
+const beyondHead = files.filter((f) => Number(f.slice(0, 4)) > model.declaredHead);
+ok(`no migration beyond ${String(model.declaredHead).padStart(4, "0")} except the allowed ${model.allowedFix}`,
+  beyondHead.every((f) => f === model.allowedFix), `unexpected: ${beyondHead.join(", ")}`);
 ok("deterministic gates pass", model.deterministicGatesPass);
 
 // ---- Emit machine-readable artifacts ----

@@ -117,6 +117,9 @@ function server() {
         }
         m.set(item.id, { ...cur, ...item }); accepted.push(item.id);                          // merged onto the current row
       }
+      // A 200 whose body cannot be read. Modelled AFTER the rows commit,
+      // because that is the dangerous ordering (see R9).
+      if (opts.blankBody) return Promise.resolve({ error: null, data: null });
       const out = { error: null, data: { accepted, stale } };
       // §20/§21: the hook runs AFTER the rows are committed, so it can model the
       // one case that matters — the write landed and the answer was lost.
@@ -435,6 +438,44 @@ const adopt = (remote, local) => reconcileAdoption({
       JSON.stringify({ failed: r2.failed, conflicts: C.getConflicts().map((c) => c.id) }));
     ok("R8 §21 …and nothing was written, so the user is not asked to choose a version that does not exist",
       S2.rows("notes").length === 0, JSON.stringify(S2.rows("notes")));
+
+    /*
+     * §21, the case that was MISSING and turned out to be a live defect.
+     *
+     * The RPC succeeds — no `error` — but the body cannot be read. The rows
+     * committed. Before the fix the client read an empty `accepted`, left its
+     * version map behind, and reported the domain SYNCED; the next genuine
+     * edit then proposed a version the server had already passed, so it was
+     * refused, that edit was lost, and the person was shown a conflict about a
+     * change that was never in dispute.
+     *
+     * An unreadable response is now an ambiguous outcome, handled exactly like
+     * a lost one.
+     */
+    const S3 = server();
+    const D = S3.device({ blankBody: true });
+    const b0 = { ...empty(), notes: [nt({ id: "n9", body: "v0" })] };
+    const conn0 = S3.device();
+    await conn0.saveStateByDomain(b0, undefined, null);           // seed at v1 via a normal client
+    const b1 = { ...empty(), notes: [nt({ id: "n9", body: "v1", updatedAt: iso(9) })] };
+    const rb = await D.saveStateByDomain(b1, new Set(["notes"]), b0);
+    ok("R9 §21 an unreadable response is NOT reported as a successful sync",
+      rb.failed.some((f) => f.domain === "notes"), JSON.stringify(rb));
+    ok("R10 §21 …even though the rows really did commit",
+      S3.rows("notes")[0].sync_version === 2 && S3.rows("notes")[0].body === "v1",
+      JSON.stringify(S3.rows("notes")[0]));
+    ok("R11 §21 …and no conflict is invented from it", C.getConflicts().every((c) => c.id !== "n9"));
+
+    // The next ordinary edit must land, not be refused by the client's own
+    // mis-tracking — this is the assertion that fails without the repair.
+    const E = S3.device();
+    const cur9 = await E.loadState();
+    const b2 = { ...empty(), notes: [{ ...cur9.notes[0], body: "v2", updatedAt: iso(10) }] };
+    await E.saveStateByDomain(b2, new Set(["notes"]), { ...empty(), notes: cur9.notes });
+    ok("R12 §21 …so the NEXT edit is accepted rather than spuriously refused",
+      S3.rows("notes")[0].body === "v2" && S3.rows("notes")[0].sync_version === 3 &&
+      C.getConflicts().every((c) => c.id !== "n9"),
+      JSON.stringify({ row: S3.rows("notes")[0], conflicts: C.getConflicts().map((c) => c.id) }));
   }
 
   /* ==================================================================
@@ -511,7 +552,32 @@ const adopt = (remote, local) => reconcileAdoption({
     const St = require("@/lib/mvpStore");
     ok("U5 §26 the seam exists and is exported", typeof St.withIsolatedStore === "function");
 
+    /*
+     * All four things a visit must never touch, seeded together. The store was
+     * the obvious one; the other three are the ones that would be missed —
+     * `resetStore` used to take the last-sync key with it, and an orphaned or
+     * erased conflict record is the loss this whole sprint exists to prevent.
+     */
     store.set("lifeos.mvp.v1", JSON.stringify({ marker: "the viewer's real data" }));
+    store.set("lifeos.lastSync.v1", "2026-08-30T07:15:00.000Z");
+    store.set("lifeos.conflicts.v1", JSON.stringify([{
+      domain: "notes", id: "zzkeep", reason: "stale_write", detectedAt: iso(9),
+      local: { id: "zzkeep", body: "ZZUnresolvedIntent" }, remote: { id: "zzkeep", body: "theirs" },
+    }]));
+    /*
+     * Two direct measurements rather than a comparison of before/after values:
+     * a write that happened and was undone would pass a value comparison, and
+     * the whole point is that no write may happen at all.
+     */
+    const writes = [];
+    const realSet = globalThis.localStorage.setItem;
+    globalThis.localStorage.setItem = (k, v) => { writes.push(k); return realSet(k, v); };
+
+    // A live remote, recording every call. If `persist()` ran even once, its
+    // `scheduleRemotePush` would reach this adapter within the 400ms debounce.
+    const P = require("@/lib/persistence");
+    const pushSpy = server();
+    P.__setRemoteForTest(pushSpy.device());
     const before = St.getSnapshot();
     // The property is not "no notification" — the seam deliberately wakes
     // subscribers once on the way out, so anything that somehow read during the
@@ -535,6 +601,14 @@ const adopt = (remote, local) => reconcileAdoption({
     ok("U8 §26 device storage was never written during the run",
       store.get("lifeos.mvp.v1") === JSON.stringify({ marker: "the viewer's real data" }),
       store.get("lifeos.mvp.v1"));
+    ok("U8b §26 …the device's sync clock was not cleared",
+      store.get("lifeos.lastSync.v1") === "2026-08-30T07:15:00.000Z",
+      String(store.get("lifeos.lastSync.v1")));
+    ok("U8c §26 …and an UNRESOLVED conflict was not wiped",
+      (store.get("lifeos.conflicts.v1") ?? "").includes("ZZUnresolvedIntent"),
+      String(store.get("lifeos.conflicts.v1")));
+    ok("U8d §26 …no local write was ATTEMPTED, not merely none left behind",
+      writes.length === 0, JSON.stringify(writes));
     ok("U9 §26 no subscriber could ever observe fixture data",
       observed.every((snap) => snap === before),
       `${observed.filter((s2) => s2 !== before).length} of ${observed.length} notifications exposed a different snapshot`);
@@ -552,6 +626,13 @@ const adopt = (remote, local) => reconcileAdoption({
     ok("U10 §26 a throw inside the seam still restores the real state", St.getSnapshot() === snap && rethrown);
     ok("U11 §26 …and still leaves storage untouched",
       store.get("lifeos.mvp.v1") === JSON.stringify({ marker: "the viewer's real data" }));
+
+    // Past the 400ms debounce, so a scheduled push would have landed by now.
+    await new Promise((r) => setTimeout(r, 700));
+    ok("U12 §26 nothing reached the server either — no fixture was ever pushed",
+      pushSpy.log.length === 0, JSON.stringify(pushSpy.log));
+    globalThis.localStorage.setItem = realSet;
+    P.__setRemoteForTest(null);
   }
 
   /* ==================================================================

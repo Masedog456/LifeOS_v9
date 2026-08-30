@@ -60,6 +60,39 @@ function fakeClient(opts = {}) {
     if (shape === "commit-timeout") { put(table, rows); return Promise.reject(new Error(`timeout after committing ${table}`)); }
     return Promise.resolve({ error: { message: `constraint violation on ${table}` } });
   };
+  const guardedApply = (t, payload) => {
+    const m = db.get(t) ?? new Map(); db.set(t, m);
+    const accepted = [], stale = [];
+    for (const item of payload) {
+      const cur = m.get(item.id) ?? null;
+      if (!cur) { m.set(item.id, { ...item }); accepted.push(item.id); continue; }
+      if (item.sync_version !== (cur.sync_version ?? 1) + 1) { stale.push({ id: item.id, current: { ...cur } }); continue; }
+      m.set(item.id, { ...cur, ...item }); accepted.push(item.id);
+    }
+    return { accepted, stale };
+  };
+  /*
+   * LIFEOS-076 migration 0045. The guarded tables are written through an RPC
+   * now; every failure SHAPE this suite injects is reproduced here unchanged,
+   * because what it tests is how a failing remote is survived, not how the
+   * write is transported. `calls` keeps the same {table, op, n} record so the
+   * batch-size and isolation assertions read identically.
+   */
+  const guardedRpc = (name, args) => {
+    if (name !== "push_guarded_rows") return Promise.resolve({ error: null, data: null });
+    const table = args.target, rows = args.payload;
+    calls.push({ table, op: "upsert", n: rows.length });
+    const shape = fail(table, "upsert");
+    if (!shape) return Promise.resolve({ error: null, data: guardedApply(table, rows) });
+    if (shape === "reject") return Promise.reject(new Error(`network down writing ${table}`));
+    // "malformed" means: success-SHAPED, no `error` key, and NOTHING stored.
+    // `guardedApply` is deliberately not called — calling it would store the
+    // rows and quietly destroy the premise of assertion 12.4.
+    if (shape === "malformed") return Promise.resolve({ data: { accepted: rows.map((r) => r.id), stale: [] } });
+    if (shape === "stale-success") return Promise.resolve({ error: null });                    // claims ok, stores nothing
+    if (shape === "commit-timeout") { guardedApply(table, rows); return Promise.reject(new Error(`timeout after committing ${table}`)); }
+    return Promise.resolve({ error: { message: `constraint violation on ${table}` } });
+  };
   const from = (table) => ({
     upsert: (rows) => result(table, "upsert", Array.isArray(rows) ? rows : [rows]),
     delete: () => ({ in: (_c, ids) => {
@@ -70,9 +103,9 @@ function fakeClient(opts = {}) {
       const t = db.get(table); if (t) for (const id of ids) t.delete(id);
       return Promise.resolve({ error: null });
     } }),
-    select: () => { const q = Promise.resolve({ data: [...(db.get(table)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; return q; },
+    select: () => { const q = Promise.resolve({ data: [...(db.get(table)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; q.in = (_c, ids) => Promise.resolve({ data: [...(db.get(table)?.values() ?? [])].filter((r) => ids.includes(r.id)), error: null }); return q; },
   });
-  return { client: { from, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls };
+  return { client: { from, rpc: guardedRpc, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls };
 }
 
 const rowsIn = (db, table) => [...(db.get(table)?.values() ?? [])];
@@ -201,19 +234,48 @@ const rowsIn = (db, table) => [...(db.get(table)?.values() ?? [])];
     // insert policy checks exactly that), and the update-policy path needs an
     // id collision across accounts. No production Supabase here to settle it,
     // so the code property is asserted and the reachability is reported.
-    ok("12.4 D-23: a success-shaped response that stored nothing is accepted as success",
+    // The precise line, so this and 12.5b do not read as contradicting each
+    // other: an UNREADABLE body is refused (12.5b); a READABLE body that LIES
+    // about what it accepted is still believed. Verifying the latter would mean
+    // reading every row back after every push, which is a different and much
+    // larger design decision than this repair — so it stays measured debt.
+    ok("12.4 D-23: a readable response that CLAIMS acceptance but stored nothing is still believed",
       threw === null && wrote === 0, `threw=${threw} stored=${wrote}`);
   }
 
-  // 12.5 STALE SUCCESS: claims { error: null } but stores nothing
+  // 12.5 STALE SUCCESS: claims { error: null } but stores nothing.
+  //
+  // ## PARTLY CLOSED BY LIFEOS-076B — re-derived, not re-run
+  //
+  // D-23 was accepted debt: success was judged solely by `error` being falsy,
+  // so a response that claimed success and stored nothing was believed. That is
+  // still true of the 44 domains written by a bare upsert, and it is asserted
+  // below against `goals` so the open half stays measured.
+  //
+  // It is NO LONGER true of the two guarded tables. Their push reads a per-row
+  // result, and 076B made an unreadable body an ambiguous outcome rather than a
+  // success — after measuring what the alternative cost: the rows committed,
+  // the domain was reported synced, the version map was left behind, and the
+  // NEXT genuine edit was refused and lost while the person was shown a
+  // conflict about a change that was never in dispute.
   {
-    const { client, db } = fakeClient({ fail: { table: "next_actions", shape: "stale-success" } });
-    const ad = new SupabasePersistenceAdapter(client);
-    let threw = null;
-    try { await ad.saveState(world(), new Set(["nextActions"]), null); } catch (e) { threw = e.message; }
-    ok("12.5 a stale success response is indistinguishable from success (documented, not asserted away)",
-      threw === null && rowsIn(db, "next_actions").length === 0,
-      "adapter trusts the driver's error contract — noted in the report");
+    const g = fakeClient({ fail: { table: "goals", shape: "stale-success" } });
+    const adG = new SupabasePersistenceAdapter(g.client);
+    let threwG = null;
+    try { await adG.saveState(world(), new Set(["goals"]), null); } catch (e) { threwG = e.message; }
+    ok("12.5 D-23 STILL OPEN on the 44 unguarded domains: a stale success is believed",
+      threwG === null && rowsIn(g.db, "goals").length === 0,
+      `threw=${threwG} stored=${rowsIn(g.db, "goals").length}`);
+
+    const n = fakeClient({ fail: { table: "next_actions", shape: "stale-success" } });
+    const adN = new SupabasePersistenceAdapter(n.client);
+    let threwN = null;
+    try { await adN.saveState(world(), new Set(["nextActions"]), null); } catch (e) { threwN = e.message; }
+    ok("12.5b D-23 CLOSED on the guarded tables: an unreadable success is refused, not believed",
+      threwN !== null && rowsIn(n.db, "next_actions").length === 0,
+      `threw=${threwN} stored=${rowsIn(n.db, "next_actions").length}`);
+    ok("12.5c …and it is refused for the RIGHT reason — an unreadable result, not a transport error",
+      /no readable result/.test(threwN ?? ""), String(threwN));
   }
 
   // 12.6 TIMEOUT AFTER COMMIT: the row landed, then the call rejected

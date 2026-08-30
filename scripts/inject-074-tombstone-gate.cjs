@@ -27,6 +27,36 @@ const empty = () => Object.fromEntries(STORE_DOMAINS.map((d) => [d, []]));
 function fakeClient(fails = {}) {
   const db = new Map(), calls = [];
   const put = (t, rows) => { const m = db.get(t) ?? new Map(); for (const r of rows) m.set(r.id ?? `${r.domain}:${r.record_id}`, r); db.set(t, m); };
+
+  /*
+   * LIFEOS-076 migration 0045. `next_actions` and `notes` stopped being written
+   * by a bare upsert, so this fake has to honour the same contract or these
+   * scenarios would silently write nothing.
+   *
+   * The failure injection is routed through UNCHANGED: this suite is about
+   * failure isolation, and 0045 changed the transport for two domains, not
+   * which failures they must survive. `calls` records logical writes, so a
+   * guarded push is recorded as `rpc:<table>` and the isolation assertions read
+   * both prefixes.
+   */
+  const guardedApply = (t, payload) => {
+    const m = db.get(t) ?? new Map(); db.set(t, m);
+    const accepted = [], stale = [];
+    for (const item of payload) {
+      const cur = m.get(item.id) ?? null;
+      if (!cur) { m.set(item.id, { ...item }); accepted.push(item.id); continue; }
+      if (item.sync_version !== (cur.sync_version ?? 1) + 1) { stale.push({ id: item.id, current: { ...cur } }); continue; }
+      m.set(item.id, { ...cur, ...item }); accepted.push(item.id);
+    }
+    return { accepted, stale };
+  };
+  const guardedRpc = (name, args) => {
+    if (name !== "push_guarded_rows") return Promise.resolve({ error: null, data: null });
+    const t = args.target;
+    calls.push(`rpc:${t}`);
+    if (fails[t]) return Promise.reject(new Error(`upsert failed: ${t}`));
+    return Promise.resolve({ error: null, data: guardedApply(t, args.payload) });
+  };
   const from = (t) => ({
     upsert: (rows) => {
       const arr = Array.isArray(rows) ? rows : [rows];
@@ -38,9 +68,9 @@ function fakeClient(fails = {}) {
       in: (_c, ids) => { calls.push(`delete:${t}`); if (fails[t]) return Promise.resolve({ error: { message: `delete failed: ${t}` } }); const m = db.get(t); if (m) for (const i of ids) m.delete(i); return Promise.resolve({ error: null }); },
       eq: () => { calls.push(`delete-eq:${t}`); return Promise.resolve({ error: null }); },
     }),
-    select: () => { const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; return q; },
+    select: () => { const q = Promise.resolve({ data: [...(db.get(t)?.values() ?? [])], error: null }); q.order = () => q; q.eq = () => q; q.in = (_c, ids) => Promise.resolve({ data: [...(db.get(t)?.values() ?? [])].filter((r) => ids.includes(r.id)), error: null }); return q; },
   });
-  return { client: { from, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls, fails };
+  return { client: { from, rpc: guardedRpc, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } }, db, calls, fails };
 }
 const rows = (db, t) => [...(db.get(t)?.values() ?? [])];
 

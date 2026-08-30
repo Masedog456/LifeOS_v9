@@ -767,11 +767,29 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
     const m = this.versionMap(table);
     const payload = rows.map((r) => ({ ...r, sync_version: (m.get(r.id) ?? 0) + 1 }));
 
-    let data: GuardedPushResult | null = null;
+    let data: GuardedPushResult;
     try {
       const res = await this.client.rpc("push_guarded_rows", { target: table, payload });
       if (res.error) throw new Error(res.error.message);
-      data = res.data as GuardedPushResult | null;
+      const body = res.data as GuardedPushResult | null;
+      /*
+       * A response we cannot READ is an ambiguous outcome, not a success.
+       *
+       * Treating it as one is a real, user-visible defect and it was measured:
+       * the rows commit, `accepted` is empty because there is no body to read,
+       * the domain is reported as synced — and the NEXT genuine edit proposes a
+       * version the server has already passed, so it is refused and the person
+       * is shown a conflict about a change that was never in dispute, having
+       * silently lost the edit that provoked it.
+       *
+       * This is the mirror of the §21 rule. Never blindly increment because a
+       * request was sent; equally, never blindly DECLINE to, and never call a
+       * push finished on the strength of a body that isn't there.
+       */
+      if (!body || (!Array.isArray(body.accepted) && !Array.isArray(body.stale))) {
+        throw new Error("push_guarded_rows returned no readable result");
+      }
+      data = body;
     } catch (e) {
       // Ambiguous: the write may have committed before the response was lost.
       // Drop what we think we know so the retry re-reads rather than assuming.
