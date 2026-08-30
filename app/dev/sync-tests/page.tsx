@@ -32,6 +32,15 @@ const HEALTH_STATES: { label: string; patch: Parameters<typeof __setHealthForTes
   { label: "incomplete", patch: { mode: "supabase", state: "incomplete", error: "goals failed", localError: undefined, failedDomains: ["goals"] } },
   { label: "failed", patch: { mode: "supabase", state: "failed", error: "network down", localError: undefined, failedDomains: undefined } },
   { label: "local-error", patch: { mode: "supabase", state: "synced", localError: "Local save failed: quota" } },
+  // LIFEOS-076 §39 needs the three states the 074 harness could not reach: with
+  // no Supabase in this environment `remote` stays null, so `syncing`,
+  // `retrying` and `offline` never occur naturally and the 075 audit had to
+  // report them as unobserved. Driving the real health store is the same
+  // technique the four above already use.
+  { label: "syncing", patch: { mode: "supabase", state: "syncing", error: undefined, localError: undefined, failedDomains: undefined } },
+  { label: "retrying", patch: { mode: "supabase", state: "retrying", error: "network down", localError: undefined, retryAttempt: 2, failedDomains: ["goals"] } },
+  { label: "offline", patch: { mode: "supabase", state: "offline", error: undefined, localError: undefined, failedDomains: undefined } },
+  { label: "local", patch: { mode: "local", state: "disabled", error: undefined, localError: undefined, failedDomains: undefined } },
 ];
 
 function sampleConflict(): RecordConflict {

@@ -276,32 +276,55 @@ const WORLD = () => ({ ...EMPTY(),
     ok("G1 §14 confirmed remote durability reads 'Synced', not the vaguer 'Saved'",
       synced.text.startsWith("Synced") && !/^Saved$/.test(synced.text), JSON.stringify(synced));
     /**
-     * G2 is where §27 meets an explicit LIFEOS-074 decision, and the two do not
-     * fully agree. D-21 made the indicator `hidden sm:flex` for CALM states and
-     * always visible for alarming ones, so a phone shows failures and hides
-     * reassurance. That is why "Synced" measures 0x0 with display:none at
-     * 390px here — deliberate, not broken.
+     * C-6, REPAIRED by LIFEOS-076 §4.
      *
-     * But §27 asks that a person be able to answer "is this only on this
-     * device, or is it safe in the cloud?" from the app shell, and on a phone
-     * in a healthy state they currently cannot: the chip is not rendered at
-     * all. Both halves are asserted as they actually behave, and the gap is
-     * reported as C-6 rather than resolved here — reversing an accepted 074
-     * decision about mobile layout is the user's call, not this harness's.
+     * This block used to assert the defect: on a phone a healthy state was
+     * `display:none`, so a person could not answer "is this only on this
+     * device?" at all. 076 collapsed the LABEL instead of the control, leaving
+     * a 44x44 tap target that opens a status popover. Both halves of the
+     * original tension now hold — calm states stay quiet, and the answer is
+     * still reachable.
      */
-    ok("G2 §14 a calm state follows the LIFEOS-074 D-21 rule for this viewport",
-      synced.visible === !isMobile, JSON.stringify(synced));
-    ok("G2b §27 C-6: on a phone, a healthy state gives the user NO durability answer",
-      isMobile ? synced.visible === false : synced.visible === true,
-      isMobile ? "reported as C-6 (P3), not silently changed" : "");
+    ok("G2 §14 a calm state is quiet but never absent",
+      synced.visible === true, JSON.stringify(synced));
+    ok("G2b §27 C-6 FIXED: the durability answer is reachable at every viewport",
+      synced.w >= (isMobile ? 44 : 20) && synced.h >= (isMobile ? 44 : 12), JSON.stringify(synced));
     const incomplete = await setHealth("incomplete");
     ok("G3 §3 a partial run reads 'Sync incomplete' and never 'Synced'",
       incomplete.text.includes("Sync incomplete") && !incomplete.text.includes("Synced"), JSON.stringify(incomplete));
-    ok("G4 §11 …and offers a reachable Retry", incomplete.text.includes("Retry"));
+    // LIFEOS-076 §1 moved recovery one tap inside the status popover, at a
+    // finger-sized target instead of the 30x16 link this used to find.
+    await B.page.click("[data-sync-status]");
+    await B.page.waitForTimeout(220);
+    ok("G4 §11 …and offers a reachable Retry", !!(await B.page.$("[data-sync-retry]")));
+    await B.page.keyboard.press("Escape");
+    await B.page.waitForTimeout(150);
     ok("G5 §26 …and is visible even on a phone", incomplete.visible, JSON.stringify(incomplete));
+    /**
+     * LIFEOS-076 §5 made this MORE truthful, which is why the expectation moved.
+     *
+     * `setHealth` used to mint a `lastSyncAt` on any transition into "synced",
+     * including one where nothing had been pushed — so a later failure looked
+     * like a regression from a real sync and read "Sync failed". Now the
+     * timestamp is written only by a confirmed push, so in this harness (where
+     * none occurs) a failure correctly reads "Not yet synced": nothing was lost,
+     * because nothing had ever reached the cloud.
+     *
+     * Both readings are asserted — the soft one with no prior sync, and the
+     * hard one once a confirmed sync exists on this device.
+     */
     const failedH = await setHealth("failed");
-    ok("G6 §3 an outright failure reads 'Sync failed'", failedH.text.includes("Sync failed"), JSON.stringify(failedH));
-    ok("G7 §3 …never as any kind of 'Saved'", !/Saved/.test(failedH.text), JSON.stringify(failedH));
+    ok("G6 §3 a failure with NO prior successful sync reads 'Not yet synced'",
+      failedH.text.includes("Not yet synced"), JSON.stringify(failedH));
+    await B.page.evaluate(() => localStorage.setItem("lifeos.lastSync.v1", new Date(Date.now() - 120_000).toISOString()));
+    await B.page.reload({ waitUntil: "domcontentloaded" });
+    await B.page.waitForTimeout(700);
+    const hardFail = await setHealth("failed");
+    ok("G6b §3 …but a failure AFTER a confirmed sync reads 'Sync failed'",
+      hardFail.text.includes("Sync failed"), JSON.stringify(hardFail));
+    await B.page.evaluate(() => localStorage.removeItem("lifeos.lastSync.v1"));
+    ok("G7 §3 …and neither reading is any kind of 'Saved'",
+      !/Saved/.test(failedH.text) && !/Saved/.test(hardFail.text), JSON.stringify({ failedH: failedH.text, hardFail: hardFail.text }));
     const localErr = await setHealth("local-error");
     ok("G8 §3 a failed LOCAL write says so explicitly",
       localErr.text.includes("Local save failed"), JSON.stringify(localErr));

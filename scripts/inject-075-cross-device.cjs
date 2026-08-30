@@ -38,8 +38,18 @@ const results = [];
 const ok = (n, p, d) => { results.push({ n, p, d }); console.log(`${p ? "PASS" : "FAIL"}  ${n}${p ? "" : ` — ${d ?? ""}`}`); };
 
 const LIB = "/home/user/LifeOS";
-/** The commit this branch forked from — the "pre-075" state for red proofs. */
-const BASE = execSync(`git -C ${LIB} merge-base origin/main HEAD`).toString().trim();
+/**
+ * The pre-075 tree, PINNED.
+ *
+ * This was `merge-base origin/main HEAD`, which was right while 075 was in
+ * flight and wrong the moment it merged: the merge-base became the 075 merge
+ * commit, so every "RED against base" proof below started comparing the
+ * repairs against themselves and reported that base already had them. These
+ * assertions record a historical fact — what the code looked like BEFORE 075 —
+ * so they must name that commit, not a moving pointer. 8e7cde2 is the 074 merge
+ * that 075 forked from.
+ */
+const BASE = "8e7cde2ac748808116a58b6369b91ff4fa4865ce";
 const baseFile = (p) => execSync(`git -C ${LIB} show ${BASE}:${p}`, { maxBuffer: 32 << 20 }).toString();
 
 const T = "2026-08-29";
@@ -516,7 +526,13 @@ function fakeOriginals(cloud, userId, opts = {}) {
     const staleEdit = suppressDeleted(mk("B edits a deleted action", iso(9), []), ledger);
     ok("I6 §16 A deletes + B edits an OLDER copy → the delete wins",
       staleEdit.nextActions.length === 0);
-    const newerEdit = suppressDeleted(mk("B edits after the delete", iso(23), []), ledger);
+      // The tombstone's timestamp comes from the REAL clock
+      // (`deleted_at: new Date().toISOString()`), so a hardcoded "later" time is
+      // a time bomb: this fixture used 23:00 on a fixed date and passed only
+      // while the harness happened to run earlier the same day. Derive the
+      // newer edit from the marker itself so it can never rot.
+    const afterDeleteAt = new Date(Date.parse(ledger[0].deletedAt) + 60_000).toISOString();
+    const newerEdit = suppressDeleted(mk("B edits after the delete", afterDeleteAt, []), ledger);
     ok("I7 §16 …but an edit made AFTER the delete is kept as resurrection intent",
       newerEdit.nextActions.length === 1);
   }

@@ -44,7 +44,12 @@ const BREAK_LOCAL = `(() => { const p = Object.getPrototypeOf(window.localStorag
       const el = document.querySelector("[data-sync-status]");
       if (!el) return { found: false };
       const r = el.getBoundingClientRect();
-      return { found: true, state: el.getAttribute("data-sync-status"), text: el.textContent.trim(),
+      // The LABEL's own box: textContent still holds words that a collapsed
+      // label hides, which is exactly how "hidden" can look "present".
+      const lbl = [...el.querySelectorAll("span")].find((x) => (x.textContent || "").trim().length > 2);
+      const lblBox = lbl ? lbl.getBoundingClientRect() : { width: 0, height: 0 };
+      const labelText = lblBox.width > 0 && lblBox.height > 0 ? (lbl.textContent || "").trim() : "";
+      return { found: true, labelText, state: el.getAttribute("data-sync-status"), text: el.textContent.trim(),
         w: Math.round(r.width), h: Math.round(r.height), display: getComputedStyle(el).display };
     });
     const visible = (i) => i.found && i.w > 0 && i.h > 0 && i.display !== "none";
@@ -60,7 +65,15 @@ const BREAK_LOCAL = `(() => { const p = Object.getPrototypeOf(window.localStorag
     ok(`${vp.label} 1 a calm state renders`, calm.found, JSON.stringify(calm));
     ok(`${vp.label} 2 …and never claims remote durability it does not have`,
       !/^Saved$/.test(calm.text), calm.text);
-    if (MOBILE) ok(`${vp.label} 3 a calm state stays out of the way on a phone`, calm.display === "none", JSON.stringify(calm));
+// LIFEOS-076 §4 changed what "out of the way" means on a phone. LIFEOS-074
+// D-21 hid CALM states entirely (display:none), which 075 found left a mobile
+// user with no way to answer "is this only on this device?" (C-6). The approved
+// repair keeps calm states quiet — the LABEL collapses — while keeping the
+// control itself present as a 44x44 tap target that opens the status popover.
+// The property each assertion tests is unchanged: a healthy state must not
+// shout. Only the mechanism moved from "absent" to "collapsed".
+    if (MOBILE) ok(`${vp.label} 3 a calm state stays out of the way on a phone`,
+      calm.display !== "none" && !/Saved locally|Synced/.test(calm.labelText ?? ""), JSON.stringify(calm));
     else ok(`${vp.label} 3 a calm state is shown on a wide screen`, visible(calm), JSON.stringify(calm));
 
     // 2. Local persistence fails → visible on BOTH (this is D-21).
@@ -91,7 +104,15 @@ const BREAK_LOCAL = `(() => { const p = Object.getPrototypeOf(window.localStorag
     ok(`${vp.label} 8 a PARTIAL sync reads "Sync incomplete"`, /Sync incomplete/.test(inc.text), JSON.stringify(inc));
     ok(`${vp.label} 9 …and never reads "Synced" or a bare "Saved"`, !/^Synced$/.test(inc.text) && !/^Saved$/.test(inc.text), inc.text);
     ok(`${vp.label} 10 …and is VISIBLE without opening /health`, visible(inc), JSON.stringify(inc));
-    ok(`${vp.label} 11 …offering a retry`, !!(await page.$("[data-sync-status] button")), "no retry control");
+    // LIFEOS-076 §1 moved recovery into the status popover: the trigger is now
+    // itself the button, and Retry lives one tap inside it at a finger-sized
+    // target rather than as a 30x16 link (E-1). The property — a retry is
+    // reachable from the failure state — is unchanged.
+    await page.click("[data-sync-status]");
+    await page.waitForTimeout(220);
+    ok(`${vp.label} 11 …offering a retry`, !!(await page.$("[data-sync-retry]")), "no retry control in the status popover");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
 
     await press("failed");
     const failed = await indicator();
@@ -104,7 +125,8 @@ const BREAK_LOCAL = `(() => { const p = Object.getPrototypeOf(window.localStorag
     await press("synced");
     const back = await indicator();
     ok(`${vp.label} 14 recovery returns to "Synced"`, /^Synced$/.test(back.text), JSON.stringify(back));
-    if (MOBILE) ok(`${vp.label} 15 …and stops shouting on a phone once healthy`, back.display === "none", JSON.stringify(back));
+    if (MOBILE) ok(`${vp.label} 15 …and stops shouting on a phone once healthy`,
+      !/Retry/.test(back.text ?? "") && (back.labelText ?? "") === "", JSON.stringify(back));
     else ok(`${vp.label} 15 …and stays visible on a wide screen`, visible(back), JSON.stringify(back));
 
     await ctx.close();
