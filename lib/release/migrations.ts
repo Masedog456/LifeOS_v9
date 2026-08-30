@@ -8,12 +8,17 @@
  * module holds the deterministic expectations that both the rehearsal and the
  * release self-test check against, so the two can never disagree.
  *
- * Historical migrations are never modified. The current head is **0044**
- * (`0044_workspace_session_current_action.sql`, LIFEOS-074 — the three
- * execution pointers `WorkspaceSession` already kept and the table had no
- * columns for). A demonstrated release-blocking database defect would add
- * exactly one narrowly-scoped `0045_v1_release_fix.sql` beyond it; see
+ * Historical migrations are never modified. The current head is **0045**
+ * (`0045_sync_version_guard.sql`, LIFEOS-076B — the database-enforced
+ * compare-and-set that closes the two P1 stale-write classes F-1 and F-2). A
+ * demonstrated release-blocking database defect would add exactly one
+ * narrowly-scoped `0046_v1_release_fix.sql` beyond it; see
  * `ALLOWED_RELEASE_FIX_MIGRATION` below.
+ *
+ * **Repository head is not deployed head.** This number is what the build
+ * SHIPS. Production Supabase is verified at 0044 and 0045 is applied
+ * separately, with parity verified, before merge/deploy sequencing is
+ * finalised. Nothing in this module asserts anything about a live database.
  */
 
 import { RELEASE_MIGRATION_COUNT } from "@/lib/release/versions";
@@ -45,7 +50,8 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-integrations", label: "Before integration account linking", throughVersion: 41 },
   { id: "pre-due-time-recurrence", label: "Before the due-time/recurrence contract fix", throughVersion: 42 },
   { id: "pre-session-pointers", label: "Before workspace-session execution pointers", throughVersion: 43 },
-  { id: "current", label: "Current production head", throughVersion: 44 },
+  { id: "pre-cas-guard", label: "Before the database-enforced stale-write guard", throughVersion: 44 },
+  { id: "current", label: "Current shipped head", throughVersion: 45 },
 ];
 
 export interface MigrationListReport {
@@ -101,8 +107,13 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  * before a line of SQL was written. 0044 went the same way, for the P2 the same
  * audit found next. So the hatch moves twice more, to 0045. Five moves, never
  * once spent: that is the outcome it was designed for.
+ *
+ * LIFEOS-076B makes it six. 0045 became the stale-write guard — two P1 data-loss
+ * classes, measured end to end, reported under the stop-and-report rule and
+ * approved at an architecture gate before any SQL was written — so the hatch
+ * moves to 0046. Still never spent.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0045_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0046_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

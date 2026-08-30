@@ -125,7 +125,7 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 44, `found ${files.length} migration files, expected 44`);
+  ok("migration files present", files.length === 45, `found ${files.length} migration files, expected 45`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
@@ -194,6 +194,12 @@ function run() {
     do $$ begin if not exists (select 1 from pg_roles where rolname='rc_app') then create role rc_app nologin; end if; end $$;
     grant usage on schema public to rc_app;
     grant select, insert, update, delete on all tables in schema public to rc_app;
+    -- rc_app models the app's connection role. In Supabase that role IS
+    -- \`authenticated\`, which 0045 grants directly; here the stand-in needs the
+    -- same grant so the guarded RPC can be exercised as a non-superuser with
+    -- RLS in force. The production grant is asserted separately below.
+    grant execute on function public.push_guarded_rows(text, jsonb) to rc_app;
+    grant execute on function public.guarded_assignments(text) to rc_app;
   `);
   const A = "11111111-1111-1111-1111-111111111111";
   const B = "22222222-2222-2222-2222-222222222222";
@@ -272,8 +278,12 @@ function run() {
     asA(`insert into public.next_actions(id, title, due_date) values ('${AID}', 'Refill medication box', current_date);`);
 
     // A due TIME needs a due DATE — the constraint, not just the TypeScript.
+    // These two UPDATE a guarded table, so since 0045 they must advance
+    // sync_version like any legitimate writer. That they failed the moment the
+    // trigger landed is the old-client property working, not a regression —
+    // see the §3 checks below.
     ok("061: due_time with a due_date is accepted",
-      tryA(`update public.next_actions set due_time = '09:00' where id = '${AID}';`));
+      tryA(`update public.next_actions set due_time = '09:00', sync_version = sync_version + 1 where id = '${AID}';`));
     ok("061: due_time WITHOUT a due_date is refused",
       !tryA(`insert into public.next_actions(id, title, due_time) values (gen_random_uuid(), 'no day', '09:00');`));
     ok("061: a malformed due_time is refused",
@@ -281,7 +291,7 @@ function run() {
     ok("061: 24:00 is refused (it names a different day than 00:00)",
       !tryA(`update public.next_actions set due_time = '24:00' where id = '${AID}';`));
     ok("061: 23:59 is accepted",
-      tryA(`update public.next_actions set due_time = '23:59' where id = '${AID}';`));
+      tryA(`update public.next_actions set due_time = '23:59', sync_version = sync_version + 1 where id = '${AID}';`));
 
     // 0043 (LIFEOS-074): a RECURRENCE RULE also names the day.
     //
@@ -386,6 +396,139 @@ function run() {
     ok("075: …because document_id carries no foreign key (0027 soft-reference doctrine)",
       fileFks === "0", `found ${fileFks}`);
     asA(`delete from public.reading_document_files where document_id = '${DOCID}';`);
+
+    // ---- LIFEOS-076 §27: the 0045 stale-write guard, against real Postgres --
+    //
+    // Everything the design claims is checked here, because the whole point of
+    // moving the invariant into the database is that it holds for writers who
+    // never agreed to it. A guard that is only proved through the new client is
+    // the same mistake as a version column nothing consults.
+    const GA = "aaaaaaaa-0000-4000-8000-00000000000a";
+    const GN = "bbbbbbbb-0000-4000-8000-00000000000b";
+
+    const cols = asA(`select count(*) from information_schema.columns
+      where table_schema='public' and column_name='sync_version'
+        and table_name in ('next_actions','notes');`).trim();
+    ok("076: both protected tables carry sync_version", cols === "2", `found ${cols}`);
+    const dflt = asA(`select count(*) from information_schema.columns
+      where table_schema='public' and column_name='sync_version'
+        and table_name in ('next_actions','notes') and column_default like '%1%';`).trim();
+    ok("076: …defaulting to 1, so existing rows migrate without a data rewrite", dflt === "2", `found ${dflt}`);
+
+    // §4 — creation is untouched. A brand-new row, including a recurring one.
+    ok("076: a new action inserts normally at version 1",
+      tryA(`insert into public.next_actions(id, title) values ('${GA}', 'Guarded action');`));
+    ok("076: a new NOTE inserts normally at version 1",
+      tryA(`insert into public.notes(id, body) values ('${GN}', 'first body');`));
+    ok("076: a new RECURRING action inserts normally too",
+      tryA(`insert into public.next_actions(id, title, due_time, recurrence)
+            values (gen_random_uuid(), 'every day at 8', '08:00', '{"frequency":"daily","interval":1}'::jsonb);`));
+    const v1 = asA(`select sync_version from public.next_actions where id = '${GA}';`).trim();
+    ok("076: …and starts at version 1", v1 === "1", `got ${v1}`);
+
+    // §2 — one step forward is the only accepted move.
+    ok("076: a current write (1 -> 2) succeeds",
+      tryA(`update public.next_actions set title = 'renamed', sync_version = 2 where id = '${GA}';`));
+    ok("076: a STALE write (1 -> 2 when the server is already at 2) is REFUSED",
+      !tryA(`update public.next_actions set title = 'stale clobber', sync_version = 2 where id = '${GA}';`));
+    ok("076: …and the durable value survived the refused write",
+      asA(`select title from public.next_actions where id = '${GA}';`).trim() === "renamed");
+    ok("076: a version JUMP (2 -> 9) is refused",
+      !tryA(`update public.next_actions set title = 'jump', sync_version = 9 where id = '${GA}';`));
+    ok("076: an UNCHANGED version is refused",
+      !tryA(`update public.next_actions set title = 'nochange', sync_version = 2 where id = '${GA}';`));
+    ok("076: going BACKWARDS is refused",
+      !tryA(`update public.next_actions set title = 'back', sync_version = 1 where id = '${GA}';`));
+    ok("076: §22 a non-positive version is refused by the check constraint",
+      !tryA(`update public.next_actions set title = 'zero', sync_version = 0 where id = '${GA}';`));
+
+    // §3 — THE OLD-CLIENT PROPERTY. This is the one that decides whether the
+    // guard is real: a writer that knows nothing about sync_version leaves the
+    // column untouched, so NEW equals OLD, which is not OLD + 1.
+    ok("076: §3 an OLD client's update, omitting sync_version entirely, is REFUSED",
+      !tryA(`update public.next_actions set title = 'old client wins' where id = '${GA}';`));
+    ok("076: §3 …so the newer durable state survives an outdated client",
+      asA(`select title from public.next_actions where id = '${GA}';`).trim() === "renamed");
+    ok("076: §3 the same holds for notes",
+      !tryA(`update public.notes set body = 'old client body' where id = '${GN}';`));
+    ok("076: §3 …and the note's durable body survives",
+      asA(`select body from public.notes where id = '${GN}';`).trim() === "first body");
+
+    // §3 — an old client's UPSERT is the realistic shape, not a bare UPDATE.
+    // PostgREST assigns only the columns in the payload, so the conflict branch
+    // leaves sync_version alone. Modelled here as the same statement it emits.
+    ok("076: §3 an old client's UPSERT on an existing id is refused too",
+      !tryA(`insert into public.notes(id, body) values ('${GN}', 'upsert clobber')
+             on conflict (id) do update set body = excluded.body;`));
+    ok("076: §3 …and the body is still the durable one",
+      asA(`select body from public.notes where id = '${GN}';`).trim() === "first body");
+
+    // §14 — an existing id with a wrong version must never become an INSERT.
+    const before14 = asA(`select count(*) from public.notes where id = '${GN}';`).trim();
+    tryA(`insert into public.notes(id, body, sync_version) values ('${GN}', 'insert fallback', 1)
+          on conflict (id) do update set body = excluded.body, sync_version = excluded.sync_version;`);
+    const after14 = asA(`select count(*) from public.notes where id = '${GN}';`).trim();
+    ok("076: §14 a stale existing id never becomes a second inserted row",
+      before14 === "1" && after14 === "1", `${before14} -> ${after14}`);
+    ok("076: §14 …and its body is untouched",
+      asA(`select body from public.notes where id = '${GN}';`).trim() === "first body");
+
+    // §11/§16 — a legitimate write from the CURRENT version still works, so a
+    // completed action is not made permanently immutable.
+    ok("076: §11 a legitimate reopen from the current version (2 -> 3) succeeds",
+      tryA(`update public.next_actions set status = 'open', completed_at = null, sync_version = 3 where id = '${GA}';`));
+    ok("076: §11 …terminal state is protection, not permanent immutability",
+      asA(`select status from public.next_actions where id = '${GA}';`).trim() === "open");
+
+    // §15 — deletion is unaffected, and a stale guarded write cannot resurrect.
+    asA(`delete from public.next_actions where id = '${GA}';`);
+    ok("076: §15 a guarded row can still be deleted", asA(`select count(*) from public.next_actions where id = '${GA}';`).trim() === "0");
+    ok("076: §15 …and a stale UPDATE cannot bring it back",
+      asA(`with u as (update public.next_actions set title = 'zombie', sync_version = 4 where id = '${GA}' returning 1) select count(*) from u;`).trim() === "0");
+
+    // §13/§28 — the RPC exists, is SECURITY INVOKER, and is not executable by anon.
+    const rpcSec = asA(`select case when p.prosecdef then 'definer' else 'invoker' end
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname='public' and p.proname='push_guarded_rows';`).trim();
+    ok("076: §13 push_guarded_rows is SECURITY INVOKER, so RLS still governs",
+      rpcSec === "invoker", `it is ${rpcSec}`);
+    const anonExec = asA(`select has_function_privilege('anon', 'public.push_guarded_rows(text, jsonb)', 'execute');`).trim();
+    ok("076: §28 …and anon cannot execute it", anonExec === "f", `anon execute = ${anonExec}`);
+    const authExec = asA(`select has_function_privilege('authenticated', 'public.push_guarded_rows(text, jsonb)', 'execute');`).trim();
+    ok("076: §28 …while a signed-in user can — the production grant is real",
+      authExec === "t", `authenticated execute = ${authExec}`);
+
+    // The RPC's own behaviour: accepted vs stale, per row, in one call.
+    const R1 = "cccccccc-0000-4000-8000-00000000000c";
+    asA(`insert into public.notes(id, body) values ('${R1}', 'rpc base');`);
+    const rpcOk = asA(`select public.push_guarded_rows('notes', jsonb_build_array(
+        jsonb_build_object('id','${R1}','user_id','${A}','body','rpc current','linked_refs','[]'::jsonb,
+                           'tags','{}'::text[],'from_ai_text',false,'archived',false,'sync_version',2,
+                           'created_at',now(),'updated_at',now())))::text;`);
+    ok("076: §13 the RPC ACCEPTS a current-version row", /"accepted":\s*\["${R1}"\]/.test(rpcOk.replace(/\s/g, "")) || rpcOk.includes(R1), rpcOk.slice(0, 160));
+    ok("076: …and applied it", asA(`select body from public.notes where id = '${R1}';`).trim() === "rpc current");
+    const rpcStale = asA(`select public.push_guarded_rows('notes', jsonb_build_array(
+        jsonb_build_object('id','${R1}','user_id','${A}','body','rpc stale','linked_refs','[]'::jsonb,
+                           'tags','{}'::text[],'from_ai_text',false,'archived',false,'sync_version',2,
+                           'created_at',now(),'updated_at',now())))::text;`);
+    ok("076: §13 the RPC reports a STALE row instead of failing the batch",
+      rpcStale.includes('"stale"') && rpcStale.includes(R1) && !/"accepted": *\["/.test(rpcStale), rpcStale.slice(0, 200));
+    ok("076: §13 …and the durable body survived the stale attempt",
+      asA(`select body from public.notes where id = '${R1}';`).trim() === "rpc current");
+    ok("076: §12 the stale row did not prevent a healthy row in the SAME batch",
+      (() => {
+        const R2 = "dddddddd-0000-4000-8000-00000000000d";
+        asA(`insert into public.notes(id, body) values ('${R2}', 'sibling');`);
+        const mixed = asA(`select public.push_guarded_rows('notes', jsonb_build_array(
+            jsonb_build_object('id','${R1}','user_id','${A}','body','stale again','linked_refs','[]'::jsonb,
+                               'tags','{}'::text[],'from_ai_text',false,'archived',false,'sync_version',2,'created_at',now(),'updated_at',now()),
+            jsonb_build_object('id','${R2}','user_id','${A}','body','sibling updated','linked_refs','[]'::jsonb,
+                               'tags','{}'::text[],'from_ai_text',false,'archived',false,'sync_version',2,
+                           'created_at',now(),'updated_at',now())))::text;`);
+        return asA(`select body from public.notes where id = '${R2}';`).trim() === "sibling updated" && mixed.includes("stale");
+      })());
+    ok("076: §28 the RPC refuses a table it does not guard",
+      !tryA(`select public.push_guarded_rows('goals', '[]'::jsonb);`));
 
     // C-4: the checksum column must hold a 64-character SHA-256 hex digest.
     // Checked before writing any code that assumed it — the alternative was a

@@ -40,6 +40,9 @@ import {
   canRetryLocalSave, getHealth, hasUnsyncedChanges, retryLocalSave, retrySync, subscribeHealth,
 } from "@/lib/persistence";
 import { formatLastSync } from "@/lib/sync/last-sync";
+import { useConflicts } from "@/lib/sync/use-conflicts";
+import { describeConflict, conflictSummary } from "@/lib/sync/conflict-view";
+import Link from "next/link";
 import type { PersistenceHealth } from "@/lib/adapters/types";
 
 const SERVER_SNAPSHOT: PersistenceHealth = { mode: "local", state: "disabled" };
@@ -104,18 +107,36 @@ export default function SyncStatus() {
   const [localRetry, setLocalRetry] = useState<"idle" | "failed">("idle");
   const wrapRef = useRef<HTMLDivElement>(null);
 
+  // A refused write is not a sync FAILURE — the sync worked. But it is
+  // unfinished business the person has to know about, and they will not think
+  // to reopen the note they already believed they had saved (§10). So it is
+  // surfaced here as well as on the record.
+  const conflicts = useConflicts();
+
   // When a sync fails before anything has ever synced, that is not an alarming
   // "error" — nothing was lost and everything is safe locally (LIFEOS-042A).
   const neverSynced = !h.lastSyncAt;
   const softFail = !h.localError && h.state === "failed" && neverSynced;
-  const label = h.localError ? "Local save failed" : softFail ? "Not yet synced" : LABEL[h.state];
+  const label = h.localError
+    ? "Local save failed"
+    : conflicts.length > 0 && !ALARMING.includes(h.state)
+      // Never overwrite a genuine failure message with this one: a failure is
+      // the more urgent fact, and both are listed in the panel regardless.
+      ? (conflicts.length === 1 ? "1 change not saved" : `${conflicts.length} changes not saved`)
+      : softFail ? "Not yet synced" : LABEL[h.state];
+  // The label and the meaning must never disagree. Saying "1 change not saved"
+  // above "Your work is saved on this device and in the cloud" would be worse
+  // than saying nothing, so the conflict branch owns both lines together.
+  const conflictCalm = conflicts.length > 0 && !ALARMING.includes(h.state);
   const meaning = h.localError
     ? "Your latest change is not saved on this device yet. Don’t reload the page — try saving again first."
-    : softFail
-      ? "Your work is saved on this device. It hasn’t reached the cloud yet."
-      : MEANING[h.state];
-  const dot = h.localError ? "bg-red-500" : softFail ? "bg-zinc-400" : DOT[h.state];
-  const alarming = !!h.localError || ALARMING.includes(h.state);
+    : conflictCalm
+      ? `${conflictSummary(conflicts.length)} Nothing you wrote was thrown away — open it below to choose which version to keep.`
+      : softFail
+        ? "Your work is saved on this device. It hasn’t reached the cloud yet."
+        : MEANING[h.state];
+  const dot = h.localError ? "bg-red-500" : conflictCalm ? "bg-amber-600" : softFail ? "bg-zinc-400" : DOT[h.state];
+  const alarming = !!h.localError || ALARMING.includes(h.state) || conflicts.length > 0;
   const lastSync = formatLastSync(h.lastSyncAt);
   const unsynced = hasUnsyncedChanges();
 
@@ -200,6 +221,27 @@ export default function SyncStatus() {
           )}
           {unsynced && !h.localError && h.state !== "incomplete" && (
             <p className="mt-1 text-[11px] text-zinc-400" data-sync-pending>Some changes haven’t reached the cloud yet.</p>
+          )}
+
+          {conflicts.length > 0 && (
+            <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/[.06] p-2" data-sync-conflicts={conflicts.length}>
+              <p className="text-[11px] font-medium text-amber-900 dark:text-amber-200">{conflictSummary(conflicts.length)}</p>
+              <ul className="mt-1 flex flex-col gap-0.5">
+                {conflicts.slice(0, 5).map((c) => (
+                  <li key={`${c.domain}:${c.id}`}>
+                    <Link
+                      data-sync-conflict-link
+                      href={c.domain === "notes" ? `/notes?note=${c.id}` : `/actions/${c.id}`}
+                      onClick={() => setOpen(false)}
+                      className="text-[11px] text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                    >{describeConflict(c).title}</Link>
+                  </li>
+                ))}
+              </ul>
+              {conflicts.length > 5 && (
+                <p className="mt-1 text-[10px] text-zinc-500">and {conflicts.length - 5} more</p>
+              )}
+            </div>
           )}
 
           <div className="mt-3 flex flex-wrap gap-2">

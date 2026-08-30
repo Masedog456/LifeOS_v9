@@ -345,3 +345,160 @@ the P1 architecture is approved, per §14 of the gate.
 - No prose merging, automatic or AI-assisted.
 - No conflict dashboard.
 - No change to file/blob sync.
+
+---
+---
+
+# Part II — AS BUILT
+
+Everything above was the proposal. This part records what was actually
+implemented after approval, and how each claim is evidenced. Where a claim could
+not be evidenced in this environment, that is stated rather than glossed.
+
+## 17. The three pieces
+
+| Piece | File | Proved by |
+|---|---|---|
+| The invariant, in Postgres | `supabase/migrations/0045_sync_version_guard.sql` | `scripts/migration-rehearsal.mjs`, against a real PostgreSQL 16 cluster |
+| The client that consults it | `lib/adapters/supabaseAdapter.ts` | `scripts/inject-076-cas-client.cjs` |
+| The recovery of refused intent | `lib/sync/conflicts-store.ts`, `lib/sync/conflict-view.ts`, `components/sync/ConflictNotice.tsx` | `scripts/inject-076-cas-client.cjs` + `scripts/smoke-076-sync-trust.cjs` |
+
+## 18. Why the invariant is in the database and not in the client
+
+§3 of the approval was explicit, and it is the whole design:
+
+> the concurrency invariant must be enforced by Postgres, not only by the new
+> client choosing to call an RPC.
+
+`enforce_sync_version()` is a `BEFORE UPDATE` trigger on both tables. Every
+writer is held to it — the current client, a future one, an outdated one still
+doing a plain upsert, or `psql`. PostgREST's upsert assigns only the columns
+present in the payload, so a client that has never heard of `sync_version`
+leaves it untouched; `NEW` then equals `OLD`, which is not `OLD + 1`, and the
+write is **refused**. An outdated client gets a write failure instead of the
+power to destroy newer durable state. That trade is deliberate, and both shapes
+of it — a bare `UPDATE` and a realistic `ON CONFLICT DO UPDATE` — are proved
+against real PostgreSQL in the rehearsal.
+
+`push_guarded_rows` is **not** where the invariant lives. It exists for one
+narrower reason: a bulk upsert is a single statement, so one stale row's
+exception would roll back every unrelated current row with it, undoing the
+per-domain isolation LIFEOS-074 D-22 established. The function applies rows one
+at a time and reports each outcome. It is `SECURITY INVOKER`, so RLS remains the
+ownership boundary exactly as it is for every other write; it adds a concurrency
+condition and never authority.
+
+## 19. Why the refused write is kept, and kept on disk
+
+§7 forbade the obvious client response — fetch remote, replace local, forget the
+rejected edit — because that fixes server corruption while recreating F-2
+locally: the user's own text would still vanish from their own machine.
+
+So a rejection preserves the local record. §8 asked for the persistence decision
+to be justified explicitly:
+
+- The rejected value is user-authored prose, or a consequential state change.
+- If it lived only in memory, a **reload** — the most ordinary thing a person
+  does — would destroy it, and P1 protection would rest on volatile state.
+- It is stored under its own device-local key (`lifeos.conflicts.v1`), never
+  pushed, and never becomes a `StoreState` domain: it is a record of a sync
+  event on this device, not a fact about the user's life.
+- It is purged by `clearState`, so it cannot outlive the account on the machine.
+
+One conflict per record: a second rejection for the same row replaces the first,
+because the newer local attempt is the one the person still means, and stacking
+every attempt would become the growing ledger §8 rules out.
+
+## 20. What the person sees, and what they can do
+
+`ConflictNotice` renders inline on the record itself — on the note, on the
+action — because that is where someone is standing when they discover their edit
+did not stick. A global banner could say something went wrong somewhere; it
+could not say *which note*. The sync popover additionally carries a count and
+links, so the conflict is discoverable without already knowing to look.
+
+Three choices, and nothing else:
+
+- **Keep the saved version** — take what the server holds.
+- **Use my version instead** — reapply the refused record.
+- **Copy my version** — take the text away, and *deliberately leave the conflict
+  open*: losing the only remaining copy to a failed clipboard write would be the
+  exact loss this sprint exists to stop.
+
+Both decisions go through the **ordinary** mutators (`updateNote`,
+`updateAction`, `completeAction`, `reopenAction`). There is no privileged write
+path, no flag that switches the guard off. "Use my version instead" is a new,
+intentional write made against the version the server actually holds — the
+adapter learned that version from the rejection itself — so it is accepted the
+same way any deliberate edit is. §9 required exactly that.
+
+Nothing merges. No automatic merge, no field-level guessing, no AI. D-8 stays
+dormant, and that dormancy is now asserted by the property that can actually
+regress: nothing in the product ever *feeds* the merge engine.
+
+## 21. §24 — `sync_version` is NOT in archives, structurally
+
+The decision is no, and it is enforced by construction rather than by
+remembering: the version lives in a `Map` inside the adapter and never reaches
+`NextAction` or `Note`. A backup is built from `StoreState`, so there is no path
+by which a version could enter one, and no path by which restoring an old
+archive could carry a stale version into a live account.
+
+The alternative — putting `syncVersion` on the record type — would survive a
+reload for free, but would oblige ~200 store mutators to preserve it, and this
+codebase's repeated lesson is that hand-maintained invariants drift. Adoption
+already reads every row before any push is allowed, so the versions are current
+before they are needed.
+
+## 22. §26 / E-7 — a self-test page that deleted the viewer's account
+
+The audit finding was that `/dev/sync-tests` mutated the real store. The repair
+found it was **two** pages, not one: `/dev/action-tests` had the same defect,
+introduced by LIFEOS-074 §1.
+
+Both seed fixtures with `restoreState`, which goes through `setState`, which
+calls `persist()` — `writeLocal` **plus** `scheduleRemotePush`. Opening either
+page overwrote the viewer's local data with fixtures and pushed that to the
+server. A browser probe caught a seeded record vanishing between one navigation
+and the next.
+
+The repair is a seam, not a rule people have to remember:
+`withIsolatedStore(fn)` in `lib/mvpStore.ts`. Inside it the singleton still
+mutates — the suites must drive the real code paths, which is why they were
+written that way and why they catch what helper-level tests miss — but nothing
+leaves the module: no local write, no remote push, no subscriber render.
+`finally` restores the previous snapshot even if the suite throws.
+
+`subscribe` was exported alongside the existing `getSnapshot` for one reason:
+without it, "no subscriber ever observed fixture data" is an invariant nothing
+outside the file can check, and an unobservable invariant is the kind that
+quietly stops holding.
+
+## 23. Evidence, and its limits
+
+| Claim | Evidence | Kind |
+|---|---|---|
+| Trigger, constraints, RPC, grants, `SECURITY INVOKER`, old-client refusal | `scripts/migration-rehearsal.mjs` | Real PostgreSQL 16, throwaway cluster |
+| Client consults the version; F-1 and F-2 replays; retry and commit-then-timeout; tombstones; archives; E-7 | `scripts/inject-076-cas-client.cjs` | Deterministic, in-memory model of the 0045 contract |
+| Rendered UI: tap targets, aria, popover, conflict notice | `scripts/smoke-076-sync-trust.cjs` | Real Chromium against a production build |
+| Everything else in 076 | `scripts/inject-076-sync-recovery.cjs` | Deterministic |
+
+**What is not claimed.** There are no Supabase credentials or CLI in this
+environment. Nothing here is a live deployed run, no live two-client round trip
+was performed, and migration 0045 has not been applied to any deployed database.
+The in-memory backend in the CAS harness models the 0045 *contract* so the
+client half can be driven deterministically; it asserts nothing about Postgres,
+and every Postgres claim above rests on the rehearsal instead.
+
+## 24. Red proofs
+
+Per §24 of the sprint gate, the new assertions were run against a deliberately
+broken state to confirm they can fail, and fail for the intended reason:
+
+- Reverting the two guarded pushes to plain upserts brings F-1 back exactly as
+  originally reported — `status is deferred`, `completed_at null`, `history []` —
+  and fails the §29 wiring checks.
+- Making the conflict store memory-only fails both persistence assertions.
+- Putting a table name into a user-facing string fails the vocabulary scan.
+- The pre-076 tree is checked at a **pinned commit**, not `merge-base`, so the
+  red proofs keep meaning something after this branch merges.

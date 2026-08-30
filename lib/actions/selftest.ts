@@ -32,6 +32,7 @@ import { todayKey, addDays, dayDiff } from "@/lib/reviews/dates";
 // the point: the helper-level suites above cannot see what a mutation leaves
 // behind (LIFEOS-074 §1).
 import * as St from "@/lib/mvpStore";
+import { withIsolatedStore } from "@/lib/mvpStore";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -449,7 +450,13 @@ export function runActionSelfTests(): SelfTestReport {
   // Driven through the REAL store, not through the pure helpers above. Every
   // one of these is a fact the helper-level suites cannot see, which is exactly
   // why they held for three sprints.
-  {
+  //
+  // E-7 (LIFEOS-076 §26): `seed()` calls `restoreState`, which persists — so
+  // until now, merely opening `/dev/action-tests` overwrote the viewer's own
+  // actions with the two fixtures below and pushed that to the server.
+  // `withIsolatedStore` keeps every real code path and removes the blast
+  // radius; the assertions are unchanged.
+  withIsolatedStore(() => {
     const seed = () => {
       const s = emptyState();
       s.nextActions = [act({ id: "A", status: "open" }), act({ id: "B", status: "open" })];
@@ -509,7 +516,7 @@ export function runActionSelfTests(): SelfTestReport {
     St.setActionRecurrence("A", { frequency: "daily", interval: 1 });
     const rEv = (A()?.history ?? []).find((e) => e.action === "edited");
     ok("31.11 attaching a recurrence records the rule", !!rEv?.detail && rEv.detail !== "", rEv?.detail);
-  }
+  });
 
     const passed = results.filter((r) => r.pass).length;
   const failed = results.length - passed;
