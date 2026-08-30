@@ -343,7 +343,13 @@ const reset = (fc) => { P.__setRemoteForTest(new SupabasePersistenceAdapter(fc.c
       const withMarker = await ad.loadTombstones();
       ok("F10 §20 AFTER it lands, an OLDER stale edit is suppressed",
         suppressDeleted(staleEdit, withMarker).nextActions.length === 0);
-      const newerEdit = { ...empty(), nextActions: [act({ id: "a1", title: "Deliberately re-created", updatedAt: iso(23) })] };
+      // The tombstone's timestamp comes from the REAL clock
+      // (`deleted_at: new Date().toISOString()`), so a hardcoded "later" time is
+      // a time bomb: this fixture used 23:00 on a fixed date and passed only
+      // while the harness happened to run earlier the same day. Derive the
+      // newer edit from the marker itself so it can never rot.
+      const afterDeleteAt = new Date(Date.parse(withMarker[0].deletedAt) + 60_000).toISOString();
+      const newerEdit = { ...empty(), nextActions: [act({ id: "a1", title: "Deliberately re-created", updatedAt: afterDeleteAt })] };
       ok("F11 §20 …but an edit made AFTER the delete is kept as intent",
         suppressDeleted(newerEdit, withMarker).nextActions.length === 1);
       conflictFindings.push({ case: "delete vs stale edit", winner: "delete once the marker lands; the edit before that", controls: "tombstone presence + updatedAt", lost: "the edit, or the deletion inside the window", warned: false, class: "SEMANTIC CONFLICT (race window)" });
@@ -528,6 +534,70 @@ const reset = (fc) => { P.__setRemoteForTest(new SupabasePersistenceAdapter(fc.c
     ok("K6 …and every canonical domain is still present as an empty array",
       STORE_DOMAINS.every((d) => Array.isArray(post[d])),
       JSON.stringify(STORE_DOMAINS.filter((d) => !Array.isArray(post[d]))));
+  }
+
+  // =====================================================================
+  // L. F-2 — IS A LOST NOTE BODY RECOVERABLE ANYWHERE? (gate §2)
+  //
+  // The gate asked for the COMPLETE lifecycle, not just the winning write:
+  // both devices edit, both push, both adopt, then every ordinary recovery
+  // surface is inspected. The answer decides whether prose loss is residual
+  // debt or a second P1.
+  // =====================================================================
+  {
+    const { buildRecovery } = require("@/lib/backup/recovery");
+    const A_BODY = "A: the advisor said Friday is the deadline, and we need the 2024 returns first.";
+    const B_BODY = "B: call the accountant about the trust schedule; she has the returns already.";
+    const nt = (body, at) => ({ id: "n1", title: "Interview notes", body, createdAt: iso(8), updatedAt: at, tags: [], linkedEntityRefs: [] });
+
+    const fc = fakeClient();
+    const ad = new SupabasePersistenceAdapter(fc.client);
+    const shared = { ...empty(), notes: [nt("Original shared note.", iso(8))] };
+    await ad.saveStateByDomain(shared, undefined, null);
+
+    // A edits and pushes; B, holding the ORIGINAL, edits and pushes second.
+    const aState = { ...empty(), notes: [nt(A_BODY, iso(9))] };
+    await ad.saveStateByDomain(aState, new Set(["notes"]), shared);
+    const bState = { ...empty(), notes: [nt(B_BODY, iso(10))] };
+    await ad.saveStateByDomain(bState, new Set(["notes"]), shared);
+
+    // Both devices adopt what the server now holds.
+    const remote = await ad.loadState();
+    const adopt = (local) => reconcileAdoption({
+      remote: { ...empty(), ...remote }, local: { ...empty(), ...local },
+      remoteHasData: snapshotHasData(remote), localHasData: true,
+      migratedFor: "u1", userId: "u1", empty: empty(),
+    }).state;
+    const aFinal = adopt(aState), bFinal = adopt(bState);
+
+    ok("L1 F-2: the two devices converge on ONE body", aFinal.notes[0].body === bFinal.notes[0].body);
+    ok("L2 F-2: …and it is the last ARRIVAL, not the later edit",
+      aFinal.notes[0].body === B_BODY, aFinal.notes[0].body.slice(0, 24));
+    ok("L3 F-2: the authoring device's OWN copy is overwritten on its own machine",
+      !aFinal.notes[0].body.includes("the advisor said Friday"),
+      "A kept its text after all — re-examine F-2");
+
+    // Every surface a person could reach.
+    const everywhere = JSON.stringify({ server: rows(fc.db, "notes"), a: aFinal.notes, b: bFinal.notes });
+    ok("L4 F-2: A's body survives NOWHERE — not the server, not A, not B",
+      !everywhere.includes("the advisor said Friday"), "found somewhere — re-examine");
+    ok("L5 F-2: a Note carries no history or revision field to hold the loser",
+      !("history" in aFinal.notes[0]) && !("revisions" in aFinal.notes[0]),
+      JSON.stringify(Object.keys(aFinal.notes[0])));
+    const rec = buildRecovery({ state: aFinal, unresolvedConflicts: [], corruptPrefsKey: null });
+    ok("L6 F-2: the Recovery Center offers nothing for it",
+      rec.candidates.length === 0, JSON.stringify(rec.candidates.map((c) => c.kind)));
+    ok("L7 F-2: no conflict record is created, so no warning can be shown",
+      rec.candidates.filter((c) => c.kind === "sync-conflict").length === 0);
+    ok("L8 F-2 VERDICT: one user-authored body is genuinely unrecoverable → P1",
+      !everywhere.includes("the advisor said Friday") && rec.candidates.length === 0);
+
+    conflictFindings.push({
+      case: "note body, FULL lifecycle (F-2)",
+      winner: "last arrival", controls: "arrival order",
+      lost: "an entire authored body, unrecoverable on server, on A and on B",
+      warned: false, class: "P1 — silent loss of a durable user fact",
+    });
   }
 
   console.log("\n--- §15 CONFLICT COST, as measured ---");
