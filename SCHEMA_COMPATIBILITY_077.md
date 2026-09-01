@@ -3,31 +3,82 @@
 **North star:** the app should know whether the database it is talking to can
 safely accept its writes.
 
-**Status: IMPLEMENTATION READY — AWAITING DEPLOYED 0046 PARITY.** Migration
-0046 was approved and is written; the client reads it, and the write path
-consults the answer. Base SHA `b7fa54bda614c011aeca492d37b97a5097909881`.
+## STATUS: COMPLETE — repository 0046 · production 0046 · parity PASS
 
+| | |
+|---|---|
+| **Repository migration head** | **0046** |
+| **Production Supabase head** | **0046** |
+| **Exact version/name parity** | **PASS** |
+| Applied file | `supabase/migrations/0046_schema_compatibility_contract.sql` |
+| Production ledger ends at | `0046 | schema_compatibility_contract` |
+| Base SHA | `b7fa54bda614c011aeca492d37b97a5097909881` |
+
+### The deployment order was correct this time
+
+**Database capability first, client second.** The warning that opened this
+document — that shipping the client against a 0045-only database would gate
+Notes and Actions — did not come to pass. That is the expand-contract model
+working, one sprint after the incident that taught it.
+
+---
+
+# EXTERNALLY VERIFIED DEPLOYED EVIDENCE
+
+Everything in this section was performed **outside this environment**, against
+the connected production Supabase project, and is recorded here as supplied. It
+was **not** executed from here: this environment holds no production Supabase
+credentials or CLI, and nothing below is a run I performed.
+
+### The live contract
+
+`public.app_schema_contract()` returns:
+
+```json
+{ "contract": 2,
+  "min_client_contract": 1,
+  "capabilities": { "guarded_notes": 2, "guarded_next_actions": 2 } }
 ```
-repository migration head = 0046
-production Supabase head  = 0045      ← not changed from here
-```
 
-0046 has **not** been applied from this environment. As with 0045, production
-application and verification happen externally and will be recorded as
-`EXTERNALLY VERIFIED DEPLOYED EVIDENCE`.
+This is **deployed database truth** — read from the running database, not
+inferred from repository files, client constants, Vercel, migration filenames or
+build metadata. That distinction is the entire subject of F-3.
 
-> ### Deployment ordering is not optional here
->
-> **0046 must be applied to production BEFORE the 077 client ships.**
->
-> This is not a preference. Against a 0045-only database the contract function
-> is absent, the verdict is `unavailable`, and — correctly, per §25 — the
-> guarded domains are gated. Shipping the client first would pause Notes and
-> Actions until 0046 landed: fail-closed, no data loss, work queued, but a
-> self-inflicted repeat of the very incident this sprint exists to prevent.
->
-> This is the expand-contract model applied to itself, and it is the first real
-> test of whether the lesson took.
+### Function security — S-45A CLOSED
+
+`app_schema_contract()`, `enforce_sync_version()`, `push_guarded_rows(text,
+jsonb)` and `guarded_assignments(text)` are all **SECURITY INVOKER**; none is
+`SECURITY DEFINER`. All four carry `search_path = pg_catalog, public`.
+
+### Execute privileges — S-45B CLOSED
+
+| Role | `app_schema_contract` · `push_guarded_rows` · `guarded_assignments` |
+|---|---|
+| `anon` | **NO EXECUTE** |
+| `authenticated` | EXECUTE |
+| `service_role` | EXECUTE — retained deliberately |
+| `postgres` | owner / admin |
+
+The live privileges now match the migration's stated intent. That was not true
+after 0045, and the gap is what S-45B recorded.
+
+### RLS and the CAS backstop
+
+RLS remains enabled on `notes` and `next_actions`. The 0045 triggers
+`notes_sync_version_guard` and `next_actions_sync_version_guard` remain present,
+both `BEFORE UPDATE`, both calling `enforce_sync_version()`. **0046 did not
+weaken the database CAS invariant** — compatibility is early warning, never a
+replacement for the server invariant.
+
+### Security advisor
+
+Run after 0046. The 0045-specific mutable-`search_path` warnings for
+`enforce_sync_version`, `push_guarded_rows` and `guarded_assignments` are
+**gone**, and no new one exists for `app_schema_contract`.
+
+Remaining advisor warnings are **pre-existing** and are not attributable to
+0046: older mutable-`search_path` functions, `vector` in `public`, and
+leaked-password protection disabled.
 
 ---
 
@@ -466,25 +517,56 @@ warning at the top of this document, discovered in a harness first.
 
 ---
 
-## 16. Remaining risks, restated
+## 16. Findings ledger — final
 
-- **Ordering.** 0046 must reach production before the 077 client. See the top of
-  this document; it is the one thing that can turn this repair into an incident.
-- **Bootstrapping.** A database without `app_schema_contract()` is unreadable,
-  not "old" — 0044 and 0045 are indistinguishable through this channel. Handled
-  by failing closed on the guarded domains, which is why ordering matters.
+| Finding | Status | Where it is proved |
+|---|---|---|
+| **F-3a** — compatibility input fabricated | **CLOSED** | Diagnostics reads `getCompatibility().server.contract`; the self-comparison is gone (asserted I8) |
+| **F-3b** — verdict unused; product reported the opposite | **CLOSED** | `flush()` removes gated domains before `saveStateByDomain`; red-proved by removing the gate (`E4 … synced` returns) |
+| **F-3c** — no deployed channel existed | **CLOSED** | `app_schema_contract()` live in production; chain asserted edge by edge (I1–I7) |
+| **S-45A** — mutable `search_path` | **CLOSED** | All four functions pinned; advisor warnings gone, none created |
+| **S-45B** — `anon` held EXECUTE | **CLOSED** | `anon` has no EXECUTE on any of the three; rehearsal proves the hazard exists before proving the fix |
+| **D-23** — ambiguous success | **PARTLY CLOSED** | Guarded domains fail closed on an unreadable response; the 44 unguarded domains retain the malformed-success ambiguity. **Not global closure** |
+
+## 17. Final gate run — all green, no assertion weakened
+
+| Gate | Result |
+|---|---|
+| Migration rehearsal through 0046 (real PostgreSQL 16) | **157/157** |
+| 077 schema-compatibility — F-3a/b/c, capability-scoped gating, malformed response, offline, reconnect, mid-session invalidation, old-DB retest, compatible-domain continuation, wiring | **51/51** |
+| 077 / 076 browser incl. old-tab, both viewports | **281/281** |
+| 076B CAS-client · live-window | 84/84 · 9/9 |
+| 076 sync-recovery · 075 cross-device | 95/95 · 135/135 |
+| 074 adversarial / isolation / dimensions / local / remote / tombstone | 47 · 31 · 50 · 30 · 47 · 43 |
+| 074 sync-truth / reachability / browser-failure | 31/31 · 145/145 · 25/25 |
+| Release audit · security audit (RLS, secrets, routes, auth, deps) | 17/17 · all pass |
+| Route smoke (dev gated) · export verify | 24/24 · 14/14 |
+| tsc · eslint · build | clean · 0 errors (2 pre-existing warnings) · exit 0 |
+| Full deterministic regression | **4142/4142** across 42 suites |
+
+**Performance re-measured:** 50 mutations added **zero** contract probes.
+
+`tag-ready: false · open blockers: 1` is the pre-existing "v1.0.0-rc1 tag
+prepared" checklist item, unchanged.
+
+## 18. Remaining risks
+
 - **The contract is a declaration.** A hand-edited database could advertise a
   capability it does not honour. Accepted: the value ships with the migration,
-  and the 0045 trigger — not the contract — remains the enforcement. §28's
-  layered defence is unchanged: compatibility is early warning, never a
-  replacement for the server invariant.
+  and the 0045 trigger — verified still present and still enforcing — remains
+  the actual enforcement. Layered defence is intact.
 - **`min_client_contract` is advisory to the client.** The database guard stays
   the real boundary.
-- **D-23 remains PARTLY CLOSED.** Compatibility probing does not repeat it — an
-  unreadable body fails closed — but the general repair is out of scope.
-- **No live verification from here.** Every production claim must come from
-  external verification and be labelled as such.
+- **Bootstrapping is now historical.** A database without
+  `app_schema_contract()` is unreadable rather than "old"; production is at 0046
+  and this no longer applies, but the property remains for any future
+  environment that lags.
+- **D-23 stays partly closed.** The compatibility probe does not repeat it; its
+  general repair is a separate piece of work.
+- **Evidence provenance.** Every production claim in this document came from
+  external verification and is labelled as such. Nothing here was executed from
+  this environment.
 
-**LIFEOS-077 IMPLEMENTATION READY — AWAITING DEPLOYED 0046 PARITY.**
+**LIFEOS-077 COMPLETE — SCHEMA COMPATIBILITY & SAFE DEPLOYMENT READY.**
 
-Nothing in §39 begun.
+Nothing in §21 begun.
