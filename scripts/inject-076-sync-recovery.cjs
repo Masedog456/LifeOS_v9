@@ -97,6 +97,14 @@ function fakeClient(fails = {}) {
    * driven deterministically.
    */
   const rpc = (name, args) => {
+    // LIFEOS-077: this fake models a CURRENT database, so it answers the
+    // compatibility contract. Without it the client correctly reads "cannot
+    // establish the contract" and gates the guarded domains — fail-closed and
+    // right, but not what these scenarios are about.
+    if (name === "app_schema_contract") {
+      return Promise.resolve({ error: null, data: { contract: 2, min_client_contract: 1,
+        capabilities: { guarded_notes: 2, guarded_next_actions: 2 } } });
+    }
     if (name !== "push_guarded_rows") return Promise.resolve({ error: null, data: null });
     const target = args.target;
     if (fails[target]) return Promise.resolve({ error: { message: `rpc failed: ${target}` }, data: null });

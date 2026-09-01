@@ -18,6 +18,15 @@ export interface DiagnosticsInputs {
   stateSchemaVersion: number;
   migrationVersion: number;
   compat?: CompatResult;
+  /** LIFEOS-077: deployed contract, as read from the database. Developer-only. */
+  schemaContract?: {
+    state: string;
+    clientContract: number;
+    serverContract: number | null;
+    minClientContract: number | null;
+    capabilities: Record<string, number> | null;
+    gatedDomains: string[];
+  } | null;
   authCategory: AuthCategory;
   authEmail?: string | null;
   adapter: "local" | "supabase";
@@ -38,6 +47,18 @@ export interface DiagnosticsSnapshot {
   generatedAt: string;
   app: { version: string; buildId: string; stateSchemaVersion: number; migrationVersion: number };
   compatibility: { mode: string; canWrite: boolean; canSync: boolean } | null;
+  /**
+   * LIFEOS-077 §29 — developer diagnostics only. This is the one place backend
+   * nouns are allowed; ordinary product surfaces speak in consequences.
+   */
+  schemaContract: {
+    state: string;
+    clientContract: number;
+    serverContract: number | null;
+    minClientContract: number | null;
+    capabilities: Record<string, number> | null;
+    gatedDomains: string[];
+  } | null;
   auth: { category: AuthCategory; emailMasked: string | null };
   sync: { adapter: "local" | "supabase"; remoteReachable: boolean | null; lastSyncAt: string | null; pendingMutations: number; dirtyDomains: string[]; unresolvedConflicts: number };
   storage: { status: string; usedBytes: number | null; serviceWorker: string | null };
@@ -56,6 +77,7 @@ export function buildDiagnostics(inputs: DiagnosticsInputs): DiagnosticsSnapshot
       migrationVersion: inputs.migrationVersion,
     },
     compatibility: inputs.compat ? { mode: inputs.compat.mode, canWrite: inputs.compat.canWrite, canSync: inputs.compat.canSync } : null,
+    schemaContract: inputs.schemaContract ?? null,
     auth: { category: inputs.authCategory, emailMasked: maskEmail(inputs.authEmail) },
     sync: {
       adapter: inputs.adapter,

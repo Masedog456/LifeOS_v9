@@ -582,6 +582,30 @@ export class SupabasePersistenceAdapter implements PersistenceAdapter {
    * The caller must NOT treat "unreadable" as "nothing was deleted" — that is
    * precisely the assumption that produced D-24.
    */
+  /**
+   * Ask the deployed database what it can do (LIFEOS-077).
+   *
+   * This is the channel F-3c said did not exist. It reads DEPLOYED truth — the
+   * values are baked into migration 0046, so the answer cannot claim a
+   * capability that was not applied.
+   *
+   * Returns `null`, distinctly from an empty contract, when the answer cannot
+   * be established: the function is absent (a pre-0046 database), the call
+   * errored, or the body could not be read. The caller must treat `null` as
+   * "unknown", never as "compatible" — a response we cannot read is not
+   * evidence, which is the same rule the R9 repair established for guarded
+   * pushes.
+   */
+  async loadSchemaContract(): Promise<unknown | null> {
+    try {
+      const res = await this.client.rpc("app_schema_contract");
+      if (res.error) return null;
+      return res.data ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async loadTombstones(): Promise<Tombstone[] | null> {
     try {
       const { data, error } = await this.client.from("sync_tombstones").select("*");

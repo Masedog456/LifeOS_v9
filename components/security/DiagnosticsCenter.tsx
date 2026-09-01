@@ -15,6 +15,8 @@ import { getHealth, getSyncDiagnostics, getLastSyncAt } from "@/lib/persistence"
 import { getSyncStatus } from "@/lib/sync/status-store";
 import { buildDiagnostics, serializeDiagnostics } from "@/lib/security/diagnostics";
 import { evaluateCompatibility } from "@/lib/security/schema-compatibility";
+import { getCompatibility } from "@/lib/persistence";
+import { CLIENT_CONTRACT } from "@/lib/sync/contract";
 import { probeStorage } from "@/lib/security/storage-resilience";
 import { categorize } from "@/lib/security/auth-boundaries";
 import { CURRENT_STATE_VERSION } from "@/lib/migrations/state-version";
@@ -44,10 +46,41 @@ export default function DiagnosticsCenter() {
     try { conflicts = getSyncStatus().conflicts.filter((c) => c.needsResolution).length; } catch { /* none */ }
     try { storageStatus = probeStorage().status; } catch { /* n/a */ }
     try { lastSync = getLastSyncAt(); } catch { /* n/a */ }
-    const compat = evaluateCompatibility({ localStateVersion: CURRENT_STATE_VERSION, remoteMigrationVersion: health?.mode === "supabase" ? EXPECTED_MIGRATION_VERSION : null });
+    /*
+     * LIFEOS-077 §6/§7 — F-3a closure.
+     *
+     * This line used to pass `remoteMigrationVersion: EXPECTED_MIGRATION_VERSION`
+     * — the client's own constant handed in as the server's answer, so the gate
+     * compared a number with itself and could only ever say "compatible". The
+     * remote side now comes from `getCompatibility()`, whose value is read from
+     * the deployed database by `app_schema_contract()`.
+     *
+     * `contract` is what the SERVER reported; `CLIENT_CONTRACT` is what this
+     * build expects. They are deliberately two different numbers from two
+     * different places, which is the whole point.
+     */
+    let contract;
+    try { contract = getCompatibility(); } catch { contract = null; }
+    const serverContract = contract?.server?.contract ?? null;
+    const compat = evaluateCompatibility({
+      localStateVersion: CURRENT_STATE_VERSION,
+      remoteMigrationVersion: serverContract,
+      expectedMigrationVersion: CLIENT_CONTRACT,
+    });
     return buildDiagnostics({
       appVersion: APP_VERSION, buildId: BUILD_ID, stateSchemaVersion: CURRENT_STATE_VERSION, migrationVersion: EXPECTED_MIGRATION_VERSION,
-      compat, authCategory: categorize({ loading: auth.loading, email: auth.email }), authEmail: auth.email,
+      compat,
+      schemaContract: contract
+        ? {
+            state: contract.state,
+            clientContract: CLIENT_CONTRACT,
+            serverContract,
+            minClientContract: contract.server?.minClientContract ?? null,
+            capabilities: contract.server?.capabilities ?? null,
+            gatedDomains: contract.gatedDomains as string[],
+          }
+        : null,
+      authCategory: categorize({ loading: auth.loading, email: auth.email }), authEmail: auth.email,
       adapter: health?.mode ?? "local", remoteReachable: health?.mode === "supabase" ? (health?.state !== "failed" && health?.state !== "offline") : null,
       lastSyncAt: lastSync, pendingMutations: diag?.dirtyDomains?.length ?? 0, dirtyDomains: diag?.dirtyDomains ?? [],
       unresolvedConflicts: conflicts, storageStatus,

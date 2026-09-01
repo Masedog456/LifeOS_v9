@@ -40,6 +40,7 @@ import {
   canRetryLocalSave, getHealth, hasUnsyncedChanges, retryLocalSave, retrySync, subscribeHealth,
 } from "@/lib/persistence";
 import { formatLastSync } from "@/lib/sync/last-sync";
+import { compatibilityNotice } from "@/lib/persistence";
 import { useConflicts } from "@/lib/sync/use-conflicts";
 import { describeConflict, conflictSummary } from "@/lib/sync/conflict-view";
 import Link from "next/link";
@@ -112,6 +113,11 @@ export default function SyncStatus() {
   // to reopen the note they already believed they had saved (§10). So it is
   // surfaced here as well as on the record.
   const conflicts = useConflicts();
+  // LIFEOS-077 §12/§13 — when a domain is held back because the backend cannot
+  // yet accept it, the panel says so in consequences. No RPC name, no migration
+  // number, no Postgres noun; those live in /security diagnostics.
+  let updating: string | null = null;
+  try { updating = compatibilityNotice(); } catch { updating = null; }
 
   // When a sync fails before anything has ever synced, that is not an alarming
   // "error" — nothing was lost and everything is safe locally (LIFEOS-042A).
@@ -221,6 +227,11 @@ export default function SyncStatus() {
           )}
           {unsynced && !h.localError && h.state !== "incomplete" && (
             <p className="mt-1 text-[11px] text-zinc-400" data-sync-pending>Some changes haven’t reached the cloud yet.</p>
+          )}
+
+          {updating && (
+            <p className="mt-2 rounded-lg border border-sky-500/40 bg-sky-500/[.06] p-2 text-[11px] text-sky-900 dark:text-sky-200"
+               data-sync-updating>{updating}</p>
           )}
 
           {conflicts.length > 0 && (

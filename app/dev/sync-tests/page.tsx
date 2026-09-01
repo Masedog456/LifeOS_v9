@@ -16,7 +16,7 @@ import { setConflicts } from "@/lib/sync/status-store";
 import ConflictCenter from "@/components/sync/ConflictCenter";
 import type { RecordConflict } from "@/lib/sync/conflicts";
 import { threeWayMerge } from "@/lib/sync/merge";
-import { __setHealthForTest, saveState } from "@/lib/persistence";
+import { __setHealthForTest, __setCompatibilityForTest, saveState } from "@/lib/persistence";
 import { getSnapshot } from "@/lib/mvpStore";
 
 /**
@@ -88,6 +88,17 @@ export default function SyncTestsPage() {
             precondition is now established deliberately instead of a browser
             test depending on a side effect that should never have existed.
           */}
+          {/*
+            LIFEOS-077 §27 — simulate an old tab meeting an upgraded database.
+            Only the compatibility VERDICT is forced; the message, its wording
+            and the panel's behaviour are the app's own.
+          */}
+          <button type="button" data-dev-compat-gated
+            onClick={() => __setCompatibilityForTest({ state: "partially_compatible", gatedDomains: ["notes", "nextActions"], clientTooOld: false })}
+            className="rounded-full border border-black/[.12] px-3 py-1 text-xs dark:border-white/[.15]">Simulate backend updating</button>
+          <button type="button" data-dev-compat-ok
+            onClick={() => __setCompatibilityForTest({ state: "compatible", gatedDomains: [], clientTooOld: false })}
+            className="rounded-full border border-black/[.12] px-3 py-1 text-xs dark:border-white/[.15]">Backend up to date</button>
           <button type="button" data-dev-real-save
             onClick={() => saveState(getSnapshot())}
             className="rounded-full border border-black/[.12] px-3 py-1 text-xs dark:border-white/[.15]">Save now (real)</button>

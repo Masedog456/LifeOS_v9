@@ -117,7 +117,41 @@ function createDbWithAuth(name) {
   psql("postgres", `alter database ${name} set check_function_bodies = off;`);
   psql(name, AUTH_BOOTSTRAP);
   psql(name, STORAGE_BOOTSTRAP);
+  psql(name, SUPABASE_DEFAULT_PRIVILEGES);
 }
+
+/**
+ * LIFEOS-077 §22 — model Supabase's default privileges BEFORE any migration runs.
+ *
+ * ## Why this had to be added
+ *
+ * The 0045 rehearsal asserted "anon cannot execute push_guarded_rows" and it was
+ * GREEN. Live inspection after deployment found anon holding EXECUTE anyway.
+ *
+ * The assertion was green for a reason that does not hold in production. This
+ * harness *fabricates* a bare `anon` role on a throwaway cluster, and a bare
+ * role has no default privileges configured — so `revoke all ... from public`
+ * plus `grant ... to authenticated` genuinely left anon with nothing, and there
+ * was no default grant for the REVOKE to miss.
+ *
+ * Supabase configures ALTER DEFAULT PRIVILEGES so that functions created in
+ * `public` are granted EXECUTE to anon / authenticated / service_role at CREATE
+ * time. Those are ROLE-specific grants; `REVOKE ALL ... FROM public` revokes the
+ * PUBLIC pseudo-role and does not touch them.
+ *
+ * Modelling it here means the hazard is now present in the rehearsal, so a
+ * migration that forgets to name `anon` explicitly FAILS here instead of
+ * shipping and being caught by a production advisor. A test that cannot
+ * reproduce the environment it claims to protect is not evidence.
+ */
+const SUPABASE_DEFAULT_PRIVILEGES = `
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin; end if;
+end $$;
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+`;
 
 function applyChain(db, files) {
   for (const f of files) psqlFile(db, join(migDir, f));
@@ -125,7 +159,7 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 45, `found ${files.length} migration files, expected 45`);
+  ok("migration files present", files.length === 46, `found ${files.length} migration files, expected 46`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
@@ -200,6 +234,11 @@ function run() {
     -- RLS in force. The production grant is asserted separately below.
     grant execute on function public.push_guarded_rows(text, jsonb) to rc_app;
     grant execute on function public.guarded_assignments(text) to rc_app;
+    -- LIFEOS-077: rc_app stands in for the authenticated role, and 0046
+    -- deliberately grants the contract function to authenticated alone. Without
+    -- this the scaffolding role cannot read it, which is the grant working
+    -- rather than failing.
+    grant execute on function public.app_schema_contract() to rc_app;
   `);
   const A = "11111111-1111-1111-1111-111111111111";
   const B = "22222222-2222-2222-2222-222222222222";
@@ -497,6 +536,72 @@ function run() {
     const authExec = asA(`select has_function_privilege('authenticated', 'public.push_guarded_rows(text, jsonb)', 'execute');`).trim();
     ok("076: §28 …while a signed-in user can — the production grant is real",
       authExec === "t", `authenticated execute = ${authExec}`);
+
+    /* ======================================================================
+     * LIFEOS-077 — 0046, the deployed database describing itself.
+     * ====================================================================== */
+
+    // The environment now models Supabase's default privileges, so this proves
+    // the hazard is really present rather than absent by accident. A function
+    // created in `public` WITHOUT an explicit revoke must land in anon's hands.
+    psql("rc_clean", `create or replace function public.rc_default_grant_probe() returns int language sql as $$ select 1 $$;`);
+    const probeAnon = asA(`select has_function_privilege('anon', 'public.rc_default_grant_probe()', 'execute');`).trim();
+    ok("077: §22 the rehearsal now reproduces Supabase default grants — a new function DOES reach anon",
+      probeAnon === "t",
+      `anon execute on an unprotected new function = ${probeAnon}; if 'f', the hazard is not modelled and the S-45B assertions below prove nothing`);
+    psql("rc_clean", `drop function public.rc_default_grant_probe();`);
+
+    // §32 — the contract exists and answers.
+    const contract = asA(`select public.app_schema_contract()::text;`).trim();
+    ok("077: app_schema_contract() exists and returns a payload", contract.startsWith("{"), contract);
+    let parsed = {};
+    try { parsed = JSON.parse(contract); } catch { /* left empty; assertions below fail loudly */ }
+    ok("077: …carrying a coarse contract generation", parsed.contract === 2, JSON.stringify(parsed.contract));
+    ok("077: …a global minimum that does NOT lock out pre-0045 clients",
+      parsed.min_client_contract === 1, JSON.stringify(parsed.min_client_contract));
+    ok("077: …and the precise capability levels write gating consults",
+      parsed.capabilities?.guarded_notes === 2 && parsed.capabilities?.guarded_next_actions === 2,
+      JSON.stringify(parsed.capabilities));
+    ok("077: §2 the payload is capability-oriented — it never leaks the migration ledger",
+      !/migration|schema_migrations|\b004[0-9]\b/i.test(contract), contract);
+
+    // §24 — invoker, like everything else in this family.
+    const contractSec = asA(`select case when p.prosecdef then 'definer' else 'invoker' end
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname='public' and p.proname='app_schema_contract';`).trim();
+    ok("077: §24 app_schema_contract is SECURITY INVOKER", contractSec === "invoker", `it is ${contractSec}`);
+
+    // §21 — the grants, now meaningful because the default-privilege hazard is real.
+    const cAnon = asA(`select has_function_privilege('anon', 'public.app_schema_contract()', 'execute');`).trim();
+    ok("077: §21 anon cannot execute the contract function", cAnon === "f", `anon execute = ${cAnon}`);
+    const cAuth = asA(`select has_function_privilege('authenticated', 'public.app_schema_contract()', 'execute');`).trim();
+    ok("077: §21 …while a signed-in user can", cAuth === "t", `authenticated execute = ${cAuth}`);
+    const gaAnon = asA(`select has_function_privilege('anon', 'public.guarded_assignments(text)', 'execute');`).trim();
+    ok("077: §21 S-45B — anon's inherited grant on guarded_assignments is revoked",
+      gaAnon === "f", `anon execute = ${gaAnon}`);
+    const srvExec = asA(`select has_function_privilege('service_role', 'public.push_guarded_rows(text, jsonb)', 'execute');`).trim();
+    ok("077: §21 service_role retains EXECUTE — a decision, not an inheritance",
+      srvExec === "t", `service_role execute = ${srvExec}`);
+
+    // §23 — search_path pinned on all four, with no new warning introduced.
+    const unpinned = asA(`select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public'
+        and p.proname in ('enforce_sync_version','push_guarded_rows','guarded_assignments','app_schema_contract')
+        and (p.proconfig is null or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'))
+      order by 1;`).trim();
+    ok("077: §23 S-45A — every function in this family pins search_path",
+      unpinned === "", `still mutable: ${unpinned.split("\n").join(", ")}`);
+
+    // §28 — 0046 adds detection and must not have weakened the 0045 backstop.
+    const stillGuarded = asA(`select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid
+      where c.relname in ('notes','next_actions') and t.tgname like '%sync_version_guard';`).trim();
+    ok("077: §28 the 0045 CAS triggers are untouched — layered defence intact",
+      stillGuarded === "2", `${stillGuarded} guard triggers found`);
+    // `tryA` returns false when the statement raised — which is what a refusal
+    // looks like. An omitted sync_version must still be refused after 0046.
+    const guardStillBites = tryA(`update public.notes set title='no' where id='${GN}';`);
+    ok("077: §28 …and a sync_version-omitting update is still refused after 0046",
+      guardStillBites === false, "the 0045 guard stopped biting — 0046 weakened it");
 
     // The RPC's own behaviour: accepted vs stale, per row, in one call.
     const R1 = "cccccccc-0000-4000-8000-00000000000c";

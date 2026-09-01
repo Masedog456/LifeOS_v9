@@ -3,10 +3,31 @@
 **North star:** the app should know whether the database it is talking to can
 safely accept its writes.
 
-**Status: DESIGN READY — AWAITING MIGRATION APPROVAL.** The audit shows F-3
-cannot be closed authoritatively without one schema change. Per §15 the design
-is proposed here and **no migration has been written**. Base SHA
-`b7fa54bda614c011aeca492d37b97a5097909881`.
+**Status: IMPLEMENTATION READY — AWAITING DEPLOYED 0046 PARITY.** Migration
+0046 was approved and is written; the client reads it, and the write path
+consults the answer. Base SHA `b7fa54bda614c011aeca492d37b97a5097909881`.
+
+```
+repository migration head = 0046
+production Supabase head  = 0045      ← not changed from here
+```
+
+0046 has **not** been applied from this environment. As with 0045, production
+application and verification happen externally and will be recorded as
+`EXTERNALLY VERIFIED DEPLOYED EVIDENCE`.
+
+> ### Deployment ordering is not optional here
+>
+> **0046 must be applied to production BEFORE the 077 client ships.**
+>
+> This is not a preference. Against a 0045-only database the contract function
+> is absent, the verdict is `unavailable`, and — correctly, per §25 — the
+> guarded domains are gated. Shipping the client first would pause Notes and
+> Actions until 0046 landed: fail-closed, no data loss, work queued, but a
+> self-inflicted repeat of the very incident this sprint exists to prevent.
+>
+> This is the expand-contract model applied to itself, and it is the first real
+> test of whether the lesson took.
 
 ---
 
@@ -97,7 +118,7 @@ be exposed at all.
 | 3. Capability probing (`select sync_version … limit 0`, empty-payload RPC) | Partly | No | **Rejected as primary** — N probes for N capabilities, cannot express "database is newer", and "call it and see" is what §12 forbids. Retained only as the transitional fallback in §4 |
 | 4. PostgREST OpenAPI root (`GET /rest/v1/`) | Probably | No | **Rejected** — large, permission-dependent, couples us to PostgREST internals. **Untested**: no production credentials here |
 
-### The proposed signal
+### The signal, as built
 
 ```
 public.app_schema_contract() → jsonb
@@ -278,9 +299,9 @@ Pin an explicit `search_path` on `enforce_sync_version`, `push_guarded_rows`,
 
 ---
 
-## 11. Proposed migration 0046 — NOT WRITTEN
+## 11. Migration 0046 — as approved and written
 
-Per §15, proposed for approval before any SQL is written:
+As approved. `supabase/migrations/0046_schema_compatibility_contract.sql`:
 
 1. `public.app_schema_contract()` returning `{contract, min_client_contract}`,
    `SECURITY INVOKER`, pinned `search_path`, granted to `authenticated` only
@@ -292,7 +313,7 @@ Nothing else. No data migration, no table changes, no touching the 0045 guard.
 
 ---
 
-## 12. Test redness required before any of this is trusted (§18)
+## 12. Test redness (§18) — required, and performed in §15
 
 Each must be proved to fail against current `main`: new client / old DB detected
 **before** the incompatible write; old client / new DB handled truthfully;
@@ -315,7 +336,7 @@ not attempt its general repair.
 
 ---
 
-## 14. Remaining risks
+## 14. Remaining risks *(design-pass list; superseded by §16 below)*
 
 - **Bootstrapping.** Pre-0046 databases cannot self-describe; 0044 and 0045 are
   indistinguishable through this channel. Bounded and transitional, but real.
@@ -331,10 +352,139 @@ not attempt its general repair.
 
 ---
 
-## 15. Stop condition reached
+## 15. AS BUILT — closure evidence
 
-§27: a schema change is required and not yet authorized.
+### F-3a — CLOSED
 
-**LIFEOS-077 DESIGN READY — AWAITING MIGRATION APPROVAL.**
+`DiagnosticsCenter` no longer supplies the remote side. It now passes
+`getCompatibility().server.contract` — a number read from the database — while
+`CLIENT_CONTRACT` supplies what the build expects. Two numbers, two sources.
+Asserted structurally (I8) so the fabricated line cannot come back.
 
-No product code changed. No migration written. Nothing in §26 begun.
+### F-3b — CLOSED, and this is the one that mattered
+
+The verdict is consumed by `flush()` itself: gated domains are removed from the
+dirty set **before** `saveStateByDomain`, so the push is never attempted; they
+keep their old baseline, stay dirty, and health reports `incomplete`.
+
+Red-proved by removing the gate entirely — the pre-077 behaviour returns
+exactly:
+
+```
+FAIL  C2  guarded pushes attempted: ["upsert:goals","rpc:next_actions","rpc:notes"]
+FAIL  E2  guarded remote writes happened
+FAIL  E4  sync is not pretended to succeed — synced
+FAIL  I6  health cannot say synced while a domain is gated
+```
+
+`E4 — synced` is F-3b reproduced: verdict incompatible, write lands, app says
+Synced. A first attempt at this red proof only removed the filtering and left
+the health branch, so several assertions passed for unrelated reasons; the
+proof above removes the whole gate.
+
+### F-3c — CLOSED
+
+`app_schema_contract()` in migration 0046, read by
+`SupabasePersistenceAdapter.loadSchemaContract()`. The chain is asserted edge by
+edge (I1–I7): deployed truth → parser → session cache → per-domain decision →
+dispatcher → domains held dirty → health not Synced → reprobe → recovery flush.
+
+### Final contract shape
+
+```json
+{ "contract": 2, "min_client_contract": 1,
+  "capabilities": { "guarded_notes": 2, "guarded_next_actions": 2 } }
+```
+
+Coarse contract, precise capabilities. `min_client_contract` is deliberately 1:
+a pre-0045 client can still write the 44 unguarded domains, and declaring it
+globally unusable would manufacture an outage the data does not justify.
+
+### Security changes
+
+- **S-45B** — `revoke execute … from anon` on `push_guarded_rows`,
+  `guarded_assignments` and the new `app_schema_contract`. `service_role`
+  retained deliberately (it already bypasses RLS; withholding EXECUTE buys no
+  safety), `authenticated` granted, `anon` none.
+- **S-45A** — `search_path` pinned to `pg_catalog, public` on all four
+  functions. Verified by a rehearsal query that no function in the family is
+  left with a mutable path, so 0046 does not create the warning it fixes.
+
+### The rehearsal repair — §22
+
+The prior `anon cannot execute it` assertion was green because the harness
+*fabricates* a bare `anon` role with no default privileges for a REVOKE to
+miss. The rehearsal now runs `ALTER DEFAULT PRIVILEGES … GRANT EXECUTE … TO
+anon, authenticated, service_role` before any migration, and proves the hazard
+is present before proving it is fixed:
+
+```
+✓ 077: §22 the rehearsal now reproduces Supabase default grants —
+       a new function DOES reach anon
+```
+
+Without that first assertion the S-45B checks would prove nothing, which is
+exactly the trap the old version fell into.
+
+### Performance — §30
+
+Measured: **50 mutations added zero contract probes.** The probe runs at session
+acquisition, on reconnect, on explicit retry, and after a schema-shaped failure
+— O(1) per lifecycle event, never per write. `__compatProbeCount()` exists so
+this is a measurement rather than a claim.
+
+### Evidence
+
+| Gate | Result |
+|---|---|
+| Migration rehearsal through 0046 (real PostgreSQL 16) | **157/157** |
+| 077 schema-compatibility (deterministic) | **51/51** |
+| 076 browser incl. §27 old-tab, both viewports | **281/281** |
+| 076B CAS-client · live-window | 84/84 · 9/9 |
+| 076 sync-recovery · 075 cross-device | 95/95 · 135/135 |
+| 074 adversarial/isolation/dimensions/local/remote/tombstone | 47·31·50·30·47·43 |
+| 074 sync-truth / reachability / browser-failure | 31/31 · 145/145 · 25/25 |
+| Release audit · security audit | 17/17 · all pass |
+| Route smoke (dev gated) · export verify | 24/24 · 14/14 |
+| tsc · eslint · build | clean · 0 errors (2 pre-existing warnings) · exit 0 |
+| Full deterministic regression | **4142/4142** across 42 suites |
+
+### A regression this sprint caused, found and fixed
+
+Wiring the gate broke twelve assertions in the 076 harness. Two distinct causes,
+both real:
+
+1. `__setRemoteForTest` swapped the adapter without clearing the verdict, so one
+   section's gating leaked into the next. Fixed in the product, not the test —
+   attaching a different remote genuinely makes the old answer meaningless.
+2. The 076 and 075 fakes model a database with no `app_schema_contract`, so the
+   client correctly read "cannot establish the contract" and gated. The fakes
+   now answer the contract, because they claim to be current databases.
+
+The second one is worth keeping in view: it is the same shape as the ordering
+warning at the top of this document, discovered in a harness first.
+
+---
+
+## 16. Remaining risks, restated
+
+- **Ordering.** 0046 must reach production before the 077 client. See the top of
+  this document; it is the one thing that can turn this repair into an incident.
+- **Bootstrapping.** A database without `app_schema_contract()` is unreadable,
+  not "old" — 0044 and 0045 are indistinguishable through this channel. Handled
+  by failing closed on the guarded domains, which is why ordering matters.
+- **The contract is a declaration.** A hand-edited database could advertise a
+  capability it does not honour. Accepted: the value ships with the migration,
+  and the 0045 trigger — not the contract — remains the enforcement. §28's
+  layered defence is unchanged: compatibility is early warning, never a
+  replacement for the server invariant.
+- **`min_client_contract` is advisory to the client.** The database guard stays
+  the real boundary.
+- **D-23 remains PARTLY CLOSED.** Compatibility probing does not repeat it — an
+  unreadable body fails closed — but the general repair is out of scope.
+- **No live verification from here.** Every production claim must come from
+  external verification and be labelled as such.
+
+**LIFEOS-077 IMPLEMENTATION READY — AWAITING DEPLOYED 0046 PARITY.**
+
+Nothing in §39 begun.

@@ -446,6 +446,42 @@ const ALARMING = ["incomplete", "failed", "local-error", "retrying"];
       await page.evaluate(() => localStorage.removeItem("lifeos.conflicts.v1"));
     }
 
+    // ================================================================
+    // X. LIFEOS-077 §27 — the old tab meets an upgraded backend.
+    //
+    // The verdict is forced (no Supabase session exists here); what is asserted
+    // is the app's own rendering: truthful consequence language, no database
+    // nouns, and no false reassurance.
+    // ================================================================
+    {
+      await page.goto(`${BASE}/dev/sync-tests`, { waitUntil: "domcontentloaded" });
+      await page.click("[data-dev-real-save]");
+      await page.click("[data-dev-compat-gated]");
+      await page.waitForTimeout(200);
+      await openPanel(page);
+      const note = await page.$("[data-sync-updating]");
+      ok("X1 §27 the shell explains that the backend is updating", !!note);
+      if (note) {
+        const t = (await note.innerText()).replace(/\s+/g, " ");
+        ok("X2 §7 …in consequence language, naming no database noun",
+          /updating/i.test(t) && !/rpc|migration|schema|postgres|contract|0045|0046|sql/i.test(t), t);
+        ok("X3 §7 …and it says the work is safe on this device",
+          /safe on this device/i.test(t), t);
+      }
+      const panelTxt = await page.$eval("[data-sync-panel]", (el) => el.innerText).catch(() => "");
+      ok("X4 §12 …while never claiming everything is synced",
+        !/^\s*Synced/im.test(panelTxt), panelTxt.slice(0, 120));
+      await page.keyboard.press("Escape");
+
+      // Back to compatible: the notice must disappear rather than linger.
+      await page.click("[data-dev-compat-ok]");
+      await page.waitForTimeout(200);
+      await openPanel(page);
+      ok("X5 §26 once the backend is current again, the notice clears",
+        !(await page.$("[data-sync-updating]")));
+      await page.keyboard.press("Escape");
+    }
+
     await ctx.close();
   }
 
