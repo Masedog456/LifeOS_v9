@@ -1,33 +1,70 @@
 # LIFEOS-076B — Deployment Parity Handoff
 
-> ## ⚠️ The deploy order was not followed
->
-> **PR #81 was merged at `2026-08-30T23:25:07Z`, before migration 0045 was
-> applied to production.** The approved order was migration first, merge second.
-> It went the other way.
->
-> The consequence is live and is measured in §2b. In short: **Notes and Actions
-> stop syncing to the cloud until 0045 is applied.** It is fail-closed — nothing
-> is lost, the failure is visible, every other domain keeps syncing, and the
-> queued work lands the moment 0045 arrives — but it is a live degradation of
-> the two most-used domains, so **applying 0045 is now urgent rather than merely
-> next.**
-
-**STATUS: awaiting migration 0045 on production Supabase.**
+## STATUS: PARITY VERIFIED — repository 0045 · production 0045 · PASS
 
 | | |
 |---|---|
-| PR | #81 — *LIFEOS-076B — Database-Enforced CAS Integrity Repair* — **MERGED** |
-| Merged at | `2026-08-30T23:25:07Z`, at head `aaefdf4` |
-| **Repository migration head** | **0045** (on `main`) |
-| **Production Supabase head** | **0044** |
+| PR #81 — *Database-Enforced CAS Integrity Repair* | **MERGED** `2026-08-30T23:25:07Z` at `aaefdf4` |
+| **Repository migration head** | **0045** |
+| **Production Supabase head** | **0045** |
+| **Exact version/name parity** | **PASS** |
+| Migration file applied | `supabase/migrations/0045_sync_version_guard.sql` |
+| Production ledger ends at | `0045 | sync_version_guard` |
 
-Migration 0045 has **not** been applied from this environment, and no claim in
-this document or in PR #81 describes a live deployed run. Every Postgres claim
-rests on `scripts/migration-rehearsal.mjs` against a throwaway PostgreSQL 16
-cluster. Deployment status may only be updated on **external confirmation**, and
-must then be labelled `EXTERNALLY VERIFIED DEPLOYED EVIDENCE` without implying
-it was executed from here.
+**The temporary `0045 client / 0044 database` window is CLOSED.** Previously
+queued Note and Action writes are now *eligible* to flush normally on retry or
+reconnect. No claim is made that any particular user's queued writes have
+landed — that was not observed.
+
+---
+
+# EXTERNALLY VERIFIED DEPLOYED EVIDENCE
+
+Everything in this section was performed **outside this environment**, against
+the connected production Supabase project, and is recorded here as supplied. It
+was **not** executed from here: this environment holds no production Supabase
+credentials or CLI, and nothing below is a run I performed.
+
+### Columns
+
+`public.notes.sync_version` and `public.next_actions.sync_version` — `bigint`,
+`NOT NULL`, default `1`. Positive-version constraints present on both tables.
+
+### Triggers and function
+
+`notes_sync_version_guard` and `next_actions_sync_version_guard`, both
+`BEFORE UPDATE`, both calling `public.enforce_sync_version()`, which exists.
+`security_definer = false` — it is not `SECURITY DEFINER`.
+
+### RPC
+
+`public.push_guarded_rows(text, jsonb)` and `public.guarded_assignments(text)`
+both exist; neither is `SECURITY DEFINER`. `push_guarded_rows` was exercised
+live inside a transaction against an existing Note: `accepted` contained the
+Note id, `stale` was empty. The transaction was rolled back; no persistent
+user-data mutation was intentionally left behind.
+
+### RLS
+
+Enabled on `notes` and `next_actions`. Ownership policies remain
+`auth.uid() = user_id` for SELECT / INSERT / UPDATE / DELETE. No evidence was
+found that 0045 weakened ownership isolation.
+
+### Live behaviour
+
+- Valid guarded update `1 → 2` — **succeeds**
+- Old-client-style update omitting `sync_version` — **rejected**, raising the
+  expected `LIFEOS_STALE_WRITE`
+
+Checked on both guarded table classes, without intentionally leaving the
+verification mutation behind.
+
+### Security advisor
+
+Run after 0045. No evidence of a new P0/P1 cross-user-access issue. Two
+hardening observations belong to 0045 and are recorded as S-45A and S-45B below.
+
+---
 
 ---
 
@@ -52,7 +89,7 @@ column, which is the failure mode with no upside.
 
 ---
 
-## 2. The old-client window — measured, not assumed
+## 2. The old-client window — measured, not assumed *(historical — never occurred)*
 
 The window is the period after 0045 is applied and before #81 merges. The
 deployed client during that window is the one at merge commit `96cf62a`: it
@@ -111,7 +148,7 @@ client. Corrected and re-measured before the result above was recorded.
 
 ---
 
-## 2b. The window that is actually live — measured
+## 2b. The window that did occur — measured, now CLOSED
 
 Because the merge landed first, the live mismatch is the *inverse* of the one
 planned for: a **new** client against a **0044** database. The new client calls
@@ -134,20 +171,101 @@ adapter and persistence layer against a backend that behaves like 0044 — **9/9
 
 **Fail-closed in this direction too. No data loss.**
 
-What a person experiences right now: Notes and Actions show a sync failure with
-a reachable "Try again"; their work is safe on the device and marked unsynced;
-the sign-out warning fires if they try to leave with unsynced work; everything
-else in the app syncs normally. On applying 0045 the queued writes land on the
-next flush or retry — there is no manual recovery step.
+While it lasted, a person saw Notes and Actions reporting a sync failure with a
+reachable "Try again", their work safe on the device and marked unsynced, the
+sign-out warning firing if they tried to leave with unsynced work, and every
+other domain syncing normally.
 
-Two things follow.
+### CLOSED
 
-1. **Apply 0045 promptly.** The degradation is bounded and safe, but it is real
-   and it affects the two domains people touch most.
-2. **This is the hazard F-3 describes, happening.** A client that cannot ask the
-   database what version it is at cannot warn anyone about this and cannot
-   decline to try. It fails safely here only because every write path already
-   fails closed — not because anything checked.
+Migration 0045 is now live (externally verified above), so the missing function
+is present and the degradation is over. Previously queued Note and Action writes
+are **eligible** to flush normally on the next retry or reconnect, with no
+manual recovery step. **No claim is made that any particular user's queued
+writes have landed** — that was not observed from here, and could not be.
+
+The one thing this window is permanent evidence for: it is the hazard F-3
+describes, happening. A client that cannot ask the database what version it is
+at cannot warn anyone and cannot decline to try. It failed safely only because
+every write path already fails closed — not because anything checked.
+
+---
+
+## 2c. Findings belonging to 0045 — S-45A and S-45B
+
+Both are new with 0045. Neither meets the P1 bar: there is no evidence of a
+cross-user write, privilege escalation, authentication bypass, or silent durable
+data loss. Both are carried into the next infrastructure sprint. **No migration
+0046 is opened here.**
+
+### S-45B — routine EXECUTE broader than intended — **P2**
+
+Live privilege inspection reports EXECUTE on `push_guarded_rows` and
+`guarded_assignments` for `anon`, `authenticated`, `postgres` and
+`service_role`. The migration intended `authenticated` only.
+
+**The live privileges do not match the intended grants.** That distinction is
+kept deliberately, and the two halves must not be collapsed:
+
+- *Authorization boundary appears intact.* Both functions are `SECURITY
+  INVOKER`, so they run as the caller. An `anon` caller has no `auth.uid()`, so
+  the RLS predicate `auth.uid() = user_id` matches nothing: the row is neither
+  readable nor writable, and `push_guarded_rows`'s own pre-read returns null.
+  No evidence that anon can mutate or read another user's records.
+- *Routine exposure is broader than intended.* That is a least-privilege
+  deviation regardless, and it is not what the migration text says.
+
+**Why it happened — and why the rehearsal did not catch it.** The migration does
+`revoke all ... from public` then `grant execute ... to authenticated`. Supabase
+configures `ALTER DEFAULT PRIVILEGES` granting EXECUTE on new `public` functions
+to `anon` / `authenticated` / `service_role`, applied at CREATE time as
+*role-specific* grants — and `REVOKE ... FROM public` does not remove a grant
+held by the `anon` role itself.
+
+The rehearsal asserts `§28 anon cannot execute it` and that assertion is
+**green**. It is green for a reason that does not hold in production: the
+rehearsal *creates* a bare `anon` role (`create role anon nologin`) on a
+throwaway cluster with no default privileges configured, so there is no default
+grant for the REVOKE to miss. The assertion is therefore true of the rehearsal
+and **not evidence about production**. External verification is what caught it.
+
+Follow-up for the next infrastructure sprint: an explicit
+`revoke execute ... from anon` (and a decision on `service_role`), plus either
+modelling Supabase's default privileges in the rehearsal or withdrawing that
+assertion's claim about production. It is left unchanged here because 076B is
+frozen.
+
+### S-45A — function search_path mutable — **P3**
+
+`function_search_path_mutable` is reported for `public.enforce_sync_version`,
+`public.push_guarded_rows` and `public.guarded_assignments`. WARN-level.
+
+Classified P3 rather than higher for two reasons:
+
+1. The escalation this warning normally guards — an attacker shadowing an
+   object so a function executes it with the *owner's* privileges — requires
+   `SECURITY DEFINER`. Externally verified: none of the three is
+   `SECURITY DEFINER`. Under `SECURITY INVOKER` a caller shadowing a name is
+   doing so at their own privilege level.
+2. Reaching it needs the ability to `SET search_path` on the session. A
+   PostgREST client cannot; it would require direct SQL access, which means
+   credentials. *Stated as reasoning, not as a verified production fact —
+   it was not tested against production.*
+
+The unqualified references in 0045 are `information_schema.columns` and the
+`pg_catalog` builtins (`jsonb_array_elements`, `jsonb_populate_record`,
+`to_jsonb`, `format`, `string_agg`); the guarded tables themselves are already
+schema-qualified as `public.%I`.
+
+Follow-up: pin an explicit `set search_path` on the three functions.
+
+### Not attributable to 0045
+
+These advisor items pre-date this migration and must not be counted against it:
+`private.integration_credentials` RLS enabled without policies (intentional
+private-schema architecture), `public.beta_signups` RLS enabled without
+policies, mutable `search_path` on several older functions, the `vector`
+extension in `public`, and leaked-password protection disabled.
 
 ---
 
@@ -192,50 +310,65 @@ not merge #81 until it is understood.**
 
 ---
 
-## 4. After 0045 is confirmed live
+## 4. Closure — F-1 and F-2
 
-Merge #81 promptly — the window closes on merge — then verify the new client
-can:
+Database-enforced stale-write protection is now deployed. Both P1 classes are
+**CLOSED**. The deterministic lifecycle evidence is retained as the proof of the
+client behaviour; the live guard behind it is the externally verified evidence
+above.
 
-- read existing v1 Notes and v1 Actions
-- create new records (inserting at version 1)
-- update 1 → 2
-- handle a stale rejection
-- preserve local rejected intent
-- show the conflict notice
-- resolve a conflict via a new current-version write
+### F-1 — P1 CLOSED
 
-### F-1 final acceptance
+A and B read Action v1. A completes → v2. B's stale defer → **refused**.
 
-A and B read Action v1. A completes → remote v2. B's stale defer → refused.
+- `status` remains `completed`
+- `completed_at` remains
+- the completion history entry remains
+- B's rejected local intent is preserved and recoverable
+- no silent reopening
 
-Must hold: `status = completed`, `completed_at` preserved, completion history
-preserved, B's attempted defer recoverable and explainable, **no silent
-reopening**.
+*(`scripts/inject-076-cas-client.cjs` sections O1–O11.)*
 
-### F-2 final acceptance
+### F-2 — P1 CLOSED
 
-A and B read Note v1. A edits → accepted v2. B's stale edit → refused.
+A and B read Note v1. A edits → accepted v2. B's stale edit → **refused**.
 
-Must hold: the server preserves the accepted text, B's rejected authored text
-remains recoverable, the conflict UI appears, **no authored body disappears**,
-and "Use my version" becomes a deliberate v3 write. No AI merge, no silent
-merge.
+- the accepted server prose remains
+- B's rejected authored prose remains recoverable, and survives a reload
+- `ConflictNotice` resolves deliberately — "Use my version" becomes a new
+  current-version write
+- no AI merge, no silent overwrite
 
-### Gates to re-run after parity
+*(`scripts/inject-076-cas-client.cjs` sections P1–P10.)*
 
-CAS-client · F-1 · F-2 · commit-then-timeout · legitimate reopen · note conflict
-resolution · tombstone interaction · 076 browser · 075 cross-device · 074
-integrity · migration rehearsal · wiring · release audit · security · tsc ·
-eslint · build · full regression.
+---
 
-**No assertion weakening.**
+## 4b. Final gate run — all green, no assertion weakened
+
+| Gate | Result |
+|---|---|
+| Migration rehearsal through 0045 (real PostgreSQL 16) | **143/143** |
+| CAS-client (F-1, F-2, commit-then-timeout, reopen, conflict recovery, tombstones, offline stale write, rapid mutation, archives, wiring, E-7) | **84/84** |
+| 076B live-window | **9/9** |
+| 076 sync-recovery (account switch, sign-out, local-save retry) | **95/95** |
+| 075 cross-device | **135/135** |
+| 074 adversarial / isolation / dimensions / local / remote / tombstone | 47 · 31 · 50 · 30 · 47 · 43 |
+| 076 browser (desktop + mobile) | **271/271** |
+| 074 sync-truth / reachability / browser-failure | 31/31 · 145/145 · 25/25 |
+| Release audit | **17/17** |
+| Security audit (RLS, secrets, routes, auth, deps) | all pass |
+| Route smoke (dev gated) · export verify | 24/24 · 14/14 |
+| tsc · eslint · build | clean · 0 errors (2 pre-existing warnings) · exit 0 |
+| Full deterministic regression | **4142/4142** across 42 suites |
+
+`tag-ready: false · open blockers: 1` is the pre-existing "v1.0.0-rc1 tag
+prepared, not created until gates pass" checklist item, unchanged.
 
 ---
 
 ## 5. Carried forward
 
-### F-3 — OPEN. Highest-priority infrastructure follow-up, and now demonstrated.
+### F-3 — OPEN. The next infrastructure sprint.
 
 The client/server schema compatibility gate cannot compare the client against
 the actual deployed migration head. Its only production caller supplies
@@ -247,9 +380,17 @@ this bounded repair and would change deploy semantics.
 
 It is now materially more important than it was, and 0045 is the reason: schema
 compatibility no longer merely affects *which columns exist*, it affects
-**whether a write is accepted at all**. §2b is no longer hypothetical — it is
-the live state of the product, and a working gate is exactly what would have
-made the ordering safe in either direction. It is also why the head bump from 0044
+**whether a write is accepted at all**.
+
+The evidence is now concrete rather than theoretical: the 0045 client reached
+production before the 0045 database migration, and the app could not identify
+the mismatch before attempting guarded writes. It failed safely — but only
+because every write path already fails closed, not because anything checked.
+
+**F-3 — the client/server schema compatibility gate is unwired to deployed
+truth.** Its production caller supplies `remoteMigrationVersion =
+EXPECTED_MIGRATION_VERSION` instead of reading the deployed schema state, so the
+check compares a constant with itself. Not fixed here. It is also why the head bump from 0044
 to 0045 is safe today — with a strict-equality gate that *could* fire, neither
 deploy ordering would be safe, because applying the migration first would break
 the running build and shipping the build first would break until the migration
@@ -288,16 +429,22 @@ unreadable body is an ambiguous outcome. Red-proved.
 
 ## 6. Evidence labelling rules
 
-Until external confirmation arrives, every report continues to state:
+External confirmation has arrived and is recorded above under
+`EXTERNALLY VERIFIED DEPLOYED EVIDENCE`. Reports may now state:
 
 ```
 repository head = 0045
-deployed head   = 0044
+deployed head   = 0045
+migration parity = PASS
 ```
 
-Deployment must **not** be inferred from the migration rehearsal, the existence
-of the SQL file, a green Vercel build, or branch state. On confirmation, update
-with repository head, Supabase head, exact version/name parity, live schema,
-live trigger and RPC presence, and the exact security-advisor result — labelled
-`EXTERNALLY VERIFIED DEPLOYED EVIDENCE`, and not phrased as though it were
-executed from this environment.
+Two rules survive the confirmation and still apply.
+
+1. **Attribution.** The live checks were performed outside this environment.
+   Nothing may be phrased as though they were executed from here; this
+   environment holds no production Supabase credentials or CLI.
+2. **Inference remains forbidden.** Deployment state is never to be inferred
+   from the migration rehearsal, the existence of a SQL file, a green build, or
+   branch state — a lesson S-45B makes concrete: the rehearsal's own
+   `anon cannot execute` assertion is green and is *not* evidence about
+   production.
