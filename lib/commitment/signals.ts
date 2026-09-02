@@ -57,7 +57,7 @@ import { occurrenceFor } from "@/lib/mvpStore";
 import { lastActivityByRecord } from "@/lib/insights/dormancy";
 import { RETURN_THRESHOLD_DAYS } from "@/lib/planning/today-signals";
 import type { TodayIndexes } from "@/lib/today/indexes";
-import { goalAlignmentFacts, goalsMissingPath } from "@/lib/execution/alignment";
+import { goalLinkedProjects, goalsMissingPath } from "@/lib/execution/alignment";
 
 // ------------------------------------------------------------------ kinds ---
 
@@ -496,17 +496,20 @@ export function projectNoNextActionSignals(
 export function goalPathMissingSignals(state: StoreState): CommitmentSignal[] {
   const out: CommitmentSignal[] = [];
   for (const goal of goalsMissingPath(state)) {
-    const facts = goalAlignmentFacts(state, goal);
+    // Only the project count, which is what the secondary reason states. The
+    // full alignment facts walk every action in the store, and Today has no use
+    // for that here.
+    const linked = goalLinkedProjects(state, goal.id).length;
     out.push({
       kind: "goal_path_missing",
       recordRef: { kind: "goal", id: goal.id },
       title: goal.title,
       explanation: `${GOAL_PATH_MISSING}.`,
       evidence: "project.goalId",
-      secondaryReasons: facts.projects.total > 0
+      secondaryReasons: linked > 0
         ? [{
           code: "goal_project_count",
-          text: `${facts.projects.total} linked project${facts.projects.total === 1 ? " is" : "s are"} paused, completed or abandoned.`,
+          text: `${linked} linked project${linked === 1 ? " is" : "s are"} paused, completed or abandoned.`,
           evidence: "project.goalId",
         }]
         : [],

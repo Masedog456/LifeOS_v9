@@ -2354,7 +2354,7 @@ interface GoalRow {
   history: unknown; notes: string; tags: unknown; manual_progress: number | null;
   linked_workspaces: unknown; linked_knowledge: unknown; created_at: string; updated_at: string;
 }
-function goalToRow(g: Goal): GoalRow {
+export function goalToRow(g: Goal): GoalRow {
   return {
     id: g.id, title: g.title, description: g.description, status: g.status, priority: g.priority,
     target_date: g.targetDate ?? null,
@@ -2369,7 +2369,7 @@ function goalToRow(g: Goal): GoalRow {
     linked_knowledge: g.linkedKnowledge, created_at: g.createdAt, updated_at: g.updatedAt,
   };
 }
-function rowToGoal(r: any): Goal {
+export function rowToGoal(r: any): Goal {
   return {
     id: r.id, title: r.title ?? "Untitled goal", description: r.description ?? "",
     status: (r.status ?? "active") as Goal["status"], priority: (r.priority ?? "medium") as Goal["priority"],

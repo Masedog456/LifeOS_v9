@@ -23,8 +23,8 @@
  * — it can only check the fields somebody remembered.
  */
 
-import type { NextAction, StoreState } from "@/types/mvp";
-import { actionToRow, rowToAction, sessionToRow, rowToSession } from "@/lib/adapters/supabaseAdapter";
+import type { Goal, NextAction, StoreState } from "@/types/mvp";
+import { actionToRow, rowToAction, sessionToRow, rowToSession, goalToRow, rowToGoal } from "@/lib/adapters/supabaseAdapter";
 import { STORE_DOMAINS } from "@/lib/ux/backup";
 import { readRule } from "@/lib/time/recurrence";
 import { threeWayMerge, type Rec } from "@/lib/sync/merge";
@@ -354,6 +354,89 @@ export function runRoundTripSelfTests(): SelfTestReport {
     eq("9.2 the with-history delete leaves exactly the same",
       residue(withHist), residue(plain));
     eq("9.3 …and both keep the surviving action", (withHist.nextActions ?? []).map((a) => a.id), ["keep"]);
+  }
+
+  // ======== 10. GOAL FIELD COVERAGE (LIFEOS-078) ==========================
+  //
+  // The same check as section 3, on the domain this sprint just extended, and
+  // for the same reason: `horizon`, `successorGoalId` and `history` were added
+  // to the Goal type and to migration 0047 together, and the third place they
+  // have to arrive is the mapper. A per-field list would only check the fields
+  // somebody remembered — this fails for any field added later and forgotten.
+  {
+    const fullGoal: Goal = {
+      id: "g-full", title: "Everything", description: "why", status: "replaced",
+      priority: "high", targetDate: "2026-12-01",
+      horizon: "life", successorGoalId: "g-next",
+      history: [{ id: "h1", at: iso(T), kind: "horizon", fromHorizon: "near", toHorizon: "life", note: "mine" }],
+      notes: "n", tags: ["t"], manualProgress: 40,
+      linkedWorkspaces: [{ kind: "workspace", id: "w" }],
+      linkedKnowledge: [{ kind: "belief", id: "b" }],
+      createdAt: iso(T), updatedAt: iso(T, 9),
+    };
+    const backGoal = rowToGoal(goalToRow(fullGoal) as unknown as Record<string, unknown>);
+    const lost: string[] = [];
+    for (const key of Object.keys(fullGoal) as Array<keyof Goal>) {
+      if (JSON.stringify(backGoal[key]) !== JSON.stringify(fullGoal[key])) lost.push(String(key));
+    }
+    eq("10.1 EVERY Goal field survives the round trip", lost, []);
+    ok("10.2 …including the three LIFEOS-078 added",
+      backGoal.horizon === "life" && backGoal.successorGoalId === "g-next" && backGoal.history?.length === 1,
+      JSON.stringify([backGoal.horizon, backGoal.successorGoalId, backGoal.history?.length]));
+    // The column is NOT NULL. A goal written before 078 has no array at all,
+    // and the mapper must supply one rather than sending null.
+    const legacy = goalToRow({ ...fullGoal, horizon: undefined, successorGoalId: undefined, history: undefined });
+    eq("10.3 a pre-078 goal is written with an empty history, never null", legacy.history, []);
+    eq("10.4 …and an unset horizon is written as null, not a guess", legacy.horizon, null);
+    eq("10.5 …and no successor is null, not the goal's own id", legacy.successor_goal_id, null);
+    // The reverse: a row whose history is missing or malformed must load.
+    const hydrated = rowToGoal({ id: "g", title: "T", created_at: iso(T), updated_at: iso(T) });
+    /* ---- The cross-device limitation, for GOALS (LIFEOS-078) -------------
+     *
+     * Same shape as section 7, and stated here rather than left implicit
+     * because append-only history invites the assumption that entries cannot be
+     * lost. Locally they cannot. ACROSS DEVICES they can: goals are not
+     * 0045-guarded, the push is a blind row upsert, and the later stale writer
+     * takes the whole row — including the `history` array.
+     *
+     * The merge layer WOULD union them, and does so only because
+     * `GoalHistoryEvent` carries an `id`, which makes `isChildList` recognise
+     * it. That is a real property of the record shape and is asserted below —
+     * but the layer is unwired, so it is not what the product does today.
+     *
+     * WHEN THE MERGE LAYER IS WIRED, THESE MUST FAIL.
+     */
+    const gBase: Goal = {
+      id: "g-race", title: "Run a marathon", description: "", status: "active", priority: "medium",
+      notes: "", tags: [], linkedWorkspaces: [], linkedKnowledge: [], history: [],
+      createdAt: iso(T), updatedAt: iso(T),
+    };
+    const deviceA: Goal = { ...gBase, horizon: "life",
+      history: [{ id: "hA", at: iso(T, 9), kind: "horizon", toHorizon: "life" }] };
+    const deviceB: Goal = { ...gBase, status: "paused",
+      history: [{ id: "hB", at: iso(T, 10), kind: "status", fromStatus: "active", toStatus: "paused" }] };
+
+    const afterBGoal = rowToGoal(goalToRow(deviceB) as unknown as Record<string, unknown>);
+    eq("10.7 a later stale goal push wins the whole row", afterBGoal.status, "paused");
+    eq("10.8 …erasing the horizon the other device set", afterBGoal.horizon, undefined);
+    eq("10.9 …and the history entry that recorded it",
+      (afterBGoal.history ?? []).map((h) => h.id), ["hB"]);
+
+    const gm = threeWayMerge(gBase as unknown as Rec, deviceB as unknown as Rec, deviceA as unknown as Rec);
+    ok("10.10 the unwired merge layer WOULD keep BOTH history entries",
+      ((gm.merged.history as Array<{ id: string }>) ?? []).length === 2,
+      JSON.stringify(gm.merged.history));
+    ok("10.11 …which works only because a history entry carries an id",
+      ((threeWayMerge(
+        { ...gBase, history: [] } as unknown as Rec,
+        { ...gBase, history: [{ at: iso(T, 10), kind: "status" }] } as unknown as Rec,
+        { ...gBase, history: [{ at: iso(T, 9), kind: "horizon" }] } as unknown as Rec,
+      ).merged.history as unknown[]) ?? []).length === 1,
+      "an id-less entry falls back to scalar conflict handling and one side is lost");
+
+    ok("10.6 a row with none of the three columns still loads",
+      Array.isArray(hydrated.history) && hydrated.horizon === undefined && hydrated.successorGoalId === undefined,
+      JSON.stringify([hydrated.history, hydrated.horizon, hydrated.successorGoalId]));
   }
 
   const passed = results.filter((x) => x.pass).length;

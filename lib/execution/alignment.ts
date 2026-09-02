@@ -56,6 +56,20 @@ export function goalLinkedProjects(state: StoreState, goalId: string): Project[]
 }
 
 /**
+ * Whether a goal is being pursued with no active project under it.
+ *
+ * Split out from `goalAlignmentFacts` on purpose. Today asks this question for
+ * every goal on every render, and the full facts walk every action in the
+ * store to answer questions this one does not need — so the signal path would
+ * have paid an O(goals x actions) scan for an answer that depends only on
+ * projects. Same rule, one definition, computed at the cost it actually has.
+ */
+export function goalPathMissing(state: StoreState, goal: Goal): boolean {
+  if (goal.status !== "active") return false;
+  return !(state.projects ?? []).some((p) => p.goalId === goal.id && p.status === "active");
+}
+
+/**
  * The actions that reach a goal — directly, or through one of its projects.
  *
  * Deduplicated by id: an action that names both the goal and one of its
@@ -121,7 +135,8 @@ export function goalAlignmentFacts(
     actions: { open: open.length, completedRecently: completedRecently.length },
     lastActivityDay,
     quietDays: lastActivityDay && lastActivityDay < today ? dayDiff(today, lastActivityDay) : undefined,
-    pathMissing: goal.status === "active" && activeProjects.length === 0,
+    // The same predicate, not a second copy of it.
+    pathMissing: goalPathMissing(state, goal),
   };
 }
 
@@ -132,8 +147,8 @@ export function goalAlignmentFacts(
  * level down and is reused unchanged. This one is about the level above: a
  * direction with no work under it at all.
  */
-export function goalsMissingPath(state: StoreState, today: DayKey = todayKey()): Goal[] {
-  return (state.goals ?? []).filter((g) => goalAlignmentFacts(state, g, today).pathMissing);
+export function goalsMissingPath(state: StoreState): Goal[] {
+  return (state.goals ?? []).filter((g) => goalPathMissing(state, g));
 }
 
 // ------------------------------------------------------------- Today ancestry

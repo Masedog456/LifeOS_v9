@@ -289,5 +289,34 @@ export function goalHorizonAssertions(): SelfTestResult[] {
   const offending = surfaces.filter((s) => SCORE_WORDS.some((w) => s.toLowerCase().includes(w)));
   ok("78.69 no goal-direction surface contains a score word", offending.length === 0, offending.join(" | "));
 
+  // ================================================ 78.70 the Today budget ==
+  //
+  // `goalsMissingPath` runs on every Today render. The first version answered
+  // it through the full alignment facts, which walk every action in the store —
+  // an O(goals x actions) scan for a question that depends only on projects.
+  // This budget is what keeps that from creeping back in.
+  {
+    const big = stateWith({ goals: [], projects: [], nextActions: [] });
+    for (let i = 0; i < 300; i++) big.goals.push(goal({ id: `bg${i}`, title: `G${i}` }));
+    for (let i = 0; i < 600; i++) big.projects.push(project({ id: `bp${i}`, title: `P${i}`, goalId: `bg${i % 300}`, status: i % 3 === 0 ? "active" : "paused" }));
+    for (let i = 0; i < 3000; i++) big.nextActions.push(action({ id: `ba${i}`, title: `A${i}`, projectId: `bp${i % 600}` }));
+
+    const t0 = Date.now();
+    const flagged = goalsMissingPath(big);
+    const ms = Date.now() - t0;
+    ok("78.70 goalsMissingPath over 300 goals / 600 projects / 3000 actions stays under budget",
+      ms < 60, `${ms}ms for ${flagged.length} flagged`);
+    ok("78.71 …and still answers correctly at that size", flagged.length === 200, String(flagged.length));
+
+    // A 300-long replacement chain must not degrade into a re-walk per step.
+    const chainState = stateWith({ goals: Array.from({ length: 300 }, (_, i) =>
+      goal({ id: `c${i}`, title: `C${i}`, successorGoalId: i < 299 ? `c${i + 1}` : undefined })) });
+    const t1 = Date.now();
+    const line = goalLineage(chainState, "c150");
+    const ms1 = Date.now() - t1;
+    ok("78.72 a 300-long lineage resolves under budget", ms1 < 60, `${ms1}ms`);
+    ok("78.73 …and returns the whole chain, once each", line.length === 300, String(line.length));
+  }
+
   return results;
 }

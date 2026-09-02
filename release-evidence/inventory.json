@@ -2,14 +2,14 @@
   "release": {
     "releaseTag": "v1.0.0-rc1",
     "appVersion": "1.0.0-rc1",
-    "migrationVersion": 46,
-    "migrationCount": 46,
+    "migrationVersion": 47,
+    "migrationCount": 47,
     "stateVersion": 1,
     "exportArchiveVersion": 1,
     "backupSchemaVersion": 1,
     "supportedMigrationRange": [
       20,
-      46
+      47
     ],
     "supportedArchiveRange": [
       1,
@@ -93,7 +93,7 @@
     "events",
     "recurrenceCompletions"
   ],
-  "migrationCount": 46,
+  "migrationCount": 47,
   "tableCountNote": "55 tables, all user-owned and RLS-protected (authoritative source: scripts/audit-rls.mjs).",
   "preferenceBlocks": [
     "onboarding",
@@ -300,7 +300,8 @@
     "0043_next_action_due_time_recurrence_constraint.sql",
     "0044_workspace_session_current_action.sql",
     "0045_sync_version_guard.sql",
-    "0046_schema_compatibility_contract.sql"
+    "0046_schema_compatibility_contract.sql",
+    "0047_goal_horizons_lifecycle_history.sql"
   ],
   "tableCount": 65
 }

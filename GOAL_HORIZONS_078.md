@@ -3,20 +3,22 @@
 **North star:** help me see where my life is going, not just what I have to do
 next.
 
-## STATUS: DESIGN READY — AWAITING CONTRACT APPROVAL (§22)
-
-Migration 0047 is approved and its three Goal columns are settled. Implementation
-is **held at one gate**: adding those columns changes what the client writes to
-`goals`, and §22 requires the exact contract change to be reported and approved
-**before client code ships**. It is proposed in section 5b.
+## STATUS: IMPLEMENTATION READY — AWAITING DEPLOYED 0047 PARITY
 
 | | |
 |---|---|
-| Precondition (§1) | **cleared** — PR #83 merged; 077 is on `main` |
-| Base SHA | `a93b3e634eb2cf25fe3bfc3eeb0b89bd285c513d` |
-| Branch | `claude/lifeos-078-goal-horizons-alignment`, rebased onto that base |
-| 077 history carried into 078 | **none** — the branch adds only this file |
-| Naming (§3) | `GoalHorizon` in code · "Horizon" in product · `PlanningHorizon` untouched |
+| **Repository migration head** | **0047** |
+| **Production Supabase head** | **0046** |
+| **Parity** | **NOT YET VERIFIED** |
+| Contract change (§22) | approved, shipped inside 0047 |
+| Deployment order | **0047 database first, 078 client second** (type B) |
+
+The 078 client must not be merged while production is 0046. If it were, the
+`goals` domain would pause — safely, visibly, and self-healingly, which is the
+whole point of 077 — but it would still be a pause nobody needed to cause.
+
+Sections 1–5b are the design as approved and are unchanged. Sections 11–14
+record what was built, what was measured, and what is still limited.
 
 ---
 
@@ -216,24 +218,27 @@ Deliberately excluded, and why:
 - **No `target_start` / `target_end`** — `target_date` is sufficient (§6).
 - **No `why` column** — `description` already is it (§9).
 - **No `lifecycle` column** — `status` already is it (§7).
-- **No CHECK constraint on `horizon`** — the existing `status` and `priority`
-  columns are unconstrained text; adding a constraint only here would be
-  inconsistent, and the client validates against the bounded enum. Say the word
-  if you would rather have the constraint.
-- **No FK on `successor_goal_id`** — a successor may be deleted, and a dangling
-  successor should degrade to "replaced, successor gone" rather than block the
-  delete or cascade one. The client treats an unresolvable id as absent.
+- ~~**No CHECK constraint on `horizon`**~~ — **overridden by the approval (§8),
+  and the approval was right.** The client validating an enum is not the same as
+  the database refusing a bad value, and 0047 now carries
+  `horizon is null or horizon in ('now','near','medium','long','life')`.
+  The rehearsal proves an out-of-range value is refused on INSERT and UPDATE.
+- ~~**No FK on `successor_goal_id`**~~ — **overridden by the approval (§9), and
+  the approval was right.** `ON DELETE SET NULL` gives exactly the degradation
+  this bullet wanted — the delete is not blocked and nothing cascades — while
+  also making a dangling pointer impossible rather than merely tolerated. The
+  column is indexed so a goal delete does not seq-scan the table.
 - **No CAS / `sync_version`** (§40) — Goals are not 0045-guarded. Expanding CAS
   is explicitly out of scope absent a demonstrated P1; conflict behaviour will be
   measured and reported instead.
 
-Both columns are nullable and additive, so this is an **expand-contract type A**
-migration in the 077 taxonomy: safe in either deployment order, no contract bump
-required, no client gating.
+All three columns are nullable or defaulted and purely additive. The client's
+row shape is not, which is what makes this a **type B** migration rather than a
+type A — see 5b.
 
 ---
 
-## 5b. §22 — the contract question, and why it stops here
+## 5b. §22 — the contract change (APPROVED, shipped in 0047)
 
 **Capability advertisement is required.** This was measured, not assumed.
 
@@ -292,14 +297,12 @@ preferable (migration first), but it is no longer load-bearing for safety.
 In the 077 taxonomy this is a **type B** migration: client-required, migration
 first, `min_client_contract` untouched.
 
-### Why implementation stops at this line
+### Approved as proposed
 
-§22: *"If capability advertisement is required: STOP and report the exact
-proposed contract change before shipping client code."*
-
-Writing 0047 now and amending it after the contract decision would mean editing a
-shipped migration — something this project has never done and should not start.
-So 0047 stays unwritten until the contract above is approved or altered.
+`contract` 2 → 3, `goal_horizons: 1` added, `min_client_contract` held at 1.
+Written into `0047` alongside the columns, so the claim and the capability
+arrive in the same transaction — the property that makes it deployed truth
+rather than a second copy of a client constant.
 
 ---
 
@@ -376,36 +379,187 @@ as part of this, since it is the same offence already shipped.
 
 ---
 
-## 9. Remaining risks
+## 9. Risks raised at design time, and how each landed
 
-- **The `horizon` word.** Two meanings, one term. Flagged above; naming is
-  yours to confirm.
-- **Transition history costs a column.** Resolved in section 6 — an append-only
-  `history` on the Goal, matching three shipped precedents. If you would rather
-  §25–§27 were cut than pay a third column, that is a live option and would
-  shrink 0047 to two.
-- **Goals are not CAS-protected.** Concurrent horizon/lifecycle edits from two
-  devices follow ordinary last-write-wins. Will be measured and reported (§40),
-  not silently fixed.
-- **`someday` overlap.** Deprecating it in UI while keeping it in data is the
-  conservative call; a future sprint could migrate those rows to
-  `horizon = life`, but not this one.
+- **The `horizon` word.** Resolved as proposed: `GoalHorizon` in code,
+  "Horizon" in product, `PlanningHorizon` untouched and never imported by the
+  new modules.
+- **Transition history costs a column.** Paid, and approved. It is the third
+  column in 0047.
+- **Goals are not CAS-protected.** Confirmed and MEASURED rather than fixed —
+  see §12. Concurrent edits are last-write-wins on the whole row, and a goal's
+  history array is lost with it.
+- **`someday` overlap.** The conservative call held: kept in data, no longer
+  offered for new goals, no rows rewritten.
 
 ---
 
-## 10. Verdict
+## 10. What was built
 
-**LIFEOS-078 DESIGN READY — AWAITING CONTRACT APPROVAL.**
+### The migration
 
-Settled: precondition cleared, three columns approved, `GoalHorizon` naming
-confirmed, `PlanningHorizon` untouched.
+`supabase/migrations/0047_goal_horizons_lifecycle_history.sql` — three columns
+and the contract, in one transaction:
 
-Outstanding — one item:
+```sql
+alter table public.goals add column if not exists horizon           text;
+alter table public.goals add column if not exists successor_goal_id uuid;
+alter table public.goals add column if not exists history           jsonb not null default '[]'::jsonb;
 
-> Approval of the contract change in section 5b — `contract` 2 → 3 plus
-> `goal_horizons: 1`, with `min_client_contract` held at 1.
+-- horizon is null or horizon in ('now','near','medium','long','life')
+-- successor_goal_id references public.goals(id) on delete set null
+-- goals_successor_idx on (user_id, successor_goal_id)
 
-On approval, 0047 is written with both the three columns and the contract
-replacement in one migration, and the client work follows.
+'contract' 3 · 'min_client_contract' 1 · capabilities +'goal_horizons' 1
+```
 
-No migration written. No product code changed. Nothing in §28 begun.
+`create or replace` on `app_schema_contract()` keeps SECURITY INVOKER and the
+pinned `search_path`, and re-states the anon revoke rather than trusting
+inheritance — the S-45B lesson, applied to the migration that touches the
+function next.
+
+### The client
+
+| Concern | Where |
+|---|---|
+| Vocabulary, grouping, guidance | `lib/execution/horizons.ts` |
+| Append-only history, replacement, lineage | `lib/execution/lifecycle.ts` |
+| Alignment facts, `goal_path_missing`, ancestry | `lib/execution/alignment.ts` |
+| Capability requirement | one line in `lib/sync/contract.ts` |
+| Row mapping | `goalToRow` / `rowToGoal` |
+| Store actions | `setGoalHorizon`, `replaceGoal`, history in `updateGoal` |
+| Surfaces | `/goals` horizon grouping · `/goal/[id]` direction, facts, history |
+
+`goal_path_missing` is a ninth commitment kind in the existing layer, in the
+existing `pulse` section, with a resolution set of its own. No new navigation,
+no new noun, no new domain.
+
+### Deliberate design decisions worth naming
+
+- **Horizon never influences ordering.** The Today ancestry line is appended
+  *after* the recommender has ordered its candidates and is absent from
+  `GROUNDING_CODES`, so it can neither move a recommendation nor make an
+  ungrounded one look explainable.
+- **History records transitions, not edits.** Status, horizon and target-date
+  changes are recorded; title, notes, priority and tag edits are not. If every
+  edit wrote an entry, "when did I let this go?" would be buried under typo
+  fixes and the record would stop being evidence.
+- **Re-selecting the same horizon writes nothing.** Asserted in the browser.
+- **A deleted successor never leaks its words.** The history entry stores an id
+  only, and renders as "Replaced by a goal that has since been deleted" — the
+  0039 deletion-privacy rule, applied here by construction.
+- **`someday` was not migrated.** Rewriting those rows to `horizon = 'life'`
+  would put words in the user's mouth about goals they have not looked at in
+  months. It stays readable, keeps working, and is simply no longer offered.
+
+### The fake percentage, and what replaced it
+
+`goalProgress` returned `0` for a goal with nothing measurable, and the card
+rendered *"0 projects · 0% complete"*. It now returns `number | null`, and
+`null` covers two cases that were both fabrication:
+
+1. a goal with no projects, and
+2. an **unmeasurable project inside the average**, worth zero — a goal with one
+   finished project and one fresh one came out at "50%", half of it invented.
+
+Averaging only the measurable projects was considered and rejected: it reports
+that same goal as 100%, overstating in the other direction. When part of the
+picture is genuinely unknown, the whole is reported unknown, and the counts on
+the goal page carry what is known.
+
+---
+
+## 11. Evidence
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `eslint` | clean |
+| `npm run build` | exit 0 |
+| Deterministic selftests | **4232/4232** across 42 suites |
+| …of which new this sprint | 73 goal-horizon + 11 goal round-trip |
+| `npm run release:migrations` (real PostgreSQL 16) | **200/200**, 42 of them 078 |
+| `scripts/inject-078-goal-capability.cjs` (§12 red proof) | **43/43** |
+| `scripts/smoke-078-goal-horizons.cjs` (browser, 2 viewports) | **59/59** |
+| `scripts/smoke-076-sync-trust.cjs` | 281/281 |
+| `scripts/inject-077-schema-compatibility.cjs` | 51/51 |
+| `npm run release:audit` | 17/17 |
+| `npm run audit:security` | RLS · secrets · routes · auth · deps all PASS |
+
+### The red proof (§12), in one paragraph
+
+The same simulated 0046 backend, run twice in one process. The fake enforces
+the actual 0046 column set, so it cannot pass the RED run by being lenient.
+**With `goals` deleted from `DOMAIN_CAPABILITY_REQUIREMENTS`** the write path
+attempts the upsert, PostgREST rejects the unknown column, and health reports
+`retrying` with `goals` failed — the incident, reproduced. **With the
+requirement present** the upsert is never attempted, the edit and its horizon
+are durable locally, `goals` stays dirty, health is not `synced`, notes still
+push through the 0045 guarded path, and the notice names no database noun.
+Deploying 0047 then flushes the held goal with all three columns and clears the
+notice.
+
+### Two test bugs found and fixed rather than trimmed
+
+- An assertion read `health.detail`, a field that does not exist, so it was
+  testing an empty string against a regex.
+- An assertion grepped the migration for the word "predecessor" and matched the
+  migration's own explanation of why there is no such column.
+
+Both are recorded because a test that passes for the wrong reason is the failure
+mode this project spends the most effort on.
+
+---
+
+## 12. Limitations, stated plainly
+
+- **Cross-device goal history can be lost.** Goals are not 0045-guarded, so a
+  push is a blind row upsert and the later stale writer takes the whole row —
+  including the `history` array. History is append-only *on a device*, not
+  across devices. Pinned at runtime in `roundtrip-selftest` §10.7–10.9.
+- **The merge layer would have preserved it.** `threeWayMerge` unions the two
+  arrays, and does so only because `GoalHistoryEvent` carries an `id`, which is
+  what makes `isChildList` recognise it as a child collection. That is asserted
+  (§10.10–10.11) — but the layer remains unwired, so it is what the product
+  *would* do, not what it does. Those assertions must fail when the merge layer
+  is wired; that is their purpose.
+- **`goal_path_missing` is project-shaped.** A goal whose work is tracked only
+  as directly-linked Actions with no Project is flagged. That is literally true
+  of the records and the wording says only that, but it is a shape the rule does
+  not distinguish.
+- **Horizon guidance ranges are prose.** Nothing checks a goal's target date
+  against its horizon's span, by design. A goal is never "wrong" for its dates.
+
+---
+
+## 13. Deployment
+
+**Type B — client-required capability. Order is load-bearing for tidiness, not
+for safety.**
+
+1. Apply `0047` to production Supabase.
+2. Verify parity: the ledger ends at `0047 | goal_horizons_lifecycle_history`,
+   and `app_schema_contract()` returns contract 3 with `goal_horizons: 1`.
+3. Only then merge and deploy the 078 client.
+
+| Client | Database | Result |
+|---|---|---|
+| 077 (old) | 0047 | Compatible — old row shape accepted, no `goals` requirement |
+| **078 (new)** | **0046** | **`goals` pauses, fail-closed** — local durable, dirty, other domains sync, no false "Synced", flushes when 0047 lands |
+| 078 | 0047 | Compatible |
+
+Sprint status stays **IMPLEMENTATION READY — AWAITING DEPLOYED 0047 PARITY**
+until 0047 is externally applied and parity is verified. No production check was
+performed from this environment, and none is claimed.
+
+---
+
+## 14. Verdict
+
+**LIFEOS-078 IMPLEMENTATION READY — AWAITING DEPLOYED 0047 PARITY.**
+
+Repository migration head **0047** · production Supabase head **0046** · parity
+**NOT YET VERIFIED**.
+
+Nothing in §28 was begun: no Rules, Collections, People, Calendar expansion,
+D-8, general D-23, or Observatory.
