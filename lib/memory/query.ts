@@ -483,6 +483,10 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
   if (kind === "OPEN_WORK") {
     if (/\bfollow.?ups?\b/.test(q)) signalKinds = ["follow_up_due"];
     else if (/\bcame? back\b|\bfrom deferral\b/.test(q)) signalKinds = ["returned_today"];
+    // LIFEOS-078. Asked BEFORE the project branch: "which goals have no
+    // project?" contains the word "project" too, and the older ordering would
+    // have answered a question about goals with a list of projects.
+    else if (/\bgoals?\b/.test(q)) signalKinds = ["goal_path_missing"];
     else if (/\bprojects?\b/.test(q)) signalKinds = ["project_no_next_action"];
     else if (/\bblocked\b/.test(q)) signalKinds = ["blocked"];
   }

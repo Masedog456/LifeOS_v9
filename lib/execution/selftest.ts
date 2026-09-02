@@ -21,6 +21,7 @@ import { entityExecutionLinks } from "@/lib/execution/relationships";
 import { goalSessions, projectSessions, contribution } from "@/lib/execution/tracking";
 import { goalDashboard, projectDashboard } from "@/lib/execution/dashboard";
 import { buildIndex, searchFlat } from "@/lib/command/search";
+import { goalHorizonAssertions } from "@/lib/execution/horizons-selftest";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -140,7 +141,9 @@ export function runExecutionSelfTests(): SelfTestReport {
   ok("14. manual override wins (80%)", projectProgress(state.projects[2]) === 80);
   ok("15. goal progress = avg of live projects", goalProgress(goal, state.projects) === Math.round((50 + 100) / 2), `${goalProgress(goal, state.projects)}`);
   ok("16. goal with no projects + completed → 100", goalProgress(state.goals[2], state.projects) === 100);
-  ok("17. active goal with no live projects → 0", goalProgress({ ...state.goals[1], id: "g-empty" }, []) === 0);
+    // LIFEOS-078: `null`, not 0. Nothing has been measured, and reporting the
+  // absence of evidence as a measurement of zero is the offence this closed.
+  ok("17. active goal with no live projects → not measured", goalProgress({ ...state.goals[1], id: "g-empty" }, []) === null);
   ok("18. progress never flips status (100% but still active)", state.projects[2].status === "active" && projectProgress(state.projects[2]) === 80);
 
   // --- Relationships (Feature 8) ---
@@ -180,6 +183,11 @@ export function runExecutionSelfTests(): SelfTestReport {
   for (const g of listGoals(big)) goalDashboard(bigCtx, g, NOW);
   const perfMs = Date.now() - p0;
   ok("33. 200 goal dashboards under budget", perfMs < 1500, `${perfMs}ms`);
+
+  // --- Horizons, lifecycle & alignment (LIFEOS-078) ---
+  // Kept in their own module for readability, run here because horizon is a
+  // field of a Goal, not a new noun — one suite for goal behaviour.
+  results.push(...goalHorizonAssertions());
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

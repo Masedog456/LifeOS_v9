@@ -1021,6 +1021,7 @@ function answerOpenWork(state: StoreState, plan: MemoryQueryPlan, today: DayKey,
     blocked: (n) => `${plural(n, "item is", "items are")} blocked by unfinished work`,
     due_soon: (n) => `${plural(n, "item is", "items are")} due soon`,
     project_no_next_action: (n) => `${plural(n, "project has", "projects have")} no executable next action`,
+    goal_path_missing: (n) => `${plural(n, "goal has", "goals have")} no active project`,
     dormant: (n) => `${plural(n, "open item has", "open items have")} no recorded activity`,
   };
   const parts = [...counted.entries()]

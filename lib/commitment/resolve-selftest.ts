@@ -90,7 +90,7 @@ export async function runResolutionSelfTests(): Promise<SelfTestReport> {
   // ============================== 1. shape and boundedness
 
   {
-    eq("1.1 nine resolution kinds", RESOLUTION_KINDS.length, 9);
+    eq("1.1 ten resolution kinds", RESOLUTION_KINDS.length, 10);
     ok("1.2 every signal kind has a bounded set",
       COMMITMENT_ORDER.every((k) => (RESOLUTIONS_BY_KIND[k] ?? []).length > 0));
     ok("1.3 no set is a generic everything-menu",

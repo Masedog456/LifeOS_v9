@@ -57,11 +57,12 @@ import { occurrenceFor } from "@/lib/mvpStore";
 import { lastActivityByRecord } from "@/lib/insights/dormancy";
 import { RETURN_THRESHOLD_DAYS } from "@/lib/planning/today-signals";
 import type { TodayIndexes } from "@/lib/today/indexes";
+import { goalAlignmentFacts, goalsMissingPath } from "@/lib/execution/alignment";
 
 // ------------------------------------------------------------------ kinds ---
 
 /**
- * The eight kinds of evidence that a commitment may need attention.
+ * The nine kinds of evidence that a commitment may need attention.
  *
  * Every member has a recorded field behind it. There is no `at_risk`, no
  * `important`, and no `slipping`, because nothing in the schema records risk,
@@ -75,6 +76,7 @@ export type CommitmentKind =
   | "blocked"
   | "due_soon"
   | "project_no_next_action"
+  | "goal_path_missing"
   | "dormant";
 
 /**
@@ -93,6 +95,11 @@ export const COMMITMENT_ORDER: readonly CommitmentKind[] = [
   "blocked",
   "due_soon",
   "project_no_next_action",
+  // LIFEOS-078. The same question one level up: a direction with no active work
+  // under it. Placed after the project-level signal because a goal with no
+  // active project is a further step from "this may have slipped" — a person
+  // may simply not have broken the goal down yet, which is not a lapse.
+  "goal_path_missing",
   "dormant",
 ];
 
@@ -109,6 +116,7 @@ export const COMMITMENT_SECTION: Record<CommitmentKind, CommitmentSection> = {
   blocked: "attention",
   due_soon: "attention",
   project_no_next_action: "pulse",
+  goal_path_missing: "pulse",
   dormant: "return",
 };
 
@@ -148,6 +156,16 @@ export const NOTHING_STANDS_OUT =
  * the older copy ("No next action recorded") was untrue about exactly that case.
  */
 export const PROJECT_NO_NEXT_ACTION = "No executable next action is recorded";
+
+/**
+ * The one wording for a goal with no active project under it (LIFEOS-078).
+ *
+ * A statement about the RECORDS, and deliberately not about the person. "No
+ * active project is linked to this goal" is checkable; "this goal is stuck",
+ * "you have drifted" or "this goal is at risk" are judgements the store cannot
+ * support and the forbidden-word list below already refuses.
+ */
+export const GOAL_PATH_MISSING = "No active project is linked to this goal";
 
 /**
  * Words a commitment signal may never use.
@@ -399,6 +417,9 @@ export function buildCommitmentSignals(
   // ---- project with no executable next action (§11) ------------------------
   for (const s of projectNoNextActionSignals(state, ix)) push(s);
 
+  // ---- goal with nothing active carrying it (LIFEOS-078) -------------------
+  for (const s of goalPathMissingSignals(state)) push(s);
+
   // ---- dormant open commitment (§12) --------------------------------------
   //
   // Last, and only for records NOTHING else has flagged. §12's rule is "no
@@ -451,6 +472,44 @@ export function projectNoNextActionSignals(
         text: `${mine.length} linked ${mine.length === 1 ? "action is" : "actions are"} waiting or blocked.`,
         evidence: "project linked actions",
       }],
+    });
+  }
+  return out;
+}
+
+/**
+ * Goals being pursued with no active project under them (LIFEOS-078).
+ *
+ * The goal-level counterpart of `project_no_next_action`, and deliberately NOT
+ * a duplicate of it: that one asks whether a project has anything startable,
+ * this one asks whether a direction has any work at all.
+ *
+ * Only `active` goals qualify. A paused goal has no active project BY the
+ * user's own decision, a `someday` goal is explicitly not being worked on, and
+ * a completed, abandoned or replaced goal is finished — flagging any of them
+ * would be inventing a problem out of a choice the person already made.
+ *
+ * The derivation lives in `lib/execution/alignment.ts` so the goal page and
+ * Today read the identical rule; a second copy here is how the three
+ * incompatible definitions of "no next action" got into the codebase.
+ */
+export function goalPathMissingSignals(state: StoreState): CommitmentSignal[] {
+  const out: CommitmentSignal[] = [];
+  for (const goal of goalsMissingPath(state)) {
+    const facts = goalAlignmentFacts(state, goal);
+    out.push({
+      kind: "goal_path_missing",
+      recordRef: { kind: "goal", id: goal.id },
+      title: goal.title,
+      explanation: `${GOAL_PATH_MISSING}.`,
+      evidence: "project.goalId",
+      secondaryReasons: facts.projects.total > 0
+        ? [{
+          code: "goal_project_count",
+          text: `${facts.projects.total} linked project${facts.projects.total === 1 ? " is" : "s are"} paused, completed or abandoned.`,
+          evidence: "project.goalId",
+        }]
+        : [],
     });
   }
   return out;

@@ -52,7 +52,8 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-session-pointers", label: "Before workspace-session execution pointers", throughVersion: 43 },
   { id: "pre-cas-guard", label: "Before the database-enforced stale-write guard", throughVersion: 44 },
   { id: "pre-schema-contract", label: "Before the database described its own capabilities", throughVersion: 45 },
-  { id: "current", label: "Current shipped head", throughVersion: 46 },
+  { id: "pre-goal-horizons", label: "Before goals carried a horizon and a lifecycle record", throughVersion: 46 },
+  { id: "current", label: "Current shipped head", throughVersion: 47 },
 ];
 
 export interface MigrationListReport {
@@ -114,10 +115,14 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  * approved at an architecture gate before any SQL was written.
  *
  * Seven: LIFEOS-077 spent 0046 on the schema-compatibility contract, again
- * audited and approved before a line of SQL. The hatch moves to 0047, still
- * never spent — which is the point of counting.
+ * audited and approved before a line of SQL.
+ *
+ * Eight: LIFEOS-078 spent 0047 on Goal horizon, successor and lifecycle
+ * history — three additive columns and the contract that advertises them,
+ * reported at a §22 gate and approved before the migration was written. The
+ * hatch moves to 0048, still never spent — which is the point of counting.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0047_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0048_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

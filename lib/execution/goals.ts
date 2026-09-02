@@ -16,6 +16,9 @@ export const GOAL_KIND = "goal";
 
 export const GOAL_STATUS_LABEL: Record<GoalStatus, string> = {
   active: "Active", paused: "Paused", completed: "Completed", abandoned: "Abandoned", someday: "Someday",
+  // LIFEOS-078. A distinct outcome, not a synonym for abandoned: the goal is
+  // still being pursued, under a truer description.
+  replaced: "Replaced",
 };
 export const PRIORITY_LABEL: Record<ExecutionPriority, string> = { low: "Low", medium: "Medium", high: "High" };
 const PRIORITY_RANK: Record<ExecutionPriority, number> = { high: 0, medium: 1, low: 2 };
@@ -40,9 +43,14 @@ export function listGoals(state: StoreState): Goal[] {
   );
 }
 
-/** Goals a user is still pursuing (not completed or abandoned). */
+/**
+ * Goals a user is still pursuing (not completed, abandoned or replaced).
+ *
+ * `replaced` is excluded because the pursuit continues in the SUCCESSOR — the
+ * predecessor is history. Listing both would show one intention twice.
+ */
 export function activeGoals(state: StoreState): Goal[] {
-  return listGoals(state).filter((g) => g.status !== "completed" && g.status !== "abandoned");
+  return listGoals(state).filter((g) => g.status !== "completed" && g.status !== "abandoned" && g.status !== "replaced");
 }
 
 /** The projects that belong to a goal (references — never copied). */
@@ -69,10 +77,17 @@ export function goalKnowledge(ctx: EntityContext, goal: Goal): EntityRef[] {
   return out;
 }
 
-/** A short deterministic summary line for a goal card. */
+/**
+ * A short deterministic summary line for a goal card.
+ *
+ * LIFEOS-078: this used to end "· 0% complete" for every goal with no
+ * milestones — a measurement of nothing, printed as if something had been
+ * measured. It now states the percentage only when one exists.
+ */
 export function goalSummary(state: StoreState, goal: Goal): string {
   if (goal.description.trim()) return goal.description.trim();
   const n = goalProjects(state, goal.id).length;
+  const projects = `${n} project${n === 1 ? "" : "s"}`;
   const pct = goalProgress(goal, state.projects ?? []);
-  return `${n} project${n === 1 ? "" : "s"} · ${pct}% complete`;
+  return pct === null ? projects : `${projects} · ${pct}% complete`;
 }
