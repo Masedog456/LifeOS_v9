@@ -3,22 +3,20 @@
 **North star:** help me see where my life is going, not just what I have to do
 next.
 
-## STATUS: DESIGN READY — AWAITING MIGRATION APPROVAL
+## STATUS: DESIGN READY — AWAITING CONTRACT APPROVAL (§22)
 
-The audit is complete. Three persisted facts cannot be represented by anything
-that exists today, so per §41 the design is proposed here and **no migration has
-been written**.
+Migration 0047 is approved and its three Goal columns are settled. Implementation
+is **held at one gate**: adding those columns changes what the client writes to
+`goals`, and §22 requires the exact contract change to be reported and approved
+**before client code ships**. It is proposed in section 5b.
 
-> ### Blocked on a precondition, separately
->
-> §1 requires starting from a `main` that contains PR #83. **#83 is open, not
-> merged** (`state: open`, `merged: false`, `mergeable_state: clean` —
-> Vercel is green). `origin/main` is still `b7fa54b`, which predates 0046.
->
-> So no branch has been created. This audit is read-only and its findings are
-> independent of 077 — Goals and schema compatibility do not touch — so it is
-> delivered now rather than held. `claude/lifeos-078-goal-horizons-alignment`
-> will be cut from `main` once #83 lands, and the base SHA reported then.
+| | |
+|---|---|
+| Precondition (§1) | **cleared** — PR #83 merged; 077 is on `main` |
+| Base SHA | `a93b3e634eb2cf25fe3bfc3eeb0b89bd285c513d` |
+| Branch | `claude/lifeos-078-goal-horizons-alignment`, rebased onto that base |
+| 077 history carried into 078 | **none** — the branch adds only this file |
+| Naming (§3) | `GoalHorizon` in code · "Horizon" in product · `PlanningHorizon` untouched |
 
 ---
 
@@ -235,6 +233,76 @@ required, no client gating.
 
 ---
 
+## 5b. §22 — the contract question, and why it stops here
+
+**Capability advertisement is required.** This was measured, not assumed.
+
+`goals` is written by a plain `this.client.from("goals").upsert(d.upsert)`, and
+`d.upsert` comes from `goalToRow`, which emits an **unconditional row shape**.
+Adding `horizon`, `successor_goal_id` and `history` to the Goal type means every
+goal write carries those columns. Against a 0046 database they do not exist, so
+PostgREST rejects the row and **the whole `goals` domain stops syncing**.
+
+That is the 0045 client-first incident again, on a different table. `goals` is
+currently gated by nothing — `DOMAIN_CAPABILITY_REQUIREMENTS` covers only `notes`
+and `nextActions`.
+
+Omitting the columns when unset does not fix it. It narrows the window to "until
+the first person sets a horizon", which is worse: a latent failure that fires on
+use rather than on deploy.
+
+### The exact proposed change
+
+Inside `0047`, replacing `app_schema_contract()` — no other object touched:
+
+```sql
+    'contract', 3,                    -- was 2
+    'min_client_contract', 1,         -- unchanged
+    'capabilities', jsonb_build_object(
+      'guarded_notes', 2,             -- unchanged
+      'guarded_next_actions', 2,      -- unchanged
+      'goal_horizons', 1              -- NEW
+    )
+```
+
+And one line of client, in the existing central map:
+
+```ts
+goals: { goal_horizons: 1 },
+```
+
+`min_client_contract` stays **1**: a pre-078 client writing goals without the new
+columns is harmless against a 0047 database, because all three columns are
+nullable or defaulted. Declaring old clients unfit would manufacture an outage
+the data does not justify — the same reasoning as 0046.
+
+### What each combination then does
+
+| Client | Database | Result |
+|---|---|---|
+| 077 (old) | 0047 | **Compatible.** `contract 3 > 2` is fine; `min_client 1 ≤ 2`; the old client has no `goals` requirement and writes the old row shape |
+| **078 (new)** | **0046** | **`goals` pauses, fail-closed.** Local durable, domain stays dirty, every other domain syncs, no false Synced, flushes when 0047 lands |
+| 078 | 0047 | Compatible |
+
+**This is the payoff from 077.** In the 0045 world, shipping the client first was
+an incident. Here it is a bounded, visible, self-healing pause of one domain —
+because the client can now ask the database what it can do. Ordering is still
+preferable (migration first), but it is no longer load-bearing for safety.
+
+In the 077 taxonomy this is a **type B** migration: client-required, migration
+first, `min_client_contract` untouched.
+
+### Why implementation stops at this line
+
+§22: *"If capability advertisement is required: STOP and report the exact
+proposed contract change before shipping client code."*
+
+Writing 0047 now and amending it after the contract decision would mean editing a
+shipped migration — something this project has never done and should not start.
+So 0047 stays unwritten until the contract above is approved or altered.
+
+---
+
 ## 6. What is built without any migration
 
 Everything else is derivation over existing data:
@@ -327,14 +395,17 @@ as part of this, since it is the same offence already shipped.
 
 ## 10. Verdict
 
-**LIFEOS-078 DESIGN READY — AWAITING MIGRATION APPROVAL.**
+**LIFEOS-078 DESIGN READY — AWAITING CONTRACT APPROVAL.**
 
-Awaiting three things:
+Settled: precondition cleared, three columns approved, `GoalHorizon` naming
+confirmed, `PlanningHorizon` untouched.
 
-1. PR #83 merged, so the branch can be cut from a `main` containing 077.
-2. Approval of the three-column 0047 above.
-3. Confirmation of the `GoalHorizon` naming, given the existing `PlanningHorizon`
-   (section 3).
+Outstanding — one item:
 
-No branch created. No migration written. No product code changed. Nothing in
-§51 begun.
+> Approval of the contract change in section 5b — `contract` 2 → 3 plus
+> `goal_horizons: 1`, with `min_client_contract` held at 1.
+
+On approval, 0047 is written with both the three columns and the contract
+replacement in one migration, and the client work follows.
+
+No migration written. No product code changed. Nothing in §28 begun.
