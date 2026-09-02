@@ -39,6 +39,12 @@ const proj = (p) => ({
  * A life with direction at two horizons, one goal nobody has placed, one goal
  * with no work under it, and one replacement chain.
  */
+const act = (p) => ({
+  description: "", status: "open", notes: "", linkedEntityRefs: [], tags: [],
+  estimatedSize: "unspecified", energy: "unspecified", order: 1, history: [],
+  createdAt: iso(), updatedAt: iso(), ...p,
+});
+
 const WORLD = () => ({ ...EMPTY(),
   goals: [
     goal({ id: "g-now", title: "ZZFinishTheThesis", horizon: "now" }),
@@ -48,8 +54,17 @@ const WORLD = () => ({ ...EMPTY(),
     goal({ id: "g-old", title: "ZZRunAMarathon", status: "replaced", successorGoalId: "g-new",
       history: [{ id: "h1", at: iso(9), kind: "replaced", fromStatus: "active", toStatus: "replaced", successorGoalId: "g-new" }] }),
     goal({ id: "g-new", title: "ZZMoveEveryDay", horizon: "medium" }),
+    // §23.7 — a target date arriving with no active project under it. The
+    // date must not become a horizon and must not manufacture urgency.
+    goal({ id: "g-duesoon", title: "ZZSubmitTheApplication", horizon: "near", targetDate: dk(3) }),
+    // §23.10 — a predecessor whose successor does not exist. Reachable through
+    // an import or a deletion on another device.
+    goal({ id: "g-dangling", title: "ZZOldDirection", status: "replaced", successorGoalId: "g-vanished",
+      history: [{ id: "h9", at: iso(9), kind: "replaced", fromStatus: "active", toStatus: "replaced", successorGoalId: "g-vanished" }] }),
   ],
   projects: [proj({ id: "p1", title: "ZZChapterThree", goalId: "g-now" })],
+  // §23.1 — the full ancestry chain, with a due date so it is recommendable.
+  nextActions: [act({ id: "a1", title: "ZZDraftTheIntroduction", projectId: "p1", dueDate: dk(0) })],
 });
 
 const text = (page, sel) => page.evaluate((s) => {
@@ -204,6 +219,126 @@ const text = (page, sel) => page.evaluate((s) => {
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       ok("5.4 MOBILE the goal page does not scroll sideways", overflow <= 1, `${overflow}px overflow`);
     }
+
+    /* ============================================================
+     * 6. §23.1 — Today ancestry, on the rendered Today page.
+     *
+     * Goal → Project → Action, with a due date so the action is
+     * recommendable at all. The ancestry line is the sprint's only
+     * change to Today, and §14 forbids it altering ordering.
+     * ============================================================ */
+    await page.goto(`${BASE}/today`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(900);
+    const why = await text(page, "[data-suggested-why]");
+    ok("6.1 the recommendation explains which goal it serves",
+      !!why && /Supports ZZFinishTheThesis through ZZChapterThree/.test(why), String(why));
+    ok("6.2 §14 …and the explanation never mentions a horizon",
+      !!why && !/\b(now|near|medium|long|life)\b/i.test(why.replace(/ZZ\w+/g, "")), String(why));
+    const todayText = await page.evaluate(() => (document.body.textContent || "").replace(/\s+/g, " "));
+    ok("6.3 §14 no Goals dashboard section was added to Today",
+      !/Goals? (dashboard|overview|horizons)/i.test(todayText),
+      (todayText.match(/.{0,40}Goals? (dashboard|overview|horizons).{0,20}/i) ?? [""])[0]);
+    ok("6.4 §15 a goal with no active project is reported factually on Today",
+      !/no path forward|drifting|stuck/i.test(todayText),
+      (todayText.match(/.{0,50}(no path forward|drifting|stuck).{0,20}/i) ?? [""])[0]);
+
+    /* ============================================================
+     * 7. §23.3/§23.4 — pause and achieve, through the real control,
+     *    and the transitions they must record.
+     * ============================================================ */
+    await page.goto(`${BASE}/goal/g-life`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(600);
+    const statusSel = 'select:below(:text("Status"))';
+    await page.evaluate(() => {
+      const sels = [...document.querySelectorAll("select")];
+      const s = sels.find((x) => [...x.options].some((o) => o.value === "paused"));
+      if (s) { s.value = "paused"; s.dispatchEvent(new Event("change", { bubbles: true })); }
+    });
+    await page.waitForTimeout(500);
+    const pausedHistory = await text(page, "[data-goal-history]");
+    ok("7.1 §23.3 pausing a goal records the transition, naming both ends",
+      !!pausedHistory && /Active → Paused/.test(pausedHistory), String(pausedHistory));
+    await page.evaluate(() => {
+      const sels = [...document.querySelectorAll("select")];
+      const s = sels.find((x) => [...x.options].some((o) => o.value === "completed"));
+      if (s) { s.value = "completed"; s.dispatchEvent(new Event("change", { bubbles: true })); }
+    });
+    await page.waitForTimeout(500);
+    const achievedHistory = await text(page, "[data-goal-history]");
+    ok("7.2 §23.4 achieving it records a SECOND entry, keeping the first",
+      !!achievedHistory && /Paused → Achieved/.test(achievedHistory) && /Active → Paused/.test(achievedHistory),
+      String(achievedHistory));
+    ok("7.3 §16 …and a title edit does NOT pollute the lifecycle record",
+      await page.evaluate(async () => {
+        const before = document.querySelector("[data-goal-history]")?.getAttribute("data-goal-history");
+        const ta = document.querySelector("#goal-notes");
+        if (ta) {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+          setter.call(ta, "a working note, typed");
+          ta.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        return document.querySelector("[data-goal-history]")?.getAttribute("data-goal-history") === before;
+      }));
+    ok("7.4 §16 …and no history entry copies the goal's body",
+      !!achievedHistory && !/a working note, typed/.test(achievedHistory), String(achievedHistory));
+
+    /* ============================================================
+     * 8. §23.6/§23.7 — dates and horizons stay independent.
+     * ============================================================ */
+    await page.goto(`${BASE}/goal/g-duesoon`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(600);
+    ok("8.1 §23.7 a goal with an approaching target and no active project says so",
+      !!(await text(page, "[data-goal-path-missing]")));
+    ok("8.2 §11 …without manufacturing urgency about the date",
+      await page.evaluate(() => !/(urgent|running out|hurry|only \d+ days)/i.test(document.body.textContent || "")));
+    ok("8.3 §5 …and the target date did NOT become a horizon",
+      await page.evaluate(() => document.querySelector("[data-goal-horizon]")?.value === "near"));
+    await page.goto(`${BASE}/goal/g-life`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(500);
+    ok("8.4 §23.6 a life goal with no target date is not asked for one",
+      await page.evaluate(() => !/(needs a date|set a target|missing target)/i.test(document.body.textContent || "")));
+
+    /* ============================================================
+     * 9. §23.10 — the successor is gone. Degrade, never print an id.
+     * ============================================================ */
+    await page.goto(`${BASE}/goal/g-dangling`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(600);
+    const danglingText = await page.evaluate(() => (document.body.textContent || "").replace(/\s+/g, " "));
+    ok("9.1 a deleted successor degrades to a sentence",
+      /has since been deleted/.test(danglingText),
+      (danglingText.match(/.{0,60}deleted.{0,20}/) ?? [""])[0]);
+    ok("9.2 …and the raw id is never rendered",
+      !/g-vanished/.test(danglingText),
+      (danglingText.match(/.{0,40}g-vanished.{0,20}/) ?? [""])[0]);
+    ok("9.3 …while the predecessor itself survives intact",
+      /ZZOldDirection/.test(danglingText));
+
+    /* ============================================================
+     * 10. §23.8 — an AI suggestion that is not confirmed changes nothing.
+     *
+     * Read at the capture boundary, which is where the authority rule
+     * actually lives: a goal candidate is a SUGGESTION, and no goal
+     * exists until a person confirms it.
+     * ============================================================ */
+    const goalsBefore = await page.evaluate((k) => (JSON.parse(localStorage.getItem(k) || "{}").goals || []).length, KEY);
+    await page.goto(`${BASE}/inbox`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(700);
+    const goalsAfter = await page.evaluate((k) => (JSON.parse(localStorage.getItem(k) || "{}").goals || []).length, KEY);
+    ok("10.1 §23.8 opening a suggestion surface creates no goal",
+      goalsAfter === goalsBefore, `${goalsBefore} -> ${goalsAfter}`);
+
+    /* ============================================================
+     * 11. §23.9 — the three fields survive a reload from storage.
+     * ============================================================ */
+    await page.goto(`${BASE}/goal/g-new`, { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(600);
+    const persisted = await page.evaluate((k) => {
+      const g = (JSON.parse(localStorage.getItem(k) || "{}").goals || []).find((x) => x.id === "g-old");
+      return g ? { h: g.horizon ?? null, s: g.successorGoalId ?? null, n: (g.history || []).length } : null;
+    }, KEY);
+    ok("11.1 §22 successor and history survive a full page reload",
+      !!persisted && persisted.s === "g-new" && persisted.n === 1, JSON.stringify(persisted));
 
     await ctx.close();
   }

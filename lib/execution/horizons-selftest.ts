@@ -36,6 +36,9 @@ import {
 } from "@/lib/execution/alignment";
 import { goalProgress } from "@/lib/execution/progress";
 import { goalSummary } from "@/lib/execution/goals";
+import { emptyStoreState } from "@/lib/ux/backup";
+import { answerMemoryQuery } from "@/lib/memory/answer";
+import { planMemoryQuery } from "@/lib/memory/query";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 
@@ -56,8 +59,16 @@ const action = (p: Partial<NextAction> & { id: string; title: string }): NextAct
   linkedRefs: [], history: [], createdAt: AT, updatedAt: AT, ...p,
 } as NextAction);
 
+/**
+ * A COMPLETE StoreState with the goal-shaped domains filled in.
+ *
+ * Every canonical domain has to be present, not just the three this sprint
+ * touches: the memory answer layer builds a search index over the whole state,
+ * and a partial fixture fails there with "captures is not iterable" — a test
+ * harness breaking on its own shortcut rather than on the code under test.
+ */
 function stateWith(over: Partial<StoreState>): StoreState {
-  return { goals: [], projects: [], nextActions: [], ...over } as StoreState;
+  return { ...emptyStoreState(), ...over };
 }
 
 /** Nothing in an alignment surface may read as a rating (§11, §43). */
@@ -316,6 +327,98 @@ export function goalHorizonAssertions(): SelfTestResult[] {
     const ms1 = Date.now() - t1;
     ok("78.72 a 300-long lineage resolves under budget", ms1 < 60, `${ms1}ms`);
     ok("78.73 …and returns the whole chain, once each", line.length === 300, String(line.length));
+  }
+
+  // =============================================== 78.74 Memory, grounded ==
+  //
+  // §18's seven questions, answered from stored fields. Before this sprint all
+  // seven returned NO_RECORDED_EVIDENCE — honest, and useless.
+  {
+    const TODAY = "2026-09-15";
+    const m = stateWith({
+      goals: [
+        goal({ id: "m1", title: "Finish the thesis", horizon: "now" }),
+        goal({ id: "m2", title: "Be someone they trust", horizon: "life" }),
+        goal({ id: "m3", title: "Learn to sail", status: "paused",
+          history: [{ id: "e1", at: "2026-08-02T09:00:00.000Z", kind: "status", fromStatus: "active", toStatus: "paused" }] }),
+        goal({ id: "m4", title: "Ship v1", status: "completed",
+          history: [{ id: "e2", at: "2026-09-03T09:00:00.000Z", kind: "status", fromStatus: "active", toStatus: "completed" }] }),
+        goal({ id: "m5", title: "Run a marathon", status: "replaced", successorGoalId: "m6",
+          history: [{ id: "e3", at: "2026-09-04T09:00:00.000Z", kind: "replaced", fromStatus: "active", toStatus: "replaced", successorGoalId: "m6" }] }),
+        goal({ id: "m6", title: "Move every day", horizon: "medium" }),
+      ],
+      projects: [project({ id: "mp1", title: "Chapter three", goalId: "m1" })],
+      nextActions: [action({ id: "ma1", title: "Draft the intro", projectId: "mp1", status: "completed", completedAt: "2026-09-10T09:00:00.000Z" })],
+    });
+    const ask = (q: string) => answerMemoryQuery(m, q, { today: TODAY });
+
+    ok("78.74 §18 'what am I working toward long term' is routed to GOALS",
+      planMemoryQuery("What am I working toward long term?")?.kind === "GOALS",
+      String(planMemoryQuery("What am I working toward long term?")?.kind));
+    const direction = ask("What am I working toward long term?");
+    ok("78.75 …and answers from horizon, naming the life goal",
+      direction.items.some((i) => i.text === "Be someone they trust"), JSON.stringify(direction.items.map((i) => i.text)));
+    ok("78.76 …and does NOT sweep in the near-term goal",
+      !direction.items.some((i) => i.text === "Finish the thesis"), JSON.stringify(direction.items.map((i) => i.text)));
+
+    const paused = ask("Which goals are paused?");
+    ok("78.77 §18 paused goals are listed", paused.items.map((i) => i.text).join(",") === "Learn to sail", JSON.stringify(paused.items.map((i) => i.text)));
+    ok("78.78 …dated from the TRANSITION, not from updatedAt",
+      paused.items[0]?.day === "2026-08-02", String(paused.items[0]?.day));
+    ok("78.79 …and the evidence names the history field",
+      paused.items[0]?.evidence === "goal.history[].toStatus", String(paused.items[0]?.evidence));
+
+    const achieved = ask("Which goals did I achieve?");
+    ok("78.80 §18 achieved goals are listed", achieved.items.map((i) => i.text).join(",") === "Ship v1", JSON.stringify(achieved.items.map((i) => i.text)));
+    const abandoned = ask("Which goals did I abandon?");
+    ok("78.81 §18 …and nothing abandoned is REPORTED as nothing, not as silence",
+      abandoned.status === "NO_RECORDED_EVIDENCE" && /No goal/.test(abandoned.summary ?? ""), String(abandoned.summary));
+    ok("78.82 …and a replaced goal is NOT counted as abandoned",
+      !abandoned.items.some((i) => i.text === "Run a marathon"));
+
+    const replaced = ask("What replaced my old goal?");
+    ok("78.83 §18 the replacement names the successor",
+      replaced.items.some((i) => i.detail?.includes("Move every day")), JSON.stringify(replaced.items.map((i) => i.detail)));
+    ok("78.84 §17 …and never prints the successor's id",
+      !JSON.stringify(replaced.items).includes("\"m6\""), JSON.stringify(replaced.items.map((i) => i.detail)));
+
+    // §17: the successor is gone. Say so; never print the id.
+    const orphaned = stateWith({ goals: [goal({ id: "x1", title: "Old direction", status: "replaced", successorGoalId: "x-gone" })] });
+    const orphanAns = answerMemoryQuery(orphaned, "What replaced my old goal?", { today: TODAY });
+    ok("78.85 §17 a deleted successor is reported as deleted",
+      orphanAns.items[0]?.detail?.includes("deleted") === true, String(orphanAns.items[0]?.detail));
+    ok("78.86 §17 …and its id appears nowhere in the answer",
+      !JSON.stringify(orphanAns).includes("x-gone"), JSON.stringify(orphanAns.items));
+
+    const noPath = ask("Which active goals have no project path?");
+    ok("78.87 §18 goals with no active project are listed",
+      noPath.items.some((i) => i.text === "Be someone they trust"), JSON.stringify(noPath.items.map((i) => i.text)));
+    ok("78.88 §15 …with the project-shaped limitation stated, not hidden",
+      /linked projects only/.test(noPath.limitation ?? ""), String(noPath.limitation));
+
+    // §19 — the exclusions, which are the point.
+    const moved = ask("What goals moved forward this month?");
+    ok("78.89 §19 a completed action under a goal IS progress",
+      moved.items.some((i) => i.text === "Finish the thesis"), JSON.stringify(moved.items.map((i) => i.text)));
+    ok("78.90 §19 …and the limitation names what does NOT count",
+      /not progress/.test(moved.limitation ?? ""), String(moved.limitation));
+    const edited = stateWith({
+      goals: [goal({ id: "m1", title: "Edited only", horizon: "now", updatedAt: "2026-09-10T09:00:00.000Z",
+        history: [
+          { id: "h1", at: "2026-09-10T09:00:00.000Z", kind: "horizon", fromHorizon: "near", toHorizon: "now" },
+          { id: "h2", at: "2026-09-11T09:00:00.000Z", kind: "target_date" },
+        ] })],
+    });
+    const editedAns = answerMemoryQuery(edited, "What goals moved forward this month?", { today: TODAY });
+    ok("78.91 §19 a horizon change is NOT progress",
+      editedAns.items.length === 0 && editedAns.status === "NO_RECORDED_EVIDENCE", JSON.stringify(editedAns.items));
+    ok("78.92 §19 …and neither is a target-date change on its own", editedAns.items.length === 0);
+
+    // §11/§43 across every goal answer the sprint added.
+    const allText = [direction, paused, achieved, abandoned, replaced, noPath, moved]
+      .flatMap((a) => [a.heading, a.summary ?? "", a.limitation ?? "", ...a.items.map((i) => `${i.text} ${i.detail ?? ""}`)]);
+    const bad = allText.filter((t) => /\b\d+%|\bscore\b|\bon track\b|\bbehind\b|\bmomentum\b/i.test(t));
+    ok("78.93 §11 no goal answer carries a percentage or a verdict", bad.length === 0, bad.join(" | "));
   }
 
   return results;

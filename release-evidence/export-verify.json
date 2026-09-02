@@ -1,6 +1,6 @@
 {
   "generatedAt": "2026-01-15T09:00:00.000Z",
-  "archiveBytes": 21454,
+  "archiveBytes": 22414,
   "totalRecords": 27,
   "recordCounts": {
     "captures": 5,
@@ -42,7 +42,13 @@
     "focusSessions": 1,
     "maintenanceEvents": 1,
     "duplicateCandidates": 1,
-    "savedInsightViews": 1
+    "savedInsightViews": 1,
+    "notes": 0,
+    "protocols": 0,
+    "constitutionElements": 0,
+    "constitutionRevisions": 0,
+    "events": 0,
+    "recurrenceCompletions": 0
   },
   "verify": {
     "ok": true,

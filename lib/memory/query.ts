@@ -67,12 +67,31 @@ export type MemoryQueryKind =
   | "OPEN_WORK"    // what still needs attention
   | "TIME"         // when did I <verb> <thing>
   | "NEXT_ACTION"  // what should I do next
-  | "TOMORROW";    // what do I have tomorrow
+  | "TOMORROW"     // what do I have tomorrow
+  | "GOALS";       // what am I working toward / which goals did I <verb>
 
 export const MEMORY_QUERY_KINDS: readonly MemoryQueryKind[] = [
   "COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME",
-  "NEXT_ACTION", "TOMORROW",
+  "NEXT_ACTION", "TOMORROW", "GOALS",
 ];
+
+/**
+ * Which question about goals is being asked (LIFEOS-078).
+ *
+ * A goal question has a shape the other classes do not: it names a LIFECYCLE
+ * STATE or a DIRECTION rather than a time window. "Which goals did I achieve?"
+ * and "which goals did I abandon?" are the same retrieval with a different
+ * status, and collapsing them into one class with an aspect keeps the router
+ * from growing five near-identical entries.
+ */
+export type GoalAspect =
+  | "direction"    // what am I working toward
+  | "paused"
+  | "achieved"
+  | "abandoned"
+  | "replaced"
+  | "no_path"      // active goals with nothing carrying them
+  | "moved";       // goals with recorded progress in the range
 
 /**
  * For a TIME question, which recorded moment is being asked for.
@@ -132,6 +151,8 @@ export interface MemoryQueryPlan {
    * about. Empty means the whole picture (LIFEOS-070 §17).
    */
   signalKinds?: string[];
+  /** Which goal question this is (LIFEOS-078). Set only when `kind` is GOALS. */
+  goalAspect?: GoalAspect;
   /** True when the question asks WHO rather than WHAT ("who am I waiting on"). */
   wantsSubject?: boolean;
 }
@@ -316,6 +337,22 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
     + "|\\bmy (?:notes?|reflections?|thoughts?)\\b"
     + "|\\bwhat (?:was|were) (?:i|we) (?:worried|worrying|thinking|feeling|sad|anxious|stressed|upset|excited|angry|afraid|scared|frustrated|overwhelmed|lonely|happy)\\b") },
 
+  // Goals, by name (LIFEOS-078).
+  //
+  // BEFORE the calendar, completion and open-work rules, all three of which
+  // claim words these questions contain: "achieve" is a completion word,
+  // "no project path" reads as open work, and "working toward" reads as
+  // nothing at all. A goal question is recognised by naming a goal AND a
+  // lifecycle state or a direction — never by the word "goal" alone, which
+  // would swallow "what did I finish for my goal last week".
+  { kind: "GOALS", re: /\bgoals?\b.*\b(?:paused?|on hold)\b|\b(?:paused?|on hold)\b.*\bgoals?\b/ },
+  { kind: "GOALS", re: /\bgoals?\b.*\b(?:achieved?|accomplish\w*|complete[d]?|reached?)\b|\b(?:achieved?|reached?)\b.*\bgoals?\b/ },
+  { kind: "GOALS", re: /\bgoals?\b.*\b(?:abandon\w*|gave? up|let go|dropped?|walked away)\b|\b(?:abandon\w*|gave? up|let go)\b.*\bgoals?\b/ },
+  { kind: "GOALS", re: /\breplaced?\b.*\bgoals?\b|\bgoals?\b.*\breplaced?\b|\bwhat did .*\bbecome\b/ },
+  { kind: "GOALS", re: /\bgoals?\b.*\bno (?:active )?(?:project|path)\b|\bgoals?\b.*\bnothing (?:under|behind|carrying)\b|\bgoals?\b.*\bwithout a (?:project|path)\b/ },
+  { kind: "GOALS", re: /\bgoals?\b.*\b(?:moved forward|made progress|progressed|advanced)\b|\b(?:moved forward|made progress)\b.*\bgoals?\b/ },
+  { kind: "GOALS", re: /\bworking toward\b|\bworking towards\b|\bwhere (?:is|am) my life (?:going|headed)\b|\bwhat am i aiming (?:at|for)\b|\bmy (?:long.term|life) goals?\b/ },
+
   // The calendar, by name.
   { kind: "EVENTS", re: /\bcalendar\b|\bscheduled?\b|\bappointments?\b|\bmeetings?\b|\bon my (?:schedule|agenda)\b|\bevents?\b/ },
 
@@ -479,6 +516,19 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
 
   // A narrower forgetting question asks about one kind of slip. Anything else
   // gets the whole picture rather than a guessed subset.
+  let goalAspect: GoalAspect | undefined;
+  if (kind === "GOALS") {
+    // Order matters: "which goals did I achieve" and "what replaced my goal"
+    // both contain goal words, and the narrower shapes are checked first.
+    if (/\b(?:paused?|on hold)\b/.test(q)) goalAspect = "paused";
+    else if (/\b(?:abandon\w*|gave? up|let go|dropped?|walked away)\b/.test(q)) goalAspect = "abandoned";
+    else if (/\breplaced?\b|\bbecome\b/.test(q)) goalAspect = "replaced";
+    else if (/\bno (?:active )?(?:project|path)\b|\bnothing (?:under|behind|carrying)\b|\bwithout a (?:project|path)\b/.test(q)) goalAspect = "no_path";
+    else if (/\b(?:moved forward|made progress|progressed|advanced)\b/.test(q)) goalAspect = "moved";
+    else if (/\b(?:achieved?|accomplish\w*|complete[d]?|reached?)\b/.test(q)) goalAspect = "achieved";
+    else goalAspect = "direction";
+  }
+
   let signalKinds: string[] | undefined;
   if (kind === "OPEN_WORK") {
     if (/\bfollow.?ups?\b/.test(q)) signalKinds = ["follow_up_due"];
@@ -494,6 +544,7 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
   return {
     kind,
     signalKinds,
+    goalAspect,
     question: raw,
     range: rm.range,
     rangeLabel: rm.phrase,

@@ -112,7 +112,6 @@ import type {
   Goal,
   GoalHistoryEvent,
   GoalHorizon,
-  GoalStatus,
   Project,
   Milestone,
   ExecutionPriority,

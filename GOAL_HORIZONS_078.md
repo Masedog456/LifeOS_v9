@@ -3,21 +3,22 @@
 **North star:** help me see where my life is going, not just what I have to do
 next.
 
-## STATUS: IMPLEMENTATION READY — AWAITING DEPLOYED 0047 PARITY
+## STATUS: COMPLETE — repository 0047 · production 0047 · parity PASS
 
 | | |
 |---|---|
 | **Repository migration head** | **0047** |
-| **Production Supabase head** | **0046** |
-| **Parity** | **NOT YET VERIFIED** |
+| **Production Supabase head** | **0047** |
+| **Parity** | **PASS** |
+| Applied file | `supabase/migrations/0047_goal_horizons_lifecycle_history.sql` |
+| Production ledger ends at | `0047 \| goal_horizons_lifecycle_history` |
 | Contract change (§22) | approved, shipped inside 0047 |
-| Deployment order | **0047 database first, 078 client second** (type B) |
+| Deployment order | **database first, client second** — followed |
 
-The 078 client must not be merged while production is 0046. If it were, the
-`goals` domain would pause — safely, visibly, and self-healingly, which is the
-whole point of 077 — but it would still be a pause nobody needed to cause.
+The Type B precondition is satisfied. Section 11a records the deployed
+evidence and its provenance.
 
-Sections 1–5b are the design as approved and are unchanged. Sections 11–14
+Sections 1–5b are the design as approved and are unchanged. Sections 10–14
 record what was built, what was measured, and what is still limited.
 
 ---
@@ -434,6 +435,28 @@ function next.
 existing `pulse` section, with a resolution set of its own. No new navigation,
 no new noun, no new domain.
 
+### Memory — the seven grounded questions
+
+Before this sprint all seven of §18's questions returned
+`NO_RECORDED_EVIDENCE`. Honest, and useless: the router had no goal class, so
+"which goals did I achieve?" fell through to nothing, and adding it to
+`COMPLETION` would have answered a question about goals with a list of finished
+actions.
+
+`GOALS` is the eleventh query class, with a `goalAspect` for the six shapes
+(`direction`, `paused`, `achieved`, `abandoned`, `replaced`, `no_path`,
+`moved`). Every line traces to a stored field, and the exclusions are the point:
+
+- A lifecycle answer is dated from the **history transition**, not `updatedAt` —
+  a title edit moves `updatedAt` and would misdate when a goal was let go.
+- "Moved forward" counts a completed action or project under the goal, and
+  nothing else. A horizon change, a target-date change and an edit are all
+  recorded and none of them is progress. The limitation says so on every
+  progress answer, and a mutation test confirms the exclusion is load-bearing.
+- A deleted successor is reported as deleted. The id is never printed.
+- The `no_path` answer states its own project-shaped limitation rather than
+  implying it covers directly-linked actions.
+
 ### Deliberate design decisions worth naming
 
 - **Horizon never influences ordering.** The Today ancestry line is appended
@@ -469,6 +492,43 @@ the goal page carry what is known.
 
 ---
 
+## 11a. Deployed evidence
+
+**Provenance: EXTERNALLY VERIFIED DEPLOYED EVIDENCE.** The production migration
+and every check below were performed outside this environment and reported back.
+No production credentials or Supabase CLI exist here; nothing in this section
+was executed by Claude, and none of it is inferred from the repository, from
+client constants, or from the rehearsal.
+
+| Checked on production | Result |
+|---|---|
+| Migration ledger head | `0047 \| goal_horizons_lifecycle_history` |
+| Applied file | the exact repository migration |
+| Version/name parity with the repository | **PASS** |
+| `goals.horizon` | `text`, nullable, no default |
+| `goals.successor_goal_id` | `uuid`, nullable, no default |
+| `goals.history` | `jsonb`, NOT NULL, default `'[]'::jsonb` |
+| Existing goals back-filled | **no** |
+| `goals_horizon_valid` | permits `now/near/medium/long/life` and NULL only |
+| `goals_successor_goal_id_fkey` | → `public.goals(id)` `ON DELETE SET NULL` |
+| `goals_successor_idx` | present on `(user_id, successor_goal_id)` |
+| Predecessor column | does not exist |
+| `app_schema_contract()` | contract 3 · min_client 1 · `guarded_notes` 2 · `guarded_next_actions` 2 · `goal_horizons` 1 |
+| Contract security | SECURITY INVOKER, `search_path = pg_catalog, public` |
+| Contract EXECUTE | anon **none** · authenticated yes · service_role yes · postgres owner/admin |
+| `notes_sync_version_guard` · `next_actions_sync_version_guard` | both present, BEFORE UPDATE → `enforce_sync_version()` |
+| RLS on `notes` / `next_actions` | still enabled |
+| Supabase Security Advisor after 0047 | no new 0047-specific warning |
+
+The advisor's remaining warnings — older mutable-`search_path` functions,
+`vector` in `public`, leaked-password protection disabled — pre-date this
+migration and are not attributable to it.
+
+The deployment order was database first, client second, which is what the Type B
+classification required.
+
+---
+
 ## 11. Evidence
 
 | Gate | Result |
@@ -476,14 +536,18 @@ the goal page carry what is known.
 | `tsc --noEmit` | clean |
 | `eslint` | clean |
 | `npm run build` | exit 0 |
-| Deterministic selftests | **4232/4232** across 42 suites |
-| …of which new this sprint | 73 goal-horizon + 11 goal round-trip |
+| Deterministic selftests | **4252/4252** across 42 suites |
+| …of which new this sprint | 93 goal-horizon + 11 goal round-trip |
 | `npm run release:migrations` (real PostgreSQL 16) | **200/200**, 42 of them 078 |
 | `scripts/inject-078-goal-capability.cjs` (§12 red proof) | **43/43** |
-| `scripts/smoke-078-goal-horizons.cjs` (browser, 2 viewports) | **59/59** |
+| `scripts/smoke-078-goal-horizons.cjs` (browser, 2 viewports) | **93/93** |
 | `scripts/smoke-076-sync-trust.cjs` | 281/281 |
 | `scripts/inject-077-schema-compatibility.cjs` | 51/51 |
-| `npm run release:audit` | 17/17 |
+| `scripts/inject-076b-old-client-window.cjs` (compiled 0045-era client) | 8/8 |
+| `scripts/inject-076b-live-window.cjs` | 9/9 |
+| `scripts/inject-074-*` (six harnesses) | 248/248 |
+| `scripts/inject-075-cross-device.cjs` · `inject-076-*` | 135/135 · 179/179 |
+| `npm run release:audit` · `release:routes` · `release:export` | 17/17 · 24/24 · 14/14 |
 | `npm run audit:security` | RLS · secrets · routes · auth · deps all PASS |
 
 ### The red proof (§12), in one paragraph
@@ -532,34 +596,38 @@ mode this project spends the most effort on.
 
 ---
 
-## 13. Deployment
+## 13. Deployment — done
 
-**Type B — client-required capability. Order is load-bearing for tidiness, not
-for safety.**
+**Type B — client-required capability. The order was followed.**
 
-1. Apply `0047` to production Supabase.
-2. Verify parity: the ledger ends at `0047 | goal_horizons_lifecycle_history`,
-   and `app_schema_contract()` returns contract 3 with `goal_horizons: 1`.
-3. Only then merge and deploy the 078 client.
+1. `0047` applied to production Supabase. ✅
+2. Parity verified externally: ledger ends at `0047 | goal_horizons_lifecycle_history`,
+   `app_schema_contract()` returns contract 3 with `goal_horizons: 1`. ✅
+3. Client cleared to merge. ✅
 
 | Client | Database | Result |
 |---|---|---|
 | 077 (old) | 0047 | Compatible — old row shape accepted, no `goals` requirement |
 | **078 (new)** | **0046** | **`goals` pauses, fail-closed** — local durable, dirty, other domains sync, no false "Synced", flushes when 0047 lands |
-| 078 | 0047 | Compatible |
+| 078 | 0047 | Compatible — the state production is now in |
 
-Sprint status stays **IMPLEMENTATION READY — AWAITING DEPLOYED 0047 PARITY**
-until 0047 is externally applied and parity is verified. No production check was
-performed from this environment, and none is claimed.
+The 078-against-0046 row is the deploy-order proof and remains asserted
+(`inject-078-goal-capability.cjs`) even though production has moved past it: it
+is the guarantee that the ordering was a preference rather than a cliff.
 
 ---
 
 ## 14. Verdict
 
-**LIFEOS-078 IMPLEMENTATION READY — AWAITING DEPLOYED 0047 PARITY.**
+**LIFEOS-078 COMPLETE — GOAL HORIZONS & ALIGNMENT READY.**
 
-Repository migration head **0047** · production Supabase head **0046** · parity
-**NOT YET VERIFIED**.
+Repository migration head **0047** · production Supabase head **0047** · parity
+**PASS**, on externally verified deployed evidence (§11a).
+
+All final gates green: 4252/4252 deterministic assertions, 200/200 migration
+rehearsal against real PostgreSQL 16, 43/43 red capability proof, 93/93 browser
+across two viewports, 24/24 route smoke, 14/14 export verify, release and
+security audits passing, `tsc` and `eslint` clean, build exit 0.
 
 Nothing in §28 was begun: no Rules, Collections, People, Calendar expansion,
 D-8, general D-23, or Observatory.
