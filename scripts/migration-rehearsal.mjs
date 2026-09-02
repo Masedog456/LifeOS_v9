@@ -159,7 +159,7 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 46, `found ${files.length} migration files, expected 46`);
+  ok("migration files present", files.length === 47, `found ${files.length} migration files, expected 47`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
@@ -205,6 +205,8 @@ function run() {
     ["pre-reading", 20], ["pre-workspaces", 21], ["pre-actions", 26],
     ["pre-planning", 27], ["pre-maintenance", 28], ["pre-security", 30],
     ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["pre-constitution", 37], ["pre-successor-cascade", 38],
+    // LIFEOS-078: an installed client sitting on 0046 must reach 0047 cleanly.
+    ["pre-goal-horizons", 46],
   ];
   for (const [id, through] of checkpoints) {
     const db = `rc_cp_${through}`;
@@ -556,7 +558,11 @@ function run() {
     ok("077: app_schema_contract() exists and returns a payload", contract.startsWith("{"), contract);
     let parsed = {};
     try { parsed = JSON.parse(contract); } catch { /* left empty; assertions below fail loudly */ }
-    ok("077: …carrying a coarse contract generation", parsed.contract === 2, JSON.stringify(parsed.contract));
+    // The HEAD's generation, which moves with each capability change. What
+    // 0046 ALONE advertises — and that 0047 raises it — is proved separately
+    // below, on a database stopped at 46, so this line stays a head check and
+    // does not quietly become the only record of what 0046 said.
+    ok("077: …carrying a coarse contract generation", parsed.contract === 3, JSON.stringify(parsed.contract));
     ok("077: …a global minimum that does NOT lock out pre-0045 clients",
       parsed.min_client_contract === 1, JSON.stringify(parsed.min_client_contract));
     ok("077: …and the precise capability levels write gating consults",
@@ -634,6 +640,171 @@ function run() {
       })());
     ok("076: §28 the RPC refuses a table it does not guard",
       !tryA(`select public.push_guarded_rows('goals', '[]'::jsonb);`));
+
+    /* ======================================================================
+     * LIFEOS-078 — 0047, Goal horizon / successor / history (§11).
+     * ====================================================================== */
+
+    const GOAL_OLD = "eeeeeeee-0000-4000-8000-00000000001a";
+    const GOAL_NEW = "eeeeeeee-0000-4000-8000-00000000001b";
+    const GOAL_SUC = "eeeeeeee-0000-4000-8000-00000000001c";
+
+    // §7. THE deployment-order guarantee: a pre-078 client writes the OLD row
+    // shape, naming none of the three new columns, and it must remain valid.
+    ok("078: §7 an OLD-shape goal insert still works after 0047",
+      tryA(`insert into public.goals(id, title, description, status, priority, notes, tags,
+                                     linked_workspaces, linked_knowledge)
+            values ('${GOAL_OLD}', 'Old client goal', '', 'active', 'medium', '',
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb);`));
+    ok("078: §7 …and an OLD-shape UPDATE too",
+      tryA(`update public.goals set title = 'Old client goal, edited' where id = '${GOAL_OLD}';`));
+    // The NOT NULL column must not be what breaks that client.
+    const histDefault = asA(`select history::text from public.goals where id = '${GOAL_OLD}';`).trim();
+    ok("078: §10 history defaults to an empty array for a row that never named it",
+      histDefault === "[]", `history = ${histDefault}`);
+    const oldHorizon = asA(`select coalesce(horizon, 'NULL') from public.goals where id = '${GOAL_OLD}';`).trim();
+    ok("078: §9 …and an existing goal is NOT back-filled with a guessed horizon",
+      oldHorizon === "NULL", `horizon = ${oldHorizon}`);
+
+    // §8. The CHECK: the five values, plus NULL, and nothing else.
+    for (const h of ["now", "near", "medium", "long", "life"]) {
+      ok(`078: §8 horizon '${h}' is accepted`,
+        tryA(`update public.goals set horizon = '${h}' where id = '${GOAL_OLD}';`));
+    }
+    ok("078: §8 NULL is accepted — \"not said yet\" is a real state",
+      tryA(`update public.goals set horizon = null where id = '${GOAL_OLD}';`));
+    ok("078: §8 a value outside the five is REFUSED by the database",
+      !tryA(`update public.goals set horizon = 'eventually' where id = '${GOAL_OLD}';`));
+    ok("078: §8 …including the empty string, which is not a horizon",
+      !tryA(`update public.goals set horizon = '' where id = '${GOAL_OLD}';`));
+    ok("078: §8 …and the constraint also guards INSERT",
+      !tryA(`insert into public.goals(id, title, horizon) values (gen_random_uuid(), 'Bad', 'someday');`));
+
+    // §10. history is jsonb and takes what the client writes.
+    ok("078: §10 an append-only history array round-trips",
+      tryA(`update public.goals set history = '[{"id":"h1","at":"2026-09-01T10:00:00Z","kind":"created"}]'::jsonb
+            where id = '${GOAL_OLD}';`));
+    const histBack = asA(`select history->0->>'kind' from public.goals where id = '${GOAL_OLD}';`).trim();
+    ok("078: §10 …and reads back intact", histBack === "created", `got ${histBack}`);
+    ok("078: §10 history cannot be set to NULL — the column is NOT NULL",
+      !tryA(`update public.goals set history = null where id = '${GOAL_OLD}';`));
+
+    // §9. The successor FK, and the deletion behaviour it was chosen for.
+    asA(`insert into public.goals(id, title) values ('${GOAL_NEW}', 'Predecessor'), ('${GOAL_SUC}', 'Successor');`);
+    ok("078: §9 a successor pointing at a real goal is accepted",
+      tryA(`update public.goals set successor_goal_id = '${GOAL_SUC}', status = 'replaced' where id = '${GOAL_NEW}';`));
+    ok("078: §9 a successor pointing at nothing is REFUSED by the FK",
+      !tryA(`update public.goals set successor_goal_id = '99999999-0000-4000-8000-999999999999' where id = '${GOAL_NEW}';`));
+    // The whole reason for SET NULL rather than CASCADE: deleting the goal you
+    // moved on TO must not delete the record of where you came from.
+    asA(`delete from public.goals where id = '${GOAL_SUC}';`);
+    const predAlive = asA(`select count(*) from public.goals where id = '${GOAL_NEW}';`).trim();
+    ok("078: §9 deleting the successor does NOT delete the predecessor",
+      predAlive === "1", `${predAlive} predecessor rows`);
+    const predSucc = asA(`select coalesce(successor_goal_id::text, 'NULL') from public.goals where id = '${GOAL_NEW}';`).trim();
+    ok("078: §9 …and its pointer is SET NULL, never left dangling",
+      predSucc === "NULL", `successor_goal_id = ${predSucc}`);
+    const predStatus = asA(`select status from public.goals where id = '${GOAL_NEW}';`).trim();
+    ok("078: §9 …while the predecessor's own status is untouched — it WAS replaced",
+      predStatus === "replaced", `status = ${predStatus}`);
+    // An unindexed referencing column makes every goal DELETE seq-scan.
+    const succIdx = asA(`select count(*) from pg_indexes
+      where schemaname='public' and tablename='goals' and indexdef like '%successor_goal_id%';`).trim();
+    ok("078: §9 the referencing column is indexed", succIdx === "1", `${succIdx} matching indexes`);
+
+    // §3. The contract, re-read from the database after 0047.
+    const c78 = asA(`select public.app_schema_contract()::text;`).trim();
+    let p78 = {};
+    try { p78 = JSON.parse(c78); } catch { /* assertions below fail loudly */ }
+    ok("078: §3 the contract generation is now 3", p78.contract === 3, JSON.stringify(p78.contract));
+    ok("078: §6 min_client_contract remains 1 — 0047 is additive",
+      p78.min_client_contract === 1, JSON.stringify(p78.min_client_contract));
+    ok("078: §3 goal_horizons is advertised at level 1",
+      p78.capabilities?.goal_horizons === 1, JSON.stringify(p78.capabilities));
+    ok("078: §3 …and the 0046 capabilities are UNCHANGED, not replaced",
+      p78.capabilities?.guarded_notes === 2 && p78.capabilities?.guarded_next_actions === 2,
+      JSON.stringify(p78.capabilities));
+    ok("078: §3 the payload still never leaks the migration ledger",
+      !/migration|schema_migrations|\b004[0-9]\b/i.test(c78), c78);
+
+    // §3. `create or replace` must not have relaxed the function's security.
+    const sec78 = asA(`select case when p.prosecdef then 'definer' else 'invoker' end
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname='public' and p.proname='app_schema_contract';`).trim();
+    ok("078: §3 app_schema_contract is still SECURITY INVOKER after the replace",
+      sec78 === "invoker", `it is ${sec78}`);
+    const path78 = asA(`select coalesce(array_to_string(p.proconfig, ','), 'NONE')
+      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public' and p.proname='app_schema_contract';`).trim();
+    ok("078: §3 …and search_path is still pinned (S-45A)",
+      path78 === "search_path=pg_catalog, public", `proconfig = ${path78}`);
+
+    // §3. The grants, against an environment that reproduces Supabase's
+    // default privileges — so a silent re-grant to anon would be VISIBLE here.
+    const anon78 = asA(`select has_function_privilege('anon', 'public.app_schema_contract()', 'execute');`).trim();
+    ok("078: §3 anon still cannot execute the contract function", anon78 === "f", `anon execute = ${anon78}`);
+    const auth78 = asA(`select has_function_privilege('authenticated', 'public.app_schema_contract()', 'execute');`).trim();
+    ok("078: §3 …while authenticated still can", auth78 === "t", `authenticated execute = ${auth78}`);
+
+    // §11. 0047 must not have weakened anything 0045 or 0046 established.
+    const guards78 = asA(`select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid
+      where c.relname in ('notes','next_actions') and t.tgname like '%sync_version_guard';`).trim();
+    ok("078: §11 the 0045 CAS triggers survive 0047", guards78 === "2", `${guards78} guard triggers`);
+    ok("078: §11 …and a sync_version-omitting update is still refused",
+      tryA(`update public.notes set title='no' where id='${GN}';`) === false);
+    const unpinned78 = asA(`select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public'
+        and p.proname in ('enforce_sync_version','push_guarded_rows','guarded_assignments','app_schema_contract')
+        and (p.proconfig is null or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'))
+      order by 1;`).trim();
+    ok("078: §11 every function in the family still pins search_path",
+      unpinned78 === "", `still mutable: ${unpinned78.split("\n").join(", ")}`);
+    const gaAnon78 = asA(`select has_function_privilege('anon', 'public.guarded_assignments(text)', 'execute');`).trim();
+    ok("078: §11 …and 0046's S-45B revoke still holds", gaAnon78 === "f", `anon execute = ${gaAnon78}`);
+
+    // Two-user isolation on the new columns: a new column inherits the table's
+    // policies, but that is worth PROVING rather than assuming.
+    const bSeesGoals = psql("rc_clean", `set role rc_app; set app.uid='${B}'; select count(*) from public.goals where horizon is not null;`).trim();
+    ok("078: user B sees none of user A's horizons", bSeesGoals === "0", `${bSeesGoals} rows`);
+
+    asA(`delete from public.goals where id in ('${GOAL_OLD}', '${GOAL_NEW}');`);
+
+    // §5. The UPGRADE, on its own database: what 0046 advertises, and what
+    // applying 0047 to it changes. Run here rather than inferred from the head,
+    // because "the contract moved when the columns arrived" is the claim the
+    // whole deployment order rests on.
+    {
+      createDbWithAuth("rc_0046");
+      applyChain("rc_0046", files.filter((f) => Number(f.slice(0, 4)) <= 46));
+      const at46 = psql("rc_0046", `select public.app_schema_contract()::text;`).trim();
+      let p46 = {};
+      try { p46 = JSON.parse(at46); } catch { /* assertions below fail loudly */ }
+      ok("078: §5 a database at 0046 advertises contract 2", p46.contract === 2, JSON.stringify(p46.contract));
+      ok("078: §5 …and does NOT claim goal_horizons",
+        p46.capabilities?.goal_horizons === undefined, JSON.stringify(p46.capabilities));
+      // And the goals table genuinely lacks the columns — which is WHY the
+      // client must gate rather than try.
+      const cols46 = psql("rc_0046", `select count(*) from information_schema.columns
+        where table_schema='public' and table_name='goals'
+          and column_name in ('horizon','successor_goal_id','history');`).trim();
+      ok("078: §5 …because the columns are genuinely absent at 0046", cols46 === "0", `${cols46} of 3 present`);
+
+      applyChain("rc_0046", files.filter((f) => Number(f.slice(0, 4)) === 47));
+      const at47 = psql("rc_0046", `select public.app_schema_contract()::text;`).trim();
+      let p47 = {};
+      try { p47 = JSON.parse(at47); } catch { /* assertions below fail loudly */ }
+      ok("078: §5 applying 0047 raises the contract to 3", p47.contract === 3, JSON.stringify(p47.contract));
+      ok("078: §5 …and advertises goal_horizons in the SAME step as the columns",
+        p47.capabilities?.goal_horizons === 1
+        && psql("rc_0046", `select count(*) from information_schema.columns
+             where table_schema='public' and table_name='goals'
+               and column_name in ('horizon','successor_goal_id','history');`).trim() === "3",
+        JSON.stringify(p47.capabilities));
+      ok("078: §6 …while min_client_contract stays 1 across the upgrade",
+        p46.min_client_contract === 1 && p47.min_client_contract === 1,
+        `${p46.min_client_contract} -> ${p47.min_client_contract}`);
+      psql("postgres", `drop database if exists rc_0046 with (force);`);
+    }
 
     // C-4: the checksum column must hold a 64-character SHA-256 hex digest.
     // Checked before writing any code that assumed it — the alternative was a

@@ -2343,10 +2343,11 @@ export function rowToSession(r: any): WorkspaceSession {
 
 // LIFEOS-078 adds horizon, successor_goal_id and history. The row shape is
 // UNCONDITIONAL — every push carries all three — which is why the `goals`
-// domain declares `goal_horizons: 1` in DOMAIN_CAPABILITY_REQUIREMENTS. Against
-// a pre-0047 database these columns do not exist and PostgREST would reject
-// every goal row, so the write path holds the domain rather than discovering it
-// as an error.
+// domain declares a capability requirement in `lib/sync/contract.ts`. Against a
+// pre-0047 database these columns do not exist and PostgREST would reject every
+// goal row, so the write path holds the domain rather than discovering it as an
+// error. The capability NAME and LEVEL live in that one map and nowhere else;
+// an adapter that hard-codes either is how the two drift apart.
 interface GoalRow {
   id: string; title: string; description: string; status: string; priority: string;
   target_date: string | null; horizon: string | null; successor_goal_id: string | null;
