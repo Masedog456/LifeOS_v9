@@ -16,6 +16,20 @@ export function ProgressBar({ percent, label }: { percent: number; label?: strin
   );
 }
 
+/**
+ * Progress, or the honest absence of it (LIFEOS-078).
+ *
+ * Renders the bar when a percentage exists and a plain sentence when it does
+ * not. A `null` percent used to arrive here as a `0`, which drew an empty bar
+ * and told the reader their goal was measured at zero — the product reporting
+ * the absence of evidence as a measurement.
+ */
+export function ProgressOrNot({ percent, label, none = "Not measured yet — no milestones or completed projects." }:
+  { percent: number | null; label?: string; none?: string }) {
+  if (percent === null) return <p className="text-xs text-zinc-400" data-progress="none">{none}</p>;
+  return <ProgressBar percent={percent} label={label} />;
+}
+
 export function Pill({ children }: { children: React.ReactNode }) {
   return <span className="shrink-0 rounded-full bg-black/[.05] px-2 py-0.5 text-[10px] text-zinc-500 dark:bg-white/[.06] dark:text-zinc-300">{children}</span>;
 }

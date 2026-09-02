@@ -2341,24 +2341,43 @@ export function rowToSession(r: any): WorkspaceSession {
 
 // ---------------------------- Goals & projects (LIFEOS-031) ----------------------------
 
+// LIFEOS-078 adds horizon, successor_goal_id and history. The row shape is
+// UNCONDITIONAL — every push carries all three — which is why the `goals`
+// domain declares a capability requirement in `lib/sync/contract.ts`. Against a
+// pre-0047 database these columns do not exist and PostgREST would reject every
+// goal row, so the write path holds the domain rather than discovering it as an
+// error. The capability NAME and LEVEL live in that one map and nowhere else;
+// an adapter that hard-codes either is how the two drift apart.
 interface GoalRow {
   id: string; title: string; description: string; status: string; priority: string;
-  target_date: string | null; notes: string; tags: unknown; manual_progress: number | null;
+  target_date: string | null; horizon: string | null; successor_goal_id: string | null;
+  history: unknown; notes: string; tags: unknown; manual_progress: number | null;
   linked_workspaces: unknown; linked_knowledge: unknown; created_at: string; updated_at: string;
 }
-function goalToRow(g: Goal): GoalRow {
+export function goalToRow(g: Goal): GoalRow {
   return {
     id: g.id, title: g.title, description: g.description, status: g.status, priority: g.priority,
-    target_date: g.targetDate ?? null, notes: g.notes, tags: g.tags,
+    target_date: g.targetDate ?? null,
+    horizon: g.horizon ?? null,
+    successor_goal_id: g.successorGoalId ?? null,
+    // The column is NOT NULL DEFAULT '[]', and a goal written before 078 has no
+    // array at all — send [] rather than null so an old local record upgrades
+    // silently instead of violating the constraint.
+    history: g.history ?? [],
+    notes: g.notes, tags: g.tags,
     manual_progress: g.manualProgress ?? null, linked_workspaces: g.linkedWorkspaces,
     linked_knowledge: g.linkedKnowledge, created_at: g.createdAt, updated_at: g.updatedAt,
   };
 }
-function rowToGoal(r: any): Goal {
+export function rowToGoal(r: any): Goal {
   return {
     id: r.id, title: r.title ?? "Untitled goal", description: r.description ?? "",
     status: (r.status ?? "active") as Goal["status"], priority: (r.priority ?? "medium") as Goal["priority"],
-    targetDate: r.target_date ?? undefined, notes: r.notes ?? "", tags: Array.isArray(r.tags) ? r.tags : [],
+    targetDate: r.target_date ?? undefined,
+    horizon: r.horizon ?? undefined,
+    successorGoalId: r.successor_goal_id ?? undefined,
+    history: Array.isArray(r.history) ? r.history : [],
+    notes: r.notes ?? "", tags: Array.isArray(r.tags) ? r.tags : [],
     manualProgress: r.manual_progress ?? undefined,
     linkedWorkspaces: Array.isArray(r.linked_workspaces) ? r.linked_workspaces : [],
     linkedKnowledge: Array.isArray(r.linked_knowledge) ? r.linked_knowledge : [],

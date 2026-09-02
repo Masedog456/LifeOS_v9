@@ -59,7 +59,11 @@ function collectAny(ctx: EntityContext, refs: RecordRefLite[], limit: number): E
 
 export interface GoalDashboard {
   goal: Goal;
-  progress: number;
+  /**
+   * 0–100, or `null` when nothing measurable backs it (LIFEOS-078). Callers
+   * must render the absence rather than substituting a zero.
+   */
+  progress: number | null;
   overview: {
     projectCounts: { total: number; completed: number };
     milestones: MilestoneCounts;

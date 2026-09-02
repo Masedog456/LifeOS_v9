@@ -39,7 +39,10 @@
 
 import type { DayKey } from "@/lib/reviews/dates";
 import { addDays, formatDayKey, todayKey } from "@/lib/reviews/dates";
-import type { NextAction, RecordRefLite, StoreState } from "@/types/mvp";
+import type { Goal, GoalHistoryEvent, GoalStatus, NextAction, RecordRefLite, StoreState } from "@/types/mvp";
+import { GOAL_HORIZON_LABEL } from "@/lib/execution/horizons";
+import { GOAL_LIFECYCLE_LABEL, goalHistory } from "@/lib/execution/lifecycle";
+import { goalLinkedProjects, goalsMissingPath } from "@/lib/execution/alignment";
 import { resolveRange, type ResolvedRange } from "@/lib/insights/range";
 import { buildActivityIndex, type ActivityEvent } from "@/lib/insights/activity";
 import { classifyOrigin } from "@/lib/provenance/classify";
@@ -55,7 +58,7 @@ import { buildTodayIndexes, type TodayIndexes } from "@/lib/today/indexes";
 import { recommendNextAction, NO_STANDOUT } from "@/lib/today/recommend";
 import { buildDailyExecutiveView, NOTHING_TOMORROW } from "@/lib/today/daily";
 import {
-  buildCommitmentSignals, COMMITMENT_ORDER, NOTHING_STANDS_OUT,
+  buildCommitmentSignals, COMMITMENT_ORDER, GOAL_PATH_MISSING, NOTHING_STANDS_OUT,
   type CommitmentSignal,
 } from "@/lib/commitment/signals";
 import {
@@ -449,9 +452,197 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "NEXT_ACTION": return answerNextAction(state, plan, today, opts);
     case "TOMORROW": return answerTomorrow(state, plan, today, opts);
     case "TIME": return answerTime(state, plan, searchIndex, opts);
+    case "GOALS": return answerGoals(state, plan, range, implicit);
     default: return noEvidence(plan);
   }
 }
+
+// ------------------------------------------------------------------ GOALS --
+
+/**
+ * What a life is pointed at, and what happened to the goals in it (LIFEOS-078).
+ *
+ * ## Every line traces to a stored field
+ *
+ * The goal's own `status`, `horizon`, `successorGoalId`, and its append-only
+ * `history`. Nothing here counts an EDIT as progress: a retitled goal, a
+ * changed horizon and a moved target date are all recorded transitions, and
+ * none of them is a thing getting done. "Moved forward" means a completed
+ * action or a completed project under the goal, and nothing else (§19).
+ *
+ * ## What it refuses to say
+ *
+ * No ranking of goals, no "on track", no percentage, and no claim that a goal
+ * is neglected. When a replacement chain points at a goal that no longer
+ * exists, the answer says so rather than printing an id (§17).
+ */
+function goalItem(goal: Goal, text: string, evidence: string, detail?: string, day?: DayKey): MemoryAnswerItem {
+  return {
+    text,
+    // The user wrote the goal. Conqify is reporting a field, not authoring it.
+    attribution: "You recorded",
+    day,
+    when: day ? fmt(day) : undefined,
+    detail,
+    ref: { kind: "goal", id: goal.id },
+    href: `/goal/${goal.id}`,
+    evidence,
+    origin: "user_authored",
+  };
+}
+
+function answerGoals(
+  state: StoreState, plan: MemoryQueryPlan, range: ResolvedRange, implicit: boolean,
+): MemoryAnswer {
+  const goals = state.goals ?? [];
+  const aspect = plan.goalAspect ?? "direction";
+  const byId = new Map(goals.map((g) => [g.id, g]));
+
+  /** The most recent history entry of a kind, within the answer's window. */
+  const lastTransition = (g: Goal, match: (e: GoalHistoryEvent) => boolean): GoalHistoryEvent | undefined =>
+    [...goalHistory(g)].filter(match).sort((a, b) => a.at.localeCompare(b.at)).pop();
+
+  if (aspect === "direction") {
+    // Long and life horizons ARE the answer to "what am I working toward" —
+    // and the unplaced goals are named too, because a goal the user has not
+    // placed is not evidence that they are pointed nowhere.
+    const far = goals.filter((g) => (g.horizon === "long" || g.horizon === "life") && g.status === "active");
+    const unplaced = goals.filter((g) => !g.horizon && g.status === "active");
+    if (far.length === 0) {
+      return {
+        ...noEvidence(plan),
+        heading: "No long-range goal is recorded",
+        summary: unplaced.length
+          ? `${plural(unplaced.length, "active goal has", "active goals have")} no horizon set, so Conqify cannot say which of them are long-range.`
+          : "No active goal carries a long or life horizon.",
+        status: "NO_RECORDED_EVIDENCE",
+      };
+    }
+    const items = far.map((g) => goalItem(g, g.title, "goal.horizon", GOAL_HORIZON_LABEL[g.horizon!]));
+    return {
+      status: unplaced.length ? "PARTIALLY_ANSWERED" : "ANSWERED",
+      heading: "What you are working toward",
+      summary: `${plural(items.length, "goal is", "goals are")} set at a long or life horizon.`,
+      items,
+      limitation: unplaced.length
+        ? `${plural(unplaced.length, "other active goal has", "other active goals have")} no horizon set, so they are not counted here.`
+        : undefined,
+      sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  if (aspect === "paused" || aspect === "achieved" || aspect === "abandoned") {
+    const status: GoalStatus = aspect === "paused" ? "paused" : aspect === "achieved" ? "completed" : "abandoned";
+    const matching = goals.filter((g) => g.status === status);
+    const label = GOAL_LIFECYCLE_LABEL[status].toLowerCase();
+    if (matching.length === 0) {
+      return { ...noEvidence(plan), heading: `No goal is marked ${label}`, summary: `No goal currently has that status.` };
+    }
+    const items = matching.map((g) => {
+      // The DATE the transition happened, when the record holds one. An
+      // `updatedAt` is not that date — a title edit moves it too.
+      const t = lastTransition(g, (e) => e.toStatus === status);
+      return goalItem(g, g.title, t ? "goal.history[].toStatus" : "goal.status",
+        t ? undefined : "no transition date recorded", t?.at.slice(0, 10) as DayKey | undefined);
+    });
+    const undated = items.filter((i) => !i.day).length;
+    return {
+      status: undated ? "PARTIALLY_ANSWERED" : "ANSWERED",
+      heading: `Goals ${label}`,
+      summary: `${plural(items.length, "goal is", "goals are")} marked ${label}.`,
+      items,
+      limitation: undated
+        ? `${plural(undated, "of them was", "of them were")} marked before Conqify recorded goal transitions, so the date is not known.`
+        : undefined,
+      sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  if (aspect === "replaced") {
+    const replaced = goals.filter((g) => g.status === "replaced" || g.successorGoalId);
+    if (replaced.length === 0) {
+      return { ...noEvidence(plan), heading: "No goal was replaced", summary: "No goal records a successor." };
+    }
+    const items = replaced.map((g) => {
+      const successor = g.successorGoalId ? byId.get(g.successorGoalId) : undefined;
+      const t = lastTransition(g, (e) => e.kind === "replaced");
+      return goalItem(
+        g, g.title, "goal.successorGoalId",
+        // §17. A deleted successor is reported as deleted. The id is never shown.
+        successor ? `became “${successor.title}”` : "the goal it became has since been deleted",
+        t?.at.slice(0, 10) as DayKey | undefined,
+      );
+    });
+    const gone = items.filter((i) => i.detail?.includes("deleted")).length;
+    return {
+      status: gone ? "PARTIALLY_ANSWERED" : "ANSWERED",
+      heading: "Goals you replaced",
+      summary: `${plural(items.length, "goal was", "goals were")} replaced by another.`,
+      items,
+      limitation: gone ? `${plural(gone, "successor has", "successors have")} since been deleted, so Conqify cannot name ${gone === 1 ? "it" : "them"}.` : undefined,
+      sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  if (aspect === "no_path") {
+    const missing = goalsMissingPath(state);
+    if (missing.length === 0) {
+      return { ...noEvidence(plan), heading: "Every active goal has a project", summary: "No active goal is without one." };
+    }
+    const items = missing.map((g) => goalItem(g, g.title, "project.goalId", GOAL_PATH_MISSING.toLowerCase()));
+    return {
+      status: "ANSWERED",
+      heading: "Goals with no active project",
+      summary: `${plural(items.length, "active goal has", "active goals have")} no active project linked to ${items.length === 1 ? "it" : "them"}.`,
+      items,
+      // The limitation the sprint measured rather than hid.
+      limitation: "This looks at linked projects only. A goal whose work is tracked as directly-linked actions still appears here.",
+      sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  // "moved" — progress evidence, and ONLY the four qualifying kinds (§19).
+  const from = range.startKey, to = range.endKey;
+  const inRange = (iso?: string) => {
+    const d = iso?.slice(0, 10);
+    return !!d && d >= from && d <= to;
+  };
+  const moved: MemoryAnswerItem[] = [];
+  for (const g of goals) {
+    const projects = goalLinkedProjects(state, g.id);
+    const projectIds = new Set(projects.map((p) => p.id));
+    const doneActions = (state.nextActions ?? []).filter((a) =>
+      a.status === "completed"
+      && (a.goalId === g.id || (a.projectId ? projectIds.has(a.projectId) : false))
+      && inRange(a.completedAt ?? a.updatedAt));
+    const doneProjects = projects.filter((p) => p.status === "completed" && inRange(p.updatedAt));
+    if (doneActions.length === 0 && doneProjects.length === 0) continue;
+    const parts: string[] = [];
+    if (doneActions.length) parts.push(`${plural(doneActions.length, "action")} completed`);
+    if (doneProjects.length) parts.push(`${plural(doneProjects.length, "project")} completed`);
+    moved.push(goalItem(g, g.title, "action.completedAt | project.status", parts.join(" · ")));
+  }
+  if (moved.length === 0) {
+    return {
+      ...noEvidence(plan),
+      heading: `No goal moved forward${rangeSuffix(plan, range, implicit)}`,
+      summary: "No action or project under a goal was completed in that period.",
+      limitation: GOAL_PROGRESS_LIMITATION,
+    };
+  }
+  return {
+    status: "ANSWERED",
+    heading: `Goals that moved forward${rangeSuffix(plan, range, implicit)}`,
+    summary: `${plural(moved.length, "goal", "goals")} had work completed under ${moved.length === 1 ? "it" : "them"}.`,
+    items: moved,
+    limitation: GOAL_PROGRESS_LIMITATION,
+    sourceRefs: refsOf(moved), plan,
+  };
+}
+
+/** Said on every progress answer, because the exclusion is the point (§19). */
+const GOAL_PROGRESS_LIMITATION =
+  "Progress counts completed actions and projects only. Editing a goal, changing its horizon or moving its target date is recorded, but is not progress.";
 
 // -------------------------------------------------------------- COMPLETION --
 
@@ -1021,6 +1212,7 @@ function answerOpenWork(state: StoreState, plan: MemoryQueryPlan, today: DayKey,
     blocked: (n) => `${plural(n, "item is", "items are")} blocked by unfinished work`,
     due_soon: (n) => `${plural(n, "item is", "items are")} due soon`,
     project_no_next_action: (n) => `${plural(n, "project has", "projects have")} no executable next action`,
+    goal_path_missing: (n) => `${plural(n, "goal has", "goals have")} no active project`,
     dormant: (n) => `${plural(n, "open item has", "open items have")} no recorded activity`,
   };
   const parts = [...counted.entries()]

@@ -39,14 +39,50 @@ export function isProjectComplete(project: Project): boolean {
 }
 
 /**
- * A goal's progress (0–100). Manual override wins; otherwise the average of its
- * (non-abandoned) projects' progress. A goal with no live projects is 100 only
- * when its status is explicitly "completed", else 0.
+ * Whether a project's progress rests on something countable (LIFEOS-078).
+ *
+ * Milestones, an explicit completion, or the user's own override. Anything else
+ * makes `projectProgress` return 0 meaning "nothing recorded", which is the
+ * absence of evidence rather than a measurement of zero.
  */
-export function goalProgress(goal: Goal, projects: Project[]): number {
+export function projectProgressMeasurable(project: Project): boolean {
+  return typeof project.manualProgress === "number"
+    || milestoneCounts(project).total > 0
+    || project.status === "completed";
+}
+
+/**
+ * A goal's progress (0–100), or `null` when it cannot be measured.
+ *
+ * Manual override wins. Otherwise it is the average of the goal's live
+ * (non-abandoned) projects — the same arithmetic as before — but ONLY when
+ * every one of them is measurable.
+ *
+ * The `null` is the LIFEOS-078 change, and it covers two cases that were both
+ * fabrication:
+ *
+ *  1. A goal with no projects rendered as "0% complete" with a bar at zero.
+ *     Nothing had been measured; the absence of evidence was being reported as
+ *     a measurement, in the one place a person looks to ask whether their life
+ *     is moving.
+ *  2. An UNMEASURABLE project inside the average was worth zero. A goal with a
+ *     finished project and a fresh one with no milestones came out at "50%",
+ *     and half of that number was the same fabrication hiding inside a mean.
+ *
+ * Averaging only the measurable projects was rejected as the fix: it would
+ * report that same goal as 100%, which overstates in the other direction. When
+ * part of the picture is genuinely unknown, the honest answer is that the whole
+ * is unknown — the counts on the goal page carry what IS known.
+ *
+ * A goal whose status is explicitly "completed" is still 100 with no projects,
+ * because the user said so — that is a recorded fact, not a derivation.
+ */
+export function goalProgress(goal: Goal, projects: Project[]): number | null {
   if (typeof goal.manualProgress === "number") return clampPct(goal.manualProgress);
   const live = projects.filter((p) => p.goalId === goal.id && p.status !== "abandoned");
-  if (live.length === 0) return goal.status === "completed" ? 100 : 0;
+  if (live.length === 0 || !live.every(projectProgressMeasurable)) {
+    return goal.status === "completed" ? 100 : null;
+  }
   const sum = live.reduce((acc, p) => acc + projectProgress(p), 0);
   return clampPct(sum / live.length);
 }

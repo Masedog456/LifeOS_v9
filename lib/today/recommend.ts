@@ -49,6 +49,7 @@ import { occurrenceFor } from "@/lib/mvpStore";
 import { commitmentFactsFor } from "@/lib/commitment/signals";
 import { minutesOf, type LocalTime } from "@/lib/time/localtime";
 import type { TodayIndexes } from "@/lib/today/indexes";
+import { ancestryExplanation } from "@/lib/execution/alignment";
 
 /** Said verbatim when nothing is grounded enough. Never a filler suggestion. */
 export const NO_STANDOUT =
@@ -74,7 +75,12 @@ export interface Reason {
     | "planned_today"
     | "fits_before_event"
     | "only_candidate"
-    | "linked_constitution";
+    | "linked_constitution"
+    // LIFEOS-078. Which goal this action serves, from the links the user made.
+    // Deliberately NOT in GROUNDING_CODES and deliberately appended AFTER the
+    // ordering has run: ancestry is context, exactly like `linked_constitution`,
+    // and horizon never influences what Today suggests.
+    | "supports_goal";
   /** Plain language, shown as-is. Factual, never a judgment. */
   text: string;
 }
@@ -444,11 +450,25 @@ export function recommendNextAction(
   return {
     recommendation: {
       action: best.action,
-      reasons: best.reasons,
+      reasons: withAncestry(state, best.action, best.reasons),
       counterfactual: scored.length > 1 ? counterfactualFor(best, scored[1], today) : undefined,
     },
     consideredCount: candidates.length,
   };
+}
+
+/**
+ * Append "supports [Goal] through [Project]" — after the decision, never before.
+ *
+ * The ordering has already run by the time this is called, so ancestry cannot
+ * move a recommendation up or down, and it is absent from `GROUNDING_CODES` so
+ * it can never make an ungrounded action look explainable. It says which
+ * direction the work serves, which is the whole of what LIFEOS-078 wanted here.
+ */
+function withAncestry(state: StoreState, action: NextAction, reasons: Reason[]): Reason[] {
+  const text = ancestryExplanation(state, action);
+  if (!text) return reasons;
+  return [...reasons, { code: "supports_goal", text: text.replace(/\.$/, "") }];
 }
 
 /**

@@ -33,7 +33,7 @@ import type { StoreState } from "@/types/mvp";
  * A client constant may say what the client EXPECTS. It may never masquerade as
  * deployed truth — that substitution is exactly what F-3a was.
  */
-export const CLIENT_CONTRACT = 2;
+export const CLIENT_CONTRACT = 3;
 
 /**
  * Which server capability each domain needs, and at what level.
@@ -46,6 +46,12 @@ export const CLIENT_CONTRACT = 2;
 export const DOMAIN_CAPABILITY_REQUIREMENTS: Partial<Record<keyof StoreState, Record<string, number>>> = {
   notes: { guarded_notes: 2 },
   nextActions: { guarded_next_actions: 2 },
+  // LIFEOS-078. `goalToRow` emits horizon, successor_goal_id and history on
+  // EVERY push — the row shape is unconditional — so against a pre-0047
+  // database PostgREST rejects the row and the whole domain stops syncing.
+  // Omitting the columns when unset would not fix that; it would only delay
+  // the failure until the first person sets a horizon.
+  goals: { goal_horizons: 1 },
 };
 
 export interface ServerContract {

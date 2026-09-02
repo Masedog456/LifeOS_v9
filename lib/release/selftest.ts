@@ -40,24 +40,24 @@ export function runReleaseSelfTests(): SelfTestReport {
   ok("1.1 version alignment ok", va.ok, va.problems.join("; "));
   ok("1.2 release tag is v1.0.0-rc1", RELEASE_TAG === "v1.0.0-rc1");
   ok("1.3 app version matches tag", `v${releaseVersions().appVersion}` === RELEASE_TAG);
-  ok("1.4 migration version 46", releaseVersions().migrationVersion === 46);
+  ok("1.4 migration version 47", releaseVersions().migrationVersion === 47);
   ok("1.5 supported migration range sane", releaseVersions().supportedMigrationRange[0] <= releaseVersions().supportedMigrationRange[1]);
   ok("1.6 observed-count mismatch is caught", !checkVersionAlignment({ observedMigrationCount: 30 }).ok);
   ok("1.7 observed app-version mismatch is caught", !checkVersionAlignment({ observedAppVersion: "9.9.9" }).ok);
 
   // ---- 2. Migrations ----
-  const dense = validateMigrationList(Array.from({ length: 46 }, (_, i) => i + 1));
-  ok("2.1 dense 1..46 valid", dense.ok, dense.problems.join("; "));
+  const dense = validateMigrationList(Array.from({ length: 47 }, (_, i) => i + 1));
+  ok("2.1 dense 1..47 valid", dense.ok, dense.problems.join("; "));
   ok("2.2 duplicate number rejected", !validateMigrationList([1, 1, 2]).ok);
   ok("2.3 gap rejected", !validateMigrationList([1, 3]).ok);
   ok("2.4 wrong count rejected", !validateMigrationList(Array.from({ length: 36 }, (_, i) => i + 1)).ok);
-  ok("2.5 eighteen checkpoints", MIGRATION_CHECKPOINTS.length === 18); // +pre-constitution (056) +pre-successor-cascade (056D) +pre-calendar (067) +pre-integrations (068) +pre-due-time-recurrence (074) +pre-cas-guard (076B)
+  ok("2.5 nineteen checkpoints", MIGRATION_CHECKPOINTS.length === 19); // +pre-constitution (056) +pre-successor-cascade (056D) +pre-calendar (067) +pre-integrations (068) +pre-due-time-recurrence (074) +pre-cas-guard (076B) +pre-goal-horizons (078)
   ok("2.6 checkpoints cover required ids", ["pre-reading", "pre-workspaces", "pre-actions", "pre-planning", "pre-maintenance", "pre-security", "pre-reading-ingestion", "pre-reading-originals", "pre-reading-semantic", "current"].every((c) => MIGRATION_CHECKPOINTS.some((m) => m.id === c)));
-  // LIFEOS-074 spent 0043 on the due-time/recurrence contract repair — approved
-  // under the stop-and-report rule — so the one-unplanned-migration hatch moves
-  // to 0044, exactly as it moved for 0040, 0041 and 0042 before it.
-  ok("2.7 only the 0047 release fix is allowed", isAllowedReleaseFixMigration("0047_v1_release_fix.sql") && !isAllowedReleaseFixMigration("0048_extra.sql"));
-  ok("2.8 …and the number the head now occupies is NOT a free hatch", !isAllowedReleaseFixMigration("0046_v1_release_fix.sql"));
+  // Every planned migration moves the one-unplanned-migration hatch forward by
+  // one and spends none of it. LIFEOS-078's 0047 is the eighth such move, so
+  // the hatch is 0048 and the number 0047 now occupies is no longer free.
+  ok("2.7 only the 0048 release fix is allowed", isAllowedReleaseFixMigration("0048_v1_release_fix.sql") && !isAllowedReleaseFixMigration("0049_extra.sql"));
+  ok("2.8 …and the number the head now occupies is NOT a free hatch", !isAllowedReleaseFixMigration("0047_v1_release_fix.sql"));
 
   // ---- 3. Routes ----
   const rr = validateRoutes();

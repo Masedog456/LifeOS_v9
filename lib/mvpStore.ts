@@ -110,6 +110,8 @@ import type {
   SessionType,
   SessionActivityKind,
   Goal,
+  GoalHistoryEvent,
+  GoalHorizon,
   Project,
   Milestone,
   ExecutionPriority,
@@ -156,6 +158,11 @@ import { shouldRecord, appendActivity, resumePatchFor } from "@/lib/workspaces/a
 import { mergeResume } from "@/lib/workspaces/resume";
 import { setCurrentWorkspace, forgetWorkspace } from "@/lib/workspaces/current";
 import { toggleMilestoneDone } from "@/lib/execution/progress";
+import { isGoalHorizon } from "@/lib/execution/horizons";
+import {
+  appendGoalHistory, goalCreatedEvent, goalHorizonEvent, goalReplacedEvent,
+  goalStatusEvent, goalTargetDateEvent,
+} from "@/lib/execution/lifecycle";
 import { todayKey as reviewTodayKey, currentOffsetMinutes } from "@/lib/reviews/dates";
 import { captureStatus, effectiveText } from "@/lib/inbox/capture-status";
 import { makeEvent, appendHistory } from "@/lib/inbox/history";
@@ -595,6 +602,11 @@ export function hydrate() {
           tags: asArray<string>(g?.tags),
           linkedWorkspaces: asArray<RecordRefLite>(g?.linkedWorkspaces),
           linkedKnowledge: asArray<RecordRefLite>(g?.linkedKnowledge),
+          // LIFEOS-078. A value outside the five horizons is not shown as a
+          // label the product does not have — it degrades to "not set", which
+          // is what a goal written before this sprint holds anyway.
+          horizon: isGoalHorizon(g?.horizon) ? g.horizon : undefined,
+          history: asArray<GoalHistoryEvent>(g?.history),
         })),
         projects: asArray<Project>(parsed.projects).map((p) => ({
           ...p,
@@ -3656,7 +3668,8 @@ function bumpProject(projectId: string, mutate: (p: Project) => Project): void {
   setState({ ...state, projects: state.projects.map((p) => (p.id === projectId ? { ...mutate(p), updatedAt: now() } : p)) });
 }
 
-export function createGoal(input: { title: string; description?: string; priority?: ExecutionPriority; targetDate?: string }): string {
+export function createGoal(input: { title: string; description?: string; priority?: ExecutionPriority; targetDate?: string; horizon?: GoalHorizon }): string {
+  const at = now();
   const goal: Goal = {
     id: id(),
     title: input.title.trim() || "Untitled goal",
@@ -3664,29 +3677,104 @@ export function createGoal(input: { title: string; description?: string; priorit
     status: "active",
     priority: input.priority ?? "medium",
     targetDate: input.targetDate,
+    // LIFEOS-078: only ever what the caller passed. A goal with no stated
+    // horizon keeps none — nothing is inferred from the title or the date.
+    horizon: isGoalHorizon(input.horizon) ? input.horizon : undefined,
+    history: [goalCreatedEvent(id(), at)],
     notes: "",
     tags: [],
     linkedWorkspaces: [],
     linkedKnowledge: [],
-    createdAt: now(),
-    updatedAt: now(),
+    createdAt: at,
+    updatedAt: at,
   };
   setState({ ...state, goals: [goal, ...state.goals] });
   setCurrentGoal(goal.id);
   return goal.id;
 }
 
+/**
+ * Edit a goal's fields, recording the transitions that matter (LIFEOS-078).
+ *
+ * A status change and a target-date change are appended to `history`; a title,
+ * description, priority, notes or tags edit is not. That split is the point: if
+ * every edit wrote an entry, "when did I abandon this?" would be buried under
+ * fifty typo fixes, and the record would stop being evidence.
+ *
+ * `status` is NOT allowed to reach `replaced` here — a replacement needs a
+ * successor to point at, so it goes through `replaceGoal`.
+ */
 export function updateGoal(goalId: string, patch: Partial<Pick<Goal, "title" | "description" | "status" | "priority" | "targetDate" | "notes" | "tags">>): void {
-  bumpGoal(goalId, (g) => ({
-    ...g,
-    ...("title" in patch ? { title: (patch.title ?? "").trim() || g.title } : {}),
-    ...("description" in patch ? { description: patch.description ?? g.description } : {}),
-    ...("status" in patch ? { status: patch.status ?? g.status } : {}),
-    ...("priority" in patch ? { priority: patch.priority ?? g.priority } : {}),
-    ...("targetDate" in patch ? { targetDate: patch.targetDate } : {}),
-    ...("notes" in patch ? { notes: patch.notes ?? g.notes } : {}),
-    ...("tags" in patch ? { tags: patch.tags ?? g.tags } : {}),
-  }));
+  bumpGoal(goalId, (g) => {
+    const at = now();
+    const nextStatus = "status" in patch && patch.status && patch.status !== "replaced" ? patch.status : g.status;
+    const targetChanged = "targetDate" in patch && patch.targetDate !== g.targetDate;
+
+    let next: Goal = {
+      ...g,
+      ...("title" in patch ? { title: (patch.title ?? "").trim() || g.title } : {}),
+      ...("description" in patch ? { description: patch.description ?? g.description } : {}),
+      status: nextStatus,
+      ...("priority" in patch ? { priority: patch.priority ?? g.priority } : {}),
+      ...("targetDate" in patch ? { targetDate: patch.targetDate } : {}),
+      ...("notes" in patch ? { notes: patch.notes ?? g.notes } : {}),
+      ...("tags" in patch ? { tags: patch.tags ?? g.tags } : {}),
+    };
+    if (nextStatus !== g.status) next = appendGoalHistory(next, goalStatusEvent(id(), at, g.status, nextStatus));
+    if (targetChanged) next = appendGoalHistory(next, goalTargetDateEvent(id(), at));
+    return next;
+  });
+}
+
+/**
+ * Say how far away a goal is — or clear that (LIFEOS-078).
+ *
+ * The user's statement, recorded as such. Passing an unrecognised value clears
+ * the horizon rather than storing a word the product cannot render, and setting
+ * the horizon a goal already has writes no history entry, so re-selecting the
+ * same option in the UI does not pad the record.
+ */
+export function setGoalHorizon(goalId: string, horizon: GoalHorizon | undefined, note?: string): void {
+  bumpGoal(goalId, (g) => {
+    const to = isGoalHorizon(horizon) ? horizon : undefined;
+    if (to === g.horizon) return g;
+    return appendGoalHistory({ ...g, horizon: to }, goalHorizonEvent(id(), now(), g.horizon, to, note));
+  });
+}
+
+/**
+ * Record that one goal became another (LIFEOS-078).
+ *
+ * The predecessor keeps everything it had — title, why, horizon, target, links
+ * and history — and gains a status of `replaced` plus a pointer to what it
+ * became. The successor is an ordinary goal and is not modified: a replacement
+ * is a fact about the OLD goal, and writing into the new one would make the two
+ * records able to disagree.
+ *
+ * Refused when the two ids are the same, when either goal is missing, or when
+ * the link would close a cycle — a goal cannot be its own future.
+ */
+export function replaceGoal(goalId: string, successorGoalId: string, note?: string): boolean {
+  const predecessor = state.goals.find((g) => g.id === goalId);
+  const successor = state.goals.find((g) => g.id === successorGoalId);
+  if (!predecessor || !successor || goalId === successorGoalId) return false;
+
+  // Walk forward from the successor: if this goal is already somewhere ahead in
+  // the chain, the link would make the lineage loop.
+  const seen = new Set<string>([successor.id]);
+  let cursor: Goal | undefined = successor;
+  while (cursor?.successorGoalId) {
+    if (cursor.successorGoalId === goalId) return false;
+    if (seen.has(cursor.successorGoalId)) break;
+    seen.add(cursor.successorGoalId);
+    cursor = state.goals.find((g) => g.id === cursor!.successorGoalId);
+  }
+
+  bumpGoal(goalId, (g) => appendGoalHistory(
+    { ...g, status: "replaced", successorGoalId },
+    goalReplacedEvent(id(), now(), g.status, successorGoalId, note),
+  ));
+  return true;
 }
 
 /** Set (or clear, with undefined) a goal's manual progress override (0–100). */
@@ -3697,7 +3785,13 @@ export function setGoalProgress(goalId: string, value: number | undefined): void
 export function deleteGoal(goalId: string): void {
   setState({
     ...state,
-    goals: state.goals.filter((g) => g.id !== goalId),
+    goals: state.goals
+      .filter((g) => g.id !== goalId)
+      // LIFEOS-078: clear pointers to the deleted goal, mirroring 0047's
+      // ON DELETE SET NULL so local and remote agree. The predecessor stays
+      // `replaced` — it WAS replaced; it simply can no longer name by what.
+      // Its history entry keeps only the id, never the deleted goal's words.
+      .map((g) => (g.successorGoalId === goalId ? { ...g, successorGoalId: undefined, updatedAt: now() } : g)),
     // Orphan (don't delete) the goal's projects — they remain valid work.
     projects: state.projects.map((p) => (p.goalId === goalId ? { ...p, goalId: undefined, updatedAt: now() } : p)),
   });

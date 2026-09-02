@@ -2248,8 +2248,45 @@ export interface SessionActivityEvent {
  * deterministically (see the progress engine); `manualProgress` is an optional
  * user override. No AI, no auto-planning, no auto-prioritization.
  */
-export type GoalStatus = "active" | "paused" | "completed" | "abandoned" | "someday";
+export type GoalStatus = "active" | "paused" | "completed" | "abandoned" | "someday" | "replaced";
 export type ExecutionPriority = "low" | "medium" | "high";
+
+/**
+ * How far away in a life a goal sits (LIFEOS-078).
+ *
+ * SEMANTIC distance, never arithmetic. Nothing derives it from `targetDate` and
+ * nothing derives a date from it: a `life` goal usually has no target date at
+ * all, and a goal with a date next month may still be a `life` goal the user is
+ * taking one step toward. The user says which; the product never guesses.
+ *
+ * Named `GoalHorizon`, never `Horizon`, because `PlanningHorizon`
+ * (`lib/planning/horizon.ts`) already owns that word for a different noun —
+ * when the user has chosen to WORK on an action. Two unrelated meanings behind
+ * one identifier is exactly what `lib/design/terminology.ts` exists to prevent.
+ */
+export type GoalHorizon = "now" | "near" | "medium" | "long" | "life";
+
+/**
+ * One entry in a goal's append-only lifecycle record (LIFEOS-078).
+ *
+ * Compact metadata only — never a copy of the goal's title, description or
+ * notes, matching `ActionHistoryEvent`. It exists so the product can say WHEN
+ * something changed and FROM WHAT, rather than inferring a transition from
+ * `updatedAt` (which a title edit also moves) and calling that memory.
+ */
+export interface GoalHistoryEvent {
+  id: string;
+  at: ISO;
+  kind: "created" | "status" | "horizon" | "replaced" | "target_date";
+  fromStatus?: GoalStatus;
+  toStatus?: GoalStatus;
+  fromHorizon?: GoalHorizon;
+  toHorizon?: GoalHorizon;
+  /** The goal this one became, when `kind` is `replaced` (a reference, never a copy). */
+  successorGoalId?: string;
+  /** The user's own words about the change. Never generated. */
+  note?: string;
+}
 
 export interface Goal {
   id: string;
@@ -2259,6 +2296,22 @@ export interface Goal {
   priority: ExecutionPriority;
   /** Target completion date (yyyy-mm-dd) — a plain date, no calendar integration. */
   targetDate?: string;
+  /**
+   * How far away this goal sits (LIFEOS-078). Undefined = the user has not said,
+   * which is what every goal created before this sprint holds. Never inferred.
+   */
+  horizon?: GoalHorizon;
+  /**
+   * The goal this one BECAME when it was replaced (LIFEOS-078). Set on the
+   * PREDECESSOR only — the reverse direction is a lookup, not a stored fact.
+   */
+  successorGoalId?: string;
+  /**
+   * Append-only lifecycle record (LIFEOS-078). Optional because goals persisted
+   * before this sprint genuinely have none — declaring it required would make
+   * the type lie about what is on disk. Read it through `goalHistory()`.
+   */
+  history?: GoalHistoryEvent[];
   notes: string;
   tags: string[];
   /** Optional manual progress override (0–100). When set, it wins over derived. */

@@ -127,7 +127,7 @@ export async function runCommitmentSelfTests(): Promise<SelfTestReport> {
   // ================================ 1. the shape of the layer
 
   {
-    eq("1.1 eight signal kinds, in the approved order", COMMITMENT_ORDER.length, 8);
+    eq("1.1 nine signal kinds, in the approved order", COMMITMENT_ORDER.length, 9);
     eq("1.2 …starting with overdue", COMMITMENT_ORDER[0], "overdue");
     eq("1.3 …and ending with dormant", COMMITMENT_ORDER[COMMITMENT_ORDER.length - 1], "dormant");
     ok("1.4 every kind has a Today section (§16)",

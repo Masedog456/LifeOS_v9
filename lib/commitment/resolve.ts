@@ -63,12 +63,13 @@ export type ResolutionKind =
   | "open_blocker"
   | "set_follow_up"
   | "stop_waiting"
-  | "create_project_next_action";
+  | "create_project_next_action"
+  | "create_goal_project";
 
 export const RESOLUTION_KINDS: readonly ResolutionKind[] = [
   "complete_action", "complete_occurrence", "defer", "reschedule",
   "open_record", "open_blocker", "set_follow_up", "stop_waiting",
-  "create_project_next_action",
+  "create_project_next_action", "create_goal_project",
 ];
 
 /**
@@ -124,6 +125,9 @@ export const RESOLUTIONS_BY_KIND: Record<CommitmentKind, readonly ResolutionKind
   blocked: ["open_blocker", "open_record"],
   due_soon: ["open_record", "reschedule", "defer"],
   project_no_next_action: ["create_project_next_action", "open_record"],
+  // LIFEOS-078. The move is to give the direction some work, or to open the
+  // goal and decide it no longer deserves any. Neither is done for the user.
+  goal_path_missing: ["create_goal_project", "open_record"],
   dormant: ["open_record", "reschedule", "defer", "complete_action"],
 };
 
@@ -153,7 +157,9 @@ export function rescheduleChoices(today: DayKey = todayKey()): ResolutionChoice[
 }
 
 const hrefFor = (ref: RecordRefLite): string =>
-  ref.kind === "project" ? `/project/${ref.id}` : `/actions/${ref.id}`;
+  ref.kind === "project" ? `/project/${ref.id}`
+    : ref.kind === "goal" ? `/goal/${ref.id}`
+    : `/actions/${ref.id}`;
 
 export interface ResolveContext {
   today?: DayKey;
@@ -223,7 +229,11 @@ function build(
 
   switch (kind) {
     case "open_record":
-      return { ...base, label: ref.kind === "project" ? "Open project" : "Open", authority: "navigate", href: hrefFor(ref) };
+      return {
+        ...base,
+        label: ref.kind === "project" ? "Open project" : ref.kind === "goal" ? "Open goal" : "Open",
+        authority: "navigate", href: hrefFor(ref),
+      };
 
     case "complete_action": {
       // A recurring action is a standing source. Completing IT would end the
@@ -324,6 +334,20 @@ function build(
         // §16. The user writes it. Conqify does not invent a commitment and
         // attribute it to them.
         explanation: `Adds an action to ${project.title}. You write it.`,
+      };
+    }
+
+    case "create_goal_project": {
+      if (ref.kind !== "goal") return null;
+      const goal = (state.goals ?? []).find((g) => g.id === ref.id);
+      if (!goal) return null;
+      return {
+        ...base, label: "Add a project", authority: "navigate",
+        href: `/projects?new=1&goal=${goal.id}`,
+        // The same boundary as `create_project_next_action`: the destination is
+        // a form, not a created record. Conqify does not invent work and hand
+        // it to the user under their own name.
+        explanation: `Opens a new project for ${goal.title}. You write it.`,
       };
     }
 

@@ -234,10 +234,14 @@ export async function runMemoryQuerySelfTests(): Promise<SelfTestReport> {
     // into the SAME deterministic recommender Today uses, never a second guidance path.
     // LIFEOS-073 added TOMORROW as the tenth — and the ONLY forward-looking
     // class. Every other kind asks what happened, which is why the future-range
-    // refusal still guards all nine of them (asserted at 1.16 below).
-    eq("1.13 the router supports exactly the ten named classes",
+    // refusal still guards the rest of them (asserted at 1.16 below).
+    // LIFEOS-078 added GOALS as the eleventh: a question about a goal's
+    // lifecycle or direction names a STATE rather than a time window, and
+    // routing it through COMPLETION answered "which goals did I achieve" with a
+    // list of finished actions.
+    eq("1.13 the router supports exactly the eleven named classes",
       [...MEMORY_QUERY_KINDS].sort().join(","),
-      ["COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME", "NEXT_ACTION", "TOMORROW"].sort().join(","));
+      ["COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME", "NEXT_ACTION", "TOMORROW", "GOALS"].sort().join(","));
     eq("1.14 “what should I do next” routes to NEXT_ACTION",
       planMemoryQuery("What should I do next?", { today: TODAY })?.kind, "NEXT_ACTION");
     eq("1.15 …and so does “what's next”",

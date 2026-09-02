@@ -43,7 +43,16 @@ const iso = (h = 8) => `2026-08-29T${String(h).padStart(2, "0")}:00:00.000Z`;
 const e = () => emptyStoreState();
 const act = (p) => ({ description: "", status: "open", updatedAt: iso(8), notes: "", linkedEntityRefs: [], tags: [], estimatedSize: "unspecified", energy: "unspecified", order: 1, history: [], createdAt: iso(8), ...p });
 const nt = (p) => ({ title: "N", body: "b", createdAt: iso(8), updatedAt: iso(8), tags: [], linkedEntityRefs: [], ...p });
-const goal = (p) => ({ title: "G", description: "", status: "active", horizon: "year", linkedEntityRefs: [], tags: [], createdAt: iso(8), updatedAt: iso(8), ...p });
+const goal = (p) => ({ title: "G", description: "", status: "active", priority: "medium", notes: "", tags: [], linkedWorkspaces: [], linkedKnowledge: [], history: [], createdAt: iso(8), updatedAt: iso(8), ...p });
+/**
+ * An UNGATED domain, for the assertions about what keeps syncing.
+ *
+ * `goals` used to play this part. It stopped being able to when LIFEOS-078 gave
+ * it a capability requirement of its own — an exemplar of "a domain nothing
+ * gates" has to be a domain nothing gates, so the assertions moved to
+ * `projects` rather than being quietly weakened to accept the new behaviour.
+ */
+const proj = (p) => ({ title: "P", description: "", status: "active", priority: "medium", notes: "", milestones: [], relatedDocuments: [], relatedEntities: [], createdAt: iso(8), updatedAt: iso(8), ...p });
 
 /**
  * A backend whose advertised contract is settable per test.
@@ -82,7 +91,16 @@ function backend({ contractPayload, contractError = false, guardMissing = false 
     client: { from, rpc, auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) } } };
 }
 
-const FULL = { contract: 2, min_client_contract: 1, capabilities: { guarded_notes: 2, guarded_next_actions: 2 } };
+/**
+ * The contract this client FULLY matches.
+ *
+ * Tracks the shipped head rather than a frozen 0046 snapshot: its meaning here
+ * is "a database that offers everything this build needs", so it gained
+ * `goal_horizons` when LIFEOS-078 gave `goals` a requirement. Freezing it at
+ * 0046 would have turned every "compatible" assertion below into an assertion
+ * about a database this client is NOT fully compatible with.
+ */
+const FULL = { contract: 3, min_client_contract: 1, capabilities: { guarded_notes: 2, guarded_next_actions: 2, goal_horizons: 1 } };
 
 /** Attach a backend and probe, as session acquisition does. */
 async function attach(b) {
@@ -96,7 +114,8 @@ function world(tag) {
   return { ...e(),
     notes: [nt({ id: "n1", body: `note ${tag}` })],
     nextActions: [act({ id: "a1", title: `action ${tag}` })],
-    goals: [goal({ id: "g1", title: `goal ${tag}` })] };
+    goals: [goal({ id: "g1", title: `goal ${tag}` })],
+    projects: [proj({ id: "p1", title: `project ${tag}` })] };
 }
 
 (async () => {
@@ -108,25 +127,25 @@ function world(tag) {
     ok("A1 an exactly-matching contract is compatible", v.state === "compatible" && v.gatedDomains.length === 0, JSON.stringify(v.state));
 
     // §18 — a NEWER server is not an error.
-    const newer = K.evaluateContract(K.parseContract({ contract: 3, min_client_contract: 1, capabilities: { guarded_notes: 2, guarded_next_actions: 2, something_new: 4 } }));
+    const newer = K.evaluateContract(K.parseContract({ contract: 4, min_client_contract: 1, capabilities: { guarded_notes: 2, guarded_next_actions: 2, goal_horizons: 1, something_new: 4 } }));
     ok("A2 §18 a server AHEAD of the client is compatible when its capabilities still cover us",
       newer.state === "compatible" && newer.gatedDomains.length === 0, JSON.stringify(newer));
 
     // §19 — the server declares this client too old.
-    const tooOld = K.evaluateContract(K.parseContract({ contract: 4, min_client_contract: 3, capabilities: { guarded_notes: 3, guarded_next_actions: 3 } }));
+    const tooOld = K.evaluateContract(K.parseContract({ contract: 5, min_client_contract: 4, capabilities: { guarded_notes: 3, guarded_next_actions: 3 } }));
     ok("A3 §19 a client below min_client_contract is globally incompatible",
       tooOld.state === "incompatible" && tooOld.clientTooOld, JSON.stringify(tooOld.state));
 
     // §17 — the 0045 incident, as a contract.
     const old = K.evaluateContract(K.parseContract({ contract: 1, min_client_contract: 1, capabilities: {} }));
-    ok("A4 §17 a database without the guarded capability gates exactly the guarded domains",
+    ok("A4 §17 a database with NO advertised capability gates exactly the domains that need one",
       old.state === "partially_compatible" &&
-      old.gatedDomains.slice().sort().join(",") === "nextActions,notes", JSON.stringify(old.gatedDomains));
-    ok("A5 §11 …and nothing else — the other 44 domains are never gated",
-      old.gatedDomains.length === 2);
+      old.gatedDomains.slice().sort().join(",") === "goals,nextActions,notes", JSON.stringify(old.gatedDomains));
+    ok("A5 §11 …and nothing else — the other 43 domains are never gated",
+      old.gatedDomains.length === 3);
 
     // A partial capability set gates only the domain that is short.
-    const half = K.evaluateContract(K.parseContract({ contract: 2, min_client_contract: 1, capabilities: { guarded_next_actions: 2 } }));
+    const half = K.evaluateContract(K.parseContract({ contract: 3, min_client_contract: 1, capabilities: { guarded_next_actions: 2, goal_horizons: 1 } }));
     ok("A6 §11 one missing capability gates one domain",
       half.gatedDomains.join(",") === "notes", JSON.stringify(half.gatedDomains));
   }
@@ -157,8 +176,8 @@ function world(tag) {
 
     const v = K.evaluateContract(null);
     ok("B2 §25 …and an unparseable answer is 'unavailable', never 'compatible'", v.state === "unavailable", v.state);
-    ok("B3 §25 …which gates the guarded domains rather than assuming them safe",
-      v.gatedDomains.length === 2, JSON.stringify(v.gatedDomains));
+    ok("B3 §25 …which gates every domain that needs a capability, rather than assuming them safe",
+      v.gatedDomains.length === 3, JSON.stringify(v.gatedDomains));
     ok("B4 §25 …and is NOT reported as the client being too old — we simply do not know",
       v.clientTooOld === false);
 
@@ -191,8 +210,8 @@ function world(tag) {
       !b.log.some((l) => l === "rpc:notes" || l === "rpc:next_actions"), JSON.stringify(b.log));
     ok("C3 §8 the guarded rows did not reach the server",
       b.rows("notes").length === 0 && b.rows("next_actions").length === 0);
-    ok("C4 §11 …while a COMPATIBLE domain synced normally in the same flush",
-      b.rows("goals").length === 1, JSON.stringify(b.rows("goals").map((g) => g.title)));
+    ok("C4 §11 …while an UNGATED domain synced normally in the same flush",
+      b.rows("projects").length === 1, JSON.stringify(b.rows("projects").map((g) => g.title)));
 
     const diag = P.getSyncDiagnostics();
     ok("C5 §12 the gated domains stay dirty",
@@ -240,7 +259,7 @@ function world(tag) {
    * ================================================================ */
   {
     store.clear();
-    const b = backend({ contractPayload: { contract: 5, min_client_contract: 9, capabilities: { guarded_notes: 5, guarded_next_actions: 5 } } });
+    const b = backend({ contractPayload: { contract: 6, min_client_contract: 9, capabilities: { guarded_notes: 5, guarded_next_actions: 5, goal_horizons: 5 } } });
     await attach(b);
     ok("E1 §19 the client is told it is globally too old", P.getCompatibility().clientTooOld === true);
     const w = world("old");
@@ -269,8 +288,8 @@ function world(tag) {
     await P.__flushNowForTest(w);
     ok("F3 §14 local use is unaffected by an unreadable contract",
       JSON.parse(store.get("lifeos.mvp.v1") || "{}").notes?.[0]?.body === "note off");
-    ok("F4 §14 unguarded domains still sync — a failed probe is not a global outage",
-      b.rows("goals").length === 1, JSON.stringify(b.rows("goals").length));
+    ok("F4 §14 ungated domains still sync — a failed probe is not a global outage",
+      b.rows("projects").length === 1, JSON.stringify(b.rows("projects").length));
     ok("F5 §25 guarded domains are held, because we do not know", b.rows("notes").length === 0);
   }
 
