@@ -8,12 +8,12 @@
  * module holds the deterministic expectations that both the rehearsal and the
  * release self-test check against, so the two can never disagree.
  *
- * Historical migrations are never modified. The current head is **0045**
- * (`0045_sync_version_guard.sql`, LIFEOS-076B — the database-enforced
- * compare-and-set that closes the two P1 stale-write classes F-1 and F-2). A
- * demonstrated release-blocking database defect would add exactly one
- * narrowly-scoped `0046_v1_release_fix.sql` beyond it; see
- * `ALLOWED_RELEASE_FIX_MIGRATION` below.
+ * Historical migrations are never modified. The current head is **0046**
+ * (`0046_schema_compatibility_contract.sql`, LIFEOS-077 — the deployed database
+ * describing its own capabilities, so a client can tell whether its writes will
+ * be accepted before it attempts them). A demonstrated release-blocking
+ * database defect would add exactly one narrowly-scoped
+ * `0047_v1_release_fix.sql` beyond it; see `ALLOWED_RELEASE_FIX_MIGRATION`.
  *
  * **Repository head is not deployed head.** This number is what the build
  * SHIPS. Production Supabase is verified at 0044 and 0045 is applied
@@ -51,7 +51,8 @@ export const MIGRATION_CHECKPOINTS: readonly MigrationCheckpoint[] = [
   { id: "pre-due-time-recurrence", label: "Before the due-time/recurrence contract fix", throughVersion: 42 },
   { id: "pre-session-pointers", label: "Before workspace-session execution pointers", throughVersion: 43 },
   { id: "pre-cas-guard", label: "Before the database-enforced stale-write guard", throughVersion: 44 },
-  { id: "current", label: "Current shipped head", throughVersion: 45 },
+  { id: "pre-schema-contract", label: "Before the database described its own capabilities", throughVersion: 45 },
+  { id: "current", label: "Current shipped head", throughVersion: 46 },
 ];
 
 export interface MigrationListReport {
@@ -110,10 +111,13 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  *
  * LIFEOS-076B makes it six. 0045 became the stale-write guard — two P1 data-loss
  * classes, measured end to end, reported under the stop-and-report rule and
- * approved at an architecture gate before any SQL was written — so the hatch
- * moves to 0046. Still never spent.
+ * approved at an architecture gate before any SQL was written.
+ *
+ * Seven: LIFEOS-077 spent 0046 on the schema-compatibility contract, again
+ * audited and approved before a line of SQL. The hatch moves to 0047, still
+ * never spent — which is the point of counting.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0046_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0047_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

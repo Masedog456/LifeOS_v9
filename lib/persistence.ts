@@ -22,6 +22,10 @@ import { markBootstrap } from "@/lib/security/auth-bootstrap";
 import { INTERVIEW_STORAGE_KEY } from "@/lib/interview/session";
 import { STORE_DOMAINS, emptyStoreState } from "@/lib/ux/backup";
 import { purgeConflicts } from "@/lib/sync/conflicts-store";
+import {
+  evaluateContract, parseContract, compatibilityMessage,
+  type CompatibilityVerdict,
+} from "@/lib/sync/contract";
 
 const STORAGE_KEY = "lifeos.mvp.v1";
 const MIGRATED_KEY = "lifeos.migrated.v1";
@@ -343,6 +347,84 @@ function scheduleRemotePush(state: StoreState): void {
   timer = setTimeout(() => void flush(), 400);
 }
 
+/* ------------------------------------------------ schema compatibility ----
+ *
+ * LIFEOS-077. The point of this block is that the verdict is CONSUMED by the
+ * write path below. F-3b was a compatibility module whose answer nothing read:
+ * it could say `canSync: false` while the write landed and the app reported
+ * "Synced". A verdict that only reaches the UI does not close that.
+ */
+
+/** Cached for the session (§15) — never one probe per mutation. */
+let compat: CompatibilityVerdict = {
+  state: "unknown", gatedDomains: [], clientTooOld: false, server: null,
+};
+let compatProbes = 0;   // §30: measured, so "O(1) per lifecycle event" is a fact
+
+export function getCompatibility(): CompatibilityVerdict { return compat; }
+export function __compatProbeCount(): number { return compatProbes; }
+
+/**
+ * Read the deployed contract and re-evaluate.
+ *
+ * Called at session acquisition, on reconnect, on explicit retry, and after a
+ * failure that suggests the cache is stale (§16) — not before every write.
+ */
+export async function probeCompatibility(): Promise<CompatibilityVerdict> {
+  if (!remote) {
+    compat = { state: "unknown", gatedDomains: [], clientTooOld: false, server: null };
+    return compat;
+  }
+  if (isOffline()) {
+    // Offline is not incompatible. We simply do not know, and local use must
+    // continue unaffected (§14).
+    compat = { ...compat, state: compat.server ? compat.state : "unavailable" };
+    return compat;
+  }
+  compat = { ...compat, state: "checking" };
+  compatProbes += 1;
+  const raw = await remote.loadSchemaContract();
+  compat = evaluateContract(parseContract(raw));
+  return compat;
+}
+
+/**
+ * Does this failure suggest the schema moved under us?
+ *
+ * Matches the shapes PostgREST produces when a function or column the client
+ * expected is not there. Transport failures are excluded on purpose: they are
+ * ambiguous about the schema, and §25 forbids confusing "could not reach" with
+ * "confirmed incompatible".
+ */
+function looksSchemaShaped(detail: string): boolean {
+  return /could not find the function|does not exist|schema cache|undefined_function|undefined_column|PGRST\d+/i.test(detail);
+}
+
+/**
+ * Force a verdict, for the browser harness only.
+ *
+ * The real probe needs an authenticated Supabase session, which the smoke
+ * harness has no way to obtain. This exists so the RENDERED half — the
+ * consequence message, its wording, and the absence of database nouns — can be
+ * asserted against a real browser. It sets state and nothing else; the
+ * behavioural half is proved deterministically in
+ * scripts/inject-077-schema-compatibility.cjs.
+ */
+export function __setCompatibilityForTest(v: Partial<CompatibilityVerdict>): void {
+  compat = { ...compat, ...v };
+  listeners.forEach((l) => l());
+}
+
+/** Drop the cached verdict so the next probe re-reads (§16). */
+export function invalidateCompatibility(): void {
+  compat = { state: "unknown", gatedDomains: [], clientTooOld: false, server: null };
+}
+
+/** Consequence language for the shell, or null when there is nothing to say. */
+export function compatibilityNotice(): string | null {
+  return compatibilityMessage(compat.state, !health.localError);
+}
+
 async function flush(): Promise<void> {
   if (!remote || !pending) return;
   if (!adoptionSettled) {
@@ -361,8 +443,23 @@ async function flush(): Promise<void> {
   // Incremental sync: push only the domains that changed since the last
   // successful flush. First sync (no baseline) pushes everything.
   const dirty = dirtyDomainsOf(snapshot, lastSyncedState);
+
+  /*
+   * LIFEOS-077 §8/§11 — THE compatibility consumption point.
+   *
+   * F-3b was that this decision existed and nothing here read it. So the gate
+   * is applied to the dirty set itself, before the push: a domain whose server
+   * capability is missing is never attempted, stays dirty, and therefore cannot
+   * be reported as synced. The smallest blast radius — only domains that
+   * declare a requirement can ever be held, so one missing capability pauses
+   * two domains rather than forty-six.
+   */
+  const gated = new Set<keyof StoreState>();
+  for (const d of compat.gatedDomains) if (dirty.has(d)) gated.add(d);
+  const attemptable = new Set([...dirty].filter((d) => !gated.has(d)));
+
   try {
-    const report = await remote.saveStateByDomain(snapshot, dirty, lastSyncedState);
+    const report = await remote.saveStateByDomain(snapshot, attemptable, lastSyncedState);
 
     // ---- advance the baseline PER DOMAIN (LIFEOS-074 D-22) ----------------
     //
@@ -377,9 +474,21 @@ async function flush(): Promise<void> {
     // lands mid-flush must stay dirty even in a domain that just synced, or the
     // successful push of the older value would silently clear the newer one.
     lastSyncedState = nextBaseline(lastSyncedState, snapshot, report.succeeded);
-    failedDomains = report.failed.map((f) => f.domain);
+    failedDomains = [...report.failed.map((f) => f.domain), ...gated];
 
-    if (report.failed.length === 0) {
+    if (gated.size > 0) {
+      // Held back, not failed. The domains keep their old baseline, so they stay
+      // dirty and flush by themselves once the contract supports them; there is
+      // nothing for the user to re-enter and no manual step (§26). Reported as
+      // `incomplete` — an existing truthful state, not a new reassuring label.
+      if (!pending) pending = snapshot;
+      setHealth({
+        state: "incomplete",
+        error: undefined,
+        retryAttempt: undefined,
+        failedDomains: [...failedDomains],
+      });
+    } else if (report.failed.length === 0) {
       writeLastSyncAt(new Date().toISOString());
       retryAttempt = 0;
       if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
@@ -389,6 +498,22 @@ async function flush(): Promise<void> {
       // "Saved" here is the false success this whole repair exists to prevent.
       const detail = `${report.failed.length} of ${report.attempted.length} domain(s) failed: ${report.failed.map((f) => `${f.domain} (${f.error})`).join("; ")}`;
       recordSaveError(`Remote sync incomplete: ${detail}`);
+      /*
+       * LIFEOS-077 §16 — a contract can change mid-session. A failure that
+       * looks schema-shaped means the cached verdict may be stale, so it is
+       * invalidated and re-read rather than trusted until the next sign-in.
+       * The startup probe alone is not enough: a deployment can land while a
+       * tab sits open.
+       *
+       * Deliberately narrow. A network blip must NOT clear the verdict, or
+       * every flaky connection would re-probe; and it must never be mistaken
+       * for confirmed incompatibility (§25) — invalidating only means "ask
+       * again", never "assume incompatible".
+       */
+      if (looksSchemaShaped(detail)) {
+        invalidateCompatibility();
+        void probeCompatibility();
+      }
       if (!pending) pending = snapshot;
       scheduleAutoRetry(detail, "incomplete");
     }
@@ -477,6 +602,11 @@ if (typeof window !== "undefined") {
  */
 export function __setRemoteForTest(adapter: SupabasePersistenceAdapter | null): void {
   remote = adapter;
+  // LIFEOS-077: a verdict describes ONE backend. Swapping the adapter without
+  // clearing it let a previous test's gating leak into the next one — and in
+  // the product, attaching a different remote makes the old answer equally
+  // meaningless. `handleSession` re-probes immediately after this.
+  invalidateCompatibility();
   lastSyncedState = null;
   lastSyncAt = null;
   failedDomains = [];
@@ -529,6 +659,11 @@ export async function retrySync(): Promise<void> {
   retryAttempt = 0; // a manual retry re-arms the automatic backoff cycle
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = undefined; }
   setHealth({ state: "syncing" });
+  // LIFEOS-077 §15/§26 — re-read the contract first. A cached verdict from
+  // before the database was upgraded would otherwise hold the queued work back
+  // indefinitely, and "press Try again" is exactly when a person expects the
+  // app to reconsider.
+  await probeCompatibility();
   await flush();
 }
 
@@ -654,6 +789,7 @@ async function handleSession(
   if (!session) {
     // Signed out (or never signed in): local-only. Keep local data.
     remote = null;
+    invalidateCompatibility();
     setHealth({ mode: "local", state: "disabled" });
     return;
   }
@@ -663,6 +799,12 @@ async function handleSession(
   remote = new SupabasePersistenceAdapter(client);
   setHealth({ mode: "supabase", state: "syncing" });
   adoptionSettled = false; // gate pushes until the adopt/migrate decision lands
+  // LIFEOS-077 §14 — ask the deployed database what it can do, once, at session
+  // acquisition and BEFORE any incompatible write can be attempted. Local
+  // startup is never blocked on this: `adoptionSettled` already holds pushes,
+  // and a failed or offline probe simply leaves the verdict unknown.
+  invalidateCompatibility();
+  await probeCompatibility();
   try {
     await migrateOrAdopt(session.user.id, replaceState);
     // Only claim "synced" when there is nothing left to push. If adoption kept
