@@ -50,6 +50,7 @@ import { completeRule, extractRecurrence, extractTimeOfDay, looksLikeEvent } fro
 import { nextOccurrenceOnOrAfter, type RecurrenceRule } from "@/lib/time/recurrence";
 import { matchRecords, NO_MATCH, type MatchResult } from "@/lib/capture/match";
 import { authorityFor, type AuthorityLevel, type CandidateKind } from "@/lib/capture/authority";
+import { detectStandard, STANDARD_SUGGESTION_REASON } from "@/lib/code/normative";
 import type { StoreState } from "@/types/mvp";
 import type { DayKey } from "@/lib/reviews/dates";
 
@@ -132,6 +133,10 @@ const ALTERNATES: Record<CandidateKind, CandidateKind[]> = {
   project: ["action", "note"],
   goal: ["action", "project", "note"],
   event: ["action", "note"],
+  // LIFEOS-079 §19. A normative sentence is genuinely ambiguous — "I want to be
+  // more patient" could be a rule, a goal or a note — so the alternates are the
+  // bounded choice that ambiguity deserves.
+  standard: ["goal", "note", "protocol"],
 };
 
 function seg(text: string): Segment {
@@ -210,6 +215,30 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
       reason: "Reads as a when → then protocol.",
       authority: authorityFor("protocol", "high"),
       alternates: ALTERNATES.protocol,
+    };
+  }
+
+  // 1b. Unconditional standard → a Personal Code suggestion (LIFEOS-079 §8).
+  //
+  //     After the conditional test, because a when/then normative sentence has a
+  //     working home already. Before the action rules, for the reason protocols
+  //     are: "always tell the truth even when it makes me look bad" contains an
+  //     action verb and would otherwise become an errand with a checkbox — which
+  //     is the LIFEOS-059 defect pointed at a commitment.
+  //
+  //     This kind is `never_auto` and no conversion path can write it. The
+  //     candidate exists so the sentence reaches Personal Code, not so capture
+  //     can create a rule.
+  const standard = detectStandard(text);
+  if (standard) {
+    return {
+      ...base2,
+      kind: "standard",
+      fields: { title: standard.statement, body: standard.statement },
+      confidence: "likely",
+      reason: STANDARD_SUGGESTION_REASON,
+      authority: authorityFor("standard", "likely"),
+      alternates: ALTERNATES.standard,
     };
   }
 

@@ -4314,6 +4314,14 @@ export function commitCapture(
         created.push({ kind: "goal", id: createGoal({ title }) });
         break;
       }
+      // LIFEOS-079. A `standard` candidate is a SUGGESTION and this path will
+      // not write it. The sentence reaches the Personal Code create flow, where
+      // the person decides whether it becomes a rule they hold themselves to.
+      //
+      // A `break` rather than a filter earlier: the refusal belongs at the point
+      // of the write, where a future contributor adding a case will see it.
+      case "standard":
+        break;
       // LIFEOS-061. An Event HAPPENS: no status, no completion, no checkbox.
       case "event": {
         if (!title || !c.dueDate) break;
@@ -4410,6 +4418,99 @@ export function setProtocolStatus(protocolId: string, status: ProtocolStatus): v
 /** Permanently remove a protocol. */
 export function deleteProtocol(protocolId: string): void {
   setState({ ...state, protocols: (state.protocols ?? []).filter((p) => p.id !== protocolId) });
+}
+
+// ------------------------------------------------------- personal code ----
+
+/**
+ * Save a rule the way a person wrote it (LIFEOS-079 §7).
+ *
+ * The one action Personal Code needs, and the reason it exists: a person
+ * writing "when I'm angry, wait before replying" should not have to know that
+ * it becomes a Protocol while "don't lie to avoid embarrassment" becomes a
+ * Constitution standard. This routes on the SHAPE of the sentence and returns
+ * which way it went, so the surface can say what it did.
+ *
+ * An unconditional rule is created AND adopted in one act, because saving it
+ * here IS the explicit adoption — the user typed it into a page called Personal
+ * Code and pressed a button that says so. A capture suggestion never reaches
+ * this function on its own; `convertCapture` refuses the `standard` kind.
+ *
+ * `fromAiText` is passed through untouched. Adoption is not authorship: a
+ * wording the user kept from a suggestion still reads as machine prose
+ * (LIFEOS-050A/050B), and this function has no branch that clears it.
+ */
+export function saveRule(input: {
+  statement: string;
+  note?: string;
+  fromAiText?: boolean;
+  sourceCaptureId?: string;
+  linkedRefs?: RecordRefLite[];
+}): { id: string; shape: "unconditional" | "conditional" } | null {
+  const text = (input.statement ?? "").trim();
+  if (!text) return null;
+
+  const cond = extractConditional(text);
+  if (cond?.leading && cond.trigger.trim() && cond.response.trim()) {
+    return {
+      id: createProtocol({
+        trigger: cond.trigger,
+        response: cond.response,
+        reason: input.note,
+        sourceCaptureId: input.sourceCaptureId,
+        fromAiText: input.fromAiText,
+      }),
+      shape: "conditional",
+    };
+  }
+
+  const elementId = createConstitutionElement({
+    kind: "standard",
+    statement: text,
+    note: input.note,
+    linkedRefs: input.linkedRefs,
+    sourceCaptureId: input.sourceCaptureId,
+    fromAiText: input.fromAiText,
+  });
+  adoptConstitutionElement(elementId);
+  return { id: elementId, shape: "unconditional" };
+}
+
+/**
+ * Move a rule out of force, whichever half of Personal Code it lives in.
+ *
+ * Retire, never delete: "I no longer live by this" and "remove this record" are
+ * different things (§27), and only the first is what this does. A retired rule
+ * stays retrievable and stays in the person's own history.
+ */
+export function retireRule(ruleId: string): void {
+  const el = (state.constitutionElements ?? []).find((e) => e.id === ruleId);
+  if (el) { retireConstitutionElement(ruleId); return; }
+  const p = (state.protocols ?? []).find((x) => x.id === ruleId);
+  if (p) setProtocolStatus(ruleId, "retired");
+}
+
+/**
+ * Pause a rule — CONDITIONAL rules only.
+ *
+ * The asymmetry is real and is not smoothed over: `ConstitutionStatus` has no
+ * `paused`, and inventing one by writing `draft` would mean "never adopted",
+ * which is a different and false claim about a standard the user still holds.
+ * Returns false when the rule cannot be paused, so the surface can say why.
+ */
+export function pauseRule(ruleId: string): boolean {
+  const p = (state.protocols ?? []).find((x) => x.id === ruleId);
+  if (!p) return false;
+  setProtocolStatus(ruleId, "paused");
+  return true;
+}
+
+/** Bring a rule back into force, whichever half it lives in. */
+export function resumeRule(ruleId: string): void {
+  const el = (state.constitutionElements ?? []).find((e) => e.id === ruleId);
+  if (el) { adoptConstitutionElement(ruleId); return; }
+  const p = (state.protocols ?? []).find((x) => x.id === ruleId);
+  if (p) setProtocolStatus(ruleId, "active");
 }
 
 // ------------------------------------------------ living constitution ----

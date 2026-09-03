@@ -78,6 +78,9 @@ const KIND_LABEL: Record<CandidateKind, string> = {
   project: "Project",
   goal: "Goal",
   event: "Event",
+  // LIFEOS-079. The product word, not the domain word — a person writing a rule
+  // for themselves should not have to learn what a Constitution standard is.
+  standard: "Rule",
 };
 
 /** Hedge language matched to confidence — never a number (§17). */
