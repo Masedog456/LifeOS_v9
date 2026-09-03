@@ -136,7 +136,17 @@ export type ChangeAspect =
   | "deferred"      // what did I defer
   | "postponed"     // what do I keep putting off
   | "waiting_ended" // what did I stop waiting on
-  | "rules";        // what rules changed
+  | "rules"         // what rules changed
+  // LIFEOS-084 §36. "What changed direction?" measured as routing to `all`,
+  // which answered a question about direction with the whole week — "you
+  // completed 2 items, added 8 items, moved the date on 2 items…". A recorded
+  // transition of a goal or a rule is what the question means, and this is the
+  // slice that says so.
+  | "direction"
+  // §18. Records whose own evidence invites a second look: deferred several
+  // times AND carrying no due date. A different shape from a slice, like
+  // `postponed`. It never recommends dropping anything.
+  | "reconsider";
 
 /**
  * Which guidance question is being asked (LIFEOS-082 §23).
@@ -148,7 +158,12 @@ export type ChangeAspect =
  */
 export type GuidanceAspect =
   | "all"     // what still needs attention — the full list, as before
-  | "focus";  // what should I focus on — the capped shortlist
+  | "focus"   // what should I focus on — the capped shortlist
+  // LIFEOS-084 §15, §36. "What should I carry into next week?" measured as
+  // unrouted. The same shortlist as `focus`, read forward: each row carries the
+  // reason it remains valid rather than the reason it is urgent today. An
+  // aspect, not a class, for the reason above — one guidance derivation.
+  | "carry";
 
 /** Why part of a question could not be turned into a retrieval constraint. */
 export type MemoryUnresolvedReason = "unsupported_range" | "future_range" | "no_entity";
@@ -286,6 +301,32 @@ const VAGUE_RANGE_RE =
 /** A forward-looking window. Memory has nothing in it, and says so. */
 const FUTURE_RANGE_RE = /\b(?:tomorrow|next week|next month|next year|later this week|coming up|upcoming)\b/;
 
+/**
+ * "Carry this into next week" (LIFEOS-084 §15).
+ *
+ * Named here rather than only in the router because the phrase contains a
+ * future period, and the period is the DESTINATION, not the window being
+ * searched. Without this guard "what should I carry into next week?" resolves
+ * `next week` as a range and is answered "that period hasn't happened yet,
+ * so there is nothing recorded in it" — technically true of next week, and no
+ * answer at all to the question that was asked.
+ *
+ * The question is about what is unresolved NOW, so it takes no range.
+ */
+export const CARRY_RE = /\bcarry (?:in|over|forward|into)\w*\b|\bcarry (?:it|them|this|these)?\s*(?:in)?to next week\b|\btake into next week\b|\bbring (?:in)?to next week\b/;
+
+/**
+ * "What remains unresolved?" (LIFEOS-084 §36).
+ *
+ * Kept separate from `CARRY_RE` on purpose. Both route to OPEN_WORK, but they
+ * are not the same question: this one asks what is open NOW and is answered
+ * under the attention heading, while carry-forward asks what should travel into
+ * next week and is answered as a proposal. Folding them together made the
+ * product answer "what remains unresolved?" with the heading "Worth carrying
+ * into next week" — an answer to a question nobody asked.
+ */
+export const UNRESOLVED_RE = /\bunresolved\b|\bstill unfinished\b|\bnot resolved\b/;
+
 export interface RangeMatch {
   range?: ResolvedRange;
   /** The matched words, for the heading and for `unresolved`. */
@@ -303,7 +344,8 @@ export interface RangeMatch {
 export function resolveMemoryRange(question: string, today: DayKey = todayKey()): RangeMatch {
   const q = normalise(question);
 
-  const future = FUTURE_RANGE_RE.exec(q);
+  // The destination, not the window (see `CARRY_RE`).
+  const future = CARRY_RE.test(q) ? null : FUTURE_RANGE_RE.exec(q);
   if (future) return { phrase: future[0], unresolved: { phrase: future[0], reason: "future_range" } };
 
   for (const { re, resolve } of RELATIVE_RANGES) {
@@ -463,6 +505,11 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   // The calendar, by name.
   { kind: "EVENTS", re: /\bcalendar\b|\bscheduled?\b|\bappointments?\b|\bmeetings?\b|\bon my (?:schedule|agenda)\b|\bevents?\b/ },
 
+  // LIFEOS-084 §36. The third unrouted question. Answered from repeated
+  // deferrals that carry no due date — the facts, and then silence. §18: the
+  // product does not tell anyone to drop anything.
+  { kind: "CHANGES", re: /\breconsider\w*\b|\bsecond look\b|\bworth (?:re)?think\w*\b|\brethink\w*\b/ },
+
   { kind: "CHANGES", re: /\bwhat changed\b|\bwhat (?:has )?moved\b|\bwhat shifted\b|\bany changes\b|\bwhat (?:got )?(?:reschedul|defer|cancel)\w*\b/ },
 
 
@@ -480,6 +527,18 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   // the product may not know neglect, so the question is answered with facts
   // and the word never appears in the answer.
   { kind: "OPEN_WORK", re: /\bwhat should i (?:focus on|work on|deal with|tackle|prioriti[sz]e)\b|\bwhat (?:do i|should i) focus\b|\bwhere (?:should|do) i start\b|\bwhat matters most\b|\bwhat am i neglect\w*\b|\bwhat'?s? (?:most )?important\b|\bwhat is stuck\b|\bwhat'?s stuck\b|\bwhat needs (?:me|doing)\b/ },
+
+  // LIFEOS-084 §36. Two of the three questions the audit measured as returning
+  // "Conqify can't answer that one" on a week that had plenty to say. Placed
+  // BEFORE the general open-work rule so "what remains unresolved?" is not
+  // reached by the weaker fallback, and before CHANGES cannot claim them —
+  // neither sentence contains a change word.
+  //
+  // "carry into next week" names a future period. It is a question about what is
+  // unresolved NOW, so the range word must not be read as a retrieval window —
+  // `CARRY_RE` is checked where the range is resolved, and the phrase is
+  // stripped rather than answered with "that period hasn't happened yet".
+  { kind: "OPEN_WORK", re: new RegExp(`${CARRY_RE.source}|${UNRESOLVED_RE.source}`) },
 
   { kind: "OPEN_WORK", re: /\bstill (?:needs?|need) attention\b|\bstill open\b|\bneeds? (?:my )?attention\b|\bwhat'?s left\b|\bwhat'?s outstanding\b|\bstill (?:to do|need to do|owe)\b|\bon my plate\b|\bunfinished\b|\bstill hanging\b|\bam i forgetting\b|\bhave i forgotten\b|\bslipping\b|\bfollow.?ups? (?:are )?due\b|\bcame? back (?:today|from deferral)\b|\bno (?:executable )?next action\b|\bfell through\b/ },
 
@@ -664,7 +723,11 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
   // defer this week" asks for the episodes rather than the count.
   let changeAspect: ChangeAspect | undefined;
   if (kind === "CHANGES") {
-    if (/\bkeep\b.*\b(?:putting off|postpon\w*|pushing (?:back|off)|deferring)\b|\brepeatedly\b.*\b(?:defer|postpon)\w*\b|\bkeeps? (?:coming back|resurfacing|returning)\b|\bwhat do i (?:keep|always) (?:avoid|delay)\w*\b/.test(q)) {
+    // LIFEOS-084 §18. Checked first: "what should I reconsider?" contains no
+    // other change word, and every later branch would have to not match it.
+    if (/\breconsider\w*\b|\bsecond look\b|\bworth (?:re)?think\w*\b|\brethink\w*\b/.test(q)) {
+      changeAspect = "reconsider";
+    } else if (/\bkeep\b.*\b(?:putting off|postpon\w*|pushing (?:back|off)|deferring)\b|\brepeatedly\b.*\b(?:defer|postpon)\w*\b|\bkeeps? (?:coming back|resurfacing|returning)\b|\bwhat do i (?:keep|always) (?:avoid|delay)\w*\b/.test(q)) {
       changeAspect = "postponed";
     } else if (/\bstop(?:ped)? waiting\b|\bno longer waiting\b|\bdone waiting\b|\bheard back\b/.test(q)) {
       changeAspect = "waiting_ended";
@@ -674,6 +737,11 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
       changeAspect = "deferred";
     } else if (/\bmoved? forward\b|\bmade progress\b|\bprogress\w*\b|\bgot done\b|\badvanced?\b/.test(q)) {
       changeAspect = "forward";
+    // LIFEOS-084 §36, checked LAST among the named slices: "direction" is a
+    // narrower claim than "what changed", so it must not swallow a question that
+    // already matched a more specific word.
+    } else if (/\bdirection\b|\bchanged? course\b|\bcourse correct\w*\b|\bhorizons?\b|\bre-?prioriti[sz]\w*\b/.test(q)) {
+      changeAspect = "direction";
     } else {
       changeAspect = "all";
     }
@@ -683,9 +751,14 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
   // needs attention?" asks for the list. Same evidence, different cut.
   let guidanceAspect: GuidanceAspect | undefined;
   if (kind === "OPEN_WORK") {
-    guidanceAspect = /\bfocus\b|\bfocus on\b|\bdeal with\b|\bstuck\b|\bneglect\w*\b|\bmost important\b|\bwhere (?:should|do) i start\b|\bwhat matters most\b/.test(q)
-      ? "focus"
-      : "all";
+    // LIFEOS-084 §15. Checked first: "what should I carry into next week?"
+    // contains none of the focus words, and reading it as `all` would answer a
+    // forward-looking question with the full present inventory.
+    guidanceAspect = CARRY_RE.test(q) ? "carry"
+      : UNRESOLVED_RE.test(q) ? "focus"
+      : /\bfocus\b|\bfocus on\b|\bdeal with\b|\bstuck\b|\bneglect\w*\b|\bmost important\b|\bwhere (?:should|do) i start\b|\bwhat matters most\b/.test(q)
+        ? "focus"
+        : "all";
   }
 
   let signalKinds: string[] | undefined;

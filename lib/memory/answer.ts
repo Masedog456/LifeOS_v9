@@ -55,7 +55,7 @@ import { buildIndex, searchFlat } from "@/lib/command/search";
 import { resolveRecord } from "@/lib/command/records";
 import type { SearchEntry } from "@/lib/command/types";
 import {
-  buildAutobiographicalTimeline, COMPLETION_KINDS,
+  buildAutobiographicalTimeline, resolveWeekRange, COMPLETION_KINDS,
   type AutobiographicalEvent,
 } from "@/lib/memory/week";
 import { buildTodayIndexes, type TodayIndexes } from "@/lib/today/indexes";
@@ -75,9 +75,12 @@ import {
 } from "@/lib/guidance/attention";
 import {
   buildExecutiveChanges, repeatedlyPostponed, postponedLine,
-  MOVED_FORWARD_KINDS, PROTOCOL_CHANGE_LIMITATION,
+  MOVED_FORWARD_KINDS, DIRECTION_KINDS, PROTOCOL_CHANGE_LIMITATION,
   type ExecutiveChange, type ExecutiveChangeKind,
 } from "@/lib/memory/changes";
+import {
+  buildCarryForward, buildReconsider, CARRY_FORWARD_DEFAULT,
+} from "@/lib/memory/weekly";
 
 // ---------------------------------------------------------------- contract --
 
@@ -1207,6 +1210,47 @@ function answerChanges(
     };
   }
 
+  // ---- §18: a second look, offered — never a recommendation to drop ---------
+  //
+  // The narrowest derivation in this file: deferred several times AND carrying
+  // no due date. Both facts are stated and the answer stops there. There is no
+  // "drop this", no "give up on", and no staleness number that could grow into
+  // one — LIFEOS-084 §18 is explicit that the user decides.
+  if (aspect === "reconsider") {
+    const candidates = buildReconsider(state, repeatedlyPostponed(state, range))
+      .filter((c) => !entity || c.entity.id === entity.id);
+    if (candidates.length === 0) {
+      return {
+        ...noEvidence(plan, implicit ? IMPLICIT_NOTE : undefined),
+        heading: `Nothing stands out for a second look${rangeSuffix(plan, range, implicit)}`,
+        summary:
+          "Conqify offers this only where a record was deferred several times and has no due date. Nothing recorded matches that.",
+      };
+    }
+    const items: MemoryAnswerItem[] = candidates.map((c) => ({
+      text: displayText(c.title),
+      attribution: "You recorded",
+      detail: c.explanation,
+      ref: c.entity,
+      href: resolveRecord(state, c.entity.kind, c.entity.id)?.href,
+      evidence: c.evidence,
+      origin: "user_authored",
+    }));
+    return {
+      status: "ANSWERED",
+      heading: `Worth a second look${rangeSuffix(plan, range, implicit)}`,
+      // The sentence describes the SHAPE of the evidence, not the person.
+      summary: `${plural(items.length, "record has", "records have")} been deferred several times without a due date.`,
+      items,
+      limitation: [
+        "Conqify is not suggesting you drop anything. Work on a repeating schedule is not included.",
+        implicit ? IMPLICIT_NOTE : "",
+      ].filter(Boolean).join(" "),
+      sourceRefs: refsOf(items),
+      plan,
+    };
+  }
+
   // ---- everything else is a slice of the one derivation -------------------
   const changes = buildExecutiveChanges(state, range, { index: opts.index, entity });
 
@@ -1218,6 +1262,10 @@ function answerChanges(
     deferred: ["deferred", "rescheduled"],
     waiting_ended: ["waiting_ended"],
     rules: ["rule_adopted", "rule_revised", "rule_retired"],
+    // LIFEOS-084 §36. Recorded transitions of a goal or a rule — the same slice
+    // the weekly review calls `changedDirection`, so the two surfaces cannot
+    // disagree about what "changed direction" means (§32).
+    direction: [...DIRECTION_KINDS, "rule_adopted", "rule_revised", "rule_retired"],
   };
   const wanted = ASPECT_KINDS[aspect];
   const scoped = wanted ? changes.filter((c) => wanted.includes(c.kind)) : changes;
@@ -1659,6 +1707,66 @@ function answerFocus(
   };
 }
 
+/**
+ * What is worth carrying into next week (LIFEOS-084 §15, §25, §26).
+ *
+ * The same attention shortlist `answerFocus` reads, projected forward and
+ * capped. The difference is not the evidence — it is that these rows are
+ * offered rather than ranked, and the answer says so.
+ *
+ * **This proposes; it does not plan.** Nothing here writes a date, moves a
+ * commitment or touches the store. §26 is explicit that the review may not
+ * silently change plans, and the guarantee is structural: `buildCarryForward`
+ * is a pure function and this returns a list of rows.
+ */
+function answerCarry(
+  state: StoreState, plan: MemoryQueryPlan, ix: TodayIndexes, today: DayKey,
+  entity: RecordRefLite | undefined, scopeTitle: string | undefined,
+): MemoryAnswer {
+  const shortlist = buildAttentionShortlist(state, ix, today, { entity });
+  const range = resolveWeekRange("this_week", today);
+  const carry = buildCarryForward(
+    state, shortlist, repeatedlyPostponed(state, range), today, CARRY_FORWARD_DEFAULT)
+    .filter((c) => !entity || c.entity.id === entity.id);
+  const where = scopeTitle ? ` · ${scopeTitle}` : "";
+
+  if (carry.length === 0) {
+    return {
+      ...noEvidence(plan, COMMITMENT_COVERAGE),
+      heading: `Nothing to carry forward${where}`,
+      // Bounded to the record, like every other empty answer in this file. NOT
+      // "you're on top of everything", which would be a claim about a life.
+      summary: scopeTitle
+        ? `Nothing Conqify has recorded about ${scopeTitle} is unresolved right now.`
+        : "Nothing Conqify has recorded is unresolved right now. That is a statement about the records.",
+    };
+  }
+
+  const items: MemoryAnswerItem[] = carry.map((c) => ({
+    text: c.title,
+    attribution: attributionFor(c.entity.kind, classifyOrigin({ kind: c.entity.kind, text: c.title })),
+    day: c.attention?.date,
+    when: c.attention?.date ? fmt(c.attention.date) : undefined,
+    detail: [c.explanation, ...(c.attention?.secondaryReasons ?? []).map((r) => r.text)].join(" "),
+    ref: c.entity,
+    href: resolveRecord(state, c.entity.kind, c.entity.id)?.href,
+    evidence: c.evidence,
+    origin: classifyOrigin({ kind: c.entity.kind, text: c.title }),
+    signal: c.attention?.signal,
+  }));
+
+  return {
+    status: "ANSWERED",
+    heading: `Worth carrying into next week${where}`,
+    summary: `${plural(items.length, "thing is", "things are")} unresolved and still open.`,
+    // §26, said out loud rather than merely implemented.
+    limitation: `Nothing has been scheduled. ${COMMITMENT_COVERAGE}`,
+    items,
+    sourceRefs: refsOf(items),
+    plan,
+  };
+}
+
 function answerOpenWork(
   state: StoreState, plan: MemoryQueryPlan, today: DayKey,
   searchIndex: SearchEntry[], opts: AnswerOptions,
@@ -1687,6 +1795,10 @@ function answerOpenWork(
   // ---- §23's shortlist: the same evidence, cut to what one can act on -----
   if (plan.guidanceAspect === "focus") {
     return answerFocus(state, plan, ix, today, entity, scopeTitle);
+  }
+  // ---- LIFEOS-084 §15: the same shortlist, read forward -------------------
+  if (plan.guidanceAspect === "carry") {
+    return answerCarry(state, plan, ix, today, entity, scopeTitle);
   }
 
   const all = buildCommitmentSignals(state, ix, { today });
