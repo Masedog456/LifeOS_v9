@@ -2,331 +2,264 @@
 
 **North star:** help me remember how I want to act when life gets messy.
 
-## STATUS: DESIGN READY — AWAITING ARCHITECTURE DECISION (§4/§5)
+## STATUS: COMPLETE — RULES / PERSONAL CODE READY
 
 | | |
 |---|---|
 | Base SHA | `608ea8696f4c22dd7db0a1b961256e514fb36a28` (PR #84 merged) |
-| Branch | `claude/lifeos-079-rules-personal-code` |
-| Repository migration head | 0047 |
-| Migration proposed | **none — see §5 below** |
-
-The audit's finding is unusual and worth reading before the recommendation: **the
-persistence layer for Rules already exists, is complete, and was deliberately
-designed for exactly this.** What is missing is a product surface and a handful
-of derivations. This document proposes reuse, and asks one question (§7) before
-implementation begins.
+| Migration | **none** |
+| Repository migration head | **0047**, unchanged |
+| Schema capability advertisement | **not needed** — nothing was added to the wire |
 
 ---
 
-## 1. Audit
+## 1. Architecture: reuse, decided by an earlier sprint
 
-### A. What does Constitution represent today?
-
-`ConstitutionElement` (LIFEOS-056, migration 0038; revisions 0038/0039).
-
-```ts
-kind: "purpose" | "value" | "principle" | "standard"
-statement            // the user's own words, never rewritten
-note?                // "why this matters to me", never generated
-status: "draft" | "active" | "retired"
-adoptedAt?           // LOAD-BEARING: unset ⇒ not constitutional
-retiredAt?
-supersedesId?        // replaces a prior element; never deletes it
-workspaceId?         // optional Life Area
-linkedRefs           // references to practices, protocols, actions, projects…
-sourceCaptureId?
-fromAiText?          // adoption never clears this
-excludeFromAi?
-```
-
-Plus `ConstitutionRevision` — an append-only history with a change vocabulary
-that already distinguishes the cases §25/§26 care about:
-
-```
-created · adopted · edited · revised · relinked · retired · readopted
-```
-
-`edited` (typo) vs `revised` (position changed) is decided deterministically by
-`lib/constitution/revision.ts`, and a `revised` transition carries a
-`successorId` pointing at the element the new wording produced.
-
-The kind labels and hints already read as operating principles:
-
-| kind | label | hint |
-|---|---|---|
-| `purpose` | Purpose | "What this life is for. There are usually very few." |
-| `value` | Value | "What matters to you." |
-| `principle` | Guiding Principle | **"How you intend to act."** |
-| `standard` | Standard | **"A specific bar you hold yourself to."** |
-
-### B. What do Protocols represent today?
-
-`Protocol` (LIFEOS-054, migration 0037): **WHEN / IF [trigger] → [response]**.
-
-```ts
-trigger    // stored WITHOUT its leading "when"/"if"
-response
-reason?
-status: "active" | "paused" | "retired"
-sourceCaptureId?
-fromAiText?
-```
-
-Its doc comment already forbids what §12 forbids: *"there is no streak, no
-compliance rate and no success score… Nothing in the product schedules it,
-watches for its trigger, or notifies on it — there is no rule engine here."*
-
-### C. Is there already a "rule" or "standard" domain?
-
-**Yes — twice, and the decision was explicit.** LIFEOS-056's own type comment
-records it:
+The audit's finding was that Rules already had a home, and LIFEOS-056 wrote the
+decision into the type itself:
 
 > `boundary`, `rule`, `identity`, `aspiration`, `question` and `commitment` are
 > deliberately absent. **A boundary is a negatively-stated `standard`; a rule is
-> a `Protocol` (conditional) or a `standard` (unconditional)**; the rest are
-> deferred until beta evidence, each with a named home.
+> a `Protocol` (conditional) or a `standard` (unconditional).**
 
-So a previous sprint asked this exact question, answered it, and wrote the answer
-into the schema. Introducing a `Rule` noun now would silently overturn a recorded
-architectural decision.
+Every field §6 asked for already existed. So Personal Code is a **read model**
+over two domains, and stores nothing of its own.
 
-There is also a knowledge-side `Principle` (migration 0013) — statements that
-organize concepts and beliefs. It is a **different object** and 056 already
-guards the collision by labelling the constitutional one "Guiding Principle".
-Rules must not land there.
-
-### D. Where would a new Personal Code domain duplicate existing concepts?
-
-Every field the brief's §6 asks for already exists:
-
-| §6 asks for | Exists as |
-|---|---|
-| title | `ConstitutionElement.statement` (Rules are one sentence; a separate title is a second place for the wording to drift) |
-| statement | `statement` |
-| context / trigger | `Protocol.trigger`, or `ConstitutionElement.note` |
-| status | `active / paused / retired` — Protocol exactly; Constitution has `draft/active/retired` |
-| provenance | `fromAiText` + `sourceCaptureId` + the shared origin classifier |
-
-A `rules` table would duplicate a schema, a set of RLS policies, an export
-domain, a sync mapper, a search-index entry, a tombstone path and a revision
-history that all already exist — the precise cost 056 refused to pay twice.
-
-### E. Which existing domain can be reused?
-
-Both, split by shape — which is already how the codebase thinks:
-
-- **Unconditional DO / DON'T** → `ConstitutionElement` with `kind: "standard"`.
-  *"Do not lie to avoid embarrassment." · "Tell the truth even when it's
-  embarrassing." · "Protect sleep before optional work."*
-- **WHEN / THEN** → `Protocol`.
-  *"When I am angry, wait 20 minutes before sending a message." · "When I feel
-  overwhelmed, write down the next physical action."*
-
-Every one of §36's seven example Rules lands cleanly in one of the two.
-
-### F. What can be represented without a new persistence noun?
-
-Everything this sprint needs:
-
-- **Personal Code view** — a derived projection over `standard` elements +
-  Protocols. No storage.
-- **Active / paused / retired grouping** — existing statuses. (`standard` has
-  `draft` rather than `paused`; see §7.)
-- **Rule → Constitution linkage** — `supersedesId` and the `principle`/`value`
-  kinds are already there; a Rule that operationalizes a value is a `standard`
-  whose `linkedRefs` name it, or simply a sibling in the same Constitution.
-- **Rule → Protocol / Goal linkage** — `linkedRefs: RecordRefLite[]` already
-  accepts any kind.
-- **Today context** — **already built and already wired.** `buildTodayIndexes`
-  constructs `constitutionByAction` from adopted elements' `linkedRefs`, and
-  `recommend.ts` emits a `linked_constitution` reason. §18 of LIFEOS-072 states
-  the rule 079 §14 asks for: *"the Constitution contributes CONTEXT, never rank."*
-  Protocols have no equivalent bridge yet.
-- **Search** — both kinds are already in the command index
-  (`lib/command/records.ts`).
-- **Lifecycle history** — `ConstitutionRevision` covers §25/§26 completely.
-  Protocols have **no** history (a gap; see §8).
-- **Provenance** — `fromAiText` is already documented as surviving adoption.
-- **Capture safety** — `FORBIDDEN_CANDIDATE_KINDS` already blocks capture from
-  writing `constitution`, `constitution_element` and `principle`. Capture *can*
-  create Protocols, and does, on confirm.
-
-### G. The boundary
-
-| | Answers | Home |
+| | Home | Answers |
 |---|---|---|
-| **Constitution** (`purpose`, `value`) | what I believe / what matters | `constitutionElements` |
-| **Rule — unconditional** | a bar I hold myself to | `constitutionElements`, `kind: "standard"` |
-| **Rule — conditional** | when X, choose Y | `protocols` |
-| **Protocol (multi-step)** | the sequence for a recurring situation | `protocols` — see §7 |
-| **Habit** | repeated behaviour | `practices` (`PracticeCadence`) |
-| **Goal** | desired outcome | `goals` |
-| **Task** | executable step | `nextActions` |
+| **Unconditional rule** | `ConstitutionElement`, `kind: "standard"` | "Don't lie to avoid embarrassment." |
+| **Conditional rule** | `Protocol` | "When I'm angry, wait before replying." |
+| Constitution | `purpose`, `value`, `principle` | what I believe / what matters |
+| Habit | `practices` | repeated behaviour |
+| Goal | `goals` | desired outcome |
+| Task | `nextActions` | executable step |
+
+A `rules` table would have duplicated a schema, its RLS policies, an export
+domain, a sync mapper, a tombstone path, a search-index entry and a revision
+history that all already exist — and would have reversed a recorded
+architectural decision one sprint after it was made.
+
+### Why no migration was needed
+
+Nothing new is persisted. `saveRule` writes an existing `ConstitutionElement` or
+an existing `Protocol` through the store functions that already owned them, so
+the row shapes on the wire are byte-identical to 0047's. The 0045/0047
+deploy-order hazard does not arise (§41).
 
 ---
 
-## 2. What is genuinely missing
+## 2. What was built
 
-Not storage. Four things:
+| Concern | Where |
+|---|---|
+| The projection — one code, both shapes | `lib/code/personal-code.ts` |
+| Near-duplicate detection across both domains | `lib/code/duplicates.ts` |
+| Tension surfacing across both domains | `lib/code/conflicts.ts` |
+| The capture detector | `lib/code/normative.ts` |
+| Store actions (`saveRule`, `retireRule`, `pauseRule`, `resumeRule`) | `lib/mvpStore.ts` |
+| Memory `RULES` class | `lib/memory/query.ts`, `lib/memory/answer.ts` |
+| Conditional-rule context for Today | `lib/today/indexes.ts`, `lib/today/recommend.ts` |
+| The surface | `/personal-code`, `components/code/PersonalCodePage.tsx` |
 
-1. **A surface.** There is no view that answers *"what standards have I chosen
-   for myself?"*. `/constitution` shows all four kinds together; `/protocols`
-   shows conditionals separately. A person's operating code is split across two
-   pages with no shared frame.
-2. **Protocol lifecycle history.** `Protocol` has no history array and no
-   revision record, so §24's *"when did I change this rule?"* and §26's material
-   wording change are **unanswerable for conditional rules**. Constitution
-   answers both.
-3. **Memory.** No goal-style query class exists for normative records, and
-   `constitution_element` is on `MEMORY_EXCLUDED_KINDS` — deliberately, by 056.
-   §24's seven questions currently return nothing. (See §7 — this is a real
-   tension, not an oversight to steamroll.)
-4. **Conflict surfacing** (§32) and **near-duplicate detection** (§20) — neither
-   exists for normative records.
+**Navigation (§45):** one route, added to the existing **Learn** menu beside the
+Constitution. No new top-level destination.
 
----
-
-## 3. Recommendation
-
-**Reuse. No new persistence noun, no migration.**
-
-"Personal Code" becomes a **user-facing frame over two existing domains**, not a
-third domain. The word "Rule" names what the user sees; `standard` and `Protocol`
-remain what the system stores.
-
-This is the LIFEOS-052 `Note` precedent and the 056 decision, applied
-consistently rather than reversed one sprint later.
+**Terminology (§46):** "Personal Code" and "Rule" reach the user. `standard`,
+`Protocol` and `ConstitutionElement` never do — the create field routes on the
+shape of the sentence, so a person never picks a domain.
 
 ---
 
-## 4. Open questions — I need decisions on these before implementing
+## 3. The lifecycle asymmetry, stated rather than smoothed
 
-### Q1. `standard` has no `paused` state (§11)
+The two halves genuinely differ, and Personal Code reports the difference:
 
-`ConstitutionStatus` is `draft | active | retired`. `ProtocolStatus` is
-`active | paused | retired`. §11 asks for `active / paused / retired`.
+| | Unconditional (`standard`) | Conditional (`Protocol`) |
+|---|---|---|
+| Not yet adopted | **draft** — written, not part of the code | — |
+| In force | active | active |
+| Held, not applied | — **no `paused` state** | **paused** |
+| No longer held | retired | retired |
+| Lifecycle history | full (`ConstitutionRevision`) | **none** |
 
-For an unconditional Rule, "paused" would have to map to `draft` (never adopted)
-or `retired` (no longer adopted) — and neither means *"I still hold this, I'm
-just not applying it right now."*
-
-Options:
-- **(a) Accept the difference.** Conditional Rules pause; unconditional ones are
-  adopted or retired. The Personal Code view says so plainly. **No migration.**
-- **(b) Add `paused` to `ConstitutionStatus`.** `status` is plain `text` in 0038
-  with **no CHECK constraint**, so this needs **no migration** — but it changes
-  the meaning of a shipped normative domain and touches `activeConstitution`,
-  the revision vocabulary, and the adopt/retire flows.
-
-**My recommendation: (a).** It is honest about what the two domains mean, and it
-avoids editing the semantics of the Constitution to make a new view tidier.
-
-### Q2. Memory and the Constitution exclusion (§24 vs LIFEOS-056)
-
-`MEMORY_EXCLUDED_KINDS = ["belief", "constitution_element"]`, and 056's comment
-is emphatic: *"The Constitution and Beliefs are what the user holds to be true
-about themselves, not a record of what happened… A question about last week has
-no business reaching either."*
-
-§24 asks Memory to answer *"what rules do I live by?"*. That is **not** a
-question about last week — it is a direct question about the Constitution, asked
-by its owner.
-
-Options:
-- **(a) A dedicated `RULES` query class** that reads normative records only when
-  the question explicitly asks about rules, leaving `MEMORY_EXCLUDED_KINDS`
-  intact for every retrieval-shaped question. The exclusion keeps doing its job:
-  "what did I finish last week?" still cannot reach the Constitution.
-- **(b) Remove the exclusion.** Rejected — it would let topical retrieval pull
-  constitutional statements into unrelated answers, which is what 056 forbade.
-
-**My recommendation: (a).** It is the same shape as LIFEOS-078's `GOALS` class,
-and it preserves the 056 boundary rather than deleting it.
-
-### Q3. Protocol history (§24, §25, §26)
-
-Conditional Rules cannot answer "when did I change this?" because `Protocol` has
-no history.
-
-Options:
-- **(a) Report the limitation.** §24 explicitly permits this: *"If the
-  persistence model cannot support lifecycle history: report the limitation."*
-  Personal Code shows lifecycle history for unconditional Rules and says plainly
-  that conditional ones record only their current state.
-- **(b) Add `history jsonb` to `protocols`.** This is **migration 0048**, and
-  under §41/077 it needs the capability-advertisement analysis and a contract
-  bump — the same Type B shape as 0047. It would make the two halves of Personal
-  Code behave identically.
-
-**My recommendation: (a) for this sprint**, with the limitation stated in the
-report and the tests. (b) is a real improvement but it is a migration, and §5
-says stop before writing one. If you want (b), say so and I will return the
-exact schema proposal before writing any SQL.
-
-### Q4. Where the surface lives (§45)
-
-§45 prefers no new top-level destination. `/constitution` is already under
-**Learn**, which is the wrong menu for "how do I want to act" — and Protocols
-sits under **Capture**, which is also wrong.
-
-Options:
-- **(a) A `/personal-code` route, linked from the existing Constitution page**
-  and added to the **Reflect** menu, with `/protocols` kept as-is.
-- **(b) A tab/section inside `/constitution`.** No new route at all, but it
-  buries conditional Rules inside a page named for something else.
-
-**My recommendation: (a).** One new route, one new nav entry under an existing
-menu, no new top-level destination.
+`paused` was NOT added to `ConstitutionStatus` for UI symmetry (§3 of the
+approval). Writing `draft` to mean "paused" would claim the user never adopted a
+standard they still hold, which is a different and false statement. The Pause
+control simply does not appear on an unconditional rule, and the view labels
+`draft` as "Not adopted yet".
 
 ---
 
-## 5. Migration decision
+## 4. The Protocol-history limitation
 
-**No migration is required for the recommended path.**
+`Protocol` carries no history, so **"when did I change this conditional rule?"
+is unanswerable**, and 0048 was not written (§4, §20 of the approval).
 
-- `standard` and `Protocol` already carry every field §6 asks for.
-- `ConstitutionStatus` is unconstrained `text`, so even Q1(b) would need none.
-- Only Q3(b) — Protocol history — would require **0048**, and I have not written
-  it and will not without approval.
+`updatedAt` is deliberately not offered as a substitute. It moves when a typo is
+fixed, so presenting it as the date a rule changed would invent a life event —
+the same class of overclaiming LIFEOS-078 refused for goals.
 
-Because nothing is added to the wire, **no schema capability advertisement is
-needed** and the 0045/0047 deploy-order hazard does not arise (§41).
+Where this surfaces:
 
----
-
-## 6. What I will build once these are answered
-
-Scoped to the brief, and no wider:
-
-- `lib/code/` — the Personal Code projection: unify `standard` elements and
-  Protocols into one read model, group by status, filter by context.
-- Near-duplicate detection over normative statements, reusing the existing
-  `lib/dedup.ts` machinery (§20). Suggest only; never merge.
-- Conflict surfacing (§32) — deterministic, both sides shown, no winner.
-- A `RULES` Memory class (Q2a).
-- A Protocol→Today context bridge mirroring `constitutionByAction`, so
-  conditional Rules can contextualize an action the same way (§14) — context
-  only, absent from `GROUNDING_CODES`, ordering untouched.
-- Capture: suggest-confirm for normative statements (§18/§19), reusing the
-  existing conditional→protocol path and adding a bounded choice when a sentence
-  could be a Rule, a value or a Goal.
-- `/personal-code` (Q4a), a fast create path (§30), and a Rule card (§29).
-- Red proofs (§38), browser torture (§37), performance (§40), provenance
-  regression (§44).
+- `CodeRule.hasLifecycleHistory` carries the fact on the record, so no caller
+  has to remember it.
+- The Personal Code page prints `PROTOCOL_HISTORY_LIMITATION` whenever any
+  conditional rule is shown.
+- The Memory `history` aspect returns `NO_RECORDED_EVIDENCE` with that
+  limitation rather than a fabricated date. A mutation that falls back to
+  `updatedAt` turns the assertion red.
 
 ---
 
-## 7. Verdict
+## 5. Authority and provenance
 
-**LIFEOS-079 DESIGN READY — AWAITING ARCHITECTURE DECISION.**
+**Capture may PROPOSE a rule and can never CREATE one.** `standard` is the first
+member of `CandidateKind` with authority `never_auto`, and both conversion paths
+(`convertCapture` and the bulk path) refuse it, so a normative sentence reaches
+the Personal Code create flow and a person decides.
 
-No migration proposed. The four questions in §4 are the decisions I need; my
-recommendation on each is **Q1(a) · Q2(a) · Q3(a) · Q4(a)**, which requires no
-schema change at all.
+`FORBIDDEN_CANDIDATE_KINDS` is unchanged — `belief`, `constitution_element` and
+`principle` still cannot even be suggested. The new
+`SUGGEST_ONLY_CANDIDATE_KINDS` is the narrower tier this needed.
 
-If you approve those four as recommended, I will implement without returning for
-further approval. If you want **Q3(b)** — Protocol lifecycle history — that is a
-migration, and I will return the exact 0048 proposal first, per §5.
+The card says so on screen: *"Conqify will not create this for you."*
 
-Nothing in §52 has been begun.
+**Provenance is untouched.** `fromAiText` passes through `saveRule` with no
+branch that clears it, so a wording kept from an AI suggestion still reads as
+machine prose after adoption — and Memory attributes it accordingly rather than
+saying "You recorded" (asserted at 79.68/79.69).
+
+---
+
+## 6. Capture, Today, duplicates, conflicts
+
+**Capture (§8).** A conditional normative sentence keeps its existing working
+route to `protocol`. An unconditional one is detected by a literal, reviewable
+marker list, guarded by an occasion test (a dated or single-occasion sentence is
+not a standing rule) and by delegating the conditional test to
+`extractConditional` — the same function the protocol classifier uses, so the
+two cannot drift.
+
+**Today (§11, §15).** A conditional rule whose words overlap an action's title
+is appended as one context line *after* the ordering has run, with a code absent
+from `GROUNDING_CODES`. It cannot move a recommendation and cannot make an
+ungrounded action recommendable. No Personal Code section was added to Today.
+
+**Duplicates (§9).** Checked *before* the write, across both domains, with the
+shared words shown. Three bounded choices, none destructive, and no merge exists
+in the module at all.
+
+**Conflicts (§10).** A tension needs opposite direction words *and* a shared
+subject. Both rules are returned; there is no winner field, no score, and the
+wording hedges (*"may point in different directions here"*) because whether they
+truly conflict depends on a situation the product cannot see. Retired rules are
+never in tension — the user already decided.
+
+---
+
+## 7. Evidence
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` · `eslint` · `npm run build` | clean · clean · exit 0 |
+| Deterministic selftests | **4350/4350** across 43 suites |
+| …of which new this sprint | **98** (`lib/code/selftest.ts`) |
+| `scripts/smoke-079-personal-code.cjs` (browser, 2 viewports) | **97/97** |
+| `scripts/smoke-076-sync-trust.cjs` | 281/281 |
+| `scripts/smoke-078-goal-horizons.cjs` | 93/93 |
+| `scripts/inject-077-schema-compatibility.cjs` | 51/51 |
+| `scripts/inject-078-goal-capability.cjs` | 43/43 |
+| `release:audit` · `release:routes` · `release:export` | 17/17 · 24/24 · 14/14 |
+| `npm run audit:security` | RLS · secrets · routes · auth · deps all PASS |
+
+Migration rehearsal and schema-compatibility gates were **not** re-run for
+schema reasons — no schema was touched — but the compatibility harnesses were
+run anyway to confirm nothing regressed.
+
+### Performance (§40)
+
+At **5000 rules** (2500 standards + 2500 protocols), asserted with budgets in
+the suite: listing under 400ms, duplicate detection under 600ms, the Memory
+answer under 900ms, tension detection under 900ms. The pair scan is the only
+quadratic step, and the fixed direction vocabulary keeps both sides small; the
+subjects are computed once per rule rather than once per pair.
+
+### Three defects the tests found
+
+- The standard detector matched a bare `i want to do`, which fires inside
+  *"whether teaching is what I want to do"* — a reflection about a career turned
+  into a commitment by a loose regex. Markers are now clause-anchored.
+- Its conditional exclusion was a second list of connectives, and it rejected
+  *"tell the truth even when it is embarrassing"* — an unconditional standard
+  with a subordinate clause. It now delegates to `extractConditional`.
+- Conflict detection required a shared **word**, and the brief's own example —
+  *"answer promptly"* vs *"wait before replying"* — shares none. Subjects are
+  now small synonym groups, and a tension names the one it matched.
+
+### Two assertions that passed for the wrong reason
+
+Both caught by mutating the mechanism they claimed to guard:
+
+- **79.74** used two bare actions, which are indistinguishable on every ordering
+  fact — so it returned `null` for the tie and would have passed even if a rule
+  *did* ground a recommendation. Sized against an event, the fixture now
+  separates them, and the mutation turns it red.
+- **79.66**'s real guard is the revision lookup, not the `hasLifecycleHistory`
+  filter. Mutating the fallback to `updatedAt` turns it red.
+
+### Three harness bugs, worth recording
+
+The browser suite failed first on its own fixtures, not on the product: `ZZ`
+markers fused into the words the matchers read (`ZZAnswerPeople` is not
+`answer`); the confirm host uses `role="alertdialog"`; and a document-wide text
+search for "Capture" opened the nav menu instead of clicking
+`[data-capture-submit]`.
+
+---
+
+## 8. Product claims (§48)
+
+1. **Standards in the user's own words** — `saveRule` trims and stores verbatim; asserted at 79.5, 1.3 (browser).
+2. **Distinct from Constitution, Protocols, Goals, Habits, Tasks** — a `value` never appears in Personal Code (79.2, browser 0.3); the boundary table above.
+3. **AI never silently creates or changes a rule** — `never_auto`, both conversion paths refuse, and the browser proves no record is created before confirmation (7.2, 7.3).
+4. **Pause/retire without erasure** — browser 3.1–3.5, 4.1–4.4.
+5. **Memory retrieves chosen standards** — 79.55–79.65, browser 9.1–9.3.
+6. **Context without overriding ordering** — 79.71–79.77, and the mutation proof at 79.74.
+7. **Conflicts surfaced with no hidden winner** — 79.37–79.43, browser 6.1–6.4.
+8. **No score or gamification** — asserted by grep over every produced string and over the whole rendered page (79.15, browser 0.4).
+9. **Provenance truthful** — 79.68, 79.69.
+10. **Cross-device to the strength of the domain** — see §9.
+
+---
+
+## 9. Limitations
+
+- **Conditional rules have no lifecycle history.** Stated above, stated in the
+  UI, stated in Memory. Fixing it is migration 0048 and was explicitly deferred.
+- **Cross-device is exactly what the two domains already provide.** No new
+  guarantee is claimed: `constitutionElements`, `constitutionRevisions` and
+  `protocols` sync as they did before this sprint, and neither is 0045-guarded,
+  so a stale later writer takes the whole row. Personal Code changed no mapper
+  and added no field, so import/export/restore/account-switch carry rules
+  because they already carried these records.
+- **Context matching is literal.** `ruleContexts` uses a fixed word list, and
+  free-text matching uses meaning-bearing word overlap. A rule phrased entirely
+  outside that vocabulary will not be found by context — which is why the
+  vocabulary is visible in the source rather than learned.
+- **Tension detection is conservative.** A rule with no direction word is never
+  reported, and only five subject groups exist. Missing a tension costs nothing;
+  inventing one tells someone their own commitments are incoherent when they are
+  not.
+
+---
+
+## 10. Verdict
+
+**LIFEOS-079 COMPLETE — RULES / PERSONAL CODE READY.**
+
+No migration. Repository migration head unchanged at **0047**. All final gates
+green.
+
+Nothing in §20 of the approval was begun: no 0048, no Protocol history, no
+Collections, People, Calendar expansion, D-8, general D-23, Observatory, or
+habit gamification.
