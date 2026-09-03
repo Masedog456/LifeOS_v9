@@ -4440,6 +4440,19 @@ export function deleteProtocol(protocolId: string): void {
  * wording the user kept from a suggestion still reads as machine prose
  * (LIFEOS-050A/050B), and this function has no branch that clears it.
  */
+/**
+ * Was the text of this capture machine prose? (LIFEOS-080 §6)
+ *
+ * `undefined` when there is no capture to read, so `??` leaves the caller's own
+ * decision alone rather than overwriting it with a guess.
+ */
+function originOfCapture(captureId?: string): boolean | undefined {
+  if (!captureId) return undefined;
+  const c = state.captures.find((x) => x.id === captureId);
+  if (!c) return undefined;
+  return classifyOrigin({ kind: "capture", text: effectiveText(c) }) === "conqify_ai";
+}
+
 export function saveRule(input: {
   statement: string;
   note?: string;
@@ -4450,6 +4463,17 @@ export function saveRule(input: {
   const text = (input.statement ?? "").trim();
   if (!text) return null;
 
+  // LIFEOS-080 §6. A rule may now arrive here from Capture, prefilled from the
+  // sentence the person typed. That is a new door into this function, and
+  // LIFEOS-050A/050B require every door to answer the same question: who
+  // actually wrote these words?
+  //
+  // So when a source capture is named and the caller has not already decided,
+  // the capture's text is CLASSIFIED — exactly as `convertCapture` does — rather
+  // than defaulting to "the user". Machine prose kept from a suggestion still
+  // reads as machine prose after adoption; adoption is not authorship.
+  const fromAiText = input.fromAiText ?? originOfCapture(input.sourceCaptureId);
+
   const cond = extractConditional(text);
   if (cond?.leading && cond.trigger.trim() && cond.response.trim()) {
     return {
@@ -4458,7 +4482,7 @@ export function saveRule(input: {
         response: cond.response,
         reason: input.note,
         sourceCaptureId: input.sourceCaptureId,
-        fromAiText: input.fromAiText,
+        fromAiText,
       }),
       shape: "conditional",
     };
@@ -4470,7 +4494,7 @@ export function saveRule(input: {
     note: input.note,
     linkedRefs: input.linkedRefs,
     sourceCaptureId: input.sourceCaptureId,
-    fromAiText: input.fromAiText,
+    fromAiText,
   });
   adoptConstitutionElement(elementId);
   return { id: elementId, shape: "unconditional" };

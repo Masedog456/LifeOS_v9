@@ -41,7 +41,9 @@
  * after seeing `escalate` — this module never performs I/O.
  */
 
-import { classifyOne, extractConditional, type ClassificationConfidence } from "@/lib/capture/classify";
+import { classifyOne, extractConditional, looksReflective, type ClassificationConfidence } from "@/lib/capture/classify";
+import { detectStance, stanceDisclosure } from "@/lib/capture/stance";
+import { detectAspiration, hasAspirationMarker, ASPIRATION_SUGGESTION_REASON } from "@/lib/capture/aspiration";
 import { decompose, type Segment } from "@/lib/capture/decompose";
 import { detectWaiting, waitingTitle } from "@/lib/capture/waiting";
 import { detectMissed, missedNoteReason } from "@/lib/capture/completion";
@@ -50,7 +52,7 @@ import { completeRule, extractRecurrence, extractTimeOfDay, looksLikeEvent } fro
 import { nextOccurrenceOnOrAfter, type RecurrenceRule } from "@/lib/time/recurrence";
 import { matchRecords, NO_MATCH, type MatchResult } from "@/lib/capture/match";
 import { authorityFor, type AuthorityLevel, type CandidateKind } from "@/lib/capture/authority";
-import { detectStandard, STANDARD_SUGGESTION_REASON } from "@/lib/code/normative";
+import { detectStandard, hasNormativeMarker, STANDARD_SUGGESTION_REASON } from "@/lib/code/normative";
 import type { StoreState } from "@/types/mvp";
 import type { DayKey } from "@/lib/reviews/dates";
 
@@ -131,7 +133,11 @@ const ALTERNATES: Record<CandidateKind, CandidateKind[]> = {
   protocol: ["note", "action"],
   reflection: ["note"],
   project: ["action", "note"],
-  goal: ["action", "project", "note"],
+  // LIFEOS-080. "Rule" joins the goal's alternates because the two genuinely
+  // overlap — "I want to be someone who doesn't put things off" is an ambition
+  // and a commitment at once, and the tie-break in `aspiration.ts` picks one.
+  // Being able to disagree in a tap is what makes a tie-break acceptable.
+  goal: ["action", "project", "note", "standard"],
   event: ["action", "note"],
   // LIFEOS-079 §19. A normative sentence is genuinely ambiguous — "I want to be
   // more patient" could be a rule, a goal or a note — so the alternates are the
@@ -155,7 +161,7 @@ function titleOf(text: string): string {
  * everything — because those orderings were derived from real failures and
  * re-deriving them differently here would let the two disagree.
  */
-function interpretSegment(segment: Segment, index: number, state: StoreState, today: DayKey): Candidate {
+function primaryCandidate(segment: Segment, index: number, state: StoreState, today: DayKey): Candidate {
   const text = segment.text.trim();
   const temporal = extractTemporal(text, today);
   const association = matchRecords(text, state);
@@ -207,16 +213,27 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
   //    action verb, so testing actions first would misroute every protocol.
   const cond = extractConditional(text);
   if (cond?.leading) {
+    // LIFEOS-080. An un-delimited conditional ("If I feel overwhelmed I go for a
+    // walk") is read from the subject alone, so it is `likely` rather than
+    // `high` — the routing is a good reading, not a certain one. A protocol is
+    // `confirm` either way; what changes is that the hedge is now shown.
+    const confidence: ClassificationConfidence = cond.explicit ? "high" : "likely";
     return {
       ...base2,
       kind: "protocol",
       fields: { trigger: cond.trigger, response: cond.response, body: text },
-      confidence: "high",
+      confidence,
       reason: "Reads as a when → then protocol.",
-      authority: authorityFor("protocol", "high"),
+      authority: authorityFor("protocol", confidence),
       alternates: ALTERNATES.protocol,
     };
   }
+
+  // LIFEOS-080 §15–§17. Both consequential detectors below consult
+  // `detectStance` internally and refuse a sentence that only NAMES a
+  // commitment — so nothing here has to remember to check. `interpretSegment`
+  // reads the stance separately, to say why the reading was withheld.
+  const aspiration = detectAspiration(text);
 
   // 1b. Unconditional standard → a Personal Code suggestion (LIFEOS-079 §8).
   //
@@ -229,7 +246,15 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
   //     This kind is `never_auto` and no conversion path can write it. The
   //     candidate exists so the sentence reaches Personal Code, not so capture
   //     can create a rule.
-  const standard = detectStandard(text);
+  //
+  //     LIFEOS-080: and only when the sentence is not better read as an
+  //     AMBITION. "I want to be debt free in two years" matched a normative
+  //     marker and became a rule the person is held to — in the one tier capture
+  //     cannot write at all, so the sentence went nowhere. `detectAspiration`
+  //     returns null whenever its own remainder reads as a rule, so the two
+  //     detectors cannot both claim a sentence: if the aspiration fired, the
+  //     remainder was an outcome, and rule 5 below files it as a goal.
+  const standard = aspiration ? null : detectStandard(text);
   if (standard) {
     return {
       ...base2,
@@ -431,21 +456,29 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
   //    Handled here and not in `classify.ts` deliberately: that module's rules are
   //    load-bearing for four other surfaces, and this is a capture-pipeline
   //    judgment about where something should GO, not about what it IS.
-  const aspiration = /^i\s+want\s+to\s+(.+)$/i.exec(text);
-  if (aspiration) {
-    const rest = aspiration[1].trim().replace(/[.,;:!?]+$/, "").trim();
-    const restIsErrand = classifyOne(rest).confidence === "high" && classifyOne(rest).suggestedType === "action";
-    if (!restIsErrand) {
-      return {
-        ...base2,
-        kind: "goal",
-        fields: { title: stripResolvedTemporal(rest, temporal) || rest, dueDate: temporal.dueDate },
-        confidence: "possible",
-        reason: "Reads as something you want, not a single next step. Conqify won't create a goal unless you say so.",
-        authority: authorityFor("goal", "possible"),
-        alternates: ALTERNATES.goal,
-      };
-    }
+  //    LIFEOS-080 §7 replaced that single anchored regex with
+  //    `lib/capture/aspiration.ts`. The anchor was the defect: any prefix
+  //    defeated it, so "Someday I want to move closer to my parents" and even
+  //    "My goal is to save six months of expenses" were notes.
+  //
+  //    The one case that does NOT become a goal here is a reflective opener.
+  //    "I've been thinking I want to change careers" is a person thinking out
+  //    loud, and answering it with a Goal asserts a decision they are still
+  //    making. The reflection stays what the sentence IS; the ambition is
+  //    offered beside it, unticked, by `secondaryCandidates`.
+  if (aspiration && !looksReflective(text)) {
+    return {
+      ...base2,
+      kind: "goal",
+      fields: {
+        title: stripResolvedTemporal(aspiration.objective, temporal) || aspiration.objective,
+        dueDate: temporal.dueDate,
+      },
+      confidence: "possible",
+      reason: ASPIRATION_SUGGESTION_REASON,
+      authority: authorityFor("goal", "possible"),
+      alternates: ALTERNATES.goal,
+    };
   }
 
   // 6. Everything else goes through the existing, proven classifier.
@@ -527,6 +560,102 @@ function interpretSegment(segment: Segment, index: number, state: StoreState, to
 }
 
 /**
+ * Readings the sentence also supports (LIFEOS-080 §3).
+ *
+ * ## Why this exists
+ *
+ * The north star says a capture may hold several things at once, and until now
+ * "several" meant several CLAUSES: `primaryCandidate` has a `return` in every
+ * branch, so one segment produced exactly one candidate no matter what was in
+ * it. A single clause that is genuinely two things could not be read as two.
+ *
+ * ## Kept narrow on purpose
+ *
+ * Exactly one case qualifies today: a REFLECTIVE sentence that also names an
+ * ambition or a rule.
+ *
+ *   "I've been thinking I want to change careers"
+ *     → Note (reflection)  ·  Goal "change careers", unticked
+ *
+ * Suppressing the goal loses what the person said; asserting it decides a career
+ * change on their behalf. Offering both is the honest answer, and it is only
+ * honest while the second one arrives unselected — which is why every candidate
+ * here is `confirm` or `never_auto` and why none is ever `high` confidence.
+ *
+ * A second candidate is not a second opinion about the same record. If the
+ * sentence supports one reading, this returns nothing.
+ */
+function secondaryCandidates(primary: Candidate, index: number): Candidate[] {
+  const text = primary.evidence.text;
+  // Only a reflection carries a second reading, and only when the sentence is
+  // actually asserting something — a remembered or declined ambition is not one.
+  if (primary.kind !== "note" || !looksReflective(text)) return [];
+  if (detectStance(text).stance !== "asserted") return [];
+
+  const base = {
+    id: `c${index}b`,
+    evidence: primary.evidence,
+    unresolved: [],
+    association: primary.association,
+    producedBy: "deterministic" as const,
+    // Never pre-selected, whatever the kind. The primary reading is the one the
+    // sentence makes; this is the one it leaves open.
+    confidence: "possible" as const,
+  };
+
+  const aspiration = detectAspiration(text);
+  if (aspiration) {
+    return [{
+      ...base,
+      kind: "goal",
+      fields: { title: aspiration.objective },
+      reason: "You're thinking this through — if it's a goal, Conqify can keep it as one.",
+      authority: authorityFor("goal", "possible"),
+      alternates: ALTERNATES.goal,
+    }];
+  }
+
+  const standard = detectStandard(text);
+  if (standard) {
+    return [{
+      ...base,
+      kind: "standard",
+      fields: { title: standard.statement, body: standard.statement },
+      reason: "You're thinking this through — if it's a rule you hold, it belongs in your Personal Code.",
+      authority: authorityFor("standard", "possible"),
+      alternates: ALTERNATES.standard,
+    }];
+  }
+
+  return [];
+}
+
+/**
+ * Interpret one segment: the reading the sentence makes, plus any it leaves open.
+ */
+function interpretSegment(segment: Segment, index: number, state: StoreState, today: DayKey): Candidate[] {
+  const primary = primaryCandidate(segment, index, state, today);
+  const text = primary.evidence.text;
+
+  // LIFEOS-080 §15–§17. When a guard withheld a Goal or a Rule, say so. The
+  // sentence still becomes a note, kept exactly as typed — but a person who
+  // writes "I used to always answer emails immediately" should be able to see
+  // that Conqify read them correctly, and that reading them correctly is
+  // precisely why it did not hand them a rule.
+  //
+  // Only when the sentence really did carry one of those markers: a disclosure
+  // about a reading that was never available would be noise at best and a
+  // fabricated near-miss at worst.
+  const stance = detectStance(text);
+  if (primary.kind === "note" && !primary.disclosure && stance.stance !== "asserted"
+      && (hasNormativeMarker(text) || hasAspirationMarker(text))) {
+    primary.disclosure = stanceDisclosure(stance) ?? undefined;
+  }
+
+  return [primary, ...secondaryCandidates(primary, index)];
+}
+
+/**
  * Should the model be asked?
  *
  * Conservative on purpose. Escalation costs money and latency, and the
@@ -561,7 +690,7 @@ export function interpret(text: string, state: StoreState, today: DayKey): Inter
 
   const segments = decompose(trimmed);
   const candidates = (segments.length > 0 ? segments : [seg(trimmed)])
-    .map((s, i) => interpretSegment(s, i, state, today));
+    .flatMap((s, i) => interpretSegment(s, i, state, today));
 
   // Deduplicate unresolved phrases across candidates for the summary line.
   const unresolved: TemporalFinding[] = [];

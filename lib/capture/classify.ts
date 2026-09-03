@@ -133,6 +133,21 @@ const REFLECTION_MARKERS = [
   "i keep wondering", "i keep coming back to",
 ];
 
+/**
+ * Does the sentence OPEN reflectively? (LIFEOS-080 §15)
+ *
+ * The same list rule 7 uses, exposed so the capture router can ask the question
+ * before it routes. "I've been thinking I want to change careers" holds a real
+ * ambition, and the audit found it vanishing: the reflective reading won and the
+ * goal inside was never offered at all. Neither reading should be suppressed and
+ * neither should be asserted over the other — so the router keeps the reflection
+ * as what the sentence IS, and offers the goal beside it, unticked.
+ */
+export function looksReflective(text: string): boolean {
+  const lower = tidy(text).toLowerCase();
+  return REFLECTION_MARKERS.some((m) => lower.startsWith(m));
+}
+
 /** Informational shapes that are notes even when they contain a verb. */
 const NOTE_MARKERS = [
   "recipe", "notes on", "notes about", "things i learned", "remember that",
@@ -152,7 +167,7 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  * form is common in ordinary prose that is not a protocol at all ("call me when
  * you land"), so it is reported as `likely` and still requires confirmation.
  */
-export function extractConditional(text: string): { trigger: string; response: string; leading: boolean } | null {
+export function extractConditional(text: string): { trigger: string; response: string; leading: boolean; explicit: boolean } | null {
   const t = tidy(text);
   // Leading: "When X, Y" / "If X then Y" / "Before X, Y" / "Whenever X, Y"
   const leading = /^(when(?:ever)?|if|before|after)\b\s+([^,]+?)\s*(?:,|\s+then\s+)\s*(.+)$/i.exec(t);
@@ -164,7 +179,31 @@ export function extractConditional(text: string): { trigger: string; response: s
       // "Before X, Y" keeps its connective in the trigger — "making a large
       // purchase" alone loses the timing that makes the protocol meaningful.
       const trigger = connective === "before" || connective === "after" ? `${connective} ${cond}` : cond;
-      return { trigger, response: resp, leading: true };
+      return { trigger, response: resp, leading: true, explicit: true };
+    }
+  }
+  // LIFEOS-080 §11. The un-delimited leading form: "If I feel overwhelmed I go
+  // for a walk". The audit found this falling through to Note, and it is one of
+  // the two most natural ways people write a rule for themselves.
+  //
+  // Widened HERE rather than in a parallel detector on purpose. This function is
+  // load-bearing for six callers — the protocol classifier, `decompose`'s
+  // never-split rule, `saveRule`'s routing, `normative.ts`'s exclusion, inbox
+  // conversion and the Protocols page — and a second opinion about what a
+  // conditional is would let them disagree about the same sentence.
+  //
+  // Without a delimiter there is nothing to split on but the SUBJECT, so both
+  // halves must be first-person clauses. That is narrow, and narrow is the
+  // point: "When I got home the dog was gone" has one "I" and does not match.
+  const implied = /^(when(?:ever)?|if)\b\s+(i\s+[^,]+?)\s+(i\s+[^,]+)$/i.exec(t);
+  if (implied) {
+    const cond = tidy(implied[2]);
+    const resp = tidy(implied[3]);
+    // A NARRATIVE is not a protocol. "When I saw him I told him the truth"
+    // reports a day; a protocol describes what one does whenever the trigger
+    // recurs. Past tense in either half means the sentence is the former.
+    if (cond && resp && !isPastClause(cond) && !isPastClause(resp)) {
+      return { trigger: cond, response: resp, leading: true, explicit: false };
     }
   }
   // Trailing: "Y when X"
@@ -172,10 +211,33 @@ export function extractConditional(text: string): { trigger: string; response: s
   if (trailing) {
     const resp = tidy(trailing[1]);
     const cond = tidy(trailing[3]);
-    if (resp && cond) return { trigger: cond, response: resp, leading: false };
+    if (resp && cond) return { trigger: cond, response: resp, leading: false, explicit: true };
   }
   return null;
 }
+
+/**
+ * Does a first-person clause open with a past-tense verb?
+ *
+ * A guard, not a tense analyser: it exists only to keep narrative out of the
+ * un-delimited conditional above, so a miss costs a protocol suggestion and a
+ * false positive would cost a wrong record. The `-ed` test requires a consonant
+ * before the suffix, because "I need", "I feed" and "I speed" are present tense
+ * and every one of them ends in the letters.
+ */
+function isPastClause(clause: string): boolean {
+  const first = clause.replace(/^i\s+/i, "").split(/\s+/)[0]?.toLowerCase() ?? "";
+  if (/[^aeiou]ed$|ied$/.test(first)) return true;
+  return IRREGULAR_PAST.has(first);
+}
+
+const IRREGULAR_PAST = new Set([
+  "was", "were", "had", "did", "went", "saw", "told", "said", "got", "came",
+  "took", "made", "felt", "knew", "thought", "left", "found", "gave", "heard",
+  "met", "ran", "wrote", "bought", "caught", "brought", "sent", "spent", "kept",
+  "slept", "woke", "broke", "chose", "forgot", "lost", "paid", "sat", "stood",
+  "won", "wore", "drove", "ate", "drank", "began", "held", "let", "quit",
+]);
 
 /** Detect "waiting for/on X" and extract what is being waited on. */
 export function extractWaiting(text: string): string | null {
@@ -226,7 +288,7 @@ export function classifyOne(text: string): CaptureClassification {
   if (cond && cond.leading) {
     return {
       suggestedType: "protocol",
-      confidence: "high",
+      confidence: cond.explicit ? "high" : "likely",
       reason: "Uses a when → response pattern.",
       extracted: { trigger: cond.trigger, response: cond.response },
     };
@@ -258,6 +320,18 @@ export function classifyOne(text: string): CaptureClassification {
   const needTo = /^(?:i\s+)?(?:need|have|want|ought)\s+to\s+(.+)$/i.exec(raw);
   if (needTo) {
     return { suggestedType: "action", confidence: "high", reason: "Describes something you need to do.", extracted: { title: tidy(needTo[1]) } };
+  }
+  // LIFEOS-080. "I should talk to Dana about it" was a Note, because `should`
+  // was missing here — while `decompose` has cut on "i should" all along, so the
+  // clause was already being split out and then had nowhere to go.
+  //
+  // The exclusion is the same one the normative detector uses from the other
+  // side: a DISPOSITION ("I should be more patient") is a way of acting and
+  // belongs to Personal Code; a plain verb is a thing to do. Written as one
+  // negative lookahead so the two lists can be read against each other.
+  const shouldDo = /^i\s+should\s+(?!be\b|stay\b|remain\b|keep\b|stop\b|start\b|treat\b|hold\b|protect\b|always\b|never\b|make sure\b)(.+)$/i.exec(raw);
+  if (shouldDo) {
+    return { suggestedType: "action", confidence: "likely", reason: "Describes something you mean to do.", extracted: { title: tidy(shouldDo[1]) } };
   }
   // LIFEOS-066 §13. "Remember to X" is an errand wearing a memory word, and the
   // errand is X — "call the dentist", not "remember to call the dentist". The

@@ -22,6 +22,7 @@ import {
   allRules, groupRulesByState, ruleContexts, type CodeRule,
 } from "@/lib/code/personal-code";
 import { findDuplicates, duplicateNotice, type DuplicateMatch } from "@/lib/code/duplicates";
+import { HANDOFF_NOTE, type Handoff } from "@/lib/code/handoff";
 import { findTensions, TENSION_LINE } from "@/lib/code/conflicts";
 import SyncStatus from "@/components/SyncStatus";
 import { requestConfirm } from "@/components/ux/ConfirmDialog";
@@ -33,13 +34,31 @@ const SHAPE_LABEL: Record<CodeRule["shape"], string> = {
   conditional: "When…",
 };
 
-export default function PersonalCodePage() {
+/**
+ * @param handoff A rule carried over from Capture (LIFEOS-080 §6).
+ *
+ * Passed in rather than read from the URL here, so this component stays a pure
+ * function of props and store — the route owns the query string, and a test can
+ * exercise the handoff without a router.
+ *
+ * Arriving with one PREFILLS the field. It does not save anything: the person
+ * still presses the same button they press when they type a rule themselves,
+ * which is exactly why it is allowed to be the same button.
+ */
+export default function PersonalCodePage({ handoff }: { handoff?: Handoff | null } = {}) {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const state = useStore();
 
-  const [statement, setStatement] = useState("");
+  const [statement, setStatement] = useState(handoff?.statement ?? "");
   const [note, setNote] = useState("");
   const [dupes, setDupes] = useState<DuplicateMatch[] | null>(null);
+  /**
+   * True while the field still holds exactly the handed-over sentence.
+   *
+   * Used only to decide whether to show the provenance line — once the person
+   * edits the words, they are their words and the note would be wrong.
+   */
+  const fromCapture = !!handoff && statement.trim() === handoff.statement.trim();
 
   const rules = useMemo(() => allRules(state), [state]);
   const groups = useMemo(() => groupRulesByState(rules), [rules]);
@@ -63,7 +82,14 @@ export default function PersonalCodePage() {
   const commit = () => {
     const text = statement.trim();
     if (!text) return;
-    const saved = saveRule({ statement: text, note: note.trim() || undefined });
+    // The source capture rides along, so a rule adopted from Capture keeps its
+    // lineage and its true authorship — `saveRule` classifies the capture's own
+    // text rather than assuming the user wrote it (LIFEOS-050A/050B).
+    const saved = saveRule({
+      statement: text,
+      note: note.trim() || undefined,
+      sourceCaptureId: fromCapture ? handoff?.sourceCaptureId : undefined,
+    });
     if (!saved) return;
     setStatement(""); setNote(""); setDupes(null);
     toast({
@@ -100,9 +126,16 @@ export default function PersonalCodePage() {
           placeholder="Why this matters to you (optional)" aria-label="Why this matters"
           className="mt-2 w-full rounded-lg border border-black/10 px-3 py-2 text-xs outline-none focus:border-zinc-500 dark:border-white/12 dark:bg-black/20"
         />
-        <p className="mt-2 text-[11px] text-zinc-400">
-          Write it as “Always…”, “Don’t…”, or “When X, do Y”. Conqify keeps your wording.
-        </p>
+        {/* §6. Where the words came from, and that nothing has happened yet. */}
+        {fromCapture ? (
+          <p data-handoff-note className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+            {HANDOFF_NOTE}
+          </p>
+        ) : (
+          <p className="mt-2 text-[11px] text-zinc-400">
+            Write it as “Always…”, “Don’t…”, or “When X, do Y”. Conqify keeps your wording.
+          </p>
+        )}
 
         {/* §9 — the duplicate question, with both sides shown and no merge offered. */}
         {dupes && dupes.length > 0 && (
