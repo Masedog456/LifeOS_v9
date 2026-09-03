@@ -3,14 +3,15 @@
 **North star:** tell Conqify what's happening in normal language, and it should
 know what kind of thing it might become.
 
-## STATUS: AUDIT WRITTEN — IMPLEMENTATION NOT STARTED
+## STATUS: COMPLETE — CAPTURE INTELLIGENCE READY
 
 | | |
 |---|---|
 | Base SHA | `9b890b2be611319f55cda0730e337d4737b81ac2` (PR #85 merged) |
 | Branch | `claude/lifeos-080-capture-intelligence-goals-code` |
-| Migration required | **no** — see §2.11 |
+| Migration | **none** — see §1.11 |
 | Repository migration head | **0047**, unchanged |
+| Schema capability advertisement | **not needed** — nothing was added to the wire |
 
 ---
 
@@ -322,4 +323,262 @@ one.
 
 ---
 
-*Sections 2 onward are written as the implementation lands.*
+# 2. What was built
+
+| Concern | Where |
+|---|---|
+| Is this sentence actually asserting the thing it names? | `lib/capture/stance.ts` |
+| Does it name something the person wants? | `lib/capture/aspiration.ts` |
+| Does it state a rule? (widened, not duplicated) | `lib/code/normative.ts` |
+| Conditionals, in the one shared function | `lib/capture/classify.ts` |
+| Splitting `so` / `but` | `lib/capture/decompose.ts` |
+| Routing, and second readings | `lib/capture/interpret.ts` |
+| Capture → Personal Code | `lib/code/handoff.ts`, `components/capture/CaptureComposer.tsx`, `app/personal-code/page.tsx` |
+| Provenance through the new door | `lib/mvpStore.ts` (`saveRule`) |
+
+**No new page (§33).** No Goal Capture page, no Rule Capture page, no Smart
+Intake. One route was touched — `/personal-code`, which LIFEOS-079 already
+added — and it learned to accept a prefill.
+
+**Today ranking is untouched (§30).** No file under `lib/today/` was modified.
+
+## 2.1 The guards came first, and that ordering was load-bearing
+
+Two of the four negation cases in the audit behaved correctly *by accident*:
+`"I don't want to run a marathon"` stayed a note only because the goal regex was
+anchored at `^`. Widening goal detection first would have shipped a product that
+reads that sentence as a goal to run a marathon.
+
+`lib/capture/stance.ts` is the one answer to *"is this sentence actually
+asserting this?"*, and both consequential detectors delegate to it rather than
+carrying their own copy — LIFEOS-079 has already paid once for a second list
+that drifted from `extractConditional`.
+
+It turns on a distinction worth stating plainly, because getting it backwards
+would suppress exactly what Personal Code exists for:
+
+| | |
+|---|---|
+| `"I don't lie to avoid embarrassment"` | negative **content**, asserted stance → **a rule** |
+| `"I don't want to run a marathon"` | negated **operator** → not a goal |
+
+Most rules people write for themselves are prohibitions. So every pattern
+negates *wanting*, *intending* or the universal quantifier that makes a rule a
+rule — never a plain verb.
+
+When a guard withholds a reading, the note says so (*"Reads as something you
+used to do…"*) — and only when the marker really was there, so the product never
+reports a near-miss it did not have.
+
+## 2.2 Goals: the anchor was the defect
+
+`lib/capture/aspiration.ts` replaces `/^i\s+want\s+to\s+(.+)$/i`. Markers are
+now clause-anchored rather than string-anchored — the fix LIFEOS-079 arrived at
+for the same class of problem — so a prefix no longer defeats them while
+*"whether teaching is what I want to do"* still does not match.
+
+The errand exclusion survives unchanged, and it is what makes widening safe:
+`"I want to call my brother on Saturday"` is still an action. The one exception
+is a long-range adverb, which says outright that this is not the next step —
+`"Eventually I need to finish my degree"` carries an action verb and is plainly
+not an errand.
+
+**Goal or rule** is decided by stripping the marker and looking at what is left.
+Stripping first is the whole trick: `"I've always wanted to learn piano"`
+contains `always`, but the `always` modifies the *wanting*.
+
+### Horizons are read, never inferred
+
+LIFEOS-078 wrote the rule into `createGoal` — *"nothing is inferred from the
+title or the date"* — and this sprint holds that line. A long-range adverb is
+used for two honest things only: to find the marker behind it, and to tell an
+ambition from an errand. It is **not** mapped onto a `GoalHorizon`.
+
+"This year" is `near` in November and `medium` in January. Picking one would be
+the product inventing a life fact from a calendar, which is the overclaiming 078
+refused for goal progress. A capture-born goal arrives with no horizon and the
+person sets it. Asserted at browser 1.9.
+
+## 2.3 The dead end, closed
+
+The audit's central finding was that a `standard` candidate reached nothing.
+Capture recognised the rule, printed *"Conqify will not create this for you"*,
+offered a checkbox like every other row, took the confirmation, refused the
+write, and reported *"Saved your capture."*
+
+What changed is that capture gained a **destination**, not authority:
+
+- the suggest-only row has **no checkbox** — a control that cannot do what it
+  appears to do is worse than no control;
+- it has *"Add to my Personal Code →"* instead, which saves everything else the
+  person ticked, saves the capture, and navigates;
+- Personal Code opens with the sentence prefilled and *"Nothing is saved until
+  you add it"*;
+- arriving there still creates nothing. The person's own click does.
+
+`standard` is still `never_auto`, `commitCapture` still refuses it, and
+`FORBIDDEN_CANDIDATE_KINDS` is byte-identical. Asserted end to end at browser
+2.4–3.11, and the negative — `constitutionElements` empty — is asserted twice
+before it is asserted non-empty.
+
+**Provenance survived the new door.** `saveRule` now classifies the source
+capture's own text rather than defaulting to "the user", exactly as
+`convertCapture` does, so machine prose kept from a suggestion still reads as
+machine prose after adoption (LIFEOS-050A/050B).
+
+## 2.4 Several things at once
+
+`interpretSegment` returned one candidate per segment, so "several" could only
+ever mean several clauses. Two changes:
+
+- `so` and `but` join the separators, under the existing merge-back rule;
+- a segment may now yield a **second reading**, in exactly one case: a
+  reflective sentence that also names an ambition or a rule.
+
+```
+"I want to get healthier so I should stop eating late, and I need to book a physical"
+  → Goal "get healthier" · Rule "I should stop eating late" · Action "book a physical"
+
+"I've been thinking I want to change careers"
+  → Note (the reflection)  ·  Goal "change careers", unticked
+```
+
+Suppressing the second loses what the person said; asserting it decides a career
+change on their behalf. Offering both is honest only while the second arrives
+unselected — asserted at browser 6.4 and at 80.94.
+
+## 2.5 One normative path, one conditional function
+
+§11 asked for no duplicated detector logic, and the sprint took that further
+than the normative case:
+
+- `detectStandard` was **widened in place**; a sweep asserts that no `standard`
+  candidate exists anywhere that `detectStandard` does not also produce, so a
+  future parallel path turns the suite red (80.68).
+- `extractConditional` gained the un-delimited leading form in the **shared
+  function**, not a copy. It has six callers — the protocol classifier,
+  `decompose`'s never-split rule, `saveRule`'s routing, `normative.ts`'s own
+  exclusion, inbox conversion and the Protocols page — and a second opinion
+  about what a conditional is would let them disagree about one sentence.
+
+With no delimiter there is nothing to split on but the subject, so both halves
+must be first-person clauses and neither may be past tense. `"When I got home
+the dog was gone"` has one `I`; `"When I saw him I told him the truth"` is a
+narrative. Neither is a protocol. And because the split was inferred, the
+reading is `likely`, not `high`.
+
+---
+
+# 3. Evidence
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` · `eslint` · `npm run build` | clean · 0 errors · exit 0 |
+| Deterministic selftests | **4554/4554** across 44 suites |
+| …of which new this sprint | **204** (`lib/capture/intelligence-selftest.ts`) |
+| `scripts/smoke-080-capture-intelligence.cjs` (browser, 2 viewports) | **109/109** |
+| `scripts/smoke-079-personal-code.cjs` | 97/97 |
+| `scripts/smoke-078-goal-horizons.cjs` | 93/93 |
+| `scripts/smoke-076-sync-trust.cjs` | 281/281 |
+| `inject-077-schema-compatibility.cjs` · `inject-078-goal-capability.cjs` | 51/51 · 43/43 |
+| `release:audit` · `release:routes` · `release:export` | 17/17 · 24/24 · 14/14 |
+| `npm run audit:security` | RLS · secrets · routes · auth · deps all PASS |
+
+Migration rehearsal was **not** re-run: no schema was touched. The
+schema-compatibility harnesses were run anyway to confirm nothing regressed.
+
+**Performance (§37).** 660 interpretations of the audit corpus complete well
+inside a 1500ms budget asserted in the suite (80.131). Interpretation runs on
+every capture submit, so the budget is on the hot path rather than on a report.
+
+## 3.1 Mutation testing found three assertions that were not earning their keep
+
+Every mechanism was broken deliberately to check that the assertion naming it
+went red. Ten mutations; seven were caught immediately. The three that were not
+are the useful part:
+
+- **A fixture passing for the wrong reason.** `"I was so tired I went to bed"`
+  stays one segment with the subject lookahead removed — the merge-back rule
+  rescues it either way, so the assertion was testing merge-back, not the
+  lookahead it was named after. Replaced with `"I'm running late so start
+  without me"`, where removing the lookahead really does produce *"start without
+  me"* as an errand the user is meant to perform. The code comment overstated
+  the lookahead too, and was corrected to say what it actually buys.
+- **An assertion that crashed instead of failing.** Removing the second reading
+  threw on `cs[1].authority`, which in the real runner takes down the whole
+  suite and reports nothing. A missing candidate must be a red assertion.
+- **A hedge asserted in the wrong place.** The inferred-conditional hedge lives
+  in `classifyOne` *and* `interpret`; only the second was asserted, leaving the
+  shared classifier — which four other surfaces read — free to claim certainty.
+
+All ten mutations are now caught.
+
+## 3.2 Three harness bugs, one of them a repeat
+
+- `\brule\b` does not match `"…Likely ruleConqify will not create…"`.
+  `textContent` concatenates adjacent elements with no separator, so a trailing
+  word boundary never matches. **This is recorded in the LIFEOS-079 report and
+  this harness reproduced it anyway.**
+- Two title assertions read `body.textContent`, which contains the raw capture
+  because React renders a textarea's value as a child node. **One of them
+  passed** — matching the user's own sentence rather than the candidate. Titles
+  are now read out of the inputs.
+
+---
+
+# 4. Product claims (§40)
+
+1. **Messy language reaches the right kind of record** — §1.5–§1.7's tables, now
+   green: ten goal shapes, seven rule shapes, three conditional shapes.
+2. **Nothing consequential is ever created silently** — swept over the whole
+   corpus, not over remembered examples: no goal, rule, protocol or project
+   candidate is ever pre-selected (80.103–80.105), and everything that is
+   pre-selected is a cheap kind at high confidence (80.106–80.107).
+3. **A recognised rule reaches Personal Code** — browser 2.5–3.11.
+4. **…and is created only by the person** — `constitutionElements` empty at
+   recognition and after the handoff; non-empty only after their click.
+5. **A named commitment is not a held one** — browser 5.1–5.5.
+6. **…and a prohibition is still a rule** — browser 5.6, the guard against the
+   guard.
+7. **One sentence can be several things** — browser 4.1–4.5, 6.1–6.5.
+8. **The user's wording is kept** — titles asserted off the inputs; the raw
+   capture is never rewritten.
+9. **The model gained nothing** — `AI_PROPOSABLE_KINDS` unchanged; a
+   model-proposed goal, rule or protocol is dropped (80.108–80.113).
+10. **Nothing grades anyone** — swept over every string this layer can render
+    (80.130, browser 7.1).
+
+---
+
+# 5. Limitations
+
+- **A trailing conditional is still not a protocol.** *"I'm not going to reply
+  to anything when I'm angry"* stays a note. `extractConditional` extracts the
+  trailing form but no caller acts on it, deliberately — *"call me when you
+  land"* is ordinary prose, not a rule — and changing that policy is a wider
+  decision than this sprint. It is a known miss, not a fixed one.
+- **Horizons are not detected.** By choice (§2.2). A goal from Capture has none
+  until the person sets one.
+- **Detection is literal throughout.** Marker lists, a subject-based conditional
+  split, a fixed long-range adverb list. A sentence phrased outside that
+  vocabulary falls through to a note — which is the correct failure, and the
+  reason the vocabulary is in the source rather than learned.
+- **The second reading is narrow.** Only a reflective sentence yields two
+  candidates. Every other genuinely dual sentence relies on the one-tap
+  alternates, which now include Rule on a goal.
+- **Cross-device is unchanged.** No mapper, no field, no domain, no wire shape.
+  Goals, protocols and constitution elements sync exactly as they did before
+  this sprint.
+
+---
+
+# 6. Verdict
+
+**LIFEOS-080 COMPLETE — CAPTURE INTELLIGENCE READY.**
+
+No migration. Repository migration head unchanged at **0047**. All final gates
+green.
+
+Nothing in §42's stop list was begun: no new top-level page, no Today ranking
+change, no 0048, no widening of what AI may propose, and no weakening of the
+never-auto tier.
