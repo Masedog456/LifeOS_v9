@@ -3,14 +3,15 @@
 **North star:** Conqify should remember the arc of my life, not just the current
 state.
 
-## STATUS: AUDIT WRITTEN — IMPLEMENTATION NOT STARTED
+## STATUS: COMPLETE — EXECUTIVE MEMORY READY
 
 | | |
 |---|---|
 | Base SHA | `6d831314ffb359d5a26d0b1b96f2cb40e17dd8b5` (PR #86 merged) |
 | Branch | `claude/lifeos-081-executive-memory-what-changed` |
-| Migration required | **no** — see §1.11 |
+| Migration | **none** — see §1.11 |
 | Repository migration head | **0047**, unchanged |
+| New persistence | **none** — no event store, no table, no domain |
 
 ---
 
@@ -230,4 +231,268 @@ migration head stays at **0047**.
 
 ---
 
-*Sections 2 onward are written as the implementation lands.*
+# 2. What was built
+
+| Concern | Where |
+|---|---|
+| The one derivation | `lib/memory/changes.ts` |
+| Repeated postponement | `lib/memory/changes.ts` (`repeatedlyPostponed`) |
+| Routing — six change aspects | `lib/memory/query.ts` (`ChangeAspect`) |
+| The answer, in sections | `lib/memory/answer.ts` (`answerChanges`) |
+| Reflections by range | `lib/memory/answer.ts` (`answerReflection`) |
+
+**No new UI.** `AskMemory` renders the new answers through the surface it
+already had. **Today ranking untouched** — no file under `lib/today/` changed.
+
+## 2.1 The change taxonomy actually implemented
+
+24 kinds, each named for the field behind it. §5's list minus everything that
+could not be grounded:
+
+| Group | Kinds |
+|---|---|
+| Actions | `created` `completed` `recurring_completed` `cancelled` `deferred` `returned` `restored` `rescheduled` `due_cleared` `planned` `prerequisite_removed` `waiting_started` `waiting_ended` |
+| Goals | `goal_created` `goal_status_changed` `goal_horizon_changed` `goal_target_changed` `goal_replaced` |
+| Personal Code | `rule_adopted` `rule_revised` `rule_retired` |
+| Words & calendar | `reflection_added` `note_added` `capture_added` `decision_recorded` `event_scheduled` |
+
+**Not implemented, because nothing records them:** `BLOCKED`, `UNBLOCKED`,
+`EVENT_RESCHEDULED`, and any project lifecycle kind. `removeActionDependency`
+writes `unblocked` for every edge removal whether or not other blockers remain,
+and completing a blocker writes nothing on the dependent — so the honest kind is
+`prerequisite_removed`, which is what LIFEOS-073 already called it.
+
+## 2.2 Three rules do the work
+
+**An edit is not a change.** A `created`, `edited` or `relinked` revision
+produces nothing; only `adopted`, `revised` and `retired` do — the schema
+already separates a wording correction from a change of position, and this
+respects that line. A goal with no `history[]` contributes nothing rather than
+contributing its `createdAt`: a record written before LIFEOS-078 genuinely has
+no recorded transition, and dating one from when a row appeared would put a date
+on a life decision that nobody made that day.
+
+**Direction is not progress.** `MOVED_FORWARD_KINDS` holds completions and
+nothing else. `DIRECTION_KINDS` holds the goal transitions. The two sets are
+asserted never to overlap (81.15), and moving `goal_horizon_changed` into the
+first turns four assertions red.
+
+**Recurring work is never postponement.** A weekly commitment pushed a day
+generates a deferral like any other, and counting it would tell someone their
+standing routine is a personal failing. The exclusion is `readRule(a.recurrence)`
+— a filter on the record, not a heuristic — and the answer states that the
+exclusion exists rather than leaving the person to wonder why an item is missing.
+
+## 2.3 Source priority (§8)
+
+```
+1. explicit lifecycle/history event   action.history[] · goal.history[]
+2. explicit completion record         recurrenceCompletions[]
+3. revision record                    constitutionRevisions[]
+4. creation timestamp                 createdAt
+```
+
+`updatedAt` is not on the list. Asserted by sweep (81.16): no change anywhere
+traces to it.
+
+## 2.4 Dedup and precedence (§23)
+
+Two rules, and the second is the one Memory was missing:
+
+1. Same kind, same record, same day → one.
+2. **Created AND completed on the same day → the completion only.**
+   `buildRangeReview` has applied this since LIFEOS-064 and `answerChanges`
+   never did, so Memory reported an action created and completed in one minute
+   as two lines while Week Review reported it as one. Promoted to the shared
+   layer so both read the same rule rather than one remembering it.
+
+Created one day and completed the next stays **two** changes — two real days,
+two real facts (81.24).
+
+## 2.5 Repeated-deferral semantics (§14)
+
+- Counted from `action.history[].deferred` at **distinct instants**. Never from
+  `deferredUntil`, never from an old due date — a task whose date passed was
+  missed, which is a different fact with a different feeling attached.
+- Recurring work excluded (§15).
+- Threshold 2.
+- The output is a count and the instants behind it. The wording is §21's
+  verbatim: **"You deferred this 3 times."** There is no vocabulary in the
+  module for avoidance, resistance or fear.
+
+## 2.6 Reflection provenance (§17)
+
+*"What did I say mattered this week?"* was searching for the literal word
+"mattered". A small closed list of **topicless terms** now means "no topic — use
+the range", and the heading and summary stop claiming a topic that was never
+asked about.
+
+The provenance boundary is untouched and is what makes the answer safe: the
+authored/machine split already in `answerReflection` does the work, so an
+AI-written note in the same range is listed with the attribution that is true of
+it and never inside a "You said". Asserted deterministically (81.94–81.96) and
+structurally in the browser (6.3, 6.4).
+
+## 2.7 Goal changes (§9)
+
+Created · status · horizon · target date · replaced — each from `goal.history[]`,
+each carrying `from` → `to` where the record holds both, so *"Near → Medium"* is
+the content of the line rather than a bare title.
+
+A replacement pointing at a deleted goal degrades to *"a goal you later
+deleted"*. No id is ever printed (§26, asserted at 81.21).
+
+## 2.8 Personal Code limitations (§16)
+
+Unconditional standards have `ConstitutionRevision` history and their changes are
+dated. **Conditional Protocols have no history at all**, so their change dates do
+not exist, `updatedAt` is not offered as a substitute, and 0048 was not opened.
+Every rules answer carries `PROTOCOL_CHANGE_LIMITATION` whether or not it found
+anything, because the absence of when/then history is the reason the answer may
+look short.
+
+A `value` or `purpose` element changing is a Constitution change, not a Personal
+Code change, and is excluded (81.17).
+
+## 2.9 Week Review reuse (§27)
+
+**Deliberately partial, and this is the honest account.**
+
+What was unified: the same-day dedup, by *promotion* — Memory adopted Week
+Review's rule into the shared layer.
+
+What was not: `buildRangeReview` still derives its own sections from
+`AutobiographicalEvent` rather than consuming `ExecutiveChange`. Rewiring it
+would be the wholesale rewrite §27 warns against — 101 week-review assertions and
+128 daily-review assertions sit on that shape — and the duplication that actually
+hurt the user (Memory lacking a rule Week Review had) is gone. `daily.ts`'s
+`CHANGE_KINDS` likewise still stands; it and the new builder now agree on the 13
+action kinds, but they are not yet one list.
+
+So there are two definitions of "changed" where there were three, and the two
+that remain no longer disagree about any action. Stated rather than smoothed.
+
+---
+
+# 3. Evidence
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` · `eslint` · `npm run build` | clean · 0 errors · exit 0 |
+| Deterministic selftests | **4668/4668** across 45 suites |
+| …of which new this sprint | **114** (`lib/memory/changes-selftest.ts`) |
+| `scripts/smoke-081-executive-memory.cjs` (browser, 2 viewports) | **72/72** |
+| `smoke-080-capture-intelligence.cjs` · `smoke-079-personal-code.cjs` | 109/109 · 97/97 |
+| `smoke-078-goal-horizons.cjs` · `smoke-076-sync-trust.cjs` | 93/93 · 281/281 |
+| `inject-077-schema-compatibility.cjs` · `inject-078-goal-capability.cjs` | 51/51 · 43/43 |
+| `release:audit` · `release:routes` · `release:export` | 17/17 · 24/24 · 14/14 |
+| `npm run audit:security` | RLS · secrets · routes · auth · deps all PASS |
+
+Migration rehearsal was not re-run: no schema was touched.
+
+### Performance (§29)
+
+Asserted with budgets in the suite, over a bounded week:
+
+| Size | changes + postponement |
+|---|---|
+| 100 entities | under 2500ms |
+| 1,000 entities | under 2500ms |
+| 5,000 entities | under 2500ms |
+| 50 entity-scoped builds over 500 goals | under 2000ms |
+
+Indexes are built once per call (`lookups`), not once per entry, and the goal and
+rule passes test each entry against the same millisecond bounds rather than
+re-resolving the range.
+
+## 3.1 Mutation testing (§33)
+
+Ten mutations aimed at the load-bearing rules. **Nine were caught immediately.
+The tenth is the one that mattered.**
+
+> **M1 — dating a goal transition from `updatedAt` instead of its history
+> entry: GREEN.**
+
+The sprint's central rule was unguarded. The fixture's `updatedAt` happened to
+sit inside the range and no assertion pinned the horizon change to its recorded
+day, so swapping the field changed nothing any test could see. The fixture now
+gives the goal a title edit *today* and a horizon move *two days ago* — the dates
+disagree, so only one of them can be right — and four assertions cover it
+(81.6b–81.6e). M1 now turns two red.
+
+The nine caught first time: recurring work counted as postponement, the same-day
+dedup removed, a horizon change counted as progress, a deleted rule let through
+with no wording, range bounds broken, current wording attributed to an old
+revision, a topicless question turned back into a keyword search, an ambiguous
+entity silently picked, and a return counted as a deferral.
+
+## 3.2 Two defects the tests found, and one harness bug
+
+- **A regression I introduced.** The first rules signal matched any rule noun
+  beside any lifecycle verb, and stole *"Which standards have I retired?"* and
+  *"When did I change my rule about sleep?"* from the RULES class — turning the
+  079 suite red, including the assertion that guards the Protocol limitation.
+  The signal is now narrow: rules as the SUBJECT of "changed", question opening
+  with "what".
+- **A fixture bug the assertion caught.** The recurring action was written with
+  `daysOfWeek` instead of `weekdays`, so `readRule` rejected it and the §15
+  guard silently did not apply. The negative assertion is what exposed it.
+- **A harness bug.** Browser 6.3 sliced the answer's text on the words "You
+  said" to check no AI text fell inside — which cannot work, because each card
+  renders a record's text *before* its attribution label. The product was
+  correct; the assertion now reads each row's own attribution element.
+
+---
+
+# 4. Product claims (§36)
+
+1. **"What changed?" uses historical evidence** — 81.16 sweeps every change for
+   an `updatedAt` trace; 81.6b–81.6e pin a transition to its recorded day.
+2. **Meaningful changes are distinguishable from edits** — 81.10, 81.11.
+3. **Repeated postponement requires repeated recorded deferral** — 81.33–81.36,
+   81.39.
+4. **Recurring work is not mislabelled** — 81.37, browser 3.4, 3.5.
+5. **Goal progress stays grounded in completed work** — 81.13–81.15, 81.90,
+   browser 2.4, 2.5.
+6. **Personal Code changes are grounded** — 81.68–81.71, browser 5.1, 5.2.
+7. **The Protocol limitation remains explicit** — 81.72, browser 5.3, 5.4.
+8. **"You said" remains restricted by provenance** — 81.94–81.96, browser 6.3,
+   6.4.
+9. **Entity-scoped queries resolve safely** — 81.85–81.89, browser 7.1–7.3.
+10. **No event-store infrastructure was added** — no migration, no domain, no
+    table; `buildExecutiveChanges` is a pure function of `(state, range)`.
+
+---
+
+# 5. Known gaps
+
+- **Project lifecycle history does not exist.** `Project` carries `createdAt`,
+  `updatedAt` and a current `status`, and nothing else — so there is no
+  `project_completed` kind and no project status transition anywhere in the
+  taxonomy. This is LIFEOS-064's limitation, unchanged, and it is why §10's
+  potential list is mostly unimplemented.
+- **Protocol change dates do not exist.** Stated in every rules answer.
+- **Event reschedules are invisible.** `EVENT_HISTORY_LIMITATION`, unchanged.
+- **Week Review still derives its own sections** (§2.9). Two definitions of
+  "changed" where there were three.
+- **`lib/memory/timeline.ts` still presents `decision.updatedAt` as "Decision
+  made"** on the `/timeline` surface. Found by this audit, reported, and left
+  alone: it is a different surface with its own consumers and is not on the
+  CHANGES path.
+- **"What keeps coming back?" is answered as repeated deferral.** §15's other
+  candidates — repeated follow-up due, repeated planning without completion —
+  are not implemented, because distinguishing them from ordinary recurring work
+  needs evidence this sprint did not establish.
+
+---
+
+# 6. Verdict
+
+**LIFEOS-081 COMPLETE — EXECUTIVE MEMORY READY.**
+
+No migration. Repository migration head unchanged at **0047**. All final gates
+green.
+
+Nothing in §38's stop list was begun: no 0048, no Collections, People or
+Calendar expansion, no D-8, no general D-23, no Observatory, no psychological
+pattern inference, no autonomous journaling, no ambient capture.

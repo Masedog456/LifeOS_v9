@@ -43,7 +43,7 @@
 
 import type { DayKey } from "@/lib/reviews/dates";
 import type {
-  ConstitutionElement, ConstitutionRevision, Goal, NextAction, RecordRefLite, StoreState,
+  ConstitutionElement, ConstitutionRevision, NextAction, RecordRefLite, StoreState,
 } from "@/types/mvp";
 import type { ResolvedRange } from "@/lib/insights/range";
 import type { ActivityEvent } from "@/lib/insights/activity";
