@@ -38,6 +38,7 @@ import {
   signalsForSection, PROJECT_NO_NEXT_ACTION, type CommitmentSignal,
 } from "@/lib/commitment/signals";
 import { resolutionsFor, resolutionsForAction } from "@/lib/commitment/resolve";
+import { buildDailyCommandView, SINCE_YESTERDAY_HEADING } from "@/lib/today/command";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { toast } from "@/lib/ux/feedback";
 
@@ -63,6 +64,25 @@ const rowClass = "flex items-baseline justify-between gap-3 py-1";
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
 const metaClass = "shrink-0 text-[11px] text-zinc-500";
 
+/**
+ * Neutral past-tense wording for a recent change (§19, §11).
+ *
+ * A transition that records both ends prints them instead ("Near → Medium"),
+ * which says more than any label could. This covers the rest.
+ */
+const CHANGE_WORD: Record<string, string> = {
+  completed: "Completed",
+  recurring_completed: "Done for the day",
+  waiting_ended: "Stopped waiting",
+  goal_status_changed: "Goal status changed",
+  goal_horizon_changed: "Horizon changed",
+  goal_target_changed: "Target date changed",
+  goal_replaced: "Goal replaced",
+  rule_adopted: "Rule adopted",
+  rule_revised: "Rule revised",
+  rule_retired: "Rule retired",
+};
+
 export default function TodayCommandCenter() {
   const state = useStore();
   const today = todayKey();
@@ -79,7 +99,18 @@ export default function TodayCommandCenter() {
   const daily = useMemo(() => buildDailyExecutiveView(state, ix, today), [state, ix, today]);
   // Split once, from the already-deduplicated list. Each section renders its own
   // slice; no section re-derives what belongs in it.
-  const attention = useMemo(() => signalsForSection(view.signals, "attention"), [view.signals]);
+  /**
+   * LIFEOS-083 §5, §9, §11. The two capabilities the audit found stranded.
+   *
+   * `buildAttentionShortlist` (082) shipped reachable only through Memory — its
+   * own report said so — and `buildExecutiveChanges` (081) was read by no daily
+   * surface at all. Composed here, over the index this component already built,
+   * so neither costs a second pass (§35).
+   */
+  const command = useMemo(
+    () => buildDailyCommandView(state, ix, view, today),
+    [state, ix, view, today],
+  );
   const returns = useMemo(() => signalsForSection(view.signals, "return"), [view.signals]);
   // Resolutions for every rendered signal, computed once per store snapshot
   // rather than per button.
@@ -197,6 +228,15 @@ export default function TodayCommandCenter() {
                 {s.recommendation.counterfactual}
               </p>
             )}
+            {/* LIFEOS-083 §23. The attention card this row SUPPRESSED, as an
+                inline reason. "Overdue since yesterday" belongs on the row the
+                user is already reading, not on a duplicate card below it — and
+                the evidence must not vanish just because the card did. */}
+            {command.inlineReasons[s.recommendation.action.id] && (
+              <p data-inline-reason className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                {command.inlineReasons[s.recommendation.action.id]}
+              </p>
+            )}
             {/* §20. The SAME resolver every commitment row uses. This card used
                 to carry its own bespoke "Mark done" button — a second mutation
                 path for the same operation, and one that offered no undo. */}
@@ -235,9 +275,17 @@ export default function TodayCommandCenter() {
         {(view.dueToday.length > 0 || view.recurringToday.length > 0 || view.alsoToday.length > 0) && (
           <ul className="mt-1 flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
             {view.dueToday.map((a) => (
-              <li key={a.id} data-today-action className={rowClass}>
-                <Link href={`/actions/${a.id}`} className={linkClass}>{a.title}</Link>
-                <span className={metaClass}>{a.dueTime ? `Due ${formatLocalTime(a.dueTime)}` : "Due today"}</span>
+              <li key={a.id} data-today-action className="py-0.5">
+                <div className={rowClass}>
+                  <Link href={`/actions/${a.id}`} className={linkClass}>{a.title}</Link>
+                  <span className={metaClass}>{a.dueTime ? `Due ${formatLocalTime(a.dueTime)}` : "Due today"}</span>
+                </div>
+                {/* §23. The suppressed attention card's reason, inline. */}
+                {command.inlineReasons[a.id] && (
+                  <p data-inline-reason className="text-[11px] text-amber-700 dark:text-amber-400">
+                    {command.inlineReasons[a.id]}
+                  </p>
+                )}
               </li>
             ))}
             {view.alsoToday.map((a) => (
@@ -271,27 +319,68 @@ export default function TodayCommandCenter() {
       </Section>
 
       {/* ---- NEEDS ATTENTION ----
-          Rendered from the deduplicated commitment signals (LIFEOS-070 §15/§16),
-          so one commitment is one row no matter how many facts are true of it.
-          Every row states WHY it is here in the record's own terms. */}
-      <Section title="Needs attention" id="attention" show={attention.length > 0}>
+          LIFEOS-083 §9. Rendered from the 082 SHORTLIST, not from the raw
+          signals — capped at three, and with anything already prominent as Next
+          or on today's schedule suppressed, because three cards for one task is
+          the guilt wall §16 forbids.
+
+          Nothing is lost by that suppression: the suppressed item's explanation
+          travels to the row that won, as an inline reason (§23). It is the same
+          sentence, on the row the user is already reading.
+
+          The shortlist also reaches facts the signal layer never had — a
+          repeatedly deferred action among them. */}
+      <Section title="Needs attention" id="attention" show={command.attention.length > 0}>
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {attention.map((s) => (
-            <li key={`${s.recordRef.kind}:${s.recordRef.id}`} data-signal={s.kind} className="py-1">
+          {command.attention.map((a) => (
+            <li key={a.id} data-signal={a.kind} data-attention className="py-1">
               <div className={rowClass}>
-                <Link href={hrefForSignal(s)} className={linkClass}>{s.title}</Link>
-                <span className={metaClass}>{s.explanation}</span>
+                <Link href={a.signal ? hrefForSignal(a.signal) : `/actions/${a.entity.id}`} className={linkClass}>{a.title}</Link>
+                <span className={metaClass}>{a.explanation}</span>
               </div>
               {/* §15. Other true facts about the SAME commitment — attached, never
                   a second row. */}
-              {s.secondaryReasons.length > 0 && (
+              {a.secondaryReasons.length > 0 && (
                 <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-400">
-                  {s.secondaryReasons.map((r) => r.text).join(" ")}
+                  {a.secondaryReasons.map((r) => r.text).join(" ")}
+                </p>
+              )}
+              {/* §13, §21. A rule appears ONLY where it is grounded in this
+                  item's own words, and only as context. It never reorders
+                  anything — `buildAttentionShortlist` asserts that separately. */}
+              {a.ruleContext.length > 0 && (
+                <p data-rule-context className="mt-0.5 text-[11px] text-zinc-400">
+                  Fits your rule: “{a.ruleContext[0]}”
                 </p>
               )}
               {/* LIFEOS-071 §23. Controls attach to the PRIMARY row only —
-                  secondary reasons never grow a second menu. */}
-              <ResolutionControls title={s.title} actions={actionsFor(s)} />
+                  secondary reasons never grow a second menu. A shortlist row
+                  with no signal behind it (a repeated deferral) has no
+                  `CommitmentKind`, so it uses the record-based resolver rather
+                  than a synthesised signal — the split LIFEOS-072 made. */}
+              {a.signal
+                ? <ResolutionControls title={a.title} actions={actionsFor(a.signal)} />
+                : a.actionId
+                  ? <ResolutionControls title={a.title} actions={resolutionsForAction(state, a.actionId, { ix, today })} />
+                  : null}
+            </li>
+          ))}
+      </ul>
+      </Section>
+
+      {/* ---- SINCE YESTERDAY ----
+          LIFEOS-083 §11. LIFEOS-081's executive changes, which no daily surface
+          read. Only what FINISHED, what stopped waiting, and what changed
+          direction — an item added yesterday is not news, and a typo edit was
+          never a change in the first place. Capped at three. */}
+      <Section title={SINCE_YESTERDAY_HEADING} id="since-yesterday" show={command.sinceYesterday.length > 0}>
+        <ul className="flex flex-col gap-1">
+          {command.sinceYesterday.map((c) => (
+            <li key={c.id} data-since-yesterday={c.kind} className={rowClass}>
+              <span className="text-sm text-zinc-700 dark:text-zinc-200">{c.title}</span>
+              <span className={metaClass}>
+                {c.from && c.to ? `${c.from} → ${c.to}` : CHANGE_WORD[c.kind] ?? "Changed"}
+              </span>
             </li>
           ))}
         </ul>
@@ -381,6 +470,19 @@ export default function TodayCommandCenter() {
           )}
         </ul>
       </Section>
+
+      {/* ---- WHAT CAN WAIT ----
+          LIFEOS-083 §14. One grounded line, or nothing. Two sentences are
+          possible and both are arithmetic over records: what is due today, and
+          how many open items the user has already scheduled for later.
+
+          There is deliberately no third sentence. §14 forbids inferring "you
+          can ignore X", and `calmLine` has no notion of importance with which
+          to try. On a busy day with nothing scheduled ahead it renders nothing
+          at all rather than reaching for something reassuring to say. */}
+      {command.canWait && (
+        <p data-can-wait className="text-[11px] text-zinc-500">{command.canWait}</p>
+      )}
 
       {/* ---- UPCOMING ---- */}
       <Section title="Upcoming" show={view.upcoming.length > 0}>

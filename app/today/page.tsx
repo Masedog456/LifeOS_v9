@@ -98,7 +98,12 @@ export default function TodayPage() {
   const showOnboardingInvite = !isOnboardingDone();
   // The collapsible "More from your notebook" only appears when it holds
   // something — an empty disclosure would be noise, not calm.
+  // LIFEOS-083 §1.10. Pinned, Continue thinking and To review moved INSIDE the
+  // disclosure, so the gate has to know about them — otherwise a user whose only
+  // secondary content is a pinned record gets a collapsed section that renders
+  // nothing, or worse, no section and a silently dropped card.
   const hasSecondary =
+    pinned.length > 0 || view.continueThinking.length > 0 || view.proposals.length > 0 ||
     view.openDialogues.length > 0 || view.activeResearch.length > 0 || view.openDecisions.length > 0 ||
     view.staleBeliefs.length > 0 || view.duePractices.length > 0 || view.recentCaptures.length > 0 ||
     view.memory.length > 0 || view.reflectionPrompts.length > 0 || view.completed.length > 0;
@@ -114,18 +119,12 @@ export default function TodayPage() {
           <button type="button" onClick={openQuickCapture} className="shrink-0 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900">＋ Quick capture</button>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-          Here&apos;s what&apos;s worth your attention — everything links back to the real record, nothing is a copy. Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> anytime to search or jump anywhere.
+          {/* LIFEOS-083 §3. Three lines of instructions, every day, above the
+              day itself. The product should orient, not explain itself — the
+              ⌘K hint is worth keeping and the rest was chrome. */}
+          Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> to search or jump anywhere.
         </p>
       </header>
-
-      <FirstRun />
-
-      {showOnboardingInvite && (
-        <div className="mb-5 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
-          <p className="text-sm text-zinc-700 dark:text-zinc-200">New here? A short tour shows how LifeOS helps you capture, decide, and reflect — you stay in charge of everything.</p>
-          <Link href="/welcome" className="mt-2 inline-block rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Start the tour →</Link>
-        </div>
-      )}
 
       {/* LIFEOS-062: the empty state belongs to `TodayCommandCenter`, which is
           the only thing that knows whether the projection actually found
@@ -135,9 +134,6 @@ export default function TodayPage() {
           asks for could never appear. */}
       {(
         <div className="flex flex-col gap-4">
-          {/* Daily review entry point (LIFEOS-034, Feature 12). */}
-          <TodayReviewCard />
-
           {/* LIFEOS-062. ONE projection over ONE index pass, replacing the
               schedule / due / return / actions cards. Those each derived their
               own slice from the store — and two of them built the activity index
@@ -145,6 +141,29 @@ export default function TodayPage() {
               no section could see what another had found. Suggested Next needs
               all of it at once, so all of it is now computed at once. */}
           <TodayCommandCenter />
+
+          {/* LIFEOS-083 §1.10. Everything below this line is an ENTRY POINT or
+              scaffolding, and it used to come first.
+
+              The audit measured what that cost: on a phone the only thing above
+              the fold was "Getting started 2/8". The advisor meeting at 09:00,
+              the overdue application and the follow-up due today were all below
+              an eight-item onboarding checklist, a tour invite and a review
+              link. Three pieces of scaffolding outranked the day.
+
+              The order is now: the day, then the ways into the rest of it. */}
+
+          {/* Daily review entry point (LIFEOS-034, Feature 12). */}
+          <TodayReviewCard />
+
+          <FirstRun />
+
+          {showOnboardingInvite && (
+            <div className="rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
+              <p className="text-sm text-zinc-700 dark:text-zinc-200">New here? A short tour shows how LifeOS helps you capture, decide, and reflect — you stay in charge of everything.</p>
+              <Link href="/welcome" className="mt-2 inline-block rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Start the tour →</Link>
+            </div>
+          )}
 
           {/* Capture inbox entry point (LIFEOS-035, Feature 13). */}
           <TodayInboxCard />
@@ -155,6 +174,14 @@ export default function TodayPage() {
           {/* Insights snapshot (LIFEOS-039, Feature 18). */}
           <TodayInsightsCard />
 
+          {/* Progressive disclosure (LIFEOS-044): the deeper, more reflective
+              parts of the day stay one calm click away, so Today opens quiet. */}
+          {hasSecondary && (
+          <details className="lo-details flex flex-col gap-4">
+            <summary className="flex items-center gap-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+              <span aria-hidden className="lo-caret text-[9px]">▸</span> More from your notebook
+            </summary>
+            <div className="mt-2 flex flex-col gap-4">
           {/* Pinned — fast access to favourite records (LIFEOS-027, Feature 4). */}
           <Card title="Pinned" href="/today" linkLabel="⌘K to manage" show={pinned.length > 0}>
             {pinned.map((p) => {
@@ -167,13 +194,15 @@ export default function TodayPage() {
             })}
           </Card>
 
-          {/* Needs attention */}
-          <Card title="Needs attention" href="/orchestrator" linkLabel="LifeOS Inbox →" show={view.activeRecs.length > 0}>
-            <p className="text-sm text-zinc-700 dark:text-zinc-200">
-              {view.activeRecs.length} active recommendation{view.activeRecs.length === 1 ? "" : "s"}{view.highRecs.length > 0 ? ` — ${view.highRecs.length} high priority` : ""}.
-            </p>
-            {view.highRecs.slice(0, 2).map((r) => <p key={r.id} className="mt-1 text-xs text-zinc-500">• {r.suggestedAction}</p>)}
-          </Card>
+          {/* LIFEOS-083 §1.3. A SECOND "Needs attention" used to render here,
+              built from orchestrator recommendations — same heading as the
+              commitment-signal section a few hundred pixels above it, different
+              evidence, same page. Two headings that promise the same thing and
+              answer differently is worse than either alone.
+
+              The commitment section wins: it is the one the resolution layer,
+              Memory and the 082 shortlist all agree with. Orchestrator
+              recommendations remain at /orchestrator. */}
 
           {/* Continue thinking — the primary way back into unfinished threads (LIFEOS-026, Feature 5). */}
           <Card title="Continue thinking" href="/memory" linkLabel="Living Memory →" show={view.continueThinking.length > 0}>
@@ -188,14 +217,6 @@ export default function TodayPage() {
             <p className="text-sm text-zinc-700 dark:text-zinc-200">{view.proposals.length} belief proposal{view.proposals.length === 1 ? "" : "s"} waiting for your judgment.</p>
           </Card>
 
-          {/* Progressive disclosure (LIFEOS-044): the deeper, more reflective
-              parts of the day stay one calm click away, so Today opens quiet. */}
-          {hasSecondary && (
-          <details className="lo-details flex flex-col gap-4">
-            <summary className="flex items-center gap-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
-              <span aria-hidden className="lo-caret text-[9px]">▸</span> More from your notebook
-            </summary>
-            <div className="mt-2 flex flex-col gap-4">
           {/* Continue */}
           <Card title="Continue" href="/dialogue" linkLabel="Explore an idea →" show={view.openDialogues.length > 0}>
             {view.openDialogues.slice(0, 3).map((d) => (
