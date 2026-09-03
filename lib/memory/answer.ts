@@ -70,6 +70,10 @@ import {
   type MemoryQueryPlan, type ChangeAspect,
 } from "@/lib/memory/query";
 import {
+  buildAttentionShortlist, inAttentionScope,
+  ATTENTION_HEADING, NOTHING_NEEDS_ATTENTION,
+} from "@/lib/guidance/attention";
+import {
   buildExecutiveChanges, repeatedlyPostponed, postponedLine,
   MOVED_FORWARD_KINDS, PROTOCOL_CHANGE_LIMITATION,
   type ExecutiveChange, type ExecutiveChangeKind,
@@ -457,7 +461,7 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "CHANGES": return answerChanges(state, plan, range, implicit, searchIndex, opts);
     case "PROJECT": return answerProject(state, plan, range, implicit, searchIndex, opts);
     case "REFLECTION": return answerReflection(state, plan, searchIndex);
-    case "OPEN_WORK": return answerOpenWork(state, plan, today, opts);
+    case "OPEN_WORK": return answerOpenWork(state, plan, today, searchIndex, opts);
     case "NEXT_ACTION": return answerNextAction(state, plan, today, opts);
     case "TOMORROW": return answerTomorrow(state, plan, today, opts);
     case "TIME": return answerTime(state, plan, searchIndex, opts);
@@ -1580,12 +1584,118 @@ function datedAuthored(state: StoreState, entry: SearchEntry): MemoryAnswerItem 
  * Memory page and reading Needs Attention on Today are two views of one list,
  * and they cannot drift because there is only one computation.
  */
-function answerOpenWork(state: StoreState, plan: MemoryQueryPlan, today: DayKey, opts: AnswerOptions): MemoryAnswer {
+/**
+ * Is this signal about the named record, or about work under it? (LIFEOS-082 §25)
+ *
+ * Delegates the goal/project containment question to `inAttentionScope` so the
+ * shortlist and the full list cannot disagree about what "with graduate school"
+ * means — the whole point of one guidance model.
+ */
+function signalInScope(state: StoreState, s: CommitmentSignal, entity: RecordRefLite): boolean {
+  return inAttentionScope(state, {
+    entity: s.recordRef,
+    projectRef: s.projectRef,
+  }, entity);
+}
+
+/**
+ * The shortlist (LIFEOS-082 §9, §10, §11).
+ *
+ * Three items by default, five at most. Every row says why it is there, and
+ * carries the resolution seam it already had: a signal-backed row travels with
+ * its `CommitmentSignal` so the surface builds LIFEOS-071's controls, and a
+ * `repeated_deferral` row carries its action id instead — the same split
+ * LIFEOS-072 made for recommendations, rather than synthesising a signal no
+ * evidence supports.
+ */
+function answerFocus(
+  state: StoreState, plan: MemoryQueryPlan, ix: TodayIndexes, today: DayKey,
+  entity: RecordRefLite | undefined, scopeTitle: string | undefined,
+): MemoryAnswer {
+  const shortlist = buildAttentionShortlist(state, ix, today, { entity });
+  const where = scopeTitle ? ` · ${scopeTitle}` : "";
+
+  if (shortlist.length === 0) {
+    return {
+      ...noEvidence(plan, COMMITMENT_COVERAGE),
+      heading: `Nothing stands out${where}`,
+      // §24. The question may have said "neglecting"; the answer does not. And
+      // this is bounded to the record — never "you're all caught up", which
+      // would be a claim about a life rather than about Conqify's contents.
+      summary: scopeTitle
+        ? `Nothing Conqify has recorded about ${scopeTitle} is asking for attention right now.`
+        : NOTHING_NEEDS_ATTENTION,
+    };
+  }
+
+  const items: MemoryAnswerItem[] = shortlist.map((a) => ({
+    text: a.title,
+    attribution: attributionFor(a.entity.kind, classifyOrigin({ kind: a.entity.kind, text: a.title })),
+    day: a.date,
+    when: a.date ? fmt(a.date) : undefined,
+    // §10. Every row answers "why am I being shown this?" — the explanation,
+    // then any other true fact about the same item, then the user's own rule as
+    // CONTEXT. The rule is last because it informs; it does not rank (§21).
+    detail: [
+      a.explanation,
+      ...a.secondaryReasons.map((r) => r.text),
+      ...a.ruleContext.map((r) => `Your Personal Code includes “${r}”`),
+    ].join(" "),
+    ref: a.entity,
+    href: resolveRecord(state, a.entity.kind, a.entity.id)?.href,
+    evidence: a.evidence,
+    origin: classifyOrigin({ kind: a.entity.kind, text: a.title }),
+    signal: a.signal,
+  }));
+
+  return {
+    status: "ANSWERED",
+    heading: `${ATTENTION_HEADING}${where}`,
+    summary: `${plural(items.length, "thing", "things")} Conqify can point at from what it has recorded.`,
+    items,
+    limitation: COMMITMENT_COVERAGE,
+    sourceRefs: refsOf(items),
+    plan,
+  };
+}
+
+function answerOpenWork(
+  state: StoreState, plan: MemoryQueryPlan, today: DayKey,
+  searchIndex: SearchEntry[], opts: AnswerOptions,
+): MemoryAnswer {
   const ix = opts.todayIndexes ?? buildTodayIndexes(state, today);
+
+  // ---- entity scope, resolved before any derivation (LIFEOS-082 §25) ------
+  //
+  // A frame word ("stuck", "neglecting") resolves to nothing and simply leaves
+  // the question un-scoped, which is right. A named record scopes it. Two
+  // matching records ask rather than pick — the rule LIFEOS-081 established for
+  // `answerChanges`, applied to the builder that had the same defect.
+  let entity: RecordRefLite | undefined;
+  let scopeTitle: string | undefined;
+  if (plan.entityQuery) {
+    const scopeQuery = plan.entityQuery
+      .replace(/\b(?:goal|project|action|task)s?\b\s*$/i, "").trim() || plan.entityQuery;
+    const candidates = focused(resolveEntities(searchIndex, scopeQuery), opts.focusRef);
+    if (candidates.length > 1) return needsChoice(plan.question, candidates, plan);
+    if (candidates.length === 1) {
+      entity = { kind: candidates[0].kind as RecordRefLite["kind"], id: candidates[0].id };
+      scopeTitle = candidates[0].title;
+    }
+  }
+
+  // ---- §23's shortlist: the same evidence, cut to what one can act on -----
+  if (plan.guidanceAspect === "focus") {
+    return answerFocus(state, plan, ix, today, entity, scopeTitle);
+  }
+
   const all = buildCommitmentSignals(state, ix, { today });
-  const wanted = plan.signalKinds?.length
+  const byKind = plan.signalKinds?.length
     ? all.filter((s) => plan.signalKinds!.includes(s.kind))
     : all;
+  const wanted = entity
+    ? byKind.filter((s) => signalInScope(state, s, entity!))
+    : byKind;
 
   const items: MemoryAnswerItem[] = wanted.map((s) => ({
     text: s.title,

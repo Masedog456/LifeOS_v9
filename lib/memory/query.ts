@@ -138,6 +138,18 @@ export type ChangeAspect =
   | "waiting_ended" // what did I stop waiting on
   | "rules";        // what rules changed
 
+/**
+ * Which guidance question is being asked (LIFEOS-082 §23).
+ *
+ * An ASPECT on the existing OPEN_WORK class, not a new class. §23 asks for one
+ * guidance kind and no overlapping classes, and the two questions genuinely are
+ * the same retrieval read two ways: `all` lists everything the signal layer
+ * found, `focus` cuts it to a shortlist a person can act on.
+ */
+export type GuidanceAspect =
+  | "all"     // what still needs attention — the full list, as before
+  | "focus";  // what should I focus on — the capped shortlist
+
 /** Why part of a question could not be turned into a retrieval constraint. */
 export type MemoryUnresolvedReason = "unsupported_range" | "future_range" | "no_entity";
 
@@ -193,6 +205,8 @@ export interface MemoryQueryPlan {
   ruleAspect?: RuleAspect;
   /** For a CHANGES question, which change question it is (LIFEOS-081 §18). */
   changeAspect?: ChangeAspect;
+  /** For an OPEN_WORK question, whether a shortlist was asked for (LIFEOS-082). */
+  guidanceAspect?: GuidanceAspect;
   /** True when the question asks WHO rather than WHAT ("who am I waiting on"). */
   wantsSubject?: boolean;
 }
@@ -457,6 +471,16 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   // OPEN_WORK is also the "what am I forgetting?" class (LIFEOS-070 §17). Those
   // questions are answered from the SAME commitment signals Today renders, so a
   // person cannot get one answer from the page and a different one from Memory.
+  // LIFEOS-082 §23. Four questions the audit measured returning "Conqify can't
+  // answer that one" — including the sprint's own headline phrasing, and
+  // including on an empty store. Same class as "what still needs attention?",
+  // read through the `focus` aspect; §23 asks for one guidance kind, not two.
+  //
+  // "neglect" is routed and then deliberately NOT echoed: §24 is explicit that
+  // the product may not know neglect, so the question is answered with facts
+  // and the word never appears in the answer.
+  { kind: "OPEN_WORK", re: /\bwhat should i (?:focus on|work on|deal with|tackle|prioriti[sz]e)\b|\bwhat (?:do i|should i) focus\b|\bwhere (?:should|do) i start\b|\bwhat matters most\b|\bwhat am i neglect\w*\b|\bwhat'?s? (?:most )?important\b|\bwhat is stuck\b|\bwhat'?s stuck\b|\bwhat needs (?:me|doing)\b/ },
+
   { kind: "OPEN_WORK", re: /\bstill (?:needs?|need) attention\b|\bstill open\b|\bneeds? (?:my )?attention\b|\bwhat'?s left\b|\bwhat'?s outstanding\b|\bstill (?:to do|need to do|owe)\b|\bon my plate\b|\bunfinished\b|\bstill hanging\b|\bam i forgetting\b|\bhave i forgotten\b|\bslipping\b|\bfollow.?ups? (?:are )?due\b|\bcame? back (?:today|from deferral)\b|\bno (?:executable )?next action\b|\bfell through\b/ },
 
   // "what happened with X" is a project question when X is one, and a general
@@ -655,6 +679,15 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     }
   }
 
+  // LIFEOS-082 §23. "What should I focus on?" asks for a SHORTLIST; "what still
+  // needs attention?" asks for the list. Same evidence, different cut.
+  let guidanceAspect: GuidanceAspect | undefined;
+  if (kind === "OPEN_WORK") {
+    guidanceAspect = /\bfocus\b|\bfocus on\b|\bdeal with\b|\bstuck\b|\bneglect\w*\b|\bmost important\b|\bwhere (?:should|do) i start\b|\bwhat matters most\b/.test(q)
+      ? "focus"
+      : "all";
+  }
+
   let signalKinds: string[] | undefined;
   if (kind === "OPEN_WORK") {
     if (/\bfollow.?ups?\b/.test(q)) signalKinds = ["follow_up_due"];
@@ -673,6 +706,7 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     goalAspect,
     ruleAspect,
     changeAspect,
+    guidanceAspect,
     question: raw,
     range: rm.range,
     rangeLabel: rm.phrase,
