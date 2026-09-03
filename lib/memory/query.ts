@@ -119,6 +119,25 @@ export type GoalAspect =
  */
 export type TimeAspect = "completed" | "added" | "moved" | "started_waiting";
 
+/**
+ * Which question about change is being asked (LIFEOS-081 §18).
+ *
+ * An aspect rather than five new query kinds, for the reason `GoalAspect` gives:
+ * these are the same bounded derivation read through different filters, and five
+ * near-identical router entries is how two of them drift apart.
+ *
+ * `postponed` is the one that is NOT a filter over the same list — it counts
+ * repeated deferrals per record, which is a different shape — and it is named
+ * separately so a caller cannot reach it by accident.
+ */
+export type ChangeAspect =
+  | "all"           // what changed
+  | "forward"       // what did I move forward
+  | "deferred"      // what did I defer
+  | "postponed"     // what do I keep putting off
+  | "waiting_ended" // what did I stop waiting on
+  | "rules";        // what rules changed
+
 /** Why part of a question could not be turned into a retrieval constraint. */
 export type MemoryUnresolvedReason = "unsupported_range" | "future_range" | "no_entity";
 
@@ -172,6 +191,8 @@ export interface MemoryQueryPlan {
   goalAspect?: GoalAspect;
   /** Which Personal Code question this is (LIFEOS-079). Set only when `kind` is RULES. */
   ruleAspect?: RuleAspect;
+  /** For a CHANGES question, which change question it is (LIFEOS-081 §18). */
+  changeAspect?: ChangeAspect;
   /** True when the question asks WHO rather than WHAT ("who am I waiting on"). */
   wantsSubject?: boolean;
 }
@@ -316,6 +337,27 @@ const EMOTION_WORDS =
  * these overlap, and the earlier rule is the more specific reading.
  */
 const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }> = [
+  // LIFEOS-081 §18. AHEAD of the Personal Code block, and only for the one
+  // sentence shape that block reads wrongly.
+  //
+  // "What rules changed this week?" contains a rule-shaped noun, so the block
+  // below claims it — and answers with the CURRENT code ("2 rules in force"),
+  // which is a different question. The audit measured exactly that. This rule is
+  // deliberately narrow: it requires a rule noun AND a change verb, so "what
+  // rules do I live by" is untouched and still routes to RULES.
+  {
+    kind: "CHANGES",
+    // NARROW on purpose. A first draft matched any rule noun beside any
+    // lifecycle verb and stole two questions that belong to RULES: "Which
+    // standards have I retired?" (a question about the current retired set) and
+    // "When did I change my rule about sleep?" (a TIME question, whose whole
+    // point is the Protocol history limitation). Both went red immediately.
+    //
+    // The distinguishing shape is that rules are the SUBJECT of "changed", and
+    // the question opens with "what".
+    re: /^what (?:rules?|standards?)\b[^?]*\bchanged?\b|^what changed (?:in|about|with) (?:my )?(?:personal code|rules?|standards?)\b|\bchanged?\b[^?]*\bin (?:my )?personal code\b/,
+  },
+
   // The Personal Code, by name (LIFEOS-079).
   //
   // FIRST in the whole table, ahead of every other class. These sentences
@@ -359,6 +401,22 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   { kind: "TIME", re: /^(?:so )?when (?:did|was)\b/, aspect: "completed" },
 
   // Waiting is named explicitly whenever it is meant.
+  // LIFEOS-081 §14, §15, §12. Three questions the audit found unroutable — the
+  // router returned `null` and the product answered "Conqify can't answer that
+  // one" while the evidence sat in `history[]`.
+  //
+  // BEFORE WAITING, and that placement is the §12 fix: "what did I stop waiting
+  // on this week?" names a historical EPISODE, while WAITING answers the current
+  // STATE. The audit measured the confusion — the question returned "Not waiting
+  // on anything" about a wait that had ended two days earlier.
+  {
+    kind: "CHANGES",
+    re: /\bkeep\b[^?]*\b(?:putting off|postpon\w*|pushing (?:back|off)|deferring)\b|\brepeatedly\b[^?]*\b(?:defer|postpon)\w*\b|\bkeeps? (?:coming back|resurfacing|returning)\b/,
+  },
+  { kind: "CHANGES", re: /\bstop(?:ped)? waiting\b|\bno longer waiting\b|\bdone waiting\b/ },
+  { kind: "CHANGES", re: /\b(?:did|do) (?:i|we) (?:defer|postpone|push back)\w*\b|\bwhat (?:i|we) deferred\b/ },
+  { kind: "CHANGES", re: /\b(?:did|do) (?:i|we) move forward\b|\bwhat (?:i|we) moved forward\b/ },
+
   { kind: "WAITING", re: /\bwaiting (?:on|for|to hear)\b|\bam i waiting\b|\bwas i waiting\b|\bstill waiting\b|\bwaiting items?\b|\bblocked on\b|\bowes? me\b|\bhaven'?t heard back\b/ },
 
   // "what did I say/write/think about X" — authorship questions.
@@ -392,6 +450,7 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   { kind: "EVENTS", re: /\bcalendar\b|\bscheduled?\b|\bappointments?\b|\bmeetings?\b|\bon my (?:schedule|agenda)\b|\bevents?\b/ },
 
   { kind: "CHANGES", re: /\bwhat changed\b|\bwhat (?:has )?moved\b|\bwhat shifted\b|\bany changes\b|\bwhat (?:got )?(?:reschedul|defer|cancel)\w*\b/ },
+
 
   { kind: "COMPLETION", re: /\b(?:finish|finished|complete|completed|accomplish|accomplished|get done|got done|got through|checked off|ticked off|wrap(?:ped)? up)\b|\bwhat did (?:i|we) do\b/ },
 
@@ -576,6 +635,26 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     else goalAspect = "direction";
   }
 
+  // LIFEOS-081 §18. Narrowest first, and `postponed` before `deferred`: "what do
+  // I keep putting off" contains no deferral word at all, while "what did I
+  // defer this week" asks for the episodes rather than the count.
+  let changeAspect: ChangeAspect | undefined;
+  if (kind === "CHANGES") {
+    if (/\bkeep\b.*\b(?:putting off|postpon\w*|pushing (?:back|off)|deferring)\b|\brepeatedly\b.*\b(?:defer|postpon)\w*\b|\bkeeps? (?:coming back|resurfacing|returning)\b|\bwhat do i (?:keep|always) (?:avoid|delay)\w*\b/.test(q)) {
+      changeAspect = "postponed";
+    } else if (/\bstop(?:ped)? waiting\b|\bno longer waiting\b|\bdone waiting\b|\bheard back\b/.test(q)) {
+      changeAspect = "waiting_ended";
+    } else if (/\brules?\b|\bstandards?\b|\bpersonal code\b|\bprinciples?\b/.test(q)) {
+      changeAspect = "rules";
+    } else if (/\bdefer\w*\b|\bpush\w* (?:back|off)\b|\bpostpone[d]?\b/.test(q)) {
+      changeAspect = "deferred";
+    } else if (/\bmoved? forward\b|\bmade progress\b|\bprogress\w*\b|\bgot done\b|\badvanced?\b/.test(q)) {
+      changeAspect = "forward";
+    } else {
+      changeAspect = "all";
+    }
+  }
+
   let signalKinds: string[] | undefined;
   if (kind === "OPEN_WORK") {
     if (/\bfollow.?ups?\b/.test(q)) signalKinds = ["follow_up_due"];
@@ -593,6 +672,7 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     signalKinds,
     goalAspect,
     ruleAspect,
+    changeAspect,
     question: raw,
     range: rm.range,
     rangeLabel: rm.phrase,
