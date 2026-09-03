@@ -196,8 +196,8 @@ export function runCaptureSelfTests(): SelfTestReport {
       FORBIDDEN_CANDIDATE_KINDS.every((f) => !(CANDIDATE_KINDS as readonly string[]).includes(f)),
       JSON.stringify(CANDIDATE_KINDS));
     // Eight since LIFEOS-061 added `event`. Pinned, so a ninth is a deliberate act.
-    ok("6.13 the candidate kinds are exactly the eight declared",
-      CANDIDATE_KINDS.length === 8 && CANDIDATE_KINDS.includes("action") && CANDIDATE_KINDS.includes("note") && CANDIDATE_KINDS.includes("event"));
+    ok("6.13 the candidate kinds are exactly the nine declared",
+      CANDIDATE_KINDS.length === 9 && CANDIDATE_KINDS.includes("action") && CANDIDATE_KINDS.includes("note") && CANDIDATE_KINDS.includes("event"));
   }
 
   // ============ 7. RECORD ASSOCIATION (§10) ============

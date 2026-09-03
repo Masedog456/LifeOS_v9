@@ -68,12 +68,29 @@ export type MemoryQueryKind =
   | "TIME"         // when did I <verb> <thing>
   | "NEXT_ACTION"  // what should I do next
   | "TOMORROW"     // what do I have tomorrow
-  | "GOALS";       // what am I working toward / which goals did I <verb>
+  | "GOALS"        // what am I working toward / which goals did I <verb>
+  | "RULES";       // what standards have I chosen for myself
 
 export const MEMORY_QUERY_KINDS: readonly MemoryQueryKind[] = [
   "COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME",
-  "NEXT_ACTION", "TOMORROW", "GOALS",
+  "NEXT_ACTION", "TOMORROW", "GOALS", "RULES",
 ];
+
+/**
+ * Which question about the Personal Code is being asked (LIFEOS-079 §5).
+ *
+ * A normative question is not a retrieval question. "What rules do I live by?"
+ * asks the Constitution directly, which is why it needs a class of its own
+ * rather than a relaxation of `MEMORY_EXCLUDED_KINDS`: that exclusion exists so
+ * "what did I finish last week?" can never reach a constitutional statement,
+ * and it keeps doing that job unchanged.
+ */
+export type RuleAspect =
+  | "live_by"      // what rules do I live by / hold myself to
+  | "conditional"  // what when/then rules do I use
+  | "retired"      // which standards have I retired
+  | "context"      // what rules do I have about <topic>
+  | "history";     // when did I change this rule
 
 /**
  * Which question about goals is being asked (LIFEOS-078).
@@ -153,6 +170,8 @@ export interface MemoryQueryPlan {
   signalKinds?: string[];
   /** Which goal question this is (LIFEOS-078). Set only when `kind` is GOALS. */
   goalAspect?: GoalAspect;
+  /** Which Personal Code question this is (LIFEOS-079). Set only when `kind` is RULES. */
+  ruleAspect?: RuleAspect;
   /** True when the question asks WHO rather than WHAT ("who am I waiting on"). */
   wantsSubject?: boolean;
 }
@@ -297,6 +316,22 @@ const EMOTION_WORDS =
  * these overlap, and the earlier rule is the more specific reading.
  */
 const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }> = [
+  // The Personal Code, by name (LIFEOS-079).
+  //
+  // FIRST in the whole table, ahead of every other class. These sentences
+  // contain words several other rules claim: "standards I hold" carries "hold",
+  // "which rules did I retire" carries a lifecycle verb, and "when did I change
+  // my rule about sleep" is claimed outright by the TIME signals below. A
+  // normative question routed anywhere else either returns nothing (the
+  // Constitution is excluded from retrieval) or answers about the wrong
+  // records entirely.
+  //
+  // Recognised by naming a RULE-shaped noun. "Rule", "standard" and "protocol"
+  // are the product's own words for these records, so a sentence containing one
+  // is asking about them.
+  { kind: "RULES", re: /\b(?:rules?|standards?|protocols?|personal code)\b/ },
+  { kind: "RULES", re: /\bhow do i want to (?:act|behave)\b|\bwhat do i hold myself to\b/ },
+
   // "What should I do next?" — routed to the SAME deterministic recommender
   // Today uses (LIFEOS-072 §21). First, because "what should I do next" also
   // contains "do", which the COMPLETION signal would otherwise claim.
@@ -516,6 +551,18 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
 
   // A narrower forgetting question asks about one kind of slip. Anything else
   // gets the whole picture rather than a guessed subset.
+  let ruleAspect: RuleAspect | undefined;
+  if (kind === "RULES") {
+    // Narrowest first. "When did I change my rule about sleep" is a history
+    // question that also names a context, and the history limitation is the
+    // more important thing to say.
+    if (/\bwhen did i (?:change|revise|update|write|make)\b|\bhow long have i\b/.test(q)) ruleAspect = "history";
+    else if (/\bretired?\b|\bno longer\b|\bstopped (?:following|holding)\b|\bused to\b/.test(q)) ruleAspect = "retired";
+    else if (/\bwhen.?then\b|\bconditional\b|\bprotocols?\b/.test(q)) ruleAspect = "conditional";
+    else if (/\babout\b|\bfor\b|\brelate[ds]? to\b|\bsupport\b/.test(q)) ruleAspect = "context";
+    else ruleAspect = "live_by";
+  }
+
   let goalAspect: GoalAspect | undefined;
   if (kind === "GOALS") {
     // Order matters: "which goals did I achieve" and "what replaced my goal"
@@ -545,6 +592,7 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     kind,
     signalKinds,
     goalAspect,
+    ruleAspect,
     question: raw,
     range: rm.range,
     rangeLabel: rm.phrase,

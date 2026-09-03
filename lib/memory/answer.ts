@@ -43,6 +43,10 @@ import type { Goal, GoalHistoryEvent, GoalStatus, NextAction, RecordRefLite, Sto
 import { GOAL_HORIZON_LABEL } from "@/lib/execution/horizons";
 import { GOAL_LIFECYCLE_LABEL, goalHistory } from "@/lib/execution/lifecycle";
 import { goalLinkedProjects, goalsMissingPath } from "@/lib/execution/alignment";
+import {
+  CODE_CONTEXTS, PROTOCOL_HISTORY_LIMITATION, allRules, ruleContexts,
+  rulesMatchingText, type CodeRule,
+} from "@/lib/code/personal-code";
 import { resolveRange, type ResolvedRange } from "@/lib/insights/range";
 import { buildActivityIndex, type ActivityEvent } from "@/lib/insights/activity";
 import { classifyOrigin } from "@/lib/provenance/classify";
@@ -453,8 +457,171 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "TOMORROW": return answerTomorrow(state, plan, today, opts);
     case "TIME": return answerTime(state, plan, searchIndex, opts);
     case "GOALS": return answerGoals(state, plan, range, implicit);
+    case "RULES": return answerRules(state, plan);
     default: return noEvidence(plan);
   }
+}
+
+// ------------------------------------------------------------------ RULES --
+
+/**
+ * What standards a person has chosen for themselves (LIFEOS-079 §5).
+ *
+ * ## Why this class exists rather than a relaxed exclusion
+ *
+ * `MEMORY_EXCLUDED_KINDS` keeps constitutional statements out of ordinary
+ * retrieval, because LIFEOS-056 drew that line deliberately: a question about
+ * last week has no business reaching what someone believes about themselves.
+ * That line is UNCHANGED. This class does not search the Constitution — it
+ * reads the Personal Code projection directly, and only when the question
+ * explicitly asks about rules.
+ *
+ * ## The history limitation, said out loud
+ *
+ * Unconditional rules carry `ConstitutionRevision` history and can say when
+ * they changed. Conditional rules cannot: `Protocol` has no history, and
+ * `updatedAt` moves when a typo is fixed, so offering it as "when you changed
+ * this rule" would be inventing a life event. The `history` aspect says so.
+ */
+function ruleItem(rule: CodeRule, detail?: string, day?: DayKey): MemoryAnswerItem {
+  return {
+    text: rule.statement,
+    // The user wrote it. An AI-suggested wording they kept is still not
+    // Conqify's sentence to claim, which is what `fromAiText` records.
+    attribution: rule.fromAiText ? "An AI-generated note contains" : "You recorded",
+    day,
+    when: day ? fmt(day) : undefined,
+    detail,
+    ref: { kind: rule.recordKind, id: rule.id },
+    href: rule.recordKind === "protocol" ? `/protocols?protocol=${rule.id}` : `/constitution?element=${rule.id}`,
+    evidence: rule.recordKind === "protocol" ? "protocol.trigger | protocol.response" : "constitutionElement.statement",
+    origin: rule.fromAiText ? "conqify_ai" : "user_authored",
+  };
+}
+
+/** The shape of a rule, said in the user's terms rather than the schema's. */
+const shapeDetail = (r: CodeRule): string => (r.shape === "conditional" ? "when/then" : "always");
+
+function answerRules(state: StoreState, plan: MemoryQueryPlan): MemoryAnswer {
+  const aspect = plan.ruleAspect ?? "live_by";
+  const all = allRules(state);
+
+  if (all.length === 0) {
+    return {
+      ...noEvidence(plan),
+      heading: "No rules recorded",
+      summary: "You haven't written any rules for yourself yet.",
+    };
+  }
+
+  if (aspect === "retired") {
+    const retired = all.filter((r) => r.state === "retired");
+    if (retired.length === 0) {
+      return { ...noEvidence(plan), heading: "Nothing retired", summary: "No rule has been retired." };
+    }
+    const items = retired.map((r) => ruleItem(r, shapeDetail(r)));
+    return {
+      status: "ANSWERED",
+      heading: "Rules you retired",
+      summary: `${plural(items.length, "rule is", "rules are")} retired. They stay in your Personal Code as part of the record.`,
+      items,
+      limitation: retired.some((r) => !r.hasLifecycleHistory) ? PROTOCOL_HISTORY_LIMITATION : undefined,
+      sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  if (aspect === "conditional") {
+    const conditional = all.filter((r) => r.shape === "conditional" && r.state === "active");
+    if (conditional.length === 0) {
+      return { ...noEvidence(plan), heading: "No when/then rules", summary: "No active rule is written as a when/then." };
+    }
+    const items = conditional.map((r) => ruleItem(r));
+    return {
+      status: "ANSWERED",
+      heading: "Your when/then rules",
+      summary: `${plural(items.length, "rule", "rules")} name a situation and what you want to do in it.`,
+      items, sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  if (aspect === "history") {
+    // §4 of the approval: do NOT fabricate change dates from `updatedAt`.
+    const withHistory = all.filter((r) => r.hasLifecycleHistory);
+    const items = withHistory
+      .map((r) => {
+        const revs = (state.constitutionRevisions ?? [])
+          .filter((v) => v.elementId === r.id && (v.changeKind === "revised" || v.changeKind === "edited"))
+          .sort((a, b) => a.at.localeCompare(b.at));
+        const last = revs[revs.length - 1];
+        return last ? ruleItem(r, last.changeKind === "revised" ? "wording revised" : "wording corrected", last.at.slice(0, 10) as DayKey) : null;
+      })
+      .filter((x): x is MemoryAnswerItem => x !== null);
+
+    if (items.length === 0) {
+      return {
+        ...noEvidence(plan),
+        heading: "No recorded rule changes",
+        summary: "No rule has a recorded change.",
+        limitation: PROTOCOL_HISTORY_LIMITATION,
+      };
+    }
+    return {
+      status: "PARTIALLY_ANSWERED",
+      heading: "When your rules changed",
+      summary: `${plural(items.length, "rule has", "rules have")} a recorded change.`,
+      items,
+      limitation: PROTOCOL_HISTORY_LIMITATION,
+      sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  if (aspect === "context") {
+    // The context comes from the question's own words, matched against the same
+    // fixed vocabulary the Personal Code view uses. No embedding, no scoring.
+    const asked = CODE_CONTEXTS.filter((c) => new RegExp(`\\b${c}`, "i").test(plan.question));
+    const matched = asked.length
+      ? all.filter((r) => r.state === "active" && ruleContexts(r).some((c) => asked.includes(c)))
+      : rulesMatchingText(state, plan.entityQuery ?? plan.question);
+
+    if (matched.length === 0) {
+      return {
+        ...noEvidence(plan),
+        heading: "No rule about that",
+        summary: "No active rule of yours mentions it.",
+      };
+    }
+    const items = matched.map((r) => ruleItem(r, shapeDetail(r)));
+    return {
+      status: "ANSWERED",
+      heading: asked.length ? `Rules about ${asked.join(", ")}` : "Related rules",
+      summary: `${plural(items.length, "rule", "rules")} of yours ${items.length === 1 ? "mentions" : "mention"} it.`,
+      items, sourceRefs: refsOf(items), plan,
+    };
+  }
+
+  // "live_by" — the whole active code.
+  const active = all.filter((r) => r.state === "active");
+  if (active.length === 0) {
+    return {
+      ...noEvidence(plan),
+      heading: "No rules in force",
+      summary: `You have ${plural(all.length, "rule", "rules")} written, but none is currently active.`,
+    };
+  }
+  const items = active.map((r) => ruleItem(r, shapeDetail(r)));
+  const unconditional = active.filter((r) => r.shape === "unconditional").length;
+  const conditional = active.length - unconditional;
+  const parts: string[] = [];
+  if (unconditional) parts.push(`${plural(unconditional, "always")}`);
+  if (conditional) parts.push(`${plural(conditional, "when/then")}`);
+  return {
+    status: "ANSWERED",
+    heading: "The rules you live by",
+    summary: `${plural(items.length, "rule", "rules")} in force — ${parts.join(", ")}.`,
+    items,
+    limitation: conditional > 0 ? PROTOCOL_HISTORY_LIMITATION : undefined,
+    sourceRefs: refsOf(items), plan,
+  };
 }
 
 // ------------------------------------------------------------------ GOALS --

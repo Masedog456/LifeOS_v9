@@ -22,6 +22,8 @@
  */
 
 import type { NextAction, StoreState } from "@/types/mvp";
+import { significantWords } from "@/lib/constitution/revision";
+import { conditionalStatement } from "@/lib/code/personal-code";
 import type { DayKey } from "@/lib/reviews/dates";
 import { buildActivityIndex, type ActivityEvent } from "@/lib/insights/activity";
 import { buildBlocksMap, buildBlockedByMap, isBlocked } from "@/lib/actions/dependencies";
@@ -64,6 +66,16 @@ export interface TodayIndexes {
   plannedTodayAt: Map<string, string>;
   /** actionId → adopted Constitution element label, when explicitly linked. */
   constitutionByAction: Map<string, string>;
+  /**
+   * actionId → a conditional rule that mentions the same thing (LIFEOS-079).
+   *
+   * Protocols carry no `linkedRefs`, so unlike the Constitution bridge above
+   * there is no explicit user link to read. The grounding is instead a WORD the
+   * action and the rule share — checkable by reading both — and it is context
+   * only: absent from `GROUNDING_CODES`, appended after ordering, and unable to
+   * move a recommendation. When no shared word exists, nothing is said.
+   */
+  protocolByAction: Map<string, string>;
   /** The activity index, built ONCE and shared. */
   activity: ActivityEvent[];
 }
@@ -103,6 +115,28 @@ export function buildTodayIndexes(state: StoreState, today: DayKey, now?: LocalT
     if (at) plannedTodayAt.set(a.id, at);
   }
 
+  // LIFEOS-079 §11. An ACTIVE conditional rule whose words overlap the action's
+  // own title. One sentence of context, and only where a person could point at
+  // the shared word themselves.
+  const protocolByAction = new Map<string, string>();
+  {
+    const live = (state.protocols ?? []).filter((p) => p.status === "active");
+    if (live.length > 0) {
+      const ruleWords = live.map((p) => ({
+        p,
+        words: new Set(significantWords(`${p.trigger} ${p.response}`)),
+      }));
+      for (const a of actions) {
+        const title = significantWords(a.title);
+        if (title.length === 0) continue;
+        // First match wins and the rest are silent: two rules of context under
+        // one action is a lecture, not a reminder.
+        const hit = ruleWords.find((r) => title.some((w) => r.words.has(w)));
+        if (hit) protocolByAction.set(a.id, conditionalStatement(hit.p.trigger, hit.p.response));
+      }
+    }
+  }
+
   // §18: an ADOPTED element that EXPLICITLY links to an action. No inference, no
   // ranking, no alignment engine — a sentence of context or nothing at all.
   const constitutionByAction = new Map<string, string>();
@@ -129,6 +163,7 @@ export function buildTodayIndexes(state: StoreState, today: DayKey, now?: LocalT
     plannedTodayIds,
     plannedTodayAt,
     constitutionByAction,
+    protocolByAction,
     activity: buildActivityIndex(state),
   };
 }

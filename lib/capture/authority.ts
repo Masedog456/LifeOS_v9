@@ -35,20 +35,44 @@ export type AuthorityLevel = "auto_safe" | "auto_with_undo" | "confirm" | "never
  *
  * `belief` and `constitution_element` are absent BY DESIGN — see above. Adding
  * one here would be a deliberate act with a test to break, not an oversight.
+ *
+ * LIFEOS-079 adds `standard`, and it IS that deliberate act — with the tests.
+ * It is the one kind capture may PROPOSE but never CREATE: its authority is
+ * `never_auto`, `convertCapture` refuses it, and the bulk conversion path
+ * refuses it, so the sentence reaches the Personal Code create flow and a
+ * person decides. The structural guarantee 060 wanted is unchanged; what moved
+ * is that a normative sentence is now recognised instead of silently filed as
+ * an errand.
  */
-export type CandidateKind = "action" | "waiting" | "note" | "protocol" | "reflection" | "project" | "goal" | "event";
+export type CandidateKind = "action" | "waiting" | "note" | "protocol" | "reflection" | "project" | "goal" | "event" | "standard";
 
 export const CANDIDATE_KINDS: readonly CandidateKind[] = [
   "action", "waiting", "note", "protocol", "reflection", "project", "goal",
   // Time foundation (LIFEOS-061). An Event is something that HAPPENS — never a
   // task, and never given completion semantics.
   "event",
+  // Personal Code (LIFEOS-079). Proposable, never creatable from here.
+  "standard",
 ];
 
 /** Kinds this pipeline must never be able to write. Asserted by the suite. */
 export const FORBIDDEN_CANDIDATE_KINDS: readonly string[] = [
   "belief", "constitution", "constitution_element", "decision", "principle", "framework",
 ];
+
+/**
+ * Kinds this pipeline may PROPOSE but must never WRITE (LIFEOS-079).
+ *
+ * Distinct from the list above: those kinds cannot even be suggested. A
+ * `standard` can — the point is that a person writing "I always tell the truth"
+ * should see Conqify recognise it — but the write happens in Personal Code,
+ * under their hand, or not at all.
+ */
+export const SUGGEST_ONLY_CANDIDATE_KINDS: readonly CandidateKind[] = ["standard"];
+
+export function isSuggestOnly(kind: string): boolean {
+  return (SUGGEST_ONLY_CANDIDATE_KINDS as readonly string[]).includes(kind);
+}
 
 /**
  * Base authority per kind.
@@ -72,6 +96,10 @@ const BASE: Record<CandidateKind, AuthorityLevel> = {
   // An event is as cheap to undo as an errand — it creates one dated row and
   // nothing else. Same tier as an action.
   event: "auto_with_undo",
+  // LIFEOS-079. A standard is a commitment about who the user is trying to be.
+  // `never_auto` is the strongest tier and it is not a stricter confirm — this
+  // pipeline has no code path that writes one at all.
+  standard: "never_auto",
 };
 
 /**

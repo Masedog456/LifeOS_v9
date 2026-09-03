@@ -80,7 +80,10 @@ export interface Reason {
     // Deliberately NOT in GROUNDING_CODES and deliberately appended AFTER the
     // ordering has run: ancestry is context, exactly like `linked_constitution`,
     // and horizon never influences what Today suggests.
-    | "supports_goal";
+    | "supports_goal"
+    // LIFEOS-079. A conditional rule of the user's that mentions the same
+    // thing. Same contract as the two above: context, never rank.
+    | "related_rule";
   /** Plain language, shown as-is. Factual, never a judgment. */
   text: string;
 }
@@ -450,7 +453,7 @@ export function recommendNextAction(
   return {
     recommendation: {
       action: best.action,
-      reasons: withAncestry(state, best.action, best.reasons),
+      reasons: withRule(ix, best.action, withAncestry(state, best.action, best.reasons)),
       counterfactual: scored.length > 1 ? counterfactualFor(best, scored[1], today) : undefined,
     },
     consideredCount: candidates.length,
@@ -469,6 +472,20 @@ function withAncestry(state: StoreState, action: NextAction, reasons: Reason[]):
   const text = ancestryExplanation(state, action);
   if (!text) return reasons;
   return [...reasons, { code: "supports_goal", text: text.replace(/\.$/, "") }];
+}
+
+/**
+ * Append one conditional rule of the user's, when it mentions the same thing.
+ *
+ * LIFEOS-079 §11. Runs after the ordering, like `withAncestry`, and its code is
+ * absent from `GROUNDING_CODES` — so a rule can neither move a recommendation
+ * nor make an ungrounded action look explainable. It says what the person
+ * already wrote; it does not tell them whether they are keeping it.
+ */
+function withRule(ix: TodayIndexes, action: NextAction, reasons: Reason[]): Reason[] {
+  const rule = ix.protocolByAction.get(action.id);
+  if (!rule) return reasons;
+  return [...reasons, { code: "related_rule", text: `Your rule: ${rule}` }];
 }
 
 /**

@@ -44,6 +44,7 @@ const NAV: NavItem[] = [
       { href: "/library", label: "Library" },
       { href: "/world", label: "Knowledge" },
       { href: "/constitution", label: "Constitution" },
+      { href: "/personal-code", label: "Personal Code" },
       { href: "/beliefs", label: "Beliefs" },
       { href: "/research", label: "Research" },
     ] }],
