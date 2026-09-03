@@ -67,8 +67,13 @@ import {
 } from "@/lib/commitment/signals";
 import {
   planMemoryQuery, MEMORY_QUERY_EXAMPLES, MEMORY_UNRESOLVED_LABEL,
-  type MemoryQueryPlan,
+  type MemoryQueryPlan, type ChangeAspect,
 } from "@/lib/memory/query";
+import {
+  buildExecutiveChanges, repeatedlyPostponed, postponedLine,
+  MOVED_FORWARD_KINDS, PROTOCOL_CHANGE_LIMITATION,
+  type ExecutiveChange, type ExecutiveChangeKind,
+} from "@/lib/memory/changes";
 
 // ---------------------------------------------------------------- contract --
 
@@ -449,7 +454,7 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "COMPLETION": return answerCompletion(state, plan, range, implicit, opts);
     case "EVENTS": return answerEvents(state, plan, range, implicit, opts);
     case "WAITING": return answerWaiting(state, plan, today);
-    case "CHANGES": return answerChanges(state, plan, range, implicit, opts);
+    case "CHANGES": return answerChanges(state, plan, range, implicit, searchIndex, opts);
     case "PROJECT": return answerProject(state, plan, range, implicit, searchIndex, opts);
     case "REFLECTION": return answerReflection(state, plan, searchIndex);
     case "OPEN_WORK": return answerOpenWork(state, plan, today, opts);
@@ -996,71 +1001,272 @@ function waitingItem(state: StoreState, a: NextAction): MemoryAnswerItem {
 export const EVENT_HISTORY_LIMITATION =
   "Conqify keeps no change history for calendar events, so an event that was moved, renamed or cancelled shows only where it stands now.";
 
-const CHANGE_GROUPS: Array<{ kinds: string[]; clause: (n: number) => string; attribution: MemoryAttribution }> = [
-  { kinds: ["completed_action", "recurring_completion"], clause: (n) => `completed ${plural(n, "item")}`, attribution: "You completed" },
-  { kinds: ["action_created"], clause: (n) => `added ${plural(n, "item")}`, attribution: "You added" },
-  { kinds: ["waiting_started"], clause: (n) => `started waiting on ${plural(n, "item")}`, attribution: "You added" },
-  { kinds: ["action_deferred"], clause: (n) => `deferred ${plural(n, "item")}`, attribution: "You recorded" },
-  { kinds: ["action_rescheduled"], clause: (n) => `changed the date on ${plural(n, "item")}`, attribution: "You recorded" },
-  { kinds: ["action_cancelled"], clause: (n) => `cancelled ${plural(n, "item")}`, attribution: "You recorded" },
-  { kinds: ["event_scheduled"], clause: (n) => `had ${plural(n, "event")} on the calendar`, attribution: "On your calendar" },
-  { kinds: ["note_created", "reflection_captured", "capture_created", "decision_recorded"], clause: (n) => `wrote ${plural(n, "note or reflection", "notes and reflections")}`, attribution: "You wrote" },
+/**
+ * The sections a "what changed?" answer is built from (LIFEOS-081 §20).
+ *
+ * Ordered as a person would want to read them — what moved, then what changed
+ * direction, then what slipped — and never ranked by invented importance. An
+ * empty section is dropped rather than printed (§20).
+ *
+ * `Moved forward` holds completions and NOTHING else. LIFEOS-078 drew that line
+ * and §9 restates it: a horizon edit is a change of direction, not progress, and
+ * putting the two in one section would tell someone that changing their mind was
+ * getting something done.
+ */
+const CHANGE_SECTIONS: Array<{
+  label: string;
+  kinds: ExecutiveChangeKind[];
+  clause: (n: number) => string;
+  attribution: MemoryAttribution;
+}> = [
+  {
+    label: "Moved forward",
+    kinds: ["completed", "recurring_completed"],
+    clause: (n) => `completed ${plural(n, "item")}`,
+    attribution: "You completed",
+  },
+  {
+    label: "Changed direction",
+    kinds: ["goal_status_changed", "goal_horizon_changed", "goal_target_changed", "goal_replaced"],
+    clause: (n) => `changed direction on ${plural(n, "goal")}`,
+    attribution: "You recorded",
+  },
+  {
+    label: "Added",
+    kinds: ["created", "goal_created"],
+    clause: (n) => `added ${plural(n, "item")}`,
+    attribution: "You added",
+  },
+  {
+    label: "Deferred",
+    kinds: ["deferred", "returned", "rescheduled", "due_cleared"],
+    clause: (n) => `moved the date on ${plural(n, "item")}`,
+    attribution: "You recorded",
+  },
+  {
+    label: "Waiting",
+    kinds: ["waiting_started", "waiting_ended"],
+    clause: (n) => `changed what you're waiting on ${n === 1 ? "once" : `${n} times`}`,
+    attribution: "You recorded",
+  },
+  {
+    label: "Your code",
+    kinds: ["rule_adopted", "rule_revised", "rule_retired"],
+    clause: (n) => `changed ${plural(n, "rule")} in your Personal Code`,
+    attribution: "You recorded",
+  },
+  {
+    label: "In your own words",
+    kinds: ["reflection_added", "note_added", "capture_added", "decision_recorded"],
+    clause: (n) => `wrote ${plural(n, "note or reflection", "notes and reflections")}`,
+    attribution: "You wrote",
+  },
+  {
+    label: "On the calendar",
+    kinds: ["event_scheduled"],
+    clause: (n) => `had ${plural(n, "event")} on the calendar`,
+    attribution: "On your calendar",
+  },
+  {
+    label: "Other changes",
+    kinds: ["cancelled", "restored", "planned", "prerequisite_removed"],
+    clause: (n) => `recorded ${plural(n, "other change")}`,
+    attribution: "You recorded",
+  },
 ];
 
+/** Human wording for a change, used as the row's detail. Facts only (§21). */
+const CHANGE_DETAIL: Partial<Record<ExecutiveChangeKind, string>> = {
+  recurring_completed: "Done for the day",
+  cancelled: "Cancelled",
+  returned: "Came back from a deferral",
+  restored: "Restored",
+  due_cleared: "Date removed",
+  planned: "Planned",
+  prerequisite_removed: "Prerequisite removed",
+  waiting_ended: "Stopped waiting",
+  goal_created: "Goal added",
+  goal_target_changed: "Target date changed",
+  rule_adopted: "Rule adopted",
+  rule_revised: "Rule revised",
+  rule_retired: "Rule retired",
+};
+
+/** One change, as a row. The detail names the transition's two ends when known. */
+function changeItem(state: StoreState, c: ExecutiveChange, attribution: MemoryAttribution): MemoryAnswerItem {
+  const record = resolveRecord(state, c.entity.kind, c.entity.id);
+  // A recorded transition says what it moved BETWEEN. "Near → Medium" is the
+  // whole content of a horizon change, and printing the goal's title alone
+  // would report that something happened without saying what.
+  const transition = c.from && c.to ? `${c.from} → ${c.to}`
+    : c.to ? `→ ${c.to}`
+    : undefined;
+  const detail = [CHANGE_DETAIL[c.kind], transition, c.detail].filter(Boolean).join(" · ") || undefined;
+  return {
+    text: displayText(c.title),
+    attribution: isMachineProduced(c.origin) ? attributionFor(c.entity.kind, c.origin) : attribution,
+    day: c.day,
+    when: fmt(c.day),
+    detail,
+    ref: c.entity,
+    href: record?.href,
+    evidence: c.evidence,
+    origin: c.origin,
+  };
+}
+
 /**
- * What changed, and what happened (§10).
+ * What changed (§3, §20).
  *
- * Every group is a recorded transition — a status change, a `due_set`, a
- * creation. There is no "other" bucket, because a change Conqify did not record
- * is not a change it can report, and the Event limitation says exactly which
- * ones those are.
+ * ## One derivation, six questions
+ *
+ * `buildExecutiveChanges` is the only source. The aspect decides which slice of
+ * it is read — and `postponed` is the one that is not a slice at all, because
+ * counting repeated deferrals per record is a different shape from listing
+ * changes in order.
+ *
+ * ## Entity scope is resolved, never guessed (§19)
+ *
+ * The audit found `entityQuery` being extracted and then ignored, so "what
+ * changed with my graduate school goal?" returned the whole week over a
+ * twelve-month window. It is now resolved first, and two matching goals produce
+ * `NEEDS_CHOICE` rather than an arbitrary pick.
  */
 function answerChanges(
-  state: StoreState, plan: MemoryQueryPlan, range: ResolvedRange, implicit: boolean, opts: AnswerOptions,
+  state: StoreState, plan: MemoryQueryPlan, range: ResolvedRange, implicit: boolean,
+  searchIndex: SearchEntry[], opts: AnswerOptions,
 ): MemoryAnswer {
-  const timeline = buildAutobiographicalTimeline(state, range, opts.index);
-  if (timeline.length === 0) {
+  const aspect = plan.changeAspect ?? "all";
+
+  // ---- entity scope, before any derivation (§19) --------------------------
+  let entity: RecordRefLite | undefined;
+  let scopeTitle: string | undefined;
+  if (plan.entityQuery) {
+    // "my graduate school GOAL" names the record kind, and the kind is not part
+    // of the title. Leaving it in made `resolveEntities` match nothing at all,
+    // so the question silently fell back to the un-scoped answer — which is how
+    // the audit found "what changed with my grad school goal?" returning the
+    // whole week. Stripped here rather than in the router, because every other
+    // class wants the noun ("what happened with the kitchen PROJECT" resolves
+    // through a project-titled entry).
+    const scopeQuery = plan.entityQuery
+      .replace(/\b(?:goal|project|action|task|rule|standard|note)s?\b\s*$/i, "")
+      .trim() || plan.entityQuery;
+    const all = resolveEntities(searchIndex, scopeQuery);
+    const candidates = focused(all, opts.focusRef);
+    if (candidates.length > 1) return needsChoice(plan.question, candidates, plan);
+    if (candidates.length === 1) {
+      entity = { kind: candidates[0].kind as RecordRefLite["kind"], id: candidates[0].id };
+      scopeTitle = candidates[0].title;
+    }
+    // No match at all is not an error: "what changed this week" extracts a
+    // fragment that names nothing, and answering the un-scoped question is
+    // right. A scope is applied only when a record actually resolved.
+  }
+
+  // ---- §14: repeated postponement is its own derivation -------------------
+  if (aspect === "postponed") {
+    const postponed = repeatedlyPostponed(state, range)
+      .filter((p) => !entity || p.action.id === entity.id);
+    if (postponed.length === 0) {
+      return {
+        ...noEvidence(plan, implicit ? IMPLICIT_NOTE : undefined),
+        heading: `Nothing was deferred more than once${rangeSuffix(plan, range, implicit)}`,
+        summary:
+          "Conqify counts this from recorded deferrals only. A task with an old due date was not deferred — it was scheduled and the day passed.",
+      };
+    }
+    const items: MemoryAnswerItem[] = postponed.map((p) => ({
+      text: displayText(p.action.title),
+      attribution: "You recorded",
+      day: p.lastAt.slice(0, 10) as DayKey,
+      when: fmt(p.lastAt.slice(0, 10) as DayKey),
+      detail: postponedLine(p),
+      ref: { kind: "action", id: p.action.id },
+      href: resolveRecord(state, "action", p.action.id)?.href,
+      evidence: "action.history[].deferred",
+      origin: "user_authored",
+    }));
     return {
-      ...noEvidence(plan, implicit ? IMPLICIT_NOTE : undefined),
-      heading: `Nothing recorded${rangeSuffix(plan, range, implicit)}`,
-      summary: "Conqify recorded nothing in that period. That is a gap in the record, not a description of the time.",
+      status: "ANSWERED",
+      heading: `Deferred more than once${rangeSuffix(plan, range, implicit)}`,
+      summary: `${plural(items.length, "item was", "items were")} deferred more than once.`,
+      items,
+      // §15, stated rather than assumed: a weekly commitment pushed a day is not
+      // avoidance, and the person should know it was never in this count.
+      limitation: [
+        "Counted from recorded deferrals. Work on a repeating schedule is not included.",
+        implicit ? IMPLICIT_NOTE : "",
+      ].filter(Boolean).join(" "),
+      sourceRefs: refsOf(items),
+      plan,
     };
   }
 
-  // One record, one line. "Marcus still hasn't sent the lease" is created and
-  // marked waiting in the same breath, and printing both makes one thing look
-  // like two — the same de-duplication `buildWeekReview` applies to its Added
-  // section, for the same reason.
-  const waitStarted = new Set(
-    timeline.filter((e) => e.kind === "waiting_started").map((e) => e.recordRef.id),
-  );
+  // ---- everything else is a slice of the one derivation -------------------
+  const changes = buildExecutiveChanges(state, range, { index: opts.index, entity });
+
+  const ASPECT_KINDS: Partial<Record<ChangeAspect, ExecutiveChangeKind[]>> = {
+    forward: [...MOVED_FORWARD_KINDS],
+    // NOT `returned`. A deferral coming back is the timer elapsing, not the
+    // person putting something off again — merging them would inflate the
+    // answer to "what did I defer?" with events the user did not cause.
+    deferred: ["deferred", "rescheduled"],
+    waiting_ended: ["waiting_ended"],
+    rules: ["rule_adopted", "rule_revised", "rule_retired"],
+  };
+  const wanted = ASPECT_KINDS[aspect];
+  const scoped = wanted ? changes.filter((c) => wanted.includes(c.kind)) : changes;
+
+  const where = scopeTitle ? ` · ${scopeTitle}` : "";
+  // A rules question always carries the Protocol limitation, answered or not:
+  // the absence of when/then history is the reason the answer may look short.
+  const ruleLimit = aspect === "rules" ? PROTOCOL_CHANGE_LIMITATION : "";
+
+  if (scoped.length === 0) {
+    return {
+      ...noEvidence(plan, [ruleLimit, implicit ? IMPLICIT_NOTE : ""].filter(Boolean).join(" ")),
+      heading: `Nothing recorded${where}${rangeSuffix(plan, range, implicit)}`,
+      summary: scopeTitle
+        ? `Conqify recorded no change to ${scopeTitle} in that period.`
+        : "Conqify recorded nothing in that period. That is a gap in the record, not a description of the time.",
+    };
+  }
 
   const items: MemoryAnswerItem[] = [];
   const parts: string[] = [];
-  for (const g of CHANGE_GROUPS) {
-    const hits = timeline.filter((e) => g.kinds.includes(e.kind)
-      && !(e.kind === "action_created" && waitStarted.has(e.recordRef.id)));
-    if (!hits.length) continue;
-    parts.push(g.clause(hits.length));
-    for (const e of hits) {
-      const attribution = isMachineProduced(e.origin)
-        ? attributionFor(e.recordRef.kind, e.origin)
-        : g.attribution;
-      const item = itemOf(state, e, attribution);
-      // The timeline stores a wait's detail as the bare name the user typed.
-      // On its own line that reads as an unexplained word next to a title.
-      if (e.kind === "waiting_started" && e.detail) item.detail = `Waiting on ${e.detail}`;
+  for (const section of CHANGE_SECTIONS) {
+    const hits = scoped.filter((c) => section.kinds.includes(c.kind));
+    if (!hits.length) continue;          // §20: no empty sections
+    // The summary counts RECORDS, the list shows every change. Three deferrals
+    // of one task is one thing being put off, and "moved the date on 3 items"
+    // would claim three tasks slipped.
+    parts.push(section.clause(new Set(hits.map((c) => c.entity.id)).size));
+    for (const c of hits) {
+      const item = changeItem(state, c, section.attribution);
+      // A wait's detail is the bare name the user typed, which on its own line
+      // reads as an unexplained word beside a title.
+      if (c.kind === "waiting_started" && c.detail) item.detail = `Waiting on ${c.detail}`;
       items.push(item);
     }
   }
 
+  // The heading answers the question that was asked. "What did I stop waiting
+  // on?" headed "What Conqify recorded" reads like a different answer.
+  const ASPECT_HEADING: Partial<Record<ChangeAspect, string>> = {
+    forward: "What moved forward",
+    deferred: "What you deferred",
+    waiting_ended: "What you stopped waiting on",
+    rules: "What changed in your Personal Code",
+  };
   const asked = /\bchange|moved|shifted\b/.test(plan.question.toLowerCase());
+  const heading = ASPECT_HEADING[aspect] ?? (asked ? "What changed" : "What Conqify recorded");
   return {
     status: "ANSWERED",
-    heading: `${asked ? "What changed" : "What Conqify recorded"}${rangeSuffix(plan, range, implicit)}`,
+    heading: `${heading}${where}${rangeSuffix(plan, range, implicit)}`,
     summary: `You ${sentence(parts)}.`,
     items,
-    limitation: [EVENT_HISTORY_LIMITATION, implicit ? IMPLICIT_NOTE : ""].filter(Boolean).join(" "),
+    limitation: [EVENT_HISTORY_LIMITATION, ruleLimit, implicit ? IMPLICIT_NOTE : ""].filter(Boolean).join(" "),
     sourceRefs: refsOf(items),
     plan,
   };
@@ -1193,6 +1399,23 @@ export const EMOTION_LIMITATION_PREFIX =
   "Conqify does not record how you felt. These are records whose text contains";
 
 /**
+ * Words that survive frame-stripping but name no topic (LIFEOS-081 §17).
+ *
+ * Each is the remnant of a question about the person's own words in general —
+ * "what did I say MATTERED this week", "what was I THINKING about". Treating one
+ * as a search term looks for records containing the word itself, which is almost
+ * never what was written.
+ *
+ * Deliberately small and literal. A term not on this list is a topic, and a
+ * topic is searched for, exactly as before.
+ */
+const TOPICLESS_TERMS = new Set([
+  "mattered", "matter", "matters", "important", "thinking", "think", "thought",
+  "on my mind", "mind", "going on", "happening", "say", "said", "saying",
+  "write", "wrote", "writing", "reflect", "reflected", "reflecting",
+]);
+
+/**
  * What the user said about something (§5, §6).
  *
  * Searches only the four record types a person writes in, which is why an Event
@@ -1207,7 +1430,22 @@ function answerReflection(state: StoreState, plan: MemoryQueryPlan, searchIndex:
   }
 
   const pool = searchIndex.filter((e) => AUTHORED_KINDS.includes(e.kind));
-  const hits = searchFlat(pool, term, 40);
+
+  // LIFEOS-081 §17. A TOPICLESS question, answered by the range instead.
+  //
+  // "What did I say mattered this week?" has no topic — "mattered" is part of
+  // the question frame — and the audit measured the consequence: the search
+  // looked for records containing the literal word "mattered", the user's actual
+  // reflection did not contain it, and the answer was NO_RECORDED_EVIDENCE while
+  // the sentence sat in the store.
+  //
+  // The provenance boundary is untouched by this: the split below is what keeps
+  // "you said" restricted to what the person actually wrote, and a topicless
+  // question goes through exactly the same split.
+  const topicless = !plan.emotionWord && TOPICLESS_TERMS.has(term.toLowerCase().trim());
+  const hits = topicless && plan.range
+    ? pool.map((entry) => ({ entry }))
+    : searchFlat(pool, term, 40);
 
   const dated = hits
     .map((h) => datedAuthored(state, h.entry))
@@ -1222,10 +1460,12 @@ function answerReflection(state: StoreState, plan: MemoryQueryPlan, searchIndex:
   if (dated.length === 0) {
     return {
       ...noEvidence(plan, emotionNote),
-      heading: `Nothing written about “${term}”`,
-      summary: plan.range
-        ? `Conqify found no note, reflection, capture or decision from that period whose text mentions “${term}”.`
-        : `Conqify found no note, reflection, capture or decision whose text mentions “${term}”.`,
+      heading: topicless ? "Nothing written in that period" : `Nothing written about “${term}”`,
+      summary: topicless
+        ? "Conqify found no note, reflection, capture or decision you wrote in that period."
+        : plan.range
+          ? `Conqify found no note, reflection, capture or decision from that period whose text mentions “${term}”.`
+          : `Conqify found no note, reflection, capture or decision whose text mentions “${term}”.`,
     };
   }
 
@@ -1252,11 +1492,17 @@ function answerReflection(state: StoreState, plan: MemoryQueryPlan, searchIndex:
     // return is text containing the word. Reporting that as ANSWERED would let
     // a search result stand in for a feeling — §23's fifth negative assertion.
     status: machine.length || plan.emotionWord ? "PARTIALLY_ANSWERED" : "ANSWERED",
-    heading: `What you wrote about “${term}”${plan.range ? ` · ${plan.range.label}` : ""}`,
-    summary: `${plural(authored.length, "record")} you wrote ${authored.length === 1 ? "mentions" : "mention"} “${term}”.`,
+    // A topicless question found these by RANGE, not by the word. Saying they
+    // "mention 'mattered'" would be false about every one of them.
+    heading: topicless
+      ? `What you wrote${plan.range ? ` · ${plan.range.label}` : ""}`
+      : `What you wrote about “${term}”${plan.range ? ` · ${plan.range.label}` : ""}`,
+    summary: topicless
+      ? `${plural(authored.length, "record")} you wrote in that period.`
+      : `${plural(authored.length, "record")} you wrote ${authored.length === 1 ? "mentions" : "mention"} “${term}”.`,
     items: [...authored, ...machine],
     limitation: [emotionNote, machine.length
-      ? `${plural(machine.length, "other record")} mentioning it ${machine.length === 1 ? "was" : "were"} AI-generated and ${machine.length === 1 ? "is" : "are"} marked as such.`
+      ? `${plural(machine.length, "other record")}${topicless ? " from that period" : " mentioning it"} ${machine.length === 1 ? "was" : "were"} AI-generated and ${machine.length === 1 ? "is" : "are"} marked as such.`
       : ""].filter(Boolean).join(" ") || undefined,
     sourceRefs: refsOf([...authored, ...machine]),
     plan,
