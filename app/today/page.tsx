@@ -119,7 +119,10 @@ export default function TodayPage() {
           <button type="button" onClick={openQuickCapture} className="shrink-0 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900">＋ Quick capture</button>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-          Here&apos;s what&apos;s worth your attention — everything links back to the real record, nothing is a copy. Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> anytime to search or jump anywhere.
+          {/* LIFEOS-083 §3. Three lines of instructions, every day, above the
+              day itself. The product should orient, not explain itself — the
+              ⌘K hint is worth keeping and the rest was chrome. */}
+          Press <kbd className="rounded border border-black/[.12] px-1 text-[10px] dark:border-white/[.15]">⌘K</kbd> to search or jump anywhere.
         </p>
       </header>
 

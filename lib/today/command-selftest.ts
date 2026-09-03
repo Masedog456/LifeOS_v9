@@ -147,10 +147,22 @@ export function runCommandCenterSelfTests(): SelfTestReport {
     cmd.suppressed.some((x) => x.entityId === nextId && x.because === "next"),
     JSON.stringify(cmd.suppressed));
   // THE assertion. Suppression must move the evidence, not delete it.
-  ok("83.7 …with its reason moved onto that row",
-    !!nextId && !!cmd.inlineReasons[nextId], JSON.stringify(cmd.inlineReasons));
+  ok("83.7 …with its reason still visible on that row",
+    !!nextId && (!!cmd.inlineReasons[nextId ?? ""]
+      || (view.suggestion.recommendation?.reasons ?? []).some((r) => /due/i.test(r.text))),
+    JSON.stringify([cmd.inlineReasons, (view.suggestion.recommendation?.reasons ?? []).map((r) => r.text)]));
+  // Found on the rendered page, not in a test: the Next card lists its own
+  // reasons, so moving the suppressed card's sentence there printed "Was due
+  // Tue, Sep 1" twice on one card.
+  ok("83.7b …unless that row already says it",
+    !(view.suggestion.recommendation?.reasons ?? []).some((r) =>
+      r.text.toLowerCase().replace(/[.\s]+$/, "") === (cmd.inlineReasons[nextId ?? ""] ?? "\u0000").toLowerCase().replace(/[.\s]+$/, "")),
+    JSON.stringify([(view.suggestion.recommendation?.reasons ?? []).map((r) => r.text), cmd.inlineReasons[nextId ?? ""]]));
   ok("83.8 …and the reason is the one the card would have shown",
-    !!nextId && /due/i.test(cmd.inlineReasons[nextId ?? ""] ?? ""), cmd.inlineReasons[nextId ?? ""]);
+    // Either the reason travelled, or the winning row already carried it.
+    // Both are correct; silently losing it is not, which is what 83.7 guards.
+    !!nextId && (!!cmd.inlineReasons[nextId ?? ""] || (view.suggestion.recommendation?.reasons ?? []).some((r) => /due/i.test(r.text))),
+    JSON.stringify([cmd.inlineReasons[nextId ?? ""], (view.suggestion.recommendation?.reasons ?? []).map((r) => r.text)]));
 
   // An item on today's schedule wins over an attention card too.
   {

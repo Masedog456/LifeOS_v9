@@ -150,6 +150,10 @@ export function buildDailyCommandView(
     ...view.alsoToday.map((a) => a.id),
   ]);
 
+  // What the Next card already tells the user, so the same fact is not repeated
+  // underneath it.
+  const reasonsForNext = (view.suggestion.recommendation?.reasons ?? []).map((r) => r.text);
+
   const attention: ExecutiveAttentionItem[] = [];
   const inlineReasons: Record<string, string> = {};
   const suppressed: SuppressedAttention[] = [];
@@ -161,8 +165,17 @@ export function buildDailyCommandView(
 
     if (because) {
       suppressed.push({ id: item.id, entityId: id, because });
-      // The reason travels to the row that won (§23). Nothing is lost.
-      inlineReasons[id] = item.explanation;
+      // The reason travels to the row that won (§23) — UNLESS that row already
+      // says it.
+      //
+      // Found by looking at the rendered page: the Next card lists its own
+      // reasons, and "Was due Tue, Sep 1" was appearing twice on it — once as a
+      // recommendation reason and once as the inline reason this file had just
+      // added. Moving a duplicate card's sentence onto a row that already
+      // carries the sentence is the same duplication in a smaller box.
+      if (!alreadySaid(item.explanation, reasonsForNext, because)) {
+        inlineReasons[id] = item.explanation;
+      }
       continue;
     }
     attention.push(item);
@@ -223,6 +236,21 @@ export function calmLine(state: StoreState, view: TodayView, today: DayKey): str
     return `${scheduledLater} open ${scheduledLater === 1 ? "item is" : "items are"} scheduled later.`;
   }
   return undefined;
+}
+
+/**
+ * Does the winning row already carry this sentence?
+ *
+ * Only the NEXT row lists its own reasons; a schedule row shows a date and
+ * nothing else, so a `fixed` winner always needs the inline reason. Compared on
+ * normalised text rather than identity because the two are produced by
+ * different builders and differ only in trailing punctuation.
+ */
+function alreadySaid(explanation: string, reasons: string[], because: "next" | "fixed"): boolean {
+  if (because !== "next") return false;
+  const norm = (t: string) => t.toLowerCase().replace(/[.\s]+$/, "").trim();
+  const e = norm(explanation);
+  return reasons.some((r) => norm(r) === e || norm(r).includes(e));
 }
 
 function shiftDay(day: DayKey, delta: number): DayKey {
