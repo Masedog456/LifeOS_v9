@@ -158,7 +158,25 @@ function splitSentence(sentence: Segment): Segment[] {
   // things. It is safe to cut here ONLY because `hasOwnIntent` merges back any
   // fragment that cannot stand alone, so "buy milk and bread" stays one action
   // and "move the sofa and the chair to the garage" stays one sentence.
-  const re = /,\s*(?:and\s+|then\s+|also\s+|plus\s+)?|;\s*|\s+and\s+then\s+|\s+and\s+/g;
+  // LIFEOS-080 §22. `so` and `but` join two intents as readily as `and` does,
+  // and the audit measured the cost of their absence:
+  //
+  //   "I want to get healthier so I should stop eating late"
+  //     → one goal titled "get healthier so I should stop eating late"
+  //
+  // An aspiration and a rule, fused into a goal whose title is neither.
+  //
+  // Both are gated on a following "I". Mutation testing was clear about what
+  // that gate does and does not buy: the merge-back rule below already rescues
+  // the degree-adverb case ("I was so tired I went to bed" rejoins whether the
+  // lookahead is there or not), so the gate is not what keeps prose intact.
+  // What it does keep out is a cut before someone ELSE'S imperative — "I'm
+  // running late so start without me" would otherwise yield "start without me"
+  // as an errand the user is meant to perform.
+  // The lookahead is spelled `[iI]` rather than relying on a flag: this regex
+  // has always been case-SENSITIVE, and turning that on wholesale here would
+  // quietly change where every other separator cuts.
+  const re = /,\s*(?:and\s+|then\s+|also\s+|plus\s+|but\s+|so\s+)?|;\s*|\s+and\s+then\s+|\s+and\s+|\s+so\s+(?=[iI]\s)|\s+but\s+(?=[iI]\s)/g;
   let cursor = 0;
   let m: RegExpExecArray | null;
   const pieces: Segment[] = [];

@@ -38,7 +38,8 @@ import {
 import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/lib/capture/interpret";
 import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/capture/commit";
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
-import { authorityNote, preselected, type CandidateKind } from "@/lib/capture/authority";
+import { authorityNote, authorityFor, preselected, isSuggestOnly, type CandidateKind } from "@/lib/capture/authority";
+import { personalCodeHandoffHref, HANDOFF_ACTION_LABEL, MAX_HANDOFF_CHARS } from "@/lib/code/handoff";
 import { UNRESOLVED_LABEL } from "@/lib/capture/dates";
 import { formatLocalTime } from "@/lib/time/localtime";
 import { describeRule } from "@/lib/time/recurrence";
@@ -149,6 +150,10 @@ export default function CaptureComposer() {
 
   const live = rows?.filter((r) => !r.removed) ?? [];
   const chosenCount = live.filter((r) => r.selected).length;
+  // A suggest-only row has no checkbox, so it must not count toward "all" —
+  // otherwise the button reads "Confirm 2" beside two ticked boxes and a third
+  // row that was never selectable (§6).
+  const selectableCount = live.filter((r) => !isSuggestOnly(r.candidate.kind)).length;
 
   async function look() {
     const src = text.trim();
@@ -234,8 +239,9 @@ export default function CaptureComposer() {
     setRows(rowsFrom(interpret(raw || text.trim(), state, today).candidates));
   }
 
-  function confirmSelected() {
-    const picked: CommitCandidate[] = live
+  /** The rows the user ticked, reduced to what becomes a record. */
+  function pickedCandidates(): CommitCandidate[] {
+    return live
       .filter((r) => r.selected)
       .map((r) => {
         const base = toCommitCandidate(r.candidate, r.chosen);
@@ -248,7 +254,36 @@ export default function CaptureComposer() {
         };
       })
       .filter(isCommittable);
+  }
 
+  /**
+   * Send a recognised rule to Personal Code (LIFEOS-080 §6).
+   *
+   * Everything else the user ticked is saved FIRST, then the navigation
+   * happens — leaving the page must not cost them the errand they confirmed in
+   * the same breath. The capture is written either way, so the sentence is safe
+   * before anything can go wrong.
+   *
+   * Nothing about the rule itself is created here. The person lands on a
+   * prefilled field and presses the button that adopts it, or does not.
+   */
+  function sendToPersonalCode(r: Row) {
+    const statement = r.title.trim() || r.candidate.fields.title || r.candidate.evidence.text;
+    if (!personalCodeHandoffHref(statement)) {
+      toast({
+        kind: "info",
+        message: `That's longer than ${MAX_HANDOFF_CHARS} characters — it's saved in your capture, and you can write the rule in Personal Code.`,
+      });
+      return;
+    }
+    const { captureId } = commitCapture(raw, pickedCandidates());
+    const href = personalCodeHandoffHref(statement, captureId);
+    reset();
+    if (href) router.push(href);
+  }
+
+  function confirmSelected() {
+    const picked = pickedCandidates();
     const { created } = commitCapture(raw, picked);
     toast({
       kind: "success",
@@ -347,8 +382,17 @@ export default function CaptureComposer() {
               <li key={r.candidate.id} data-candidate={r.candidate.kind}
                 className="rounded-2xl border border-black/[.08] p-3 dark:border-white/[.10]">
                 <div className="flex items-start gap-3">
-                  <input type="checkbox" checked={r.selected} onChange={(e) => patch(i, { selected: e.target.checked })}
-                    aria-label={`Include: ${r.title}`} className="mt-1 h-4 w-4 shrink-0" />
+                  {/* A suggest-only kind gets no checkbox (§6). Offering one was
+                      the audit's worst finding: the box could be ticked, Confirm
+                      pressed, and `commitCapture` would refuse the write while
+                      the toast said "Saved your capture." A control that cannot
+                      do what it appears to do is worse than no control. */}
+                  {isSuggestOnly(r.candidate.kind) ? (
+                    <span aria-hidden className="mt-1 h-4 w-4 shrink-0" />
+                  ) : (
+                    <input type="checkbox" checked={r.selected} onChange={(e) => patch(i, { selected: e.target.checked })}
+                      aria-label={`Include: ${r.title}`} className="mt-1 h-4 w-4 shrink-0" />
+                  )}
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -451,13 +495,29 @@ export default function CaptureComposer() {
                       </div>
                     )}
 
+                    {/* The destination a suggest-only kind was missing (§6). */}
+                    {isSuggestOnly(r.candidate.kind) && (
+                      <div className="mt-2">
+                        <button type="button" data-send-personal-code onClick={() => sendToPersonalCode(r)}
+                          className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] font-medium text-zinc-700 dark:border-white/[.15] dark:text-zinc-200">
+                          {HANDOFF_ACTION_LABEL} →
+                        </button>
+                        <span className="ml-2 text-[11px] text-zinc-400">You decide there — nothing is saved yet.</span>
+                      </div>
+                    )}
+
                     {/* Change my mind about the kind, without retyping (§17). */}
                     {r.candidate.alternates.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
                         <span className="text-zinc-400">Or:</span>
                         {r.candidate.alternates.map((k) => (
                           <button key={k} type="button"
-                            onClick={() => patch(i, { candidate: { ...r.candidate, kind: k, authority: k === "action" || k === "note" || k === "waiting" ? "auto_with_undo" : "confirm" } })}
+                            // LIFEOS-080. Was a hand-written ternary that gave
+                            // every unlisted kind `confirm` — including
+                            // `standard`, which would have handed a checkbox to
+                            // the one kind that must never have one. The
+                            // authority table is the only thing that decides.
+                            onClick={() => patch(i, { candidate: { ...r.candidate, kind: k, authority: authorityFor(k, r.candidate.confidence) }, selected: false })}
                             className="rounded-full border border-black/[.12] px-2 py-0.5 text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
                             {KIND_LABEL[k]}
                           </button>
@@ -476,7 +536,7 @@ export default function CaptureComposer() {
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button type="button" data-confirm-all onClick={confirmSelected} disabled={chosenCount === 0}
               className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900">
-              {chosenCount === live.length ? "Confirm all" : `Confirm ${chosenCount}`}
+              {chosenCount === selectableCount ? "Confirm all" : `Confirm ${chosenCount}`}
             </button>
             {/* The escape hatch. Always here, never conditional (§16). */}
             <button type="button" data-keep-note onClick={keepWholeAsNote}
