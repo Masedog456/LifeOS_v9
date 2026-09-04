@@ -244,9 +244,12 @@ export async function runMemoryQuerySelfTests(): Promise<SelfTestReport> {
     // normative question routed into ordinary retrieval could not reach its own
     // answer at all. The exclusion is unchanged; this class reads the Personal
     // Code projection directly.
-    eq("1.13 the router supports exactly the twelve named classes",
+    // LIFEOS-086 added PERSON — one class with five aspects rather than six
+    // near-identical routers for "owe / waiting / unresolved / mentions /
+    // links". The count is asserted so a class cannot be added quietly.
+    eq("1.13 the router supports exactly the thirteen named classes",
       [...MEMORY_QUERY_KINDS].sort().join(","),
-      ["COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME", "NEXT_ACTION", "TOMORROW", "GOALS", "RULES"].sort().join(","));
+      ["COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME", "NEXT_ACTION", "TOMORROW", "GOALS", "RULES", "PERSON"].sort().join(","));
     eq("1.14 “what should I do next” routes to NEXT_ACTION",
       planMemoryQuery("What should I do next?", { today: TODAY })?.kind, "NEXT_ACTION");
     eq("1.15 …and so does “what's next”",

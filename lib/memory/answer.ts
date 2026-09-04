@@ -55,6 +55,10 @@ import { buildIndex, searchFlat } from "@/lib/command/search";
 import { resolveRecord } from "@/lib/command/records";
 import type { SearchEntry } from "@/lib/command/types";
 import {
+  buildPersonContext, namesPerson, longerForms,
+  PERSON_HEADINGS, NOTHING_OPEN, MENTION_NOTE, IDENTITY_LIMITATION, AMBIGUOUS_NAME,
+} from "@/lib/people/context";
+import {
   buildAutobiographicalTimeline, resolveWeekRange, COMPLETION_KINDS,
   type AutobiographicalEvent,
 } from "@/lib/memory/week";
@@ -470,6 +474,7 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "TIME": return answerTime(state, plan, searchIndex, opts);
     case "GOALS": return answerGoals(state, plan, range, implicit);
     case "RULES": return answerRules(state, plan);
+    case "PERSON": return answerPerson(state, plan, today, opts);
     default: return noEvidence(plan);
   }
 }
@@ -937,11 +942,170 @@ export const HISTORICAL_WAITING_LIMITATION =
  * today's list as though it were Tuesday's, which is §23's last negative
  * assertion.
  */
+/**
+ * What is open with a person (LIFEOS-086 §19, §20).
+ *
+ * One class, five aspects, one derivation — `buildPersonContext`. Six separate
+ * question kinds would have been six routers to keep in agreement.
+ *
+ * ## Ambiguity is surfaced, never resolved (§7, §8, §35)
+ *
+ * If the store also holds a longer name beginning with the one asked for, this
+ * returns `NEEDS_CHOICE`. Conqify has no contact records, so it genuinely
+ * cannot tell whether "Marcus" and "Marcus Webb" are one person — and picking
+ * one would attribute someone's commitments to someone else.
+ */
+function answerPerson(
+  state: StoreState, plan: MemoryQueryPlan, today: DayKey, opts: AnswerOptions,
+): MemoryAnswer {
+  const name = plan.personName;
+  if (!name) {
+    return {
+      ...noEvidence(plan, IDENTITY_LIMITATION),
+      heading: "Conqify couldn't tell who that is",
+      summary: "Name the person as you wrote them — Conqify matches the name on your own records.",
+    };
+  }
+
+  const forms = longerForms(state, name);
+  if (forms.length > 0) {
+    // §8, §25. Not a merge, and not a guess. The question is handed back.
+    return {
+      status: "NEEDS_CHOICE",
+      heading: "More than one name matches",
+      summary: AMBIGUOUS_NAME(name, forms),
+      items: [],
+      choices: [name, ...forms].map((n) => ({
+        ref: { kind: "person_name", id: n },
+        title: n,
+        kindLabel: "Person",
+        href: `/people/${encodeURIComponent(n)}`,
+      })),
+      limitation: IDENTITY_LIMITATION,
+      sourceRefs: [],
+      plan,
+    };
+  }
+
+  const ix = opts.todayIndexes ?? buildTodayIndexes(state, today);
+  const c = buildPersonContext(state, name, ix, today);
+  const aspect = plan.personAspect ?? "all";
+
+  const owe: MemoryAnswerItem[] = c.openCommitments.map((x) => ({
+    text: x.action.title,
+    attribution: "You recorded",
+    day: x.dueDate as DayKey | undefined,
+    when: x.dueDate ? fmt(x.dueDate as DayKey) : undefined,
+    detail: [x.reason, x.attention].filter(Boolean).join(" "),
+    ref: { kind: "action", id: x.action.id },
+    href: `/actions/${x.action.id}`,
+    evidence: "action.title",
+    origin: "user_authored",
+  }));
+
+  const waits: MemoryAnswerItem[] = c.waiting.map((x) => ({
+    text: x.action.title,
+    attribution: "You recorded",
+    day: x.since as DayKey | undefined,
+    when: x.since ? fmt(x.since as DayKey) : undefined,
+    // §34. Real temporal facts only, and a future follow-up is not a due one.
+    detail: [
+      `Waiting on ${x.waitingOn}${x.since ? ` since ${fmt(x.since as DayKey)}` : ""}.`,
+      x.followUpDate ? (x.followUpDue ? "Follow up today." : `Follow up ${fmt(x.followUpDate as DayKey)}.`) : "",
+    ].filter(Boolean).join(" "),
+    ref: { kind: "action", id: x.action.id },
+    href: `/actions/${x.action.id}`,
+    evidence: "action.waitingOn",
+    origin: "user_authored",
+  }));
+
+  const linkItems: MemoryAnswerItem[] = c.links.map((x) => ({
+    text: x.title,
+    attribution: "You recorded",
+    detail: x.reason,
+    ref: { kind: x.kind, id: x.id.split(":")[1] },
+    href: x.route,
+    evidence: `${x.kind}.description`,
+    origin: "user_authored",
+  }));
+
+  const mentionItems: MemoryAnswerItem[] = c.mentions.map((x) => ({
+    text: x.text,
+    // §16. User-authored only — `buildPersonContext` filters machine prose out,
+    // so this attribution can never land over a model's sentence.
+    attribution: "You wrote",
+    day: x.date as DayKey,
+    when: fmt(x.date as DayKey),
+    detail: "",
+    ref: { kind: x.kind, id: x.id.split(":")[1] },
+    href: x.route,
+    evidence: `${x.kind}.createdAt`,
+    origin: x.origin,
+  }));
+
+  const pick = aspect === "owe" ? owe
+    : aspect === "waiting" ? waits
+    : aspect === "mentions" ? mentionItems
+    : aspect === "links" ? linkItems
+    : [...owe, ...waits];
+
+  const heading = aspect === "owe" ? `Open with ${name}`
+    : aspect === "waiting" ? `Waiting on ${name}`
+    : aspect === "mentions" ? `What you wrote about ${name}`
+    : aspect === "links" ? `${PERSON_HEADINGS.links} · ${name}`
+    : `Unresolved with ${name}`;
+
+  if (pick.length === 0) {
+    return {
+      ...noEvidence(plan, IDENTITY_LIMITATION),
+      heading,
+      // §37. Bounded to the record, and it manufactures no follow-up.
+      // The sentence has to answer the question that was ASKED. A links
+      // question answered with "no open commitments or waiting items" reports
+      // on a different thing entirely.
+      summary: aspect === "mentions"
+        ? `Conqify has nothing you wrote that names ${name}.`
+        : aspect === "links"
+          ? `No project or goal names ${name}.`
+          : aspect === "waiting"
+            ? `No action is marked as waiting on ${name}.`
+            : NOTHING_OPEN(name),
+      status: "NO_RECORDED_EVIDENCE",
+    };
+  }
+
+  return {
+    status: "ANSWERED",
+    heading,
+    summary: aspect === "mentions"
+      ? `${plural(pick.length, "record")} you wrote naming ${name}.`
+      : `${plural(pick.length, "item")} recorded with ${name}.`,
+    items: pick,
+    limitation: [aspect === "mentions" ? MENTION_NOTE : "", IDENTITY_LIMITATION].filter(Boolean).join(" "),
+    sourceRefs: refsOf(pick),
+    plan,
+  };
+}
+
 function answerWaiting(
   state: StoreState, plan: MemoryQueryPlan, today: DayKey,
 ): MemoryAnswer {
   const asOf = plan.range && plan.range.endKey < today ? plan.range.endKey : undefined;
-  const waiting = (state.nextActions ?? []).filter((a) => a.status === "waiting");
+  /**
+   * LIFEOS-086 §35. The person the question names, honoured.
+   *
+   * The audit measured "What am I waiting on from Maria?" planning WAITING with
+   * `entityQuery` = "maria" and then answering with ALL THREE waiting records —
+   * Jordan's form and a letting agency's lease included. The planner extracted
+   * the person and this function discarded her, which is worse than not
+   * answering: it is a confident wrong answer. Scoped on `waitingOn`, the one
+   * structured field that records who a wait is on.
+   */
+  const who = plan.personName ?? plan.entityQuery;
+  const scoped = who
+    ? (a: NextAction) => namesPerson(a.waitingOn, who)
+    : () => true;
+  const waiting = (state.nextActions ?? []).filter((a) => a.status === "waiting" && scoped(a));
 
   const relevant = asOf
     // Only what the record itself dates to on or before that day. A wait whose
@@ -955,10 +1119,12 @@ function answerWaiting(
   if (items.length === 0) {
     return {
       ...noEvidence(plan, asOf ? HISTORICAL_WAITING_LIMITATION : undefined),
-      heading: asOf ? `Waiting · ${fmt(asOf)}` : "Not waiting on anything",
+      heading: asOf ? `Waiting · ${fmt(asOf)}` : who ? `Not waiting on anything from ${who}` : "Not waiting on anything",
       summary: asOf
         ? `Conqify has no wait recorded as having started on or before ${fmt(asOf)} that is still open.`
-        : "No action is currently marked as waiting on someone.",
+        : who
+          ? `No action is marked as waiting on ${who}.`
+          : "No action is currently marked as waiting on someone.",
       status: asOf ? "PARTIALLY_ANSWERED" : "NO_RECORDED_EVIDENCE",
     };
   }
@@ -972,7 +1138,7 @@ function answerWaiting(
 
   return {
     status: asOf ? "PARTIALLY_ANSWERED" : "ANSWERED",
-    heading: asOf ? `Waiting as of ${fmt(asOf)}` : "Waiting on someone",
+    heading: asOf ? `Waiting as of ${fmt(asOf)}` : who ? `Waiting on ${who}` : "Waiting on someone",
     summary: asOf
       ? `${summary} ${`${items.length === 1 ? "It" : "They"} began before ${fmt(asOf)} and ${items.length === 1 ? "is" : "are"} still open, so ${items.length === 1 ? "it was" : "they were"} open then too.`}`
       : summary,
