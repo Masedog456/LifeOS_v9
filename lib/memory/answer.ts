@@ -54,6 +54,8 @@ import { isMachineProduced, type OriginType } from "@/lib/provenance";
 import { buildIndex, searchFlat } from "@/lib/command/search";
 import { resolveRecord } from "@/lib/command/records";
 import type { SearchEntry } from "@/lib/command/types";
+import { buildProjectContext } from "@/lib/execution/context";
+import { isLive } from "@/lib/actions/due";
 import {
   buildPersonContext, namesPerson, longerForms,
   PERSON_HEADINGS, NOTHING_OPEN, MENTION_NOTE, IDENTITY_LIMITATION, AMBIGUOUS_NAME,
@@ -466,7 +468,7 @@ export function answerMemoryQuery(state: StoreState, question: string, opts: Ans
     case "EVENTS": return answerEvents(state, plan, range, implicit, opts);
     case "WAITING": return answerWaiting(state, plan, today);
     case "CHANGES": return answerChanges(state, plan, range, implicit, searchIndex, opts);
-    case "PROJECT": return answerProject(state, plan, range, implicit, searchIndex, opts);
+    case "PROJECT": return answerProject(state, plan, range, implicit, searchIndex, opts, today);
     case "REFLECTION": return answerReflection(state, plan, searchIndex);
     case "OPEN_WORK": return answerOpenWork(state, plan, today, searchIndex, opts);
     case "NEXT_ACTION": return answerNextAction(state, plan, today, opts);
@@ -1101,11 +1103,26 @@ function answerWaiting(
    * answering: it is a confident wrong answer. Scoped on `waitingOn`, the one
    * structured field that records who a wait is on.
    */
-  const who = plan.personName ?? plan.entityQuery;
-  const scoped = who
-    ? (a: NextAction) => namesPerson(a.waitingOn, who)
-    : () => true;
-  const waiting = (state.nextActions ?? []).filter((a) => a.status === "waiting" && scoped(a));
+  /**
+   * LIFEOS-087 RED 2. `entityQuery` is NOT a person.
+   *
+   * LIFEOS-086 scoped this by `personName ?? entityQuery`, and the fallback was
+   * wrong: for "What am I waiting on for Clinic launch?" the entity query is
+   * the PROJECT's title, so the filter searched `waitingOn` for "clinic launch"
+   * and reported "No action is marked as waiting on clinic launch" — while that
+   * project held two waits. A person scopes by `waitingOn`; a project scopes by
+   * `projectId`; nothing else scopes at all.
+   */
+  const who = plan.personName;
+  const projectId = plan.projectRef?.id;
+  const waiting = (state.nextActions ?? []).filter((a) =>
+    a.status === "waiting"
+    && (!who || namesPerson(a.waitingOn, who))
+    && (!projectId || a.projectId === projectId));
+
+  const scopeLabel = projectId
+    ? (state.projects ?? []).find((p) => p.id === projectId)?.title
+    : undefined;
 
   const relevant = asOf
     // Only what the record itself dates to on or before that day. A wait whose
@@ -1119,12 +1136,17 @@ function answerWaiting(
   if (items.length === 0) {
     return {
       ...noEvidence(plan, asOf ? HISTORICAL_WAITING_LIMITATION : undefined),
-      heading: asOf ? `Waiting · ${fmt(asOf)}` : who ? `Not waiting on anything from ${who}` : "Not waiting on anything",
+      heading: asOf ? `Waiting · ${fmt(asOf)}`
+        : who ? `Not waiting on anything from ${who}`
+        : scopeLabel ? `Not waiting on anything for ${scopeLabel}`
+        : "Not waiting on anything",
       summary: asOf
         ? `Conqify has no wait recorded as having started on or before ${fmt(asOf)} that is still open.`
         : who
           ? `No action is marked as waiting on ${who}.`
-          : "No action is currently marked as waiting on someone.",
+          : scopeLabel
+            ? `No action in ${scopeLabel} is marked as waiting on anyone.`
+            : "No action is currently marked as waiting on someone.",
       status: asOf ? "PARTIALLY_ANSWERED" : "NO_RECORDED_EVIDENCE",
     };
   }
@@ -1138,7 +1160,10 @@ function answerWaiting(
 
   return {
     status: asOf ? "PARTIALLY_ANSWERED" : "ANSWERED",
-    heading: asOf ? `Waiting as of ${fmt(asOf)}` : who ? `Waiting on ${who}` : "Waiting on someone",
+    heading: asOf ? `Waiting as of ${fmt(asOf)}`
+      : who ? `Waiting on ${who}`
+      : scopeLabel ? `Waiting · ${scopeLabel}`
+      : "Waiting on someone",
     summary: asOf
       ? `${summary} ${`${items.length === 1 ? "It" : "They"} began before ${fmt(asOf)} and ${items.length === 1 ? "is" : "are"} still open, so ${items.length === 1 ? "it was" : "they were"} open then too.`}`
       : summary,
@@ -1340,7 +1365,10 @@ function answerChanges(
   // ---- §14: repeated postponement is its own derivation -------------------
   if (aspect === "postponed") {
     const postponed = repeatedlyPostponed(state, range)
-      .filter((p) => !entity || p.action.id === entity.id);
+      // A project scope means its actions — comparing an action's id to a
+      // PROJECT's id matched nothing, so the question came back empty.
+      .filter((p) => !entity
+        || (entity.kind === "project" ? p.action.projectId === entity.id : p.action.id === entity.id));
     if (postponed.length === 0) {
       return {
         ...noEvidence(plan, implicit ? IMPLICIT_NOTE : undefined),
@@ -1504,15 +1532,31 @@ export const PROJECT_LIMITATION =
  * "made progress", because `Project` records `createdAt` and `updatedAt` and
  * nothing that would justify one.
  */
+/** §12's conservatism, said out loud wherever project people are listed. */
+const PEOPLE_LIMITATION =
+  "Conqify matches names as you wrote them on this project's records. It has no contact records, so two people who share a name cannot be told apart.";
+
 function answerProject(
   state: StoreState, plan: MemoryQueryPlan, range: ResolvedRange, implicit: boolean,
-  searchIndex: SearchEntry[], opts: AnswerOptions,
+  searchIndex: SearchEntry[], opts: AnswerOptions, today: DayKey = todayKey(),
 ): MemoryAnswer {
   if (!plan.entityQuery) {
     return noEvidence(plan, MEMORY_UNRESOLVED_LABEL.no_entity);
   }
 
-  const all = resolveEntities(searchIndex, plan.entityQuery);
+  // The router already resolved the project when the question named one, and
+  // it is more reliable than the extracted fragment: the frame stripper turns
+  // "Who is involved in Clinic launch?" into "nvolved clinic launch", which
+  // matches no record at all.
+  // A FALLBACK, never a preference: preferring it skipped the ambiguity guard,
+  // so "what happened with the dashboard?" — two plausible records — silently
+  // answered about one of them instead of asking.
+  const resolved = resolveEntities(searchIndex, plan.entityQuery);
+  const all = resolved.length > 0
+    ? resolved
+    : plan.projectRef
+      ? searchIndex.filter((e) => e.kind === "project" && e.id === plan.projectRef!.id)
+      : [];
   if (all.length === 0) {
     return { ...noEvidence(plan), heading: `Nothing about “${plan.entityQuery}”`,
       summary: `Conqify has no record whose title matches “${plan.entityQuery}”.` };
@@ -1521,6 +1565,49 @@ function answerProject(
   if (candidates.length > 1) return needsChoice(plan.question, candidates, plan);
 
   const only = candidates[0];
+
+  /**
+   * §17. "Who is involved in this project?"
+   *
+   * Answered from `buildProjectContext`'s people, so there is ONE people
+   * derivation rather than two that could disagree — and so §12's conservatism
+   * and §34's refusal to merge "Marcus" with "Marcus Webb" hold here too,
+   * because they are the same code.
+   */
+  if (plan.projectAspect === "people" && only.kind === "project") {
+    const ix = opts.todayIndexes ?? buildTodayIndexes(state, today);
+    const ctx = buildProjectContext(state, only.id, ix, today);
+    const people = ctx?.people ?? [];
+    if (people.length === 0) {
+      return {
+        ...noEvidence(plan, PEOPLE_LIMITATION),
+        heading: `Nobody is named in ${only.title}`,
+        summary: `No action or description in ${only.title} names a person Conqify has anything recorded about.`,
+      };
+    }
+    const items: MemoryAnswerItem[] = people.map((p) => ({
+      text: p.name,
+      attribution: "You recorded",
+      detail: [
+        p.grounding === "waiting" ? `You are waiting on them` : `Named in ${plural(p.actions, "action")}`,
+        p.longerForms.length ? `Conqify also has “${p.longerForms[0]}”.` : "",
+      ].filter(Boolean).join(" · "),
+      ref: { kind: "person_name", id: p.name },
+      href: p.route,
+      evidence: p.grounding === "waiting" ? "action.waitingOn" : "action.title",
+      origin: "user_authored",
+    }));
+    return {
+      status: "ANSWERED",
+      heading: `Named in ${only.title}`,
+      summary: `${plural(items.length, "person is", "people are")} named in this project's records.`,
+      items,
+      limitation: PEOPLE_LIMITATION,
+      sourceRefs: [],
+      plan,
+    };
+  }
+
   const timeline = buildAutobiographicalTimeline(state, range, opts.index);
 
   if (only.kind !== "project") {
@@ -1965,6 +2052,62 @@ function answerOpenWork(
   // ---- LIFEOS-084 §15: the same shortlist, read forward -------------------
   if (plan.guidanceAspect === "carry") {
     return answerCarry(state, plan, ix, today, entity, scopeTitle);
+  }
+
+  /**
+   * LIFEOS-087 §3.7. "What is blocked?" asks about DEPENDENCY STATE.
+   *
+   * The `blocked` commitment SIGNAL is deliberately narrower than that:
+   * LIFEOS-070 only raises it when the blocked action is itself due or its
+   * blocker has gone quiet, because being blocked is not by itself worth
+   * interrupting someone about. That is right for attention and wrong for a
+   * direct question — asked "what is blocked on Clinic launch?" the product
+   * answered "Nothing stands out" while an action sat behind an unfinished
+   * blocker.
+   *
+   * So this reads the same index `buildProjectContext` reads. One derivation of
+   * "blocked", used by both.
+   */
+  if (plan.signalKinds?.length === 1 && plan.signalKinds[0] === "blocked") {
+    const scope = plan.projectRef?.id;
+    const rows = (state.nextActions ?? []).filter((a) =>
+      ix.blockedActionIds.has(a.id)
+      && (!scope || a.projectId === scope)
+      && (!entity || entity.kind === "project" || a.id === entity.id));
+    const where = scopeTitle ? ` · ${scopeTitle}` : "";
+    if (rows.length === 0) {
+      return {
+        ...noEvidence(plan, COMMITMENT_COVERAGE),
+        heading: `Nothing is blocked${where}`,
+        summary: "No action is waiting on another unfinished action.",
+      };
+    }
+    const items: MemoryAnswerItem[] = rows.map((a) => {
+      const blocker = [...(ix.blockedByMap.get(a.id) ?? [])]
+        .map((bid) => ix.actionsById.get(bid))
+        .find((b) => !!b && isLive(b));
+      return {
+        text: a.title,
+        attribution: "You recorded",
+        // Names the UNFINISHED blocker. A completed one is not what is holding
+        // this up, and `blockedActionIds` already excluded rows whose only
+        // blocker is done.
+        detail: blocker ? `Blocked by “${blocker.title}”` : "Blocked by unfinished work",
+        ref: { kind: "action", id: a.id },
+        href: `/actions/${a.id}`,
+        evidence: "actionDependencies",
+        origin: "user_authored",
+      };
+    });
+    return {
+      status: "ANSWERED",
+      heading: `Blocked${where}`,
+      summary: `${plural(items.length, "action is", "actions are")} waiting on unfinished work.`,
+      items,
+      limitation: COMMITMENT_COVERAGE,
+      sourceRefs: refsOf(items),
+      plan,
+    };
   }
 
   const all = buildCommitmentSignals(state, ix, { today });

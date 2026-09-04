@@ -381,8 +381,19 @@ export function buildExecutiveChanges(
   }
 
   const all = [...fromTimeline, ...goalChanges(state, range), ...ruleChanges(state, range)];
+  /**
+   * LIFEOS-087 RED 1. A PROJECT scope means the project's WORK.
+   *
+   * Matching only `c.entity` made "what changed with Clinic launch?" report
+   * "Conqify recorded no change" in a week that completed an action and
+   * deferred another three times — because a Project has no history of its own,
+   * so no change is ever *about* the project record. Its actions are, and every
+   * change already carries the `projectRef` that says so.
+   */
   const scoped = opts.entity
-    ? all.filter((c) => c.entity.kind === opts.entity!.kind && c.entity.id === opts.entity!.id)
+    ? all.filter((c) =>
+        (c.entity.kind === opts.entity!.kind && c.entity.id === opts.entity!.id)
+        || (opts.entity!.kind === "project" && c.projectRef?.id === opts.entity!.id))
     : all;
 
   return sortChanges(dedupe(scoped));
