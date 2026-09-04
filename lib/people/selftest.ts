@@ -77,7 +77,9 @@ function world(): StoreState {
       description: "Priya is leading the fit-out.",
     } as Partial<Project> & { id: string; title: string })],
     nextActions: [
-      act({ id: "a1", title: "Email Marcus the draft lease" }),
+      // A due date, so the "row already shows it" suppression has something
+      // to suppress; without one the assertion passes vacuously.
+      act({ id: "a1", title: "Email Marcus the draft lease", dueDate: D(2) } as Partial<NextAction> & { id: string; title: string }),
       act({ id: "a2", title: "Call Sarah back about the invoice" }),
       // Waiting, follow-up TODAY.
       // Title AND waitingOn both name her, so §36's precedence has something to
@@ -209,6 +211,11 @@ export function runPeopleSelfTests(): SelfTestReport {
       !priyaOwed.some((c) => c.action.id === "a7"), JSON.stringify(priyaOwed.map((c) => c.action.title)));
     ok("86.21c …though the record does name her and is open",
       (s.nextActions ?? []).some((a) => a.id === "a7" && /Priya/.test(a.notes ?? "") && a.status === "open"));
+    // The visual review found "Due Sun, Sep 6" printed twice on one row: once
+    // as the row's own meta, once as the signal explanation beneath it.
+    const dated = ctx("Marcus").openCommitments.find((c) => c.action.id === "a1");
+    ok("86.21d an attention line never restates the date the row already shows",
+      !(dated?.dueDate && dated.attention?.includes("Due")), `${dated?.dueDate} / ${dated?.attention}`);
     ok("86.22 a completed commitment is not owed",
       !marcus.openCommitments.some((c) => c.action.id === "a6"), JSON.stringify(marcus.openCommitments.map((c) => c.action.id)));
     ok("86.23 …though the record still exists", (s.nextActions ?? []).some((x) => x.id === "a6" && x.status === "completed"));
@@ -288,6 +295,14 @@ export function runPeopleSelfTests(): SelfTestReport {
     // An unambiguous name answers directly, or the guard above proves nothing.
     ok("86.42 an unambiguous name is answered, not questioned",
       ask("What is unresolved with Sarah?").status === "ANSWERED");
+    // §7, §8 on the ROW, not just in a banner. The visual review found the
+    // survey action listed as Marcus's work, unqualified, directly beneath a
+    // notice saying Conqify cannot tell whether Marcus Webb is the same person.
+    const webb = ctx("Marcus").openCommitments.find((c) => c.action.id === "a8");
+    ok("86.42b a row matched through a LONGER name says which name it used",
+      webb?.matchedAs === "Marcus Webb", `${webb?.matchedAs}`);
+    ok("86.42c …and a row that used the bare name does not",
+      ctx("Marcus").openCommitments.find((c) => c.action.id === "a1")?.matchedAs === undefined);
   }
 
   // ==========================================================================

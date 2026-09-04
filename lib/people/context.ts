@@ -184,6 +184,15 @@ export interface PersonCommitment {
   /** An attention fact about the SAME record, attached rather than repeated. */
   attention?: string;
   dueDate?: string;
+  /**
+   * The LONGER name this record actually used, when it is not the name asked for.
+   *
+   * Asked for "Marcus" in a store that also says "Marcus Webb", the survey
+   * action matches on the word "Marcus" — and listing it as Marcus's work,
+   * unqualified, directly beneath a banner saying Conqify cannot tell whether
+   * they are the same person, is the page acting on a claim it just disclaimed.
+   */
+  matchedAs?: string;
 }
 
 /** One thing the user is waiting on from this person (§10, §13). */
@@ -197,6 +206,8 @@ export interface PersonWaiting {
   /** True only when the follow-up date has actually arrived (§11, §34). */
   followUpDue: boolean;
   attention?: string;
+  /** See `PersonCommitment.matchedAs`. */
+  matchedAs?: string;
 }
 
 /** A Project or Goal whose OWN text names the person (§14, §15). */
@@ -249,6 +260,11 @@ export function buildPersonContext(
   ix: TodayIndexes,
   today: DayKey = todayKey(),
 ): PersonContext {
+  const forms = longerForms(state, name);
+  /** Which longer name a record used, when it used one rather than the bare name. */
+  const matchedAs = (text: string | undefined): string | undefined =>
+    forms.find((f) => namesPerson(text, f));
+
   const signals = buildCommitmentSignals(state, ix, { today });
   const signalFor = new Map<string, CommitmentSignal>();
   for (const s of signals) {
@@ -274,6 +290,7 @@ export function buildPersonContext(
       // existing signal layer decides this; nothing here re-derives urgency.
       followUpDue: !!a.followUpDate && a.followUpDate <= today,
       attention: sig?.explanation,
+      matchedAs: matchedAs(a.waitingOn),
     });
   }
   waiting.sort((x, y) =>
@@ -296,8 +313,12 @@ export function buildPersonContext(
       action: a,
       // Factual, and it names the grounding: the user wrote the name here.
       reason: "You named them in this action",
-      attention: sig?.explanation,
+      // Suppressed when it restates the date the row already shows. The visual
+      // review caught "Due Sun, Sep 6" printed twice on one row — once as the
+      // row's own meta, once as the signal's explanation.
+      attention: sig && sig.date && sig.date === a.dueDate ? undefined : sig?.explanation,
       dueDate: a.dueDate,
+      matchedAs: matchedAs(actionText(a)),
     });
   }
   openCommitments.sort((x, y) =>
@@ -362,7 +383,7 @@ export function buildPersonContext(
 
   return {
     name: name.trim(),
-    longerForms: longerForms(state, name),
+    longerForms: forms,
     ...trimmed,
     empty: openCommitments.length === 0 && waiting.length === 0
       && links.length === 0 && mentions.length === 0,

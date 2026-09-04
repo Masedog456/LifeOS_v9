@@ -132,8 +132,10 @@ export default function PersonPage({ params }: { params: Promise<{ name: string 
                   </div>
                   {/* §21, §36. An attention fact about the SAME record, attached
                       rather than starting a third row for it. */}
-                  {c.attention && (
-                    <p data-person-attention className="mt-0.5 text-[11px] text-zinc-400">{c.attention}</p>
+                  {(c.attention || c.matchedAs) && (
+                    <p data-person-attention className="mt-0.5 text-[11px] text-zinc-400">
+                      {[c.attention, c.matchedAs ? `This record says “${c.matchedAs}”.` : ""].filter(Boolean).join(" ")}
+                    </p>
                   )}
                   <ResolutionControls
                     title={c.action.title}
@@ -165,6 +167,7 @@ export default function PersonPage({ params }: { params: Promise<{ name: string 
                       the other person owes. */}
                   <p className="mt-0.5 text-[11px] text-zinc-400">
                     Waiting on {w.waitingOn}{w.since ? ` since ${formatDayKey(w.since)}` : ""}.
+                    {w.matchedAs ? ` This record says “${w.matchedAs}”.` : ""}
                   </p>
                   <ResolutionControls
                     title={w.action.title}
