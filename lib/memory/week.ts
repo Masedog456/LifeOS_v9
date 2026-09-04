@@ -612,8 +612,17 @@ export function summarise(review: Omit<RangeReview, "summary" | "coverage" | "li
   const newActions = review.timeline.filter((e) => e.kind === "action_created").length;
   if (newActions) parts.push(`added ${plural(newActions, "action")}`);
   if (review.reflections.length) parts.push(`captured ${plural(review.reflections.length, "note or reflection", "notes and reflections")}`);
-  if (review.deferred.length) parts.push(`deferred ${plural(review.deferred.length, "item")}`);
-  if (review.rescheduled.length) parts.push(`rescheduled ${plural(review.rescheduled.length, "item")}`);
+  // Distinct RECORDS, for the reason `added` gives above and one more.
+  //
+  // `deferred` is an event list: one action pushed three times contributes three
+  // entries. Counting them made the sentence say "deferred 9 items" for a week
+  // in which three things were put off — and on the same screen as a section
+  // reporting two, because LIFEOS-084's deferral section counts records. A
+  // headline that contradicts the list beneath it is worse than no headline.
+  const deferredRecords = new Set(review.deferred.map((e) => e.recordRef.id)).size;
+  const rescheduledRecords = new Set(review.rescheduled.map((e) => e.recordRef.id)).size;
+  if (deferredRecords) parts.push(`deferred ${plural(deferredRecords, "item")}`);
+  if (rescheduledRecords) parts.push(`rescheduled ${plural(rescheduledRecords, "item")}`);
 
   const lead = parts.length === 0
     ? "Nothing was recorded in this period."

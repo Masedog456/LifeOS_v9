@@ -184,7 +184,10 @@ export default function ReviewToday() {
             Add your own reflection →
           </Link>
           {" · "}
-          <Link href="/memory/week" className="underline-offset-4 hover:underline">Review this week →</Link>
+          {/* LIFEOS-084 §29. `/memory/week` has never existed — this link has
+              404'd since LIFEOS-073. The weekly review lives on `/memory`,
+              which is the one weekly review surface. */}
+          <Link href="/memory" data-review-week className="underline-offset-4 hover:underline">Review this week →</Link>
         </p>
       </footer>
     </div>
