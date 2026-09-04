@@ -69,11 +69,12 @@ export type MemoryQueryKind =
   | "NEXT_ACTION"  // what should I do next
   | "TOMORROW"     // what do I have tomorrow
   | "GOALS"        // what am I working toward / which goals did I <verb>
-  | "RULES";       // what standards have I chosen for myself
+  | "RULES"        // what standards have I chosen for myself
+  | "PERSON";      // what do I owe X / what is unresolved with X
 
 export const MEMORY_QUERY_KINDS: readonly MemoryQueryKind[] = [
   "COMPLETION", "EVENTS", "WAITING", "CHANGES", "PROJECT", "REFLECTION", "OPEN_WORK", "TIME",
-  "NEXT_ACTION", "TOMORROW", "GOALS", "RULES",
+  "NEXT_ACTION", "TOMORROW", "GOALS", "RULES", "PERSON",
 ];
 
 /**
@@ -165,6 +166,52 @@ export type GuidanceAspect =
   // aspect, not a class, for the reason above — one guidance derivation.
   | "carry";
 
+/**
+ * Which question about a person is being asked (LIFEOS-086 §19).
+ *
+ * ONE class with aspects rather than six new nouns — the reason `GoalAspect`
+ * and `ChangeAspect` give: these are the same bounded derivation read through
+ * different filters, and six near-identical router entries is how two of them
+ * drift apart.
+ */
+export type PersonAspect =
+  | "all"       // what is unresolved with X / what commitments involve X
+  | "owe"       // what do I owe X
+  | "waiting"   // what am I waiting on from X
+  | "mentions"  // what did I last say about X
+  | "links";    // which projects / goals involve X
+
+/**
+ * The person a question names, with their capitalisation intact.
+ *
+ * Read from the RAW question rather than from `entityQuery`, for two reasons.
+ * `entityQuery` is lowercased and is resolved against RECORDS — the audit found
+ * "What is unresolved with Sarah?" resolving to the *action* "Call Sarah back
+ * about the invoice" and then addressing that title as though it were the
+ * person. And a name's capitalisation is the only evidence available that it is
+ * a name at all, which is what keeps "what is unresolved with the invoice?"
+ * from being read as a person (§8's conservative matching).
+ */
+const PERSON_FRAMES: readonly RegExp[] = [
+  /\bowe\s+(?:to\s+)?(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+  /\bwaiting\s+(?:on|for)\s+(?:from\s+)?(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+  /\bwaiting\s+on\s+from\s+(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+  /\bfollow\s*up\s+(?:on\s+)?with\s+(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+  /\b(?:unresolved|open|pending)\s+with\s+(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+  /\binvolves?\s+(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+  /\b(?:say|said|write|wrote|mention(?:ed)?)\s+about\s+(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+  /\bcommitments?\s+(?:with|to)\s+(\p{Lu}[\p{L}'’-]+(?:\s+\p{Lu}[\p{L}'’-]+)?)/u,
+];
+
+/** The name a person-question names, or undefined. Never lowercased. */
+export function personFromQuestion(raw: string): string | undefined {
+  for (const re of PERSON_FRAMES) {
+    const m = re.exec(raw);
+    if (m?.[1]) return m[1].trim();
+  }
+  return undefined;
+}
+
 /** Why part of a question could not be turned into a retrieval constraint. */
 export type MemoryUnresolvedReason = "unsupported_range" | "future_range" | "no_entity";
 
@@ -224,6 +271,10 @@ export interface MemoryQueryPlan {
   guidanceAspect?: GuidanceAspect;
   /** True when the question asks WHO rather than WHAT ("who am I waiting on"). */
   wantsSubject?: boolean;
+  /** Which person question this is (LIFEOS-086). Set only when `kind` is PERSON. */
+  personAspect?: PersonAspect;
+  /** The person the question names, capitalisation intact. */
+  personName?: string;
 }
 
 // ----------------------------------------------------------------- ranges ---
@@ -502,6 +553,18 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   { kind: "GOALS", re: /\bgoals?\b.*\b(?:moved forward|made progress|progressed|advanced)\b|\b(?:moved forward|made progress)\b.*\bgoals?\b/ },
   { kind: "GOALS", re: /\bworking toward\b|\bworking towards\b|\bwhere (?:is|am) my life (?:going|headed)\b|\bwhat am i aiming (?:at|for)\b|\bmy (?:long.term|life) goals?\b/ },
 
+  // LIFEOS-086 §19. Checked BEFORE every other class, because each of these
+  // sentences also carries a word that routes elsewhere: "owe" is nothing,
+  // "waiting on from Maria" is WAITING, "unresolved with Sarah" is OPEN_WORK,
+  // "involve Priya" is PROJECT, and "say about Alex" is REFLECTION. Each of
+  // those answered a DIFFERENT question — the audit measured "waiting on from
+  // Maria" returning Jordan's form and a letting agency's lease.
+  //
+  // The guard is that a person must actually be named: `personFromQuestion`
+  // requires a capitalised name after the frame, so "what is unresolved with
+  // the invoice?" is not read as a person and falls through to OPEN_WORK.
+  { kind: "PERSON", re: /\bowe\b|\bunresolved with\b|\bcommitments? (?:with|to)\b|\binvolves?\b|\bfollow ?up (?:on )?with\b|\bwaiting on from\b|\b(?:say|said|wrote|mention(?:ed)?) about\b/ },
+
   // The calendar, by name.
   { kind: "EVENTS", re: /\bcalendar\b|\bscheduled?\b|\bappointments?\b|\bmeetings?\b|\bon my (?:schedule|agenda)\b|\bevents?\b/ },
 
@@ -705,6 +768,16 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     else ruleAspect = "live_by";
   }
 
+  // LIFEOS-086 §19. Narrowest first.
+  let personAspect: PersonAspect | undefined;
+  if (kind === "PERSON") {
+    if (/\bowe\b/.test(q)) personAspect = "owe";
+    else if (/\bwaiting\b|\bfollow ?up\b/.test(q)) personAspect = "waiting";
+    else if (/\b(?:say|said|write|wrote|mention(?:ed)?)\b/.test(q)) personAspect = "mentions";
+    else if (/\bprojects?\b|\bgoals?\b/.test(q)) personAspect = "links";
+    else personAspect = "all";
+  }
+
   let goalAspect: GoalAspect | undefined;
   if (kind === "GOALS") {
     // Order matters: "which goals did I achieve" and "what replaced my goal"
@@ -778,6 +851,12 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     signalKinds,
     goalAspect,
     ruleAspect,
+    personAspect,
+    // Set for ANY class, not just PERSON. "What am I waiting on from Maria?"
+    // routes to WAITING, and that branch needs her name with its capitalisation
+    // intact — `entityQuery` is lowercased, so scoping by it printed
+    // "Waiting on maria".
+    personName: personFromQuestion(raw),
     changeAspect,
     guidanceAspect,
     question: raw,

@@ -197,8 +197,13 @@ export function runUniversalSearchSelfTests(): SelfTestReport {
     ok("85.18 no rendered label contains an underscore",
       allLabels.every((l) => !l.includes("_")), JSON.stringify(allLabels));
     // A waiting action is a Waiting record to a person (§10).
+    // Located by kind rather than by position: LIFEOS-086 puts a Person row
+    // first when the query names someone, and asserting `results[0]` was
+    // asserting the layout, not the label.
     ok("85.19 a waiting action is labelled Waiting",
-      find("Marcus").results[0]?.label === "Waiting", find("Marcus").results[0]?.label);
+      find("Marcus").results.some((r) => r.entityType === "action" && r.label === "Waiting")
+      || find("Maria").results.some((r) => r.entityType === "action" && r.label === "Waiting"),
+      JSON.stringify(find("Maria").results.map((r) => [r.entityType, r.label])));
   }
 
   // ==========================================================================

@@ -50,6 +50,7 @@ import { buildIndex } from "@/lib/command/search";
 import { RECORD_LABELS } from "@/lib/command/records";
 import { compareResults, normalizeQuery, queryTokens, scoreEntry } from "@/lib/command/ranking";
 import { planMemoryQuery, resolveMemoryRange } from "@/lib/memory/query";
+import { personHint, personSummaryLine } from "@/lib/people/context";
 
 // ------------------------------------------------------------------ caps ---
 
@@ -496,7 +497,46 @@ export function searchEverything(
     route: h.entry.href,
   }));
 
-  const all = [...primary, ...linked];
+  /**
+   * A Person row, when the query names someone the store has work about
+   * (LIFEOS-086 §18).
+   *
+   * Placed FIRST because it is the thing the query named; the rows beneath are
+   * the records that mention them. It does not duplicate the person view — it
+   * is one row that opens it.
+   *
+   * `personHint` returns null unless the text is plausibly a name and something
+   * is actually recorded, so an ordinary word never grows a Person row.
+   */
+  const person: UniversalSearchResult[] = [];
+  if (q && domains.size === 0 && !impossible && filters.consumed.length === 0) {
+    // The RAW query, not the residual: `readFilters` normalizes to lowercase,
+    // and capitalisation is the only evidence available that a word is a name.
+    // Restricted to queries where no filter fired, which is the bare-name case
+    // this row exists for — "notes about Marcus" is a note search.
+    const hint = personHint(state, query.trim());
+    if (hint) {
+      person.push({
+        id: `person:${hint.name}`,
+        entityType: "person_name",
+        label: "Person",
+        entityId: hint.name,
+        title: hint.name,
+        snippet: personSummaryLine(hint),
+        // §8, §25 surfaced right here: if a longer name exists, the row says so
+        // rather than implying Conqify knows which person is meant.
+        matchReason: hint.longerForms.length
+          ? `Name match · Conqify also has “${hint.longerForms[0]}”`
+          : "Name match",
+        status: undefined,
+        // No origin: a person is not authored text, and claiming otherwise is
+        // the failure LIFEOS-085 caught over a document.
+        route: `/people/${encodeURIComponent(hint.name)}`,
+      });
+    }
+  }
+
+  const all = [...person, ...primary, ...linked];
   return {
     query,
     results: all.slice(0, limit),
