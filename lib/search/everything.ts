@@ -330,14 +330,41 @@ export function searchEverything(
   const limit = options.limit ?? SEARCH_LIMIT;
   const projects = (state.projects ?? []).map((p) => ({ id: p.id, title: p.title }));
 
-  const { filters, text } = readFilters(query, today);
+  const { filters, text: filtered } = readFilters(query, today);
   const handoff = handoffFor(query, today, projects);
 
-  // A UI chip narrows whatever the sentence already said.
+  /**
+   * A question's SUBJECT, not its frame.
+   *
+   * "What did I say about philosophy?" leaves `what did say philosophy` after
+   * stopwords, and token matching requires every word — so a question found
+   * nothing even when the product held the record. `planMemoryQuery` already
+   * extracts the thing being asked about, with the question frame and date
+   * words removed, and reusing it means there is no second frame stripper to
+   * drift from the first.
+   *
+   * Pointing at Memory and showing the literal matches are not in tension:
+   * §17 forbids reimplementing Memory's ANSWER, not showing records.
+   */
+  const text = handoff
+    ? (planMemoryQuery(query, { today, projects })?.entityQuery || filtered)
+    : filtered;
+
+  // A UI chip narrows whatever the sentence already said (§33).
+  //
+  // An empty INTERSECTION means nothing matches — "rules about anger" with the
+  // Goals chip selected. Representing that as an empty set would mean "no
+  // filter", i.e. everything, so the chip would silently widen the very result
+  // it was clicked to narrow; `impossible` says so instead.
   const domains = new Set(filters.domains);
+  let impossible = false;
   if (options.domain) {
     if (domains.size === 0) domains.add(options.domain);
-    else for (const d of [...domains]) if (d !== options.domain) domains.delete(d);
+    else {
+      impossible = !domains.has(options.domain);
+      domains.clear();
+      if (!impossible) domains.add(options.domain);
+    }
   }
 
   const q = normalizeQuery(text);
@@ -350,7 +377,9 @@ export function searchEverything(
   };
 
   const hits: SearchResult[] = [];
-  if (q) {
+  if (impossible) {
+    // Deliberately nothing. The chip and the sentence name different domains.
+  } else if (q) {
     for (const entry of index) {
       if (!inDomain(entry) || !inStatus(entry) || !inRange(entry)) continue;
       const r = scoreEntry(entry, q);
