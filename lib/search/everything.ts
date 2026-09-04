@@ -43,7 +43,9 @@ import type { StoreState } from "@/types/mvp";
 import type { OriginType } from "@/lib/provenance";
 import type { ResolvedRange } from "@/lib/insights/range";
 import type { SearchEntry, SearchResult } from "@/lib/command/types";
-import { todayKey } from "@/lib/reviews/dates";
+import { formatDayKey, todayKey } from "@/lib/reviews/dates";
+import { isMachineProduced } from "@/lib/provenance";
+import { classifyOrigin } from "@/lib/provenance/classify";
 import { buildIndex } from "@/lib/command/search";
 import { RECORD_LABELS } from "@/lib/command/records";
 import { compareResults, normalizeQuery, queryTokens, scoreEntry } from "@/lib/command/ranking";
@@ -458,7 +460,12 @@ export function searchEverything(
           matchReason: `Linked to ${a.entry.title}`,
           date: act.dueDate,
           status: act.status,
-          origin: "user_authored",
+          // Classified, not assumed. Hardcoding `user_authored` here made a
+          // linked row claim "You wrote this" directly beneath a Goal row that
+          // — correctly — claimed nothing, because an Action's authorship is
+          // not something the schema guarantees. Both paths now ask the same
+          // classifier, so they cannot disagree about the same record.
+          origin: classifyOrigin({ kind: "action", text: act.title }),
           route: `/actions/${act.id}`,
         });
       }
@@ -513,6 +520,30 @@ function filterReason(f: SearchFilters): string {
 // ----------------------------------------------------------------- words ---
 
 export const SEARCH_EMPTY = (q: string) => `No matches for “${q}”.`;
+
+/**
+ * How a result row is attributed (§12).
+ *
+ * The rule is the one `classifyOrigin`'s own documentation states: uncertainty
+ * must not be rounded up into authorship. Most kinds — a Goal, an Action, an
+ * Event, a Document — are classified `unknown`, because nothing in the schema
+ * guarantees who wrote their text. The first version of this treated anything
+ * not machine-produced as the user's, and the visual review caught it claiming
+ * "You wrote this" over a PDF written by Jane Reed.
+ *
+ * So only the kinds whose authorship the schema DOES guarantee earn the
+ * sentence, machine prose says so, and everything else says nothing at all —
+ * which is also quieter, since a row already states its kind and its reason.
+ */
+export function attributionFor(r: { origin?: OriginType; date?: string }): string {
+  if (!r.origin) return "";
+  if (isMachineProduced(r.origin)) return "Written by Conqify";
+  if (r.origin === "original_source") return "From a source";
+  if (r.origin !== "user_authored" && r.origin !== "imported_user_authored") return "";
+  // The product's date format, not an ISO key — every other surface says
+  // "Tue, Aug 25", and a search row is not the place to start showing raw keys.
+  return r.date ? `You wrote this ${formatDayKey(r.date)}` : "You wrote this";
+}
 
 /** §8. Nothing here may ever appear in a result row. */
 export const SEARCH_FORBIDDEN_WORDS: readonly string[] = [

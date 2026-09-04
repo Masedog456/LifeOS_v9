@@ -17,8 +17,7 @@ import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/mvpStore";
 import { buildCommands } from "@/lib/command/registry";
 import { buildIndex } from "@/lib/command/search";
-import { searchEverything, SEARCH_LIMIT, type UniversalSearch } from "@/lib/search/everything";
-import { isMachineProduced } from "@/lib/provenance";
+import { searchEverything, attributionFor, SEARCH_LIMIT, type UniversalSearch } from "@/lib/search/everything";
 import { getPinned, getRecent, recordVisit, togglePin } from "@/lib/command/recent";
 import { hrefForRecord } from "@/lib/command/commands";
 import { normalizeQuery } from "@/lib/command/ranking";
@@ -47,20 +46,6 @@ const CHIPS: { id: string; label: string }[] = [
   { id: "constitution_element", label: "Rules" },
   { id: "document", label: "Documents" },
 ];
-
-/**
- * §12. "You wrote" belongs only over words a person actually wrote.
- *
- * The audit found an AI-authored note outranking a real project with nothing on
- * the entry that could tell them apart. Now there is, and this is the one place
- * that decides — a machine-produced row says so, and never borrows the user's
- * voice.
- */
-function attributionFor(r: { origin?: string; date?: string }): string {
-  if (r.origin && isMachineProduced(r.origin as never)) return "Written by Conqify";
-  if (r.origin === "original_source") return "From a source";
-  return r.date ? `You wrote this ${r.date}` : "";
-}
 
 export default function CommandPalette({ onClose, onAction }: { onClose: () => void; onAction: (action: string) => void }) {
   const state = useStore();

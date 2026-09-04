@@ -35,7 +35,7 @@ import { buildIndex } from "@/lib/command/search";
 import { RECORD_LABELS, RECORD_ORDER, buildSearchEntries } from "@/lib/command/records";
 import { normalizeQuery, queryTokens, scoreEntry } from "@/lib/command/ranking";
 import {
-  searchEverything, readFilters, isQuestion, labelFor,
+  searchEverything, readFilters, isQuestion, labelFor, attributionFor,
   SEARCH_LIMIT, MAX_LINKED, SEARCH_FORBIDDEN_WORDS, DOMAIN_WORDS, STATUS_WORDS,
 } from "@/lib/search/everything";
 
@@ -277,6 +277,27 @@ export function runUniversalSearchSelfTests(): SelfTestReport {
     const reflection = find("teaching").results[0];
     ok("85.41 a reflection carries a user-authored origin",
       reflection?.origin === "user_authored", `${reflection?.origin}`);
+    // §12, at the sentence a person actually reads. `classifyOrigin` returns
+    // "unknown" for a Goal, an Action, an Event and a Document — nothing in the
+    // schema says who wrote their text — and the first version of the palette
+    // rounded that up into "You wrote this", over a PDF by another author.
+    const doc = find("Graduate programs").results[0];
+    ok("85.42a a document is not attributed to the user",
+      !attributionFor(doc).startsWith("You wrote"), `${doc?.origin} → "${attributionFor(doc)}"`);
+    ok("85.42b …nor is a Goal, an Action or an Event",
+      ["Graduate school", "Water the plants", "Advisor meeting about grad school"].every((t) => {
+        const r = find(t).results[0];
+        return r && !attributionFor(r).startsWith("You wrote");
+      }));
+    ok("85.42c a reflection IS attributed to the user",
+      attributionFor(reflection).startsWith("You wrote this"), attributionFor(reflection));
+    ok("85.42d …in the product's date format, not a raw key",
+      !/\d{4}-\d{2}-\d{2}/.test(attributionFor(reflection)), attributionFor(reflection));
+    ok("85.42e machine prose names its author",
+      attributionFor(ai) === "Written by Conqify", attributionFor(ai));
+    ok("85.42f an unknown origin claims nothing at all",
+      attributionFor({ origin: "unknown", date: "2026-08-25" }) === "",
+      `"${attributionFor({ origin: "unknown", date: "2026-08-25" })}"`);
     ok("85.42 every result carries an origin at all",
       find("grad school").results.every((r) => !!r.origin),
       JSON.stringify(find("grad school").results.map((r) => [r.label, r.origin])));
@@ -326,6 +347,12 @@ export function runUniversalSearchSelfTests(): SelfTestReport {
       linked?.matchReason === "Linked to Graduate school", linked?.matchReason);
     // TWO hops would reach a5 "Water the plants" through nothing at all.
     ok("85.52 an unrelated action is never reached", !r.results.some((x) => x.entityId === "a5"));
+    // A linked row and an indexed row must agree about the same kind's origin.
+    ok("85.51b a linked row is attributed by the same classifier as an indexed one",
+      linked?.origin === find("Water the plants").results[0]?.origin,
+      `${linked?.origin} vs ${find("Water the plants").results[0]?.origin}`);
+    ok("85.51c …so it claims no authorship the schema does not guarantee",
+      !attributionFor(linked!).startsWith("You wrote"), attributionFor(linked!));
     // A completed action is not useful context for "find X".
     ok("85.53 a completed linked action is not offered as context",
       !r.results.some((x) => x.entityId === "a2"));
