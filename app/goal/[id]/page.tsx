@@ -38,7 +38,7 @@ import { goalDashboard } from "@/lib/execution/dashboard";
 import { SESSION_TYPE_ICON, SESSION_TYPE_LABEL, formatDuration, sessionOutputs, sessionDuration } from "@/lib/workspaces/sessions";
 import { buildIndex, searchFlat } from "@/lib/command/search";
 import {
-  GOAL_HORIZONS, GOAL_HORIZON_GUIDANCE, GOAL_HORIZON_LABEL, GOAL_HORIZON_PROMPT,
+  GOAL_HORIZONS, GOAL_HORIZON_LABEL, GOAL_HORIZON_PROMPT,
 } from "@/lib/execution/horizons";
 import { GOAL_LIFECYCLE_LABEL, GOAL_STATUS_CHOICES } from "@/lib/execution/lifecycle";
 import { buildTodayIndexes } from "@/lib/today/indexes";
@@ -47,7 +47,7 @@ import { todayKey } from "@/lib/reviews/dates";
 import GoalCommandView from "@/components/execution/GoalCommandView";
 import type { GoalStatus, ExecutionPriority, GoalHorizon } from "@/types/mvp";
 import SyncStatus from "@/components/SyncStatus";
-import { ProgressBar, ProgressOrNot, Panel, Empty } from "@/components/execution/Bits";
+import { ProgressBar, Panel, Empty } from "@/components/execution/Bits";
 import { requestConfirm } from "@/components/ux/ConfirmDialog";
 import { buildImpact } from "@/lib/ux/confirmations";
 import { toast } from "@/lib/ux/feedback";
@@ -103,10 +103,17 @@ function GoalDashboard({ id }: { id: string }) {
           </div>
           <div className="text-right text-xs text-zinc-400"><SyncStatus /></div>
         </div>
-        <div className="mt-3 flex items-center gap-3">
-          <div className="flex-1"><ProgressOrNot percent={dash.progress} label="Goal progress" /></div>
-          {dash.progress !== null && <span className="text-sm font-medium tabular-nums" data-goal-progress={dash.progress}>{dash.progress}%</span>}
-        </div>
+        {/* A bar only when a number actually exists — a manual override, or a
+            roll-up every project of which is measurable. "Not measured yet" was
+            being printed at the top of a page whose Overview goes on to state
+            the counts that ARE known, so the line said nothing and said it
+            first. `goalProgress` is unchanged: it still refuses to fabricate. */}
+        {dash.progress !== null && (
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex-1"><ProgressBar percent={dash.progress} label="Goal progress" /></div>
+            <span className="text-sm font-medium tabular-nums" data-goal-progress={dash.progress}>{dash.progress}%</span>
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           <label className="flex items-center gap-1">Status
             <select value={goal.status} disabled={goal.status === "replaced"}
@@ -135,17 +142,22 @@ function GoalDashboard({ id }: { id: string }) {
           </label>
           {/* Counts only, and a milestone count only when milestones exist —
               "0/0 milestones" is not a measurement of anything. */}
-          <span className="text-zinc-400">
-            {dash.overview.projectCounts.completed}/{dash.overview.projectCounts.total} projects
-            {dash.overview.milestones.total > 0 && ` · ${dash.overview.milestones.done}/${dash.overview.milestones.total} milestones`}
-          </span>
+          {/* Counts only, and each only when its denominator is real —
+              "0/0 projects" and "0/0 milestones" measure nothing. */}
+          {dash.overview.projectCounts.total > 0 && (
+            <span className="text-zinc-400">
+              {dash.overview.projectCounts.completed}/{dash.overview.projectCounts.total} projects
+              {dash.overview.milestones.total > 0 && ` · ${dash.overview.milestones.done}/${dash.overview.milestones.total} milestones`}
+            </span>
+          )}
+          {/* Lifecycle and the replacement control sit with the other controls.
+              Below the command view they were an unlabelled "Active
+              Replaced by…" floating between two cards. */}
+          <RecordReplacement goalId={goal.id} />
         </div>
-        {goal.horizon && <p className="mt-2 text-[11px] text-zinc-400">{GOAL_HORIZON_GUIDANCE[goal.horizon]}</p>}
       </header>
 
       <GoalCommandView ctx={command} state={state} ix={ix} today={today} />
-
-      <RecordReplacement goalId={goal.id} />
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
         <Panel title="Next milestones">

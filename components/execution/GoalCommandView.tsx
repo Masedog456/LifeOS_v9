@@ -135,7 +135,11 @@ export default function GoalCommandView({
           <p className="text-sm" data-goal-target={ctx.targetDate ?? ""}>
             <span className="text-zinc-400">Target </span>
             {ctx.targetDate
-              ? <span className="text-zinc-800 dark:text-zinc-100">{formatDayKey(ctx.targetDate)}</span>
+              // With the YEAR, unlike every other date on this page. A due date
+              // is days away and a weekday is the useful part; a goal's target
+              // is routinely months or years out, and "Sat, Jan 2" without a
+              // year is ambiguous exactly where the ambiguity costs most.
+              ? <span className="text-zinc-800 dark:text-zinc-100">{formatDayKey(ctx.targetDate, { year: "numeric", month: "short", day: "numeric" })}</span>
               : <span className="text-zinc-500">{NO_TARGET}</span>}
           </p>
         </div>
@@ -178,10 +182,14 @@ export default function GoalCommandView({
       </Section>
 
       {/* ---- 2. NEXT AND SUPPORT (§15) ----------------------------------- */}
+      {/* §34. Omitted entirely when nothing is linked: Overview already said
+          "No active project, and no action linked directly to this goal", and
+          a second card underneath saying "No project and no action is linked to
+          this goal" was the same fact twice on one screen, in two wordings. */}
       <Section
         title={GOAL_HEADINGS.next}
         id="next"
-        show={!!ctx.next || ctx.support.length > 0 || ctx.noWorkLinked}
+        show={!!ctx.next || ctx.support.length > 0 || (!ctx.noWorkLinked && !!ctx.nextNote)}
       >
         {ctx.next ? (
           <div data-goal-next className="rounded-xl border border-black/[.06] p-3 dark:border-white/[.08]">
@@ -195,9 +203,7 @@ export default function GoalCommandView({
             {controls(ctx.next.action.id, ctx.next.action.title)}
           </div>
         ) : (
-          <p data-goal-nonext className="text-sm text-zinc-500">
-            {ctx.noWorkLinked ? "No project and no action is linked to this goal." : ctx.nextNote}
-          </p>
+          <p data-goal-nonext className="text-sm text-zinc-500">{ctx.nextNote}</p>
         )}
 
         {/* §34. The recommendation is NOT repeated here — it is owned above. */}
