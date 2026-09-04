@@ -1,3 +1,5 @@
+import type { OriginType } from "@/lib/provenance";
+
 /**
  * Command Center types (LIFEOS-027).
  *
@@ -57,6 +59,15 @@ export interface SearchEntry {
   status?: string;
   updatedAt: string;
   href: string;
+  /**
+   * Who wrote the text this entry is made of (LIFEOS-085 §12).
+   *
+   * Carried on the entry rather than re-derived per result, so a surface can
+   * attribute a row without guessing. The audit found an AI-authored note
+   * outranking a real project with nothing on `SearchEntry` that could have
+   * told them apart — "You wrote" must never appear over a model's sentence.
+   */
+  origin?: OriginType;
 }
 
 /** A scored, explainable search hit. */
@@ -64,7 +75,11 @@ export interface SearchResult {
   entry: SearchEntry;
   score: number;
   /** Which field produced the best match (shown to the user). */
-  matchField: "title" | "title-prefix" | "title-exact" | "alias" | "body";
+  matchField:
+    | "title" | "title-prefix" | "title-exact" | "alias" | "body"
+    // LIFEOS-085. Every query word present, in any order — ranked below the
+    // whole-phrase tier of the same field so an exact hit is never buried.
+    | "title-tokens" | "body-tokens";
 }
 
 /** Search hits grouped by record kind, groups ordered by best hit. */
