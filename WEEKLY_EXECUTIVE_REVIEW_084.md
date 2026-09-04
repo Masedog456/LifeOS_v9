@@ -3,7 +3,7 @@
 **North star:** show me what actually happened this week, what is drifting, and
 what I should carry forward.
 
-## STATUS: AUDIT WRITTEN — IMPLEMENTATION NOT STARTED
+## STATUS: COMPLETE
 
 | | |
 |---|---|
@@ -155,4 +155,171 @@ not the executive review. No new route.
 
 ---
 
-*Sections 2 onward are written as the implementation lands.*
+
+# 2. What was built
+
+## 2.1 `lib/memory/weekly.ts` — the model (§4)
+
+A pure derived `WeeklyExecutiveReview`. No migration, no persistence, no store
+access, no clock of its own. It composes what already existed:
+
+| Field | From | Sprint |
+|---|---|---|
+| `base` | `buildWeekReview` | 064 |
+| `movedForward` | `buildExecutiveChanges` + goal link | 081 / 078 |
+| `changedDirection` | `buildExecutiveChanges` | 081 |
+| `repeatedDeferrals` | `repeatedlyPostponed` | 081 |
+| `waitingEnded` | `buildExecutiveChanges` | 081 |
+| `reflections` | changes + `isMachineProduced` | 081 / provenance |
+| `unresolved` | `buildAttentionShortlist` | 082 |
+| `carryForward` | **new synthesis** over all of the above | 084 |
+| `scheduledNext`, `reconsider` | **new** | 084 |
+
+**No score anywhere** (§5, §13, §14). Every ordering is lexicographic over a
+stated precedence; every sentence is a count or a recorded transition. The
+suite asserts no field is named score, grade, rating, percentage or momentum,
+and that a goal line carries exactly five keys — none of which could become one.
+
+### The precedence is derived, not restated (§17)
+
+`CARRY_ORDER` is computed from `ATTENTION_ORDER` by mapping each reason to its
+earliest constituent signal. The first draft hand-wrote the list and promptly
+ranked `goal_gap` above `waiting_follow_up` — offering a goal with no project
+ahead of a follow-up date that had already arrived, while the attention
+shortlist one function away ranked them the other way round. That is
+LIFEOS-082 §8's prohibition reintroduced by duplication, and the fix is to have
+one precedence rather than two that agree by inspection.
+
+## 2.2 `components/memory/WeekInReview.tsx` — eight sections into five (§20)
+
+    FINISHED · MOVED AND CHANGED · STILL OPEN · IN YOUR OWN WORDS · NEXT WEEK
+
+Both measured defects are gone by construction:
+
+- **Deferred** was the raw event list — six rows for two actions, three of them
+  a weekly recurring commitment. It is now 081's recurring-safe count, one row
+  per action, and the surface states the exclusion.
+- **Added**'s only entry was `"AI summary: you were productive."` Creation is
+  now left to the arithmetic summary, which cannot carry prose.
+
+Two sections were dropped rather than folded. **On the calendar** listed what
+was scheduled in a week that has already happened, and 064's own note admits
+Conqify has no record of attendance; the summary still counts it, and next
+week's calendar survives under NEXT WEEK where it is actionable. **Projects**
+was a fourth block of counts with no history behind it — the goal lines say the
+same thing one level up, and only for goals that recorded something.
+
+## 2.3 Memory routing (§36)
+
+| Question | Before | After |
+|---|---|---|
+| What should I carry into next week? | unrouted | `OPEN_WORK/carry` |
+| What remains unresolved? | unrouted | `OPEN_WORK/focus` |
+| What should I reconsider? | unrouted | `CHANGES/reconsider` |
+| What changed direction? | `CHANGES/all`, whole week | `CHANGES/direction` |
+
+Carry and unresolved are deliberately **separate**: folding them made the
+product answer "what remains unresolved?" under the heading "Worth carrying
+into next week", which is an answer to a question nobody asked.
+
+"Carry into next week" names a future period, and the period is the
+DESTINATION. Without a guard the range resolver read it as a retrieval window
+and answered "that period hasn't happened yet, so there is nothing recorded in
+it" — true of next week, and no answer at all.
+
+---
+
+# 3. What was NOT built
+
+- **No migration.** Head stays at **0047**. Every input was already derived.
+- **No new route** (§29). `/memory` is improved in place. `/review/weekly` is
+  the older AI formation synthesis and is a different thing.
+- **No momentum, health or alignment score** (§13, §14).
+- **No "drop this"** (§18). `buildReconsider` states two facts — deferred
+  several times, no due date — and stops. There is no `shouldDrop` field and no
+  staleness number one could grow into.
+- **No writes** (§25, §26). Nothing in this sprint schedules anything. The
+  browser suite asserts `localStorage` is byte-identical after a render.
+- **No `GOAL_QUIET`, no dormancy inference, no psychologizing** (§5, §19).
+
+`/memory/week` — linked from `ReviewToday` since LIFEOS-073 — has never
+existed and 404'd. Repointed at `/memory`, the one weekly review surface.
+
+---
+
+# 4. Verification
+
+| Gate | Result |
+|---|---|
+| Deterministic, all suites | **4928 / 4928**, 48 suites (was 4809 / 4809, 47) |
+| `memory/weekly` | **119 / 119** |
+| Browser torture, 084 | **62 / 62** |
+| Mutation proofs | **17 / 17 caught** |
+| 078 / 079 / 080 / 081 / 082 / 083 browser | 93 / 97 / 109 / 72 / 64 / 77 — all pass |
+| release-audit, rls, auth, routes, wiring, mappers | pass |
+| export-verify, scan-secrets | pass |
+| route-smoke (production build) | 24 / 24 |
+| `tsc --noEmit`, `eslint` | clean (2 pre-existing warnings) |
+| `next build` | pass |
+
+## 4.1 The mutations that escaped, and what they exposed
+
+Three of seventeen survived the first pass. None was a test that needed
+rewording; each was a test passing for a reason it did not name.
+
+**The completed-record guard and the recurring guard were unreachable.**
+`buildCarryForward`'s `isLive` check and `buildReconsider`'s `readRule` check
+are never exercised through the builders that feed them — the shortlist holds
+only live commitments, and `repeatedlyPostponed` already drops recurring work —
+so deleting either changed nothing observable. Both are now asserted at the
+function boundary, where the exported signature lets a caller hand in exactly
+what the internal path never would, each paired with a positive case so the
+assertion cannot pass by returning nothing.
+
+**A threshold mutation threw instead of failing.** Setting
+`REPEATED_THRESHOLD` to 0 crashed on an undefined `lastAt`. A crash is not a
+proof, so the mutation was replaced with the one that reproduces the audit's
+measured defect: removing the recurring exclusion, which turns a standing
+routine into slippage and now turns two assertions red.
+
+## 4.2 What §39 found that no assertion did
+
+Reading the rendered page found three defects the 119 deterministic and (then)
+58 browser assertions all missed, because each section was individually correct.
+
+1. **The same commitment, three times on one screen.** "Learn Portuguese" under
+   Deferred more than once, under Worth carrying forward, and under Worth a
+   second look — each opening "You deferred this 4 times." Fixing it pairwise
+   did not hold: the browser suite then caught deferred-vs-reconsider on a week
+   crowded enough to push the item out of the carry cap. The component now runs
+   **one ownership pass** in one stated precedence (carry → still open →
+   deferred), and facts that are not rows — the count, "it has no due date" —
+   attach to the row that owns the record.
+
+2. **The summary contradicted the section beneath it.** "deferred 9 items" for
+   a week in which three things were put off: it counted deferral EVENTS, the
+   audit's own complaint restated in one sentence. Nothing guarded it — the
+   change broke no existing assertion — so 84.5b and 84.5c now do, with a
+   mutation to prove it.
+
+3. **The title truncated to "Request re…" at 390px.** Appending the deferral
+   count to a row's `shrink-0` meta cost the row its most important word. The
+   count moved to its own line.
+
+---
+
+# 5. Limitations, stated (§33, §34)
+
+- **Projects have no lifecycle history.** 064's limitation is preserved
+  verbatim and still rendered. Project lines count linked records; the review
+  cannot say a project moved.
+- **Protocols have no lifecycle history either.** Their `updatedAt` is not
+  evidence of a change, and the suite asserts a Protocol never becomes a
+  recorded direction change.
+- **A follow-up date having arrived is recorded; whether you followed up is
+  not.**
+- **Attendance is not recorded**, which is why a past week's calendar is not
+  presented as what happened.
+- **Reconsider is deliberately narrow**: four or more deferrals AND no due
+  date. Other shapes may deserve a second look; none of them has evidence this
+  product records, so none is offered.
