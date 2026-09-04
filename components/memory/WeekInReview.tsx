@@ -33,11 +33,16 @@
  *
  * ## One commitment, one row
  *
- * An overdue action is unresolved now AND a carry-forward candidate. Rendering
- * it in both places is the duplication LIFEOS-071 §15 and LIFEOS-083 §22 exist
- * to prevent, so STILL OPEN renders only what is NOT being carried, and the
- * carried row — the one with a reason and controls attached — appears once,
- * under NEXT WEEK.
+ * An overdue action is unresolved now AND a carry-forward candidate; a
+ * repeatedly deferred one is a fact about the week AND still open AND possibly
+ * worth a second look. Rendering each in every section that has something true
+ * to say about it is the duplication LIFEOS-071 §15 and LIFEOS-083 §22 exist to
+ * prevent — and it is not hypothetical here: the first draft put the same
+ * action on screen three times with three near-identical sentences.
+ *
+ * So a single ownership pass runs before the render (`claim` below), in one
+ * stated precedence, and the facts that are not rows in their own right attach
+ * to whichever row owns the record.
  *
  * ## The review proposes; it never plans (§25, §26)
  *
@@ -185,35 +190,70 @@ export default function WeekInReview() {
     [state, ix, rangeKind, today, mounted],
   );
 
-  /**
-   * Everything rendered under NEXT WEEK, so STILL OPEN can leave it out.
-   *
-   * The set is by record id rather than by row id: the same action reached
-   * through a different reason is still the same commitment.
-   */
-  const carried = useMemo(
-    () => new Set((review?.carryForward ?? []).map((c) => c.entity.id)),
-    [review],
-  );
-
   if (!mounted || !review) {
     return <p className="text-sm text-zinc-400">Looking back…</p>;
   }
 
   const base = review.base;
-  const stillOpen = base.stillOpen.filter((o) => !carried.has(o.action.id));
-  const stillWaiting = review.stillWaiting.filter((w) => !carried.has(w.action.id));
+
+  /**
+   * ONE ownership pass, in one precedence — not a web of pairwise filters.
+   *
+   * The first version of this component rendered "Learn Portuguese" three times
+   * on one screen: under Deferred more than once, under Worth carrying forward,
+   * and under Worth a second look, each with a sentence beginning "You deferred
+   * this 4 times." Every section was individually correct. It only reads as
+   * absurd when you look at the page, which is why §39 asks you to.
+   *
+   * Fixing it pairwise did not hold either. Carry-vs-open and open-vs-deferred
+   * left deferred-vs-reconsider, which the browser suite then caught on a week
+   * crowded enough to push the item out of the carry cap. Pairwise rules fail
+   * because they are O(n²) promises maintained by hand; this is one rule.
+   *
+   * A commitment is owned by the first list that claims it:
+   *
+   *   1. CARRY FORWARD   — forward-looking, actionable, carries controls
+   *   2. STILL OPEN      — the present-state inventory
+   *   3. DEFERRED        — a fact about the week just ended
+   *
+   * and the two facts that are not rows in their own right — the deferral count
+   * and "it has no due date" — attach to whichever row owns the record.
+   * `reconsider` never owns anything, so it renders only what nothing else did.
+   */
+  const owned = new Set<string>();
+  const claim = <T,>(rows: T[], idOf: (row: T) => string): T[] => {
+    const kept: T[] = [];
+    for (const row of rows) {
+      const id = idOf(row);
+      if (owned.has(id)) continue;
+      owned.add(id);
+      kept.push(row);
+    }
+    return kept;
+  };
+
+  const carriedRows = claim(review.carryForward, (c) => c.entity.id);
+  const stillWaiting = claim(review.stillWaiting, (w) => w.action.id);
+  const stillOpen = claim(base.stillOpen, (o) => o.action.id);
+  const repeatedShown = claim(review.repeatedDeferrals, (p) => p.action.id);
+  const reconsiderShown = review.reconsider.filter((c) => !owned.has(c.entity.id));
+
+  /** Facts that attach to a row rather than becoming one. */
+  const deferralCount = new Map(review.repeatedDeferrals.map((p) => [p.action.id, p.count]));
+  const reconsiderById = new Map(review.reconsider.map((c) => [c.entity.id, c]));
+  /** The second-look clause, for the row that owns the record. */
+  const undatedNote = (id: string) => (reconsiderById.has(id) ? "It has no due date." : "");
   const goalLines = review.goalReview.filter(
     (g) => g.completedThisWeek > 0 || g.directionChanges.length > 0);
   const movedForwardIds = new Set(review.movedForward.map((c) => c.entity.id));
 
   const changedShown = review.changedDirection.length > 0
     || review.waitingEnded.length > 0
-    || review.repeatedDeferrals.length > 0
+    || repeatedShown.length > 0
     || goalLines.length > 0;
-  const nextShown = review.carryForward.length > 0
+  const nextShown = carriedRows.length > 0
     || review.scheduledNext.length > 0
-    || review.reconsider.length > 0
+    || reconsiderShown.length > 0
     || !!review.leftBehind;
 
   return (
@@ -349,14 +389,19 @@ export default function WeekInReview() {
                   them a weekly commitment. */}
               <Block
                 label="Deferred more than once"
-                show={review.repeatedDeferrals.length > 0}
+                show={repeatedShown.length > 0}
                 note="Recurring commitments are not counted here."
               >
                 <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-                  {review.repeatedDeferrals.map((p) => (
-                    <li key={p.action.id} data-week-deferred className={rowClass}>
-                      <Link href={`/actions/${p.action.id}`} className={linkClass}>{p.action.title}</Link>
-                      <span className={metaClass}>{p.count} times</span>
+                  {repeatedShown.map((p) => (
+                    <li key={p.action.id} data-week-deferred className="py-1">
+                      <div className={rowClass}>
+                        <Link href={`/actions/${p.action.id}`} className={linkClass}>{p.action.title}</Link>
+                        <span className={metaClass}>{p.count} times</span>
+                      </div>
+                      {undatedNote(p.action.id) && (
+                        <p className="mt-0.5 text-[11px] text-zinc-400">{undatedNote(p.action.id)}</p>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -390,9 +435,21 @@ export default function WeekInReview() {
               <Block label="Open" show={stillOpen.length > 0}>
                 <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
                   {stillOpen.map((o) => (
-                    <li key={o.action.id} data-week-item="open" className={rowClass}>
-                      <Link href={`/actions/${o.action.id}`} className={linkClass}>{o.action.title}</Link>
-                      <span className={metaClass}>{o.detail}</span>
+                    <li key={o.action.id} data-week-item="open" className="py-1">
+                      <div className={rowClass}>
+                        <Link href={`/actions/${o.action.id}`} className={linkClass}>{o.action.title}</Link>
+                        <span className={metaClass}>{o.detail}</span>
+                      </div>
+                      {/* The count goes on its OWN line rather than into the
+                          meta. Appending it there pushed a `shrink-0` span wide
+                          enough to truncate the title to "Request re…" at 390px
+                          — the row's most important word, lost to its least. */}
+                      {(deferralCount.has(o.action.id) || undatedNote(o.action.id)) && (
+                        <p data-week-deferral-count className="mt-0.5 text-[11px] text-zinc-400">
+                          {[deferralCount.has(o.action.id) ? `Deferred ${deferralCount.get(o.action.id)} times.` : "",
+                            undatedNote(o.action.id)].filter(Boolean).join(" ")}
+                        </p>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -424,11 +481,11 @@ export default function WeekInReview() {
                   evidence it came from. */}
               <Block
                 label="Worth carrying forward"
-                show={review.carryForward.length > 0}
+                show={carriedRows.length > 0}
                 note="Nothing has been scheduled. These are unresolved and still valid."
               >
                 <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-                  {review.carryForward.map((c) => (
+                  {carriedRows.map((c) => (
                     <li key={c.id} data-carry-forward={c.reason} className="py-1">
                       <div className={rowClass}>
                         <Link href={hrefFor(c.entity)} className={linkClass}>{c.title}</Link>
@@ -436,11 +493,17 @@ export default function WeekInReview() {
                       </div>
                       {/* §15's other true facts about the SAME commitment —
                           attached, never a second row. */}
-                      {c.attention && c.attention.secondaryReasons.length > 0 && (
-                        <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-400">
-                          {c.attention.secondaryReasons.map((r) => r.text).join(" ")}
-                        </p>
-                      )}
+                      {(() => {
+                        const extra = [
+                          ...(c.attention?.secondaryReasons ?? []).map((r) => r.text),
+                          // The only fact the second-look offer adds that the
+                          // row does not already carry.
+                          undatedNote(c.entity.id),
+                        ].filter(Boolean);
+                        return extra.length > 0 ? (
+                          <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-400">{extra.join(" ")}</p>
+                        ) : null;
+                      })()}
                       {/* LIFEOS-071/072. The only way an item reaches next week
                           is a person pressing one of these. The review itself
                           writes nothing. */}
@@ -476,11 +539,11 @@ export default function WeekInReview() {
                   person decides. */}
               <Block
                 label="Worth a second look"
-                show={review.reconsider.length > 0}
+                show={reconsiderShown.length > 0}
                 note="Conqify is not suggesting you drop anything."
               >
                 <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-                  {review.reconsider.map((c) => (
+                  {reconsiderShown.map((c) => (
                     <li key={c.id} data-reconsider className={rowClass}>
                       <Link href={hrefFor(c.entity)} className={linkClass}>{c.title}</Link>
                       <span className={metaClass}>{c.explanation}</span>
