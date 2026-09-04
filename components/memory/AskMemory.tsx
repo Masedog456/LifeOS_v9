@@ -27,6 +27,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useStore } from "@/lib/mvpStore";
 import { buildIndex } from "@/lib/command/search";
@@ -54,9 +55,28 @@ const STATUS_TONE: Record<MemoryAnswerStatus, string> = {
 
 export default function AskMemory() {
   const state = useStore();
-  const [draft, setDraft] = useState("");
+  const params = useSearchParams();
+  /**
+   * A question handed over from universal search (LIFEOS-085 §17).
+   *
+   * Search recognises a question it does not own — "what did I say about
+   * teaching?" — and sends it here rather than reimplementing the answer. The
+   * question arrives intact, so the person does not retype it.
+   */
+  const handedOver = params.get("ask") ?? "";
+  /**
+   * `null` until the person types or asks something of their own.
+   *
+   * Derived rather than seeded through an effect: a handed-over question is
+   * simply what the box holds until it is edited, so arriving from search shows
+   * an answer immediately and a later navigation cannot fight stored state.
+   */
+  const [draftEdit, setDraftEdit] = useState<string | null>(null);
+  const draft = draftEdit ?? handedOver;
+  const setDraft = setDraftEdit;
   /** The question being answered. Separate from the draft so typing is quiet. */
-  const [asked, setAsked] = useState("");
+  const [userAsked, setUserAsked] = useState<string | null>(null);
+  const asked = userAsked ?? handedOver;
   /** The record the user picked from an ambiguous answer. Cleared on a new ask. */
   const [focusRef, setFocusRef] = useState<RecordRefLite | undefined>();
 
@@ -74,7 +94,7 @@ export default function AskMemory() {
 
   function submit(q: string) {
     setDraft(q);
-    setAsked(q);
+    setUserAsked(q);
     setFocusRef(undefined);
   }
 

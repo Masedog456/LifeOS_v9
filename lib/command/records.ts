@@ -9,9 +9,11 @@
  */
 
 import { noteDisplayTitle } from "@/lib/notes/notes";
+import { classifyOrigin } from "@/lib/provenance/classify";
 import { CONSTITUTION_KIND_LABEL } from "@/types/mvp";
 import type { StoreState } from "@/types/mvp";
 import type { SearchEntry } from "@/lib/command/types";
+import type { OriginType } from "@/lib/provenance";
 import { todayKey } from "@/lib/reviews/dates";
 
 /**
@@ -58,11 +60,24 @@ export const RECORD_LABELS: Record<string, string> = {
   daily_review: "Daily reviews",
   action: "Next actions",
   action_template: "Action templates",
+  // LIFEOS-085. These three were INDEXED but labelled nowhere, so
+  // `searchGrouped` fell to its defensive branch and printed the table name as
+  // the group heading: "constitution_element", "protocol", "note". Product
+  // words, per §10 — a person searching "anger" should be told they found a
+  // Rule, not a ConstitutionElement.
+  note: "Notes",
+  constitution_element: "Rules",
+  protocol: "Protocols",
 };
 
 /** Deterministic group ordering for search output (index = priority). */
 export const RECORD_ORDER: string[] = [
-  "action", "daily_review", "event", "goal", "project", "milestone", "action_template", "workspace", "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
+  // LIFEOS-085: `note`, `constitution_element` and `protocol` were absent, so
+  // they sorted after every labelled kind regardless of how well they matched.
+  // Placed with the other things a person keeps deliberately — a Rule is not
+  // less findable than a milestone.
+  "action", "daily_review", "event", "goal", "project", "note", "constitution_element", "protocol",
+  "milestone", "action_template", "workspace", "document", "author", "belief", "concept", "theme", "capture", "dialogue", "research_project",
   "synthesis", "tension", "decision", "inquiry", "reflection", "formation", "knowledge_project", "source",
   "passage", "highlight", "annotation",
 ];
@@ -82,7 +97,8 @@ const snip = (s: string, n = 120): string => {
 export function buildSearchEntries(state: StoreState): SearchEntry[] {
   const out: SearchEntry[] = [];
   const add = (
-    kind: string, id: string, title: string, opts: { body?: string; aliases?: string[]; status?: string; updatedAt?: string; href: string },
+    kind: string, id: string, title: string,
+    opts: { body?: string; aliases?: string[]; status?: string; updatedAt?: string; href: string; origin?: OriginType; fromAiText?: boolean; source?: string | null },
   ) => {
     const t = (title ?? "").trim() || "(untitled)";
     out.push({
@@ -94,6 +110,10 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
       status: opts.status,
       updatedAt: opts.updatedAt ?? "",
       href: opts.href,
+      // LIFEOS-085 §12. Classified once, here, from the same predicate Memory
+      // uses — so "You wrote" can never end up over a model's sentence, and no
+      // surface has to re-derive it per keystroke.
+      origin: opts.origin ?? classifyOrigin({ kind, text: t, fromAiText: opts.fromAiText, source: opts.source ?? undefined }),
     });
   };
 
@@ -157,7 +177,12 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
 
   // Goals, projects & milestones (LIFEOS-031): searchable execution objects.
   for (const g of state.goals ?? []) {
-    add("goal", g.id, g.title, { body: `${g.title} ${g.description} ${g.notes} ${g.tags.join(" ")}`, aliases: g.tags, status: g.status, updatedAt: g.updatedAt, href: `/goal/${g.id}` });
+    // LIFEOS-085 §21. The horizon was indexed nowhere, so "long-term goals"
+    // could not match a single record however it was phrased. Both the stored
+    // word and its hyphenated product spelling are aliases, because a person
+    // types "long term" and "long-term" interchangeably.
+    const horizon = g.horizon ? [g.horizon, `${g.horizon}-term`, `${g.horizon} term`] : [];
+    add("goal", g.id, g.title, { body: `${g.title} ${g.description} ${g.notes} ${g.tags.join(" ")} ${horizon.join(" ")}`, aliases: [...g.tags, ...horizon], status: g.status, updatedAt: g.updatedAt, href: `/goal/${g.id}` });
   }
   for (const p of state.projects ?? []) {
     add("project", p.id, p.title, { body: `${p.title} ${p.description} ${p.notes}`, status: p.status, updatedAt: p.updatedAt, href: `/project/${p.id}` });
@@ -188,7 +213,7 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
   // warned about (LIFEOS-052).
   for (const n of state.notes ?? []) {
     if (n.archived) continue;
-    add("note", n.id, noteDisplayTitle(n), { body: `${n.title ?? ""} ${n.body} ${(n.tags ?? []).join(" ")}`, aliases: n.tags, updatedAt: n.updatedAt, href: `/notes?note=${n.id}` });
+    add("note", n.id, noteDisplayTitle(n), { body: `${n.title ?? ""} ${n.body} ${(n.tags ?? []).join(" ")}`, aliases: n.tags, updatedAt: n.updatedAt, href: `/notes?note=${n.id}`, fromAiText: n.fromAiText });
   }
   // Protocols join the EXISTING command index — no separate protocol index,
   // no retrieval island (LIFEOS-054 §19).
