@@ -1362,13 +1362,27 @@ function answerChanges(
     // right. A scope is applied only when a record actually resolved.
   }
 
+  /**
+   * The project this question is about, when it is about one.
+   *
+   * `entityQuery` is a fragment the frame stripper produced, and for "what keeps
+   * getting deferred on Clinic launch?" it resolves to no record at all — so the
+   * scope silently did not apply and an action from another project came back
+   * in the answer. The router already resolved the project; this uses it, as a
+   * FALLBACK so the ambiguity guard above still runs first.
+   */
+  const projectScope = entity?.kind === "project" ? entity.id
+    : !entity && plan.projectRef ? plan.projectRef.id
+    : undefined;
+
   // ---- §14: repeated postponement is its own derivation -------------------
   if (aspect === "postponed") {
     const postponed = repeatedlyPostponed(state, range)
       // A project scope means its actions — comparing an action's id to a
       // PROJECT's id matched nothing, so the question came back empty.
-      .filter((p) => !entity
-        || (entity.kind === "project" ? p.action.projectId === entity.id : p.action.id === entity.id));
+      .filter((p) => projectScope
+        ? p.action.projectId === projectScope
+        : !entity || p.action.id === entity.id);
     if (postponed.length === 0) {
       return {
         ...noEvidence(plan, implicit ? IMPLICIT_NOTE : undefined),
