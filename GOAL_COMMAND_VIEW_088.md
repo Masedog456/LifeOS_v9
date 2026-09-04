@@ -3,7 +3,7 @@
 **North star:** a Goal should show me where I'm headed, what is carrying it
 forward, what is missing, and what I should do next.
 
-## STATUS: AUDIT COMPLETE — IMPLEMENTATION IN PROGRESS
+## STATUS: COMPLETE
 
 | | |
 |---|---|
