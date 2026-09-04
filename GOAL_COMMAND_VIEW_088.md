@@ -259,3 +259,227 @@ arguments.
 **None.** Every fact the view needs — horizon, target date, history, successor,
 `Project.goalId`, `NextAction.goalId`, dependencies, deferral history — is
 already stored. Migration head stays at **0047**. `0048` is not written.
+
+---
+
+# 2. The chosen surface (§27)
+
+**`/goal/[id]`, and nothing else.** No `/goal-dashboard`, no
+`/goal-command-center`, no `/goal-intelligence`. The route count is unchanged.
+
+`GoalCommandView` sits above the LIFEOS-031 knowledge panels rather than
+replacing them: the knowledge side is still true, it was simply never the answer
+to "what is happening with this goal?".
+
+`GoalDirection` (078) is folded in. Its lineage, its history and its counts now
+live in the command view's Overview and Context, because printing them twice on
+one screen told the reader nothing the first copy had not. Its one CONTROL — the
+"Replaced by…" recorder — survives as `RecordReplacement`, moved next to the
+other lifecycle controls in the header.
+
+## 2.1 Five sections, and no sixth (§28)
+
+```
+WHERE THIS IS HEADED   horizon · target · counts · path · projects
+NEXT AND SUPPORT       one recommendation, then everything else carrying it
+STUCK AND WAITING      blocked rows, waiting rows
+RECENTLY               moved forward · changed direction
+CONTEXT                what has changed · replacement · people · rules
+```
+
+# 3. The composition model (§4)
+
+`buildGoalContext(state, goalId, ix, today)` — pure, no persistence, no score.
+
+## 3.1 The path (§11, §13, §14)
+
+`goalPathState` lives in `lib/execution/alignment.ts`, beside `goalPathMissing`,
+so the two questions stay distinguishable rather than drifting into a third
+incompatible definition of "has a path":
+
+```
+project   at least one linked project is active
+actions   no active project, but an action is linked STRAIGHT to the goal
+none      neither — and NO_PATH names both checks
+```
+
+`goalPathMissing` is **unchanged**. It asks the narrower project-only question,
+its sentence claims exactly that, Today depends on it, and it is still true.
+
+An action reached only through a **paused** project is deliberately not a path:
+that project's state is the user's own decision about it, and inventing a path
+out of it would overclaim in the other direction.
+
+`pathNote` is absent on a goal that is not `active` — a paused goal has no
+active project by the user's own decision, and a replaced or achieved goal is
+finished. That is `goalPathMissing`'s own rule, kept.
+
+## 3.2 Horizon and target (§6, §7)
+
+Both read straight from the record. Neither is ever derived from the other, and
+nothing compares a target date against a horizon's guidance span. The target
+prints **with the year** — a due date is days away and the weekday is the useful
+part, but a goal's target is routinely months or years out.
+
+## 3.3 Next action (§15)
+
+`recommendNextAction` over the goal's own actions, with the **full index** so a
+blocker outside the goal still blocks. No second ranker. The recommender's own
+reasons are rendered verbatim.
+
+## 3.4 Ownership precedence (§34)
+
+```
+NEXT      owns the recommendation
+WAITING   owns any action whose status is `waiting`
+BLOCKED   owns any action with an UNFINISHED blocker
+SUPPORT   owns ordinary live work
+ATTENTION attaches its reason to the row above; owns nothing
+DEFERRAL  attaches a count to the row above; owns nothing
+RECENTLY  excludes anything that currently owns a row
+```
+
+A completed action owns no row, so it still appears under Recently.
+
+## 3.5 Movement is not direction (§16, §17)
+
+`movement` is completed linked work, scoped by the goal's actions and projects.
+`direction` is the goal's own recorded transitions. A horizon change, a status
+edit, a new target date and a title edit are never movement. The completed
+**count** is taken over the whole window, never over the capped display list.
+
+## 3.6 Lifecycle (§8, §9)
+
+From `goal.history[]` exclusively. `updatedAt` is never a lifecycle date — a
+title edit moves it. A deleted successor is reported as deleted; no id is
+printed anywhere.
+
+## 3.7 Progress (§38, §39)
+
+`goalProgress` is not used here at all. `projectProgress` reaches a row only when
+`projectProgressMeasurable` is true. The page's own bar renders only when a
+number exists. `0/0 projects` and `0/0 milestones` are gone — a zero denominator
+measures nothing.
+
+# 4. Memory and Search (§25, §26)
+
+Three fixes, each closing a red:
+
+* **`buildExecutiveChanges`** now scopes a `goal` entity to the goal's linked
+  actions and projects as well as its own history.
+* **`resolveEntities`** gains a last-resort pass where every word of the
+  fragment must appear in the title, so the frame stripper's "open clinic"
+  resolves to "Open the clinic". Word-level, unordered, two words minimum, and
+  ambiguity still asks which record was meant.
+* **`searchEverything`** retries the literal query when a consumed filter left
+  the result empty, so a goal is findable by its exact title. Narrow by
+  construction: a query whose filter works is untouched, and the filters
+  reported back describe what was actually applied.
+
+`answerGoals`'s `no_path` aspect answers the path question and names the goals
+carried by directly-linked actions instead of listing them as pathless.
+
+# 5. Migration (§40)
+
+**None.** Head stays at **0047**. `0048` was not written.
+
+# 6. Verification
+
+| Gate | Result |
+|---|---|
+| Deterministic (52 suites) | **5,414 / 5,414** |
+| LIFEOS-088 suite | **115** assertions |
+| Mutation testing (§43) | **32 applied, 32 caught, 0 escaped** |
+| Browser torture 088 (§42) | **83 / 83** (desktop + mobile) |
+| Browser 078 / 079 / 081 / 082 / 083 | 97 / 97 / 72 / 64 / 77 |
+| Browser 084 / 085 / 086 / 087 | 62 / 54 / 53 / 52 |
+| Release audit | 17 / 17 |
+| Export verify | 14 / 14 |
+| Security audit | pass |
+| Route smoke (production) | 24 / 24 |
+| `tsc --noEmit` · `eslint` · `next build` | clean |
+
+## 6.1 Seven mutations were the test's fault, not the product's
+
+Every assertion passed on its first run, which is when a suite is least
+trustworthy. Six mutations escaped and one crashed:
+
+* **Four fixture gaps.** Nothing in the world had a goal whose only direct
+  action was finished, an action blocked by a completed *and* a live blocker, a
+  record reaching Recently with two same-kind events, or more history entries
+  than the cap. A fixture that never exceeds a cap cannot test the cap.
+* **One date collision.** `g3.updatedAt` fell on the same day as its replacement
+  entry, so an assertion reading history could not be told apart from one
+  reading `updatedAt`.
+* **One assertion that THREW** rather than failing, because it dereferenced
+  `c.waiting.find(...)!`. The harness cannot tell a crash from a pass.
+* **One mutation that was a semantic no-op** — relaxing the token fallback's
+  minimum length reproduces a pass that already ran. Replaced with
+  `every()` → `some()`, which does change behaviour.
+
+## 6.2 What the visual review found (§44)
+
+Six defects the deterministic and browser suites both missed, and every one was
+a thing said twice or a number that measures nothing:
+
+1. The horizon guidance printed under the header **and** inside Overview.
+2. "Not measured yet…" led the page, above the counts that ARE known.
+3. `0/0 projects` and `0/0 milestones` — zero-denominator counts.
+4. A goal with nothing carrying it said so in Overview and again, in different
+   words, in a second card underneath.
+5. `Active  Replaced by…` floated unlabelled between two cards.
+6. A goal's target date printed as "Sat, Jan 2" — no year.
+
+## 6.3 Two prior-sprint guards had stopped guarding
+
+Running 078's browser suite against this page failed 18 assertions. All pointed
+at markup 088 replaced — but two had become vacuous rather than failing:
+
+* 078 proves goal history is append-only by re-selecting the same horizon and
+  asserting a count attribute did not move. 088 had reused that attribute name
+  on every row **with no value**, so the proof compared `""` with `""`. The
+  count is back on the container; rows carry `data-goal-history-row`.
+* 7.3's title-edit guard read the same attribute, with the same result.
+
+The rest were repointed to the behaviour that replaced theirs, and two new
+assertions were added where the replacement claims more than the original did.
+
+# 7. Limitations, stated
+
+* **A paused project's open actions are not a path.** Deliberate, and the
+  `NO_PATH` sentence names the two checks it made so the reader can see which
+  applied.
+* **"Last recorded activity" is gone.** It was the newest `updatedAt` across a
+  goal's projects and actions, so a project title edit moved it. Recently
+  answers the same question from dated transitions in a named window.
+* **People are still plain strings.** "Marcus" and "Marcus Webb" remain two
+  references; the longer form travels with the shorter as unresolved ambiguity.
+  There is no identity model, and none is faked.
+* **A goal created before LIFEOS-078** has no history, and the page says nothing
+  about when it changed rather than dating it from `updatedAt`.
+* **`goalProgress` still exists** and is still used on the goals index and in
+  the header's manual-override bar. It returns `null` rather than fabricating,
+  which the audit verified; it was not refactored, per §39.
+
+# 8. Product claims (§49)
+
+1. A goal shows its horizon and its target date as two independent facts, both
+   read from the record, neither derived from the other.
+2. A goal carried by actions linked directly to it is described as carried, not
+   as missing a path — and the recommender names its next step.
+3. A goal with nothing carrying it says which two checks came back empty, and
+   offers a project without performing it.
+4. No project is drawn at 0% because it has nothing countable.
+5. There is no goal health, momentum, alignment, risk or progress score.
+6. One action occupies exactly one row; attention and deferral attach to it.
+7. A completed blocker is never named as holding anything up.
+8. A follow-up dated in the future does not read as due, and no wait is ever
+   called too long.
+9. The goal is never called blocked because one action is, while other
+   executable work remains.
+10. What moved forward is completed linked work; a horizon change, a status edit
+    and a new target date are direction, and are labelled as such.
+11. Every lifecycle date comes from the append-only history, never `updatedAt`,
+    and a deleted successor is reported as deleted rather than as an id.
+12. Asking Memory what changed with a goal returns that goal's work, and
+    searching a goal's exact title finds it.
