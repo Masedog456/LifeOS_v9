@@ -3,7 +3,7 @@
 **North star:** a Project should tell me what it is, why it matters, what's
 moving, what's stuck, and what happens next.
 
-## STATUS: AUDIT WRITTEN — IMPLEMENTATION NOT STARTED
+## STATUS: COMPLETE
 
 | | |
 |---|---|
@@ -149,4 +149,178 @@ rather than fabricating dates from `updatedAt`, which is what this does.
 
 ---
 
-*Sections 2 onward are written as the implementation lands.*
+
+# 2. The chosen surface (§19)
+
+**The existing `/project/[id]`, improved in place.** No `/project-dashboard`,
+`/project-command-center` or `/project-intelligence`.
+
+`ProjectWorkingState` sits **above** the LIFEOS-031 knowledge panels rather than
+replacing them. Those answer a different question — milestones, reading,
+related work, sessions — and are still true; they were simply never the answer
+to *"what is happening with this project?"*.
+
+# 3. The composition model (§4)
+
+`lib/execution/context.ts` — one pure `buildProjectContext(state, projectId, ix,
+today)`. It adds **no ranking algorithm**: the recommendation is
+`recommendNextAction` run over the project's own actions.
+
+| Field | Composed from | Sprint |
+|---|---|---|
+| `goal` | `Project.goalId` | 031 |
+| `next` | `recommendNextAction` | 072 |
+| `openRows` / `blocked` / `waiting` | one ownership pass over the project's actions | 087 |
+| `attention` (attached) | `buildCommitmentSignals` | 070 |
+| `deferral` (attached) | `repeatedlyPostponed` | 081 |
+| `recent` | `buildExecutiveChanges`, project-scoped | 081 |
+| `people` | LIFEOS-086's `personHint` / `longerForms` | 086 |
+| `rules` | `buildAttentionShortlist().ruleContext` | 082 |
+
+## 3.1 Goal ancestry (§6)
+
+`Project.goalId` only. A goal whose title resembles the project is asserted
+**never** to be adopted.
+
+## 3.2 Next action (§8)
+
+The state is narrowed to the project's actions; the **index is the full one**,
+so an action blocked by a blocker in another project is still correctly
+excluded. Passing a narrowed index would have quietly unblocked it — asserted.
+
+## 3.3 Blocked and waiting (§10, §11)
+
+Blocked reads `blockedActionIds`, which already excludes an action whose blocker
+is completed; the blocker **named** is the unfinished one. Waiting reuses the
+existing semantics, and a follow-up six days out is stated as its date, never as
+due.
+
+## 3.4 Ownership precedence (§26)
+
+    NEXT      owns the recommendation
+    WAITING   owns any action whose status is `waiting`
+    BLOCKED   owns any action with an unfinished blocker
+    OPEN      owns ordinary active work
+    ATTENTION owns nothing — it attaches to the row that owns the record
+    DEFERRAL  owns nothing — it attaches a count to that row
+
+And, from §40's visual review: **Recently excludes any action that owns a row**.
+The row is the live truth; Recently is for what moved.
+
+## 3.5 Recent movement (§13, §14, §24, §35)
+
+Bounded to the last 7 days and named on screen. Deduplicated per record —
+`buildExecutiveChanges` emits one entry per *event*, so an action deferred twice
+produced two identical rows. A **goal-horizon edit is never project movement**
+(§14), asserted both ways: it is absent from `recent`, and the same window
+genuinely contains one.
+
+## 3.6 People (§12, §34)
+
+LIFEOS-086's derivation, so its conservatism holds here unchanged: names are
+grounded in `waitingOn`, action titles and the project's own description; a
+candidate that follows another is part of that name (so `Webb` is never a person
+of its own); a sentence-initial capital is an artifact, not a name; an acronym
+is not a person; and **Marcus and Marcus Webb are never merged** — the ambiguity
+travels on the row.
+
+# 4. Memory integration (§17)
+
+| Question | Before | After |
+|---|---|---|
+| What changed with X? | "Conqify recorded no change" | project-scoped via `projectRef` |
+| What am I waiting on for X? | "No action is marked as waiting on clinic launch" | scoped by `projectId` |
+| What is blocked on X? | routed to WAITING | reads dependency state |
+| Who is involved in X? | unrouted | `PROJECT` + `people` aspect |
+| What keeps getting deferred on X? | unrouted | `CHANGES/postponed`, project-scoped |
+
+**The waiting fix repairs a regression I introduced in LIFEOS-086.** That sprint
+scoped `answerWaiting` by `personName ?? entityQuery` to fix a person bug; for a
+project question `entityQuery` is the project's title, so the filter searched
+`waitingOn` for "clinic launch". A person scopes by `waitingOn`; a project scopes
+by `projectId`; nothing else scopes at all.
+
+# 5. Migration (§36)
+
+**None.** Head stays at **0047**. Project lifecycle history genuinely does not
+exist — Goals carry `history`, Projects carry only `updatedAt` — so the page
+states that limitation rather than dating a status change from a field that
+means "last edited".
+
+# 6. Verification
+
+| Gate | Result |
+|---|---|
+| Deterministic, all suites | **5297 / 5297**, 51 suites (was 5182 / 5182, 50) |
+| `execution/context` | **115 / 115** |
+| Browser torture, 087 | **52 / 52** |
+| Mutation proofs | **22 / 22 caught** |
+| 078–086 browser suites | 93 / 97 / 109 / 72 / 64 / 77 / 62 / 54 / 53 — all pass |
+| release · rls · auth · routes · wiring · mappers · export · secrets | pass |
+| route-smoke (production build) | 24 / 24 |
+| `tsc` · `eslint` · `next build` | clean (2 pre-existing warnings) |
+| Performance | 5 project contexts over 5,000 actions < 3000ms |
+
+## 6.1 Five mutations escaped, and only one was a product gap
+
+Four were **fixture gaps** — the case the mutation would break was not present,
+so the assertion could not have failed:
+
+- every blocked row had exactly one blocker, so "name the *unfinished* one"
+  picked the same record either way;
+- deduplication left two recent rows against a cap of five;
+- `personHint` had already filtered "PDF" out because nothing was recorded about
+  it, so the acronym guard was not what made its test pass;
+- only **one** repeatedly-deferred action existed store-wide, so a
+  project-scoped answer and an unscoped one were identical.
+
+That last one, once visible, exposed the real gap: the deferral scope had
+**never applied** — `entityQuery` for "what keeps getting deferred on Clinic
+launch?" resolves to no record, so the filter silently did nothing. It now falls
+back to the resolved `projectRef`.
+
+The fifth was a **broken mutation**: it referenced a symbol the file does not
+import, so it threw rather than failing, and a crash is not a proof. Replacing it
+exposed something worse — a failed patch left the source unchanged and the run
+reported GREEN, a no-op masquerading as an escaped mutation. **The harness now
+aborts on a patch that does not apply.**
+
+## 6.2 What §40's visual review found
+
+Two duplications that 113 deterministic and 52 browser assertions all missed:
+
+1. **"Transcript from Maria" said the follow-up was today twice** — once as the
+   row's meta, once as the signal beneath it.
+2. **"Email professor" appeared under *Also open* with its deferral count and
+   again under *Recently* as "Deferred"** — the same action twice on one screen,
+   the second telling the reader nothing the first had not.
+
+# 7. Limitations, stated
+
+- **No project lifecycle history.** "When did this become active?" is
+  unanswerable, and the page says so instead of guessing from `updatedAt`.
+- **Recently is bounded to seven days** by default; Memory answers deeper.
+- **People are matched by name, not identity** — LIFEOS-086's limitation,
+  carried forward unchanged and shown on every ambiguous row.
+- **The existing milestone-derived progress bar is untouched.** §28 forbids
+  *creating* a score; this one predates the sprint and is a manual milestone
+  count, not a judgement. Nothing new reads or extends it.
+
+# 8. Product claims (§45)
+
+1. **A Project shows why it exists when linked to a Goal** — and says plainly
+   when it is not. ✅
+2. **One grounded Next action is visible**, from the existing recommender. ✅
+3. **Open work is visible without a backlog wall** — capped, with the
+   recommendation not repeated. ✅
+4. **Blocked and waiting are surfaced factually** — a completed blocker never
+   blocks, a future follow-up is never due. ✅
+5. **Repeated deferral is visible without shame language.** ✅
+6. **Recent movement uses real historical evidence** — and a goal-horizon edit
+   is not project progress. ✅
+7. **People context is conservative** and never merges two names. ✅
+8. **Personal Code is context only**, through the existing relevance system. ✅
+9. **One action occupies one row.** ✅
+10. **Project lifecycle history is not fabricated.** ✅
+11. **No score exists** — no health, momentum, risk, alignment or percentage. ✅
+12. **No migration and no new persistence noun.** Head stays at **0047**. ✅
