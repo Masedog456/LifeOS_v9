@@ -57,7 +57,6 @@ import type { SearchEntry } from "@/lib/command/types";
 import {
   buildPersonContext, namesPerson, longerForms,
   PERSON_HEADINGS, NOTHING_OPEN, MENTION_NOTE, IDENTITY_LIMITATION, AMBIGUOUS_NAME,
-  type PersonContext,
 } from "@/lib/people/context";
 import {
   buildAutobiographicalTimeline, resolveWeekRange, COMPLETION_KINDS,
