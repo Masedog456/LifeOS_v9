@@ -145,8 +145,19 @@ const text = (page, sel) => page.evaluate((s) => {
 
     const facts = await text(page, "[data-goal-facts]");
     ok("2.2 alignment is reported as counts", !!facts && /1 active project/.test(facts), String(facts));
-    ok("2.3 …and as a date, never a trend",
-      !!facts && /(Last recorded activity|No recorded activity)/.test(facts), String(facts));
+    /**
+     * LIFEOS-088 replaced the "last recorded activity" line.
+     *
+     * That date was the newest `updatedAt` across the goal's projects and
+     * actions, so a title edit on a project moved it — the same weakness §8
+     * forbids for lifecycle dates, reached by a different route. Recently
+     * answers "when did something happen?" from dated transitions inside a
+     * named window, which is strictly better evidence, so the assertion moves
+     * to that rather than to nothing.
+     */
+    const window78 = await text(page, "[data-goal-section='recent']");
+    ok("2.3 …and activity is dated from transitions inside a named window",
+      !!window78 && /\w{3} \d+ – \w{3} \d+, \d{4}/.test(window78), String(window78).slice(0, 120));
     ok("2.4 §11 the facts panel contains no percentage",
       !!facts && !/%/.test(facts), String(facts));
 
@@ -172,12 +183,17 @@ const text = (page, sel) => page.evaluate((s) => {
      * ============================================================ */
     await page.goto(`${BASE}/goal/g-nopath`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(600);
-    const missing = await text(page, "[data-goal-path-missing]");
-    ok("3.1 a goal with no active project says so", !!missing && /No active project/.test(missing), String(missing));
+    // LIFEOS-088 §14 widened the question from "is there an active project?"
+    // to "is anything carrying this?", so the element and the sentence changed.
+    // The claim it must still make — factual, about the record — did not.
+    const missing = await text(page, "[data-goal-path]");
+    ok("3.1 a goal with nothing carrying it says so", !!missing && /No active project/.test(missing), String(missing));
     ok("3.2 …as a statement about the RECORD, not about the person",
       !!missing && !/(stuck|drift|behind|risk|failing|neglect|should)/i.test(missing), String(missing));
     ok("3.3 …and offers the move without performing it",
-      await page.evaluate(() => !!document.querySelector('[data-goal-path-missing] a[href*="/projects?new=1"]')));
+      await page.evaluate(() => !!document.querySelector('[data-goal-path] a[href*="/projects?new=1"]')));
+    ok("3.3a …and it names BOTH checks it made, not only the project one",
+      !!missing && /no action linked directly/i.test(missing), String(missing));
 
     /* ============================================================
      * 4. Replacement reads as a chain, not a graveyard.
@@ -211,7 +227,18 @@ const text = (page, sel) => page.evaluate((s) => {
     await page.waitForTimeout(600);
     const bare = await page.evaluate(() => (document.body.textContent || "").replace(/\s+/g, " "));
     ok("5.1 §11 an untouched goal does not report 0% progress", !/\b0%/.test(bare), (bare.match(/.{0,40}0%.{0,20}/) ?? [""])[0]);
-    ok("5.2 …it says the progress is not measured", /Not measured yet/.test(bare));
+    /**
+     * LIFEOS-088 removed the "Not measured yet" line rather than the honesty.
+     *
+     * It led the page, above an Overview that goes on to state the counts that
+     * ARE known, so it announced an absence before showing the evidence. The
+     * bar now renders only when a number exists, which is the same refusal
+     * expressed by not drawing anything.
+     */
+    ok("5.2 …and shows no progress bar at all rather than an empty one",
+      await page.evaluate(() => !document.querySelector("[data-goal-progress]")));
+    ok("5.2a …while still stating what IS known, as counts",
+      /active project/.test(bare) && /open/.test(bare), (bare.match(/.{0,80}active project.{0,60}/) ?? [""])[0]);
     ok("5.3 …and its horizon reads as unset, not as a default",
       await page.evaluate(() => document.querySelector("[data-goal-horizon]")?.value === ""));
 
@@ -264,7 +291,8 @@ const text = (page, sel) => page.evaluate((s) => {
       if (s) { s.value = "completed"; s.dispatchEvent(new Event("change", { bubbles: true })); }
     });
     await page.waitForTimeout(500);
-    const achievedHistory = await text(page, "[data-goal-history]");
+    const achievedHistory = await page.evaluate(() =>
+      [...document.querySelectorAll("[data-goal-history-row]")].map((e) => (e.textContent || "").trim()).join(" | "));
     ok("7.2 §23.4 achieving it records a SECOND entry, keeping the first",
       !!achievedHistory && /Paused → Achieved/.test(achievedHistory) && /Active → Paused/.test(achievedHistory),
       String(achievedHistory));
@@ -288,8 +316,8 @@ const text = (page, sel) => page.evaluate((s) => {
      * ============================================================ */
     await page.goto(`${BASE}/goal/g-duesoon`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(600);
-    ok("8.1 §23.7 a goal with an approaching target and no active project says so",
-      !!(await text(page, "[data-goal-path-missing]")));
+    ok("8.1 §23.7 a goal with an approaching target and nothing carrying it says so",
+      !!(await text(page, "[data-goal-path]")));
     ok("8.2 §11 …without manufacturing urgency about the date",
       await page.evaluate(() => !/(urgent|running out|hurry|only \d+ days)/i.test(document.body.textContent || "")));
     ok("8.3 §5 …and the target date did NOT become a horizon",

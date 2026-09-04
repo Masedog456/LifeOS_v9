@@ -153,7 +153,8 @@ async function open(page, id) {
       direction: [...root.querySelectorAll("[data-goal-direction]")].map((e) => ({
         kind: e.getAttribute("data-goal-direction"), text: (e.textContent || "").trim(),
       })),
-      history: [...root.querySelectorAll("[data-goal-history]")].map((e) => (e.textContent || "").trim()),
+      history: [...root.querySelectorAll("[data-goal-history-row]")].map((e) => (e.textContent || "").trim()),
+      historyCount: (root.querySelector("[data-goal-history]") || {}).getAttribute?.("data-goal-history"),
       lineage: (root.querySelector("[data-goal-lineage]") || {}).getAttribute?.("data-goal-lineage"),
       replacedOn: (root.querySelector("[data-goal-replaced-on]") || {}).getAttribute?.("data-goal-replaced-on"),
       successorMissing: !!root.querySelector("[data-goal-successor-missing]"),
@@ -281,6 +282,10 @@ async function open(page, id) {
 
   // ---- 10. lifecycle from history (§8) ------------------------------------
   ok("40 the goal's recorded transitions are shown", p.history.length === 3, String(p.history.length));
+  // LIFEOS-078's append-only proof reads the COUNT off the container, so the
+  // container has to keep carrying one.
+  ok("40a …and the container carries the count that guards append-only",
+    p.historyCount === "3", String(p.historyCount));
   ok("41 …stating both ends of a status change",
     p.history.some((h) => /Paused → Active/.test(h)), JSON.stringify(p.history));
   ok("42 …and the horizon change too",

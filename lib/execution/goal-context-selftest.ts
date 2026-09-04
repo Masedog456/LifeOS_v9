@@ -170,7 +170,6 @@ export function runGoalContextSelfTests(): SelfTestReport {
     results.push({ name, pass: !!cond, detail: cond ? (detail ?? "") : `FAILED — ${detail ?? ""}` });
 
   const s = world();
-  const ix = buildTodayIndexes(s, TODAY, "09:00");
   const ctx = (id = "g1", st: StoreState = s) =>
     buildGoalContext(st, id, buildTodayIndexes(st, TODAY, "09:00"), TODAY)!;
   const ask = (q: string, st: StoreState = s) =>

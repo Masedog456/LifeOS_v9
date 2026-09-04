@@ -147,6 +147,20 @@ export default function GoalCommandView({
           <p className="mt-1 text-[11px] text-zinc-400">{GOAL_HORIZON_GUIDANCE[ctx.horizon]}</p>
         )}
 
+        {/* What is carrying this, as counts. LIFEOS-078's alignment facts said
+            the same thing from a different derivation; these come from the rows
+            below, so the summary and the detail cannot disagree. No percentage,
+            no score, and no "last recorded activity" — that date mixed a
+            project's `updatedAt` into an activity claim, and Recently answers
+            the same question from dated transitions instead (§8, §16). */}
+        <p data-goal-facts className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+          {ctx.counts.activeProjects} active project{ctx.counts.activeProjects === 1 ? "" : "s"} of {ctx.counts.projects}
+          {" · "}{ctx.counts.open} open
+          {" · "}{ctx.counts.blocked} blocked
+          {" · "}{ctx.counts.waiting} waiting
+          {" · "}{ctx.counts.completedRecently} completed in {ctx.range.label}
+        </p>
+
         {/* §13, §14. Said only when there is something to say, and it names the
             checks it made rather than pronouncing on the goal. */}
         {ctx.pathNote && (
@@ -317,9 +331,14 @@ export default function GoalCommandView({
         {/* §8. From the append-only history, never from `updatedAt` — which a
             title edit moves, and which would misdate the moment a goal changed. */}
         <Block label="What has changed" show={ctx.history.length > 0}>
-          <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+          {/* The COUNT lives on the container, as LIFEOS-078 put it there: its
+              append-only proof re-selects the same horizon and asserts the
+              attribute did not move. Per-row attributes carry no value, so
+              reading one as a count would compare "" with "" and pass whatever
+              the product did. */}
+          <ul data-goal-history={ctx.history.length} className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
             {ctx.history.map((h) => (
-              <li key={h.id} data-goal-history className={rowClass}>
+              <li key={h.id} data-goal-history-row className={rowClass}>
                 <span className="min-w-0 flex-1 text-sm text-zinc-800 dark:text-zinc-100">{h.text}{h.note ? ` ${h.note}` : ""}</span>
                 <span className={metaClass}>{formatDayKey(h.day)}</span>
               </li>
