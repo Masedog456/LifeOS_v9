@@ -33,6 +33,7 @@ import { buildIndex } from "@/lib/command/search";
 import { planMemoryQuery } from "@/lib/memory/query";
 import { answerMemoryQuery } from "@/lib/memory/answer";
 import { buildExecutiveChanges } from "@/lib/memory/changes";
+import { buildCommitmentSignals } from "@/lib/commitment/signals";
 import { resolveRange } from "@/lib/insights/range";
 import {
   buildProjectContext, projectPeople, projectStrings,
@@ -84,6 +85,10 @@ function world(): StoreState {
       act({ id: "a1", title: "Sign the lease", projectId: "pr1", status: "completed", completedAt: A(-2, 14),
         history: [{ id: "e1", action: "created", at: A(-20) }, { id: "e2", action: "completed", at: A(-2, 14) }] } as Partial<NextAction> & { id: string; title: string }),
       act({ id: "a2", title: "Pay the deposit", projectId: "pr1", dueDate: D(-1) } as Partial<NextAction> & { id: string; title: string }),
+      // A SECOND overdue action. Only one can be the recommendation, so the
+      // other is an open row carrying both a due date and an overdue signal —
+      // the only shape in which "does the row already say this?" can be tested.
+      act({ id: "a15", title: "Return the keys", projectId: "pr1", dueDate: D(-2) } as Partial<NextAction> & { id: string; title: string }),
       // Blocked by an UNFINISHED blocker.
       act({ id: "a3", title: "Send final draft", projectId: "pr1" }),
       act({ id: "a4", title: "Need legal review", projectId: "pr1" }),
@@ -103,6 +108,14 @@ function world(): StoreState {
           { id: "e8", action: "deferred", at: A(-1, 10), detail: D(2) }] } as Partial<NextAction> & { id: string; title: string }),
       act({ id: "a10", title: "Ask Marcus Webb for the survey", projectId: "pr1" }),
       act({ id: "a11", title: "Reply to Marcus", projectId: "pr1" }),
+      // Deferred twice and THEN completed. It owns no current row, so it
+      // reaches Recently — which is where the one-row-per-record rule has to
+      // hold, since a row-owning action is excluded from Recently entirely.
+      act({ id: "a14", title: "Chase the surveyor", projectId: "pr1", status: "completed", completedAt: A(-1, 16),
+        history: [{ id: "c1", action: "created", at: A(-20) },
+          { id: "c2", action: "deferred", at: A(-4, 9), detail: D(-3) },
+          { id: "c3", action: "deferred", at: A(-3, 9), detail: D(-2) },
+          { id: "c4", action: "completed", at: A(-1, 16) }] } as Partial<NextAction> & { id: string; title: string }),
       // Outside the project entirely — and ALSO repeatedly deferred, so a
       // project-scoped deferral question differs from an unscoped one. With
       // only one such action store-wide, scoping could not be tested.
@@ -163,7 +176,9 @@ export function runProjectContextSelfTests(): SelfTestReport {
   {
     ok("87.6 a next action is recommended", !!c.next, `${c.nextNote}`);
     ok("87.7 …from this project", c.next?.action.projectId === "pr1");
-    ok("87.8 …and it is the overdue one", c.next?.action.id === "a2", c.next?.action.title);
+    // TWO actions are overdue; the recommender picks the one that has been
+    // overdue longer, and this asserts that rather than a fixture accident.
+    ok("87.8 …and it is the action overdue longest", c.next?.action.id === "a15", c.next?.action.title);
     ok("87.9 …explaining itself in the recommender's own words",
       (c.next?.reasons ?? []).length > 0, JSON.stringify(c.next?.reasons.map((r) => r.text)));
     // An empty project says so instead of recommending nothing-in-particular.
@@ -214,6 +229,18 @@ export function runProjectContextSelfTests(): SelfTestReport {
     ok("87.20 a follow-up that has arrived is due", maria?.followUpDue === true);
     ok("87.21 a follow-up six days out is NOT due", jordan?.followUpDue === false, `${jordan?.followUpDate}`);
     ok("87.22 …and the due one sorts first", c.waiting[0]?.action.id === "a7");
+    // The row already renders "Follow up today"; the signal saying the same
+    // thing beneath it was the same fact twice on one line.
+    ok("87.22b an attention line never restates the follow-up the row shows",
+      !maria?.attention, `${maria?.attention}`);
+    ok("87.22c …and the row still carries the fact itself", maria?.followUpDue === true);
+    // The same rule for a due date: an open row renders it, so an "overdue"
+    // signal saying the same thing beneath it is the fact twice.
+    const overdueRow = c.openRows.find((r) => r.action.id === "a2");
+    ok("87.22d an overdue open row carries its due date", overdueRow?.dueDate === D(-1), `${overdueRow?.dueDate}`);
+    ok("87.22e …and no attention line restating it", !overdueRow?.attention, `${overdueRow?.attention}`);
+    ok("87.22f …though the signal layer genuinely raised one for it",
+      buildCommitmentSignals(s, ix, { today: TODAY }).some((x) => x.recordRef.id === "a2" && x.kind === "overdue"));
     ok("87.23 the wait names who, verbatim", maria?.waitingOn === "Maria");
     ok("87.24 …and when it began, from waitingSince", maria?.since === D(-9), `${maria?.since}`);
   }
@@ -251,12 +278,17 @@ export function runProjectContextSelfTests(): SelfTestReport {
     ok("87.32 a completed linked action is recent movement",
       c.recent.some((x) => x.entity.id === "a1" && x.kind === "completed"),
       JSON.stringify(c.recent.map((x) => [x.kind, x.title])));
-    // §24. `buildExecutiveChanges` emits one entry per EVENT; three deferrals
-    // of one action produced three identical rows before deduplication.
-    const deferRows = c.recent.filter((x) => x.kind === "deferred" && x.entity.id === "a9");
-    ok("87.33 three deferrals of one action are ONE recent row", deferRows.length === 1, `${deferRows.length}`);
-    ok("87.34 the fixture really does hold three deferral events",
-      (s.nextActions ?? []).find((a) => a.id === "a9")!.history!.filter((h) => h.action === "deferred").length === 3);
+    // §24. `buildExecutiveChanges` emits one entry per EVENT, so an action with
+    // two deferrals produced two identical rows before deduplication. Tested on
+    // a COMPLETED action, because one that still owns a row above is excluded
+    // from Recently altogether and so could never show the defect.
+    const deferRows = c.recent.filter((x) => x.kind === "deferred" && x.entity.id === "a14");
+    ok("87.33 two deferrals of one action are ONE recent row", deferRows.length === 1, `${deferRows.length}`);
+    ok("87.34 the fixture really does hold two deferral events for it",
+      (s.nextActions ?? []).find((a) => a.id === "a14")!.history!.filter((h) => h.action === "deferred").length === 2);
+    ok("87.34b …and its completion is a separate row",
+      c.recent.some((x) => x.kind === "completed" && x.entity.id === "a14"),
+      JSON.stringify(c.recent.map((x) => [x.kind, x.entity.id])));
     ok("87.35 recent is newest first",
       c.recent.every((x, i) => i === 0 || c.recent[i - 1].occurredAt >= x.occurredAt),
       JSON.stringify(c.recent.map((x) => x.occurredAt)));
@@ -283,6 +315,14 @@ export function runProjectContextSelfTests(): SelfTestReport {
         .some((x) => x.kind === "goal_horizon_changed"));
     // §35. Bounded window, stated.
     ok("87.39 the window is bounded and named", c.range.startKey === D(-6) && !!c.range.label, c.range.label);
+    // The row above is the live truth, and Recently is for what moved.
+    ok("87.39b an action that owns a row is not repeated under recent",
+      !c.recent.some((x) => x.entity.id === "a9"),
+      JSON.stringify(c.recent.map((x) => [x.kind, x.title])));
+    ok("87.39c …though its deferral count is still stated, on its own row",
+      /deferred this 3 times/i.test(c.openRows.find((r) => r.action.id === "a9")?.deferral ?? ""));
+    ok("87.39d …and a completed action, which owns no row, still appears",
+      c.recent.some((x) => x.entity.id === "a1"));
     ok("87.40 every recent row belongs to this project",
       c.recent.every((x) => (s.nextActions ?? []).find((a) => a.id === x.entity.id)?.projectId === "pr1"));
   }
@@ -326,8 +366,12 @@ export function runProjectContextSelfTests(): SelfTestReport {
     ok("87.51 rules are strings, not ranked records", c.rules.every((r) => typeof r === "string"));
     // A rule reaches the page only through the EXISTING relevance system, so it
     // cannot arrive by naming a person the project happens to mention.
+    // A rule is context: the recommendation is the action overdue longest,
+    // exactly as it would be with no Personal Code in the store at all.
+    const noRules = { ...s, constitutionElements: [] } as StoreState;
     ok("87.52 a rule never reorders anything",
-      !JSON.stringify(c).includes('"priority"') || c.next?.action.id === "a2");
+      ctx("pr1", noRules).next?.action.id === c.next?.action.id,
+      `${ctx("pr1", noRules).next?.action.id} vs ${c.next?.action.id}`);
   }
 
   // ==========================================================================
@@ -366,7 +410,7 @@ export function runProjectContextSelfTests(): SelfTestReport {
     ok("87.61 'what changed with X' no longer reports nothing",
       changed.status === "ANSWERED", `${changed.status} :: ${changed.summary}`);
     ok("87.62 …counting the project's own completed work",
-      /completed 1 item/.test(changed.summary ?? ""), changed.summary);
+      /completed 2 items/.test(changed.summary ?? ""), changed.summary);
 
     const waiting = ask("What am I waiting on for Clinic launch?");
     ok("87.63 'what am I waiting on for X' is scoped to the project",
@@ -398,13 +442,15 @@ export function runProjectContextSelfTests(): SelfTestReport {
 
     const def = ask("What keeps getting deferred on Clinic launch?");
     ok("87.72 'what keeps getting deferred' routes", def.status === "ANSWERED", `${def.status}`);
-    ok("87.73 …scoped to this project's actions", def.items.length === 1 && def.items[0]?.text === "Email professor",
+    ok("87.73 …scoped to this project's actions",
+      def.items.length === 2 && def.items.every((i) => i.text !== "Water the plants"),
       JSON.stringify(def.items.map((i) => i.text)));
-    // Non-vacuous: another action outside the project is deferred just as often,
-    // and the unscoped question returns both.
-    ok("87.73b …and an unscoped deferral question returns both",
-      ask("What do I keep putting off?").items.length === 2,
-      JSON.stringify(ask("What do I keep putting off?").items.map((i) => i.text)));
+    // Non-vacuous: an action OUTSIDE the project is deferred just as often, and
+    // the unscoped question returns it too. Scoped must be strictly smaller.
+    const unscoped = ask("What do I keep putting off?");
+    ok("87.73b …and an unscoped deferral question returns more",
+      unscoped.items.length === 3 && unscoped.items.some((i) => i.text === "Water the plants"),
+      JSON.stringify(unscoped.items.map((i) => i.text)));
 
     ok("87.74 'what should I do next for X' still works",
       ask("What should I do next for Clinic launch?").status === "ANSWERED");

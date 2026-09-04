@@ -149,12 +149,28 @@ export function buildProjectContext(
   const mineIds = new Set(mine.map((a) => a.id));
 
   // ---- facts about these actions, from the builders that already know ----
-  const signals = new Map<string, string>();
-  for (const s of buildCommitmentSignals(state, ix, { today })) {
-    if (s.recordRef.kind === "action" && mineIds.has(s.recordRef.id) && !signals.has(s.recordRef.id)) {
-      signals.set(s.recordRef.id, s.explanation);
+  const signals = new Map<string, { kind: string; explanation: string }>();
+  for (const sig of buildCommitmentSignals(state, ix, { today })) {
+    if (sig.recordRef.kind === "action" && mineIds.has(sig.recordRef.id) && !signals.has(sig.recordRef.id)) {
+      signals.set(sig.recordRef.id, { kind: sig.kind, explanation: sig.explanation });
     }
   }
+
+  /**
+   * An attention line that restates what the row already shows is noise.
+   *
+   * The visual review found "Transcript from Maria" saying the follow-up was
+   * today TWICE — once as the row's own meta, once as the signal beneath it.
+   * A row renders its due date and its follow-up state itself, so the signals
+   * that are ABOUT those two facts add nothing when they are already visible.
+   */
+  const attentionFor = (a: NextAction, shows: { due?: boolean; followUp?: boolean }): string | undefined => {
+    const sig = signals.get(a.id);
+    if (!sig) return undefined;
+    if (shows.due && (sig.kind === "overdue" || sig.kind === "due_soon")) return undefined;
+    if (shows.followUp && sig.kind === "follow_up_due") return undefined;
+    return sig.explanation;
+  };
 
   const range = resolveRange(RECENT_RANGE, { today });
   const deferrals = new Map<string, string>();
@@ -163,11 +179,15 @@ export function buildProjectContext(
   }
 
   /** Build a row once, so a section cannot invent its own version of a fact. */
-  const row = (a: NextAction, extra: Partial<ProjectRow> = {}): ProjectRow => ({
+  const row = (
+    a: NextAction,
+    extra: Partial<ProjectRow> = {},
+    shows: { due?: boolean; followUp?: boolean } = {},
+  ): ProjectRow => ({
     id: `row:${a.id}`,
     action: a,
     // §26. Attention and deferral attach; they never own a row.
-    attention: signals.get(a.id),
+    attention: attentionFor(a, shows),
     deferral: deferrals.get(a.id),
     dueDate: a.dueDate,
     ...extra,
@@ -200,7 +220,8 @@ export function buildProjectContext(
         followUpDate: a.followUpDate,
         // §11. A date in the future is not a date that has arrived.
         followUpDue: !!a.followUpDate && a.followUpDate <= today,
-      }));
+      // The row renders the follow-up state itself.
+      }, { followUp: !!a.followUpDate }));
       continue;
     }
 
@@ -219,7 +240,8 @@ export function buildProjectContext(
     }
 
     owned.add(a.id);
-    openRows.push(row(a));
+    // The row renders its due date itself.
+    openRows.push(row(a, {}, { due: !!a.dueDate }));
   }
 
   const byDate = (x: ProjectRow, y: ProjectRow) =>
@@ -244,9 +266,17 @@ export function buildProjectContext(
   // the weekly review, arriving here by a different door. The most recent
   // occurrence stands for the rest, and the repeated-deferral COUNT is already
   // attached to that action's own row.
+  //
+  // And an action that OWNS A ROW above is excluded: its row is the live truth
+  // and already carries the fact. "Email professor" appeared under Also open
+  // saying "You deferred this 3 times" and then again under Recently as
+  // "Deferred · Sep 3" — the same action twice on one screen, telling the
+  // reader nothing the first row had not. Recently is for what MOVED; a
+  // completed action owns no row, so it still appears.
+  const rowOwned = new Set([...owned]);
   const seenChange = new Set<string>();
   const recent = buildExecutiveChanges(state, range)
-    .filter((c) => c.entity.kind === "action" && mineIds.has(c.entity.id))
+    .filter((c) => c.entity.kind === "action" && mineIds.has(c.entity.id) && !rowOwned.has(c.entity.id))
     .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.id.localeCompare(b.id))
     .filter((c) => {
       const key = `${c.kind}:${c.entity.id}`;
