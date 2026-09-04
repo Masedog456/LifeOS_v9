@@ -1,13 +1,27 @@
 "use client";
 
 /**
- * Goal dashboard (LIFEOS-031, Feature 4).
+ * The goal page (LIFEOS-031, Feature 4 · LIFEOS-078 · LIFEOS-088).
  *
- * One deterministic projection of a goal: overall (derived) progress, its
- * projects and milestones, recent sessions / reading / captures / decisions, a
- * knowledge-graph frontier, and a session timeline. You can edit status,
- * priority, and notes, set a manual progress override, add projects, and link
- * knowledge. No AI, no auto-progress.
+ * One page per goal, and only one (§27): where it is headed, what is carrying
+ * it, what is stuck, what moved, and the context around it. `GoalCommandView`
+ * holds the five sections; the LIFEOS-031 knowledge panels stay below it,
+ * because the knowledge side is still true — it was simply never the answer to
+ * "what is happening with this goal?".
+ *
+ * ## What LIFEOS-088 removed
+ *
+ * The Projects panel printed `projectProgress(p)` per row, so a project holding
+ * eleven actions was drawn at "0%" with a bar at zero. That number is the
+ * absence of evidence — `projectProgressMeasurable` already said so — and it is
+ * gone. The command view carries the projects with counts, and a percentage
+ * only where one rests on something countable.
+ *
+ * `GoalDirection` (078) is gone too, folded into the command view's Overview
+ * and Context sections so the same fact is not stated twice on one screen. Its
+ * "Replaced by…" control survives here as `RecordReplacement`.
+ *
+ * No AI, no auto-progress, no mission statement.
  */
 
 import { use, useMemo, useState, useSyncExternalStore } from "react";
@@ -21,18 +35,16 @@ import { makeEntityContext, ENTITY_LABEL, type Entity } from "@/lib/entities/ent
 import EntityLink from "@/components/entity/EntityLink";
 import { findGoal, goalKnowledge, GOAL_STATUS_LABEL, PRIORITY_LABEL } from "@/lib/execution/goals";
 import { goalDashboard } from "@/lib/execution/dashboard";
-import { projectHref } from "@/lib/execution/projects";
 import { SESSION_TYPE_ICON, SESSION_TYPE_LABEL, formatDuration, sessionOutputs, sessionDuration } from "@/lib/workspaces/sessions";
 import { buildIndex, searchFlat } from "@/lib/command/search";
 import {
   GOAL_HORIZONS, GOAL_HORIZON_GUIDANCE, GOAL_HORIZON_LABEL, GOAL_HORIZON_PROMPT,
 } from "@/lib/execution/horizons";
-import {
-  GOAL_LIFECYCLE_LABEL, GOAL_STATUS_CHOICES, describeGoalHistoryEvent, goalHistory,
-  goalLineage, successorOf,
-} from "@/lib/execution/lifecycle";
-import { goalAlignmentFacts } from "@/lib/execution/alignment";
-import { GOAL_PATH_MISSING } from "@/lib/commitment/signals";
+import { GOAL_LIFECYCLE_LABEL, GOAL_STATUS_CHOICES } from "@/lib/execution/lifecycle";
+import { buildTodayIndexes } from "@/lib/today/indexes";
+import { buildGoalContext } from "@/lib/execution/goal-context";
+import { todayKey } from "@/lib/reviews/dates";
+import GoalCommandView from "@/components/execution/GoalCommandView";
 import type { GoalStatus, ExecutionPriority, GoalHorizon } from "@/types/mvp";
 import SyncStatus from "@/components/SyncStatus";
 import { ProgressBar, ProgressOrNot, Panel, Empty } from "@/components/execution/Bits";
@@ -65,9 +77,12 @@ function GoalDashboard({ id }: { id: string }) {
   const goal = findGoal(state, id);
   const index = useMemo(() => buildIndex(state), [state]);
   const dash = useMemo(() => (goal ? goalDashboard(ctx, goal) : null), [ctx, goal]);
+  const today = todayKey();
+  const ix = useMemo(() => buildTodayIndexes(state, today), [state, today]);
+  const command = useMemo(() => buildGoalContext(state, id, ix, today), [state, id, ix, today]);
 
   if (!mounted) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Opening goal…</p></main>;
-  if (!goal || !dash) {
+  if (!goal || !dash || !command) {
     return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500">This goal doesn’t exist.</p><Link href="/goals" className="mt-2 inline-block text-sm underline">← All goals</Link></main>;
   }
 
@@ -118,30 +133,21 @@ function GoalDashboard({ id }: { id: string }) {
               onChange={(e) => setGoalProgress(goal.id, e.target.value === "" ? undefined : Number(e.target.value))}
               className="w-16 rounded-lg border border-black/10 px-2 py-1 dark:border-white/12 dark:bg-black/20" />
           </label>
-          <span className="text-zinc-400">{dash.overview.projectCounts.completed}/{dash.overview.projectCounts.total} projects · {dash.overview.milestones.done}/{dash.overview.milestones.total} milestones</span>
+          {/* Counts only, and a milestone count only when milestones exist —
+              "0/0 milestones" is not a measurement of anything. */}
+          <span className="text-zinc-400">
+            {dash.overview.projectCounts.completed}/{dash.overview.projectCounts.total} projects
+            {dash.overview.milestones.total > 0 && ` · ${dash.overview.milestones.done}/${dash.overview.milestones.total} milestones`}
+          </span>
         </div>
         {goal.horizon && <p className="mt-2 text-[11px] text-zinc-400">{GOAL_HORIZON_GUIDANCE[goal.horizon]}</p>}
       </header>
 
-      <GoalDirection goalId={goal.id} />
+      <GoalCommandView ctx={command} state={state} ix={ix} today={today} />
+
+      <RecordReplacement goalId={goal.id} />
 
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
-        <Panel title="Projects" action={<Link href={`/projects?new=1&goal=${goal.id}`} className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">＋ New</Link>}>
-          {dash.projects.length === 0 ? <Empty>No projects yet — add one to make this goal concrete.</Empty> : (
-            <ul className="space-y-2">
-              {dash.projects.map((p) => (
-                <li key={p.ref.id}>
-                  <div className="flex items-center justify-between gap-2 text-sm">
-                    <Link href={projectHref(p.ref.id)} className="truncate hover:underline">{p.ref.title}</Link>
-                    <span className="shrink-0 text-[10px] text-zinc-400">{p.progress}% · {p.milestones.done}/{p.milestones.total}</span>
-                  </div>
-                  <div className="mt-1"><ProgressBar percent={p.progress} /></div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Panel>
-
         <Panel title="Next milestones">
           {dash.nextMilestones.length === 0 ? <Empty>No open milestones.</Empty> : (
             <ul className="space-y-1 text-sm">
@@ -207,26 +213,23 @@ function GoalDashboard({ id }: { id: string }) {
 }
 
 /**
- * Where this goal stands, and where it came from (LIFEOS-078).
+ * Recording that this goal became another one (LIFEOS-078, kept by LIFEOS-088).
  *
- * Three things a person cannot get from a progress bar: what work is actually
- * carrying the goal, what it replaced or became, and what has changed about it
- * over time. Every line is a count from the store or a dated entry the user's
- * own actions wrote. No score, no percentage, no verdict.
+ * The one thing on the old `GoalDirection` panel that was a CONTROL rather than
+ * a restatement. The lineage, the history and the counts it also rendered now
+ * live in the command view above, and printing them twice on one screen told the
+ * reader nothing the first copy had not.
+ *
+ * Conqify never marks a goal achieved, let go, or replaced on its own — this is
+ * always the user's act.
  */
-function GoalDirection({ goalId }: { goalId: string }) {
+function RecordReplacement({ goalId }: { goalId: string }) {
   const state = useStore();
   const goal = findGoal(state, goalId);
   const [replacing, setReplacing] = useState(false);
   const [successorId, setSuccessorId] = useState("");
+  if (!goal) return null;
 
-  const facts = useMemo(() => (goal ? goalAlignmentFacts(state, goal) : null), [state, goal]);
-  const lineage = useMemo(() => goalLineage(state, goalId), [state, goalId]);
-  const titleOf = (id: string) => state.goals.find((g) => g.id === id)?.title;
-  if (!goal || !facts) return null;
-
-  const history = [...goalHistory(goal)].reverse();
-  const successor = successorOf(state, goal);
   // A goal cannot replace itself, and offering an already-replaced goal as the
   // successor would build a chain the store then refuses.
   const candidates = state.goals.filter((g) => g.id !== goal.id && g.status !== "replaced");
@@ -235,86 +238,30 @@ function GoalDirection({ goalId }: { goalId: string }) {
     if (!successorId) return;
     const ok = replaceGoal(goal.id, successorId, undefined);
     toast(ok
-      ? { kind: "success", message: "Recorded — this goal was replaced." }
+      ? { kind: "success", message: "Recorded \u2014 this goal was replaced." }
       : { kind: "error", message: "That would loop back to this goal." });
     if (ok) { setReplacing(false); setSuccessorId(""); }
   };
 
   return (
-    <div className="mt-6 grid gap-6 sm:grid-cols-2">
-      <Panel title="How this is being pursued">
-        <ul className="space-y-1 text-sm" data-goal-facts>
-          <li>{facts.projects.active} active project{facts.projects.active === 1 ? "" : "s"} of {facts.projects.total}</li>
-          <li>{facts.actions.open} open action{facts.actions.open === 1 ? "" : "s"}</li>
-          <li>{facts.actions.completedRecently} action{facts.actions.completedRecently === 1 ? "" : "s"} completed in the last 30 days</li>
-          <li className="text-zinc-500">
-            {facts.lastActivityDay
-              ? `Last recorded activity ${facts.lastActivityDay}${facts.quietDays ? ` · ${facts.quietDays} day${facts.quietDays === 1 ? "" : "s"} ago` : " · today"}`
-              : "No recorded activity yet."}
-          </li>
-        </ul>
-        {facts.pathMissing && (
-          <p className="mt-2 text-xs text-zinc-500" data-goal-path-missing>
-            {GOAL_PATH_MISSING}. <Link href={`/projects?new=1&goal=${goal.id}`} className="underline">Add a project</Link>
-          </p>
-        )}
-      </Panel>
-
-      <Panel title="Direction" action={
-        goal.status === "replaced" ? undefined : (
-          <button type="button" onClick={() => setReplacing((v) => !v)} className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
-            {replacing ? "Cancel" : "Replaced by…"}
-          </button>
-        )
-      }>
-        {lineage.length > 1 ? (
-          <ol className="space-y-1 text-sm" data-goal-lineage={lineage.length}>
-            {lineage.map((g) => (
-              <li key={g.id} className={g.id === goal.id ? "font-medium" : "text-zinc-500"}>
-                {g.id === goal.id ? g.title : <Link href={`/goal/${g.id}`} className="hover:underline">{g.title}</Link>}
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <Empty>Not replaced, and not a replacement for anything.</Empty>
-        )}
-
-        {goal.status === "replaced" && !successor && (
-          <p className="mt-2 text-xs text-zinc-500">Replaced by a goal that has since been deleted.</p>
-        )}
-
-        {replacing && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <select value={successorId} onChange={(e) => setSuccessorId(e.target.value)} aria-label="Replaced by which goal"
-              className="rounded-lg border border-black/10 px-2 py-1 text-xs dark:border-white/12 dark:bg-black/20">
-              <option value="">Choose the goal this became…</option>
-              {candidates.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
-            </select>
-            <button type="button" onClick={confirmReplace} disabled={!successorId}
-              className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Record</button>
-          </div>
-        )}
-      </Panel>
-
-      <Panel title="What has changed">
-        {history.length === 0 ? <Empty>Nothing recorded yet.</Empty> : (
-          <ul className="space-y-1 text-sm" data-goal-history={history.length}>
-            {history.map((e) => (
-              <li key={e.id} className="flex items-start justify-between gap-3">
-                <span>{describeGoalHistoryEvent(e, titleOf)}{e.note ? ` ${e.note}` : ""}</span>
-                <span className="shrink-0 text-[10px] text-zinc-400">{e.at.slice(0, 10)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
-
-      <Panel title="Lifecycle">
-        <p className="text-sm">{GOAL_LIFECYCLE_LABEL[goal.status]}</p>
-        <p className="mt-1 text-xs text-zinc-400">
-          Changing this is always your call — Conqify never marks a goal achieved, let go, or replaced on its own.
-        </p>
-      </Panel>
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs" data-goal-lifecycle={goal.status}>
+      <span className="text-zinc-400">{GOAL_LIFECYCLE_LABEL[goal.status]}</span>
+      {goal.status !== "replaced" && (
+        <button type="button" onClick={() => setReplacing((v) => !v)} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
+          {replacing ? "Cancel" : "Replaced by\u2026"}
+        </button>
+      )}
+      {replacing && (
+        <>
+          <select value={successorId} onChange={(e) => setSuccessorId(e.target.value)} aria-label="Replaced by which goal"
+            className="rounded-lg border border-black/10 px-2 py-1 text-xs dark:border-white/12 dark:bg-black/20">
+            <option value="">Choose the goal this became\u2026</option>
+            {candidates.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
+          </select>
+          <button type="button" onClick={confirmReplace} disabled={!successorId}
+            className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Record</button>
+        </>
+      )}
     </div>
   );
 }

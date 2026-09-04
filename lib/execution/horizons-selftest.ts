@@ -393,8 +393,30 @@ export function goalHorizonAssertions(): SelfTestResult[] {
     const noPath = ask("Which active goals have no project path?");
     ok("78.87 §18 goals with no active project are listed",
       noPath.items.some((i) => i.text === "Be someone they trust"), JSON.stringify(noPath.items.map((i) => i.text)));
-    ok("78.88 §15 …with the project-shaped limitation stated, not hidden",
-      /linked projects only/.test(noPath.limitation ?? ""), String(noPath.limitation));
+
+    /**
+     * LIFEOS-088 §14 closed the limitation this used to assert.
+     *
+     * 78.88 required the answer to SAY "This looks at linked projects only. A
+     * goal whose work is tracked as directly-linked actions still appears
+     * here." That sentence was honest about a real gap, and it is gone because
+     * the gap is gone: the answer now asks about a PATH, so a goal carried by
+     * directly-linked actions is named as carried rather than listed as
+     * pathless. The assertion moves to the behaviour that replaced it.
+     */
+    ok("78.88 §14 …and the project-only limitation is gone, because the gap is",
+      !/linked projects only/.test(noPath.limitation ?? ""), String(noPath.limitation));
+
+    const carried = stateWith({
+      goals: [goal({ id: "cp1", title: "Get properly fit", horizon: "long" })],
+      nextActions: [action({ id: "cp-a1", title: "Book a gym induction", goalId: "cp1" })],
+    });
+    const carriedAns = answerMemoryQuery(carried, "Which active goals have no project path?", { today: TODAY });
+    ok("78.88b §14 a goal carried by directly-linked actions is NOT listed as pathless",
+      !(carriedAns.items ?? []).some((i) => i.text === "Get properly fit"),
+      JSON.stringify((carriedAns.items ?? []).map((i) => i.text)));
+    ok("78.88c §14 …and it is named as carried, rather than silently dropped",
+      /carried by actions linked directly/.test(carriedAns.limitation ?? ""), String(carriedAns.limitation));
 
     // §19 — the exclusions, which are the point.
     const moved = ask("What goals moved forward this month?");

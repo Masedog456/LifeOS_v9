@@ -377,7 +377,7 @@ export function projectPeople(state: StoreState, project: Project, mine: NextAct
  * behind. The longer form still reaches the reader — LIFEOS-086's `longerForms`
  * carries "Marcus Webb" as the ambiguity on Marcus's own entry (§34).
  */
-function nameCandidates(text: string, opts: { skipFirst?: boolean } = {}): string[] {
+export function nameCandidates(text: string, opts: { skipFirst?: boolean } = {}): string[] {
   const skipFirst = opts.skipFirst ?? true;
   const words = text.trim().split(/\s+/);
   const out: string[] = [];
