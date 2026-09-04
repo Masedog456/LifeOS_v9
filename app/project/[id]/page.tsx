@@ -27,6 +27,11 @@ import { goalHref } from "@/lib/execution/goals";
 import { workspaceHref } from "@/lib/workspaces/workspace";
 import { SESSION_TYPES, SESSION_TYPE_ICON, SESSION_TYPE_LABEL, formatDuration, sessionOutputs, sessionDuration } from "@/lib/workspaces/sessions";
 import { buildIndex, searchFlat } from "@/lib/command/search";
+import { buildTodayIndexes } from "@/lib/today/indexes";
+import { nowLocalTime } from "@/lib/time/events";
+import { todayKey } from "@/lib/reviews/dates";
+import { buildProjectContext } from "@/lib/execution/context";
+import ProjectWorkingState from "@/components/execution/ProjectWorkingState";
 import type { ExecProjectStatus, ExecutionPriority, SessionType } from "@/types/mvp";
 import SyncStatus from "@/components/SyncStatus";
 import { ProgressBar, Panel, Empty } from "@/components/execution/Bits";
@@ -49,6 +54,20 @@ function ProjectDashboard({ id }: { id: string }) {
   const project = findProject(state, id);
   const index = useMemo(() => buildIndex(state), [state]);
   const dash = useMemo(() => (project ? projectDashboard(ctx, project) : null), [ctx, project]);
+
+  /**
+   * LIFEOS-087. The project's WORKING state.
+   *
+   * One index pass, shared by the context AND every row's resolution controls
+   * (LIFEOS-071 §27) — a button must not rescan the store.
+   */
+  const today = todayKey();
+  const now = useMemo(() => nowLocalTime(), []);
+  const ix = useMemo(() => buildTodayIndexes(state, today, now), [state, today, now]);
+  const working = useMemo(
+    () => (project ? buildProjectContext(state, project.id, ix, today) : undefined),
+    [state, project, ix, today],
+  );
 
   if (!mounted) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Opening project…</p></main>;
   if (!project || !dash) {
@@ -114,7 +133,12 @@ function ProjectDashboard({ id }: { id: string }) {
         </div>
       </header>
 
-      <div className="grid gap-6 sm:grid-cols-2">
+      {/* The working state comes FIRST: the audit found every panel below it
+          empty on a project full of open work, because they answer a different
+          question. They are still true, and still here. */}
+      {working && <ProjectWorkingState ctx={working} state={state} ix={ix} today={today} />}
+
+      <div className="mt-6 grid gap-6 sm:grid-cols-2">
         <Panel title="Milestones">
           <ul className="space-y-1.5">
             {project.milestones.length === 0 && <li className="text-xs text-zinc-400">No milestones yet.</li>}

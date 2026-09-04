@@ -273,6 +273,8 @@ export interface MemoryQueryPlan {
   wantsSubject?: boolean;
   /** Which person question this is (LIFEOS-086). Set only when `kind` is PERSON. */
   personAspect?: PersonAspect;
+  /** Which project question this is (LIFEOS-087). Set only when `kind` is PROJECT. */
+  projectAspect?: "all" | "people";
   /** The person the question names, capitalisation intact. */
   personName?: string;
 }
@@ -524,7 +526,7 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   { kind: "CHANGES", re: /\b(?:did|do) (?:i|we) (?:defer|postpone|push back)\w*\b|\bwhat (?:i|we) deferred\b/ },
   { kind: "CHANGES", re: /\b(?:did|do) (?:i|we) move forward\b|\bwhat (?:i|we) moved forward\b/ },
 
-  { kind: "WAITING", re: /\bwaiting (?:on|for|to hear)\b|\bam i waiting\b|\bwas i waiting\b|\bstill waiting\b|\bwaiting items?\b|\bblocked on\b|\bowes? me\b|\bhaven'?t heard back\b/ },
+  { kind: "WAITING", re: /\bwaiting (?:on|for|to hear)\b|\bam i waiting\b|\bwas i waiting\b|\bstill waiting\b|\bwaiting items?\b|\bowes? me\b|\bhaven'?t heard back\b/ },
 
   // "what did I say/write/think about X" — authorship questions.
   //
@@ -573,7 +575,7 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   // product does not tell anyone to drop anything.
   { kind: "CHANGES", re: /\breconsider\w*\b|\bsecond look\b|\bworth (?:re)?think\w*\b|\brethink\w*\b/ },
 
-  { kind: "CHANGES", re: /\bwhat changed\b|\bwhat (?:has )?moved\b|\bwhat shifted\b|\bany changes\b|\bwhat (?:got )?(?:reschedul|defer|cancel)\w*\b/ },
+  { kind: "CHANGES", re: /\bwhat changed\b|\bwhat (?:has )?moved\b|\bwhat shifted\b|\bany changes\b|\bwhat (?:got )?(?:reschedul|defer|cancel)\w*\b|\bkeeps? (?:getting|being) (?:defer|postpon|push)\w*\b/ },
 
 
   { kind: "COMPLETION", re: /\b(?:finish|finished|complete|completed|accomplish|accomplished|get done|got done|got through|checked off|ticked off|wrap(?:ped)? up)\b|\bwhat did (?:i|we) do\b/ },
@@ -603,7 +605,15 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   // stripped rather than answered with "that period hasn't happened yet".
   { kind: "OPEN_WORK", re: new RegExp(`${CARRY_RE.source}|${UNRESOLVED_RE.source}`) },
 
+  { kind: "OPEN_WORK", re: /\bwhat(?:'s| is| are)?\s+blocked\b|\bblocked (?:on|by)\b|\bwhat am i blocked\b/ },
+
   { kind: "OPEN_WORK", re: /\bstill (?:needs?|need) attention\b|\bstill open\b|\bneeds? (?:my )?attention\b|\bwhat'?s left\b|\bwhat'?s outstanding\b|\bstill (?:to do|need to do|owe)\b|\bon my plate\b|\bunfinished\b|\bstill hanging\b|\bam i forgetting\b|\bhave i forgotten\b|\bslipping\b|\bfollow.?ups? (?:are )?due\b|\bcame? back (?:today|from deferral)\b|\bno (?:executable )?next action\b|\bfell through\b/ },
+
+  // LIFEOS-087 §17. "Who is involved in X?" is a question about a project's
+  // people. Routed to the EXISTING project class with an aspect rather than a
+  // new noun, and answered from `buildProjectContext` so there is one people
+  // derivation rather than two that can disagree.
+  { kind: "PROJECT", re: /\bwho(?:'s| is| are)?\s+(?:involved|working|on it|helping)\b|\bwho else\b/ },
 
   // "what happened with X" is a project question when X is one, and a general
   // "around X" question otherwise; the retrieval layer decides which.
@@ -800,7 +810,7 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     // other change word, and every later branch would have to not match it.
     if (/\breconsider\w*\b|\bsecond look\b|\bworth (?:re)?think\w*\b|\brethink\w*\b/.test(q)) {
       changeAspect = "reconsider";
-    } else if (/\bkeep\b.*\b(?:putting off|postpon\w*|pushing (?:back|off)|deferring)\b|\brepeatedly\b.*\b(?:defer|postpon)\w*\b|\bkeeps? (?:coming back|resurfacing|returning)\b|\bwhat do i (?:keep|always) (?:avoid|delay)\w*\b/.test(q)) {
+    } else if (/\bkeeps? (?:getting|being) (?:defer|postpon|push)\w*\b|\bkeep\b.*\b(?:putting off|postpon\w*|pushing (?:back|off)|deferring)\b|\brepeatedly\b.*\b(?:defer|postpon)\w*\b|\bkeeps? (?:coming back|resurfacing|returning)\b|\bwhat do i (?:keep|always) (?:avoid|delay)\w*\b/.test(q)) {
       changeAspect = "postponed";
     } else if (/\bstop(?:ped)? waiting\b|\bno longer waiting\b|\bdone waiting\b|\bheard back\b/.test(q)) {
       changeAspect = "waiting_ended";
@@ -852,6 +862,9 @@ export function planMemoryQuery(question: string, opts: PlanOptions = {}): Memor
     goalAspect,
     ruleAspect,
     personAspect,
+    // LIFEOS-087 §17. "Who is involved in X?" is a project question about
+    // people, answered from the ONE people derivation rather than a second.
+    projectAspect: kind === "PROJECT" ? (/\bwho\b/.test(q) ? "people" : "all") : undefined,
     // Set for ANY class, not just PERSON. "What am I waiting on from Maria?"
     // routes to WAITING, and that branch needs her name with its capitalisation
     // intact — `entityQuery` is lowercased, so scoping by it printed
