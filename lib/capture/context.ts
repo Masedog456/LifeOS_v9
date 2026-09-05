@@ -364,6 +364,7 @@ export function suggestContext(
 ): CaptureContextSuggestion[] {
   const text = candidate.evidence.text || candidate.fields.title || candidate.fields.body || "";
   const out: CaptureContextSuggestion[] = [];
+  const fieldLinkable = FIELD_LINKABLE_KINDS.includes(candidate.kind);
 
   // §38, §39. The capture is kept either way; only the CONTEXT is withheld.
   if (mentionIsDisavowed(text) || mentionIsHistorical(text)) return out;
@@ -375,11 +376,7 @@ export function suggestContext(
     const g = goalTitle(r.goalId);
     // §40. An abandoned parent is not offered as live context, even inherited.
     if (!g || CLOSED_STATUS.has(g.status)) return undefined;
-    return {
-      contextId: g.id,
-      label: g.title,
-      reason: "This Project already supports that Goal.",
-    };
+    return { contextId: g.id, label: g.title, reason: INHERITED_REASON };
   };
 
   // ---- Tier 1 (§22). 060's whole-title match, unchanged ------------------
@@ -388,7 +385,19 @@ export function suggestContext(
   if (exact.strength === "strong") {
     const o = exact.options[0];
     const rec = index.records.find((r) => r.id === o.id);
-    if (o.kind === "project" || o.kind === "goal") {
+    const inherited = o.kind === "project" && rec ? inheritedFor(rec) : undefined;
+    if (o.kind === "project" && !fieldLinkable && inherited) {
+      push({
+        candidateId: candidate.id,
+        contextType: "goal",
+        contextId: inherited.contextId,
+        label: inherited.label,
+        reason: `“${o.title}” appears in what you wrote, and it supports this Goal.`,
+        strength: "exact",
+        authority: "confirm",
+        ambiguousAlternatives: [],
+      });
+    } else if ((o.kind === "project" && fieldLinkable) || o.kind === "goal") {
       push({
         candidateId: candidate.id,
         contextType: o.kind,
@@ -398,7 +407,7 @@ export function suggestContext(
         strength: "exact",
         authority: "confirm",
         ambiguousAlternatives: [],
-        inheritedGoal: o.kind === "project" && rec ? inheritedFor(rec) : undefined,
+        inheritedGoal: inherited,
       });
     }
   } else if (exact.strength === "ambiguous") {
@@ -494,17 +503,35 @@ export function suggestContext(
   const projects = [...projectHits.values()];
   if (projects.length === 1) {
     const { record, word } = projects[0];
-    push({
-      candidateId: candidate.id,
-      contextType: "project",
-      contextId: record.id,
-      label: record.title,
-      reason: `“${word}” matches this Project.`,
-      strength: "possible",
-      authority: "confirm",
-      ambiguousAlternatives: [],
-      inheritedGoal: inheritedFor(record),
-    });
+    const inherited = inheritedFor(record);
+    if (!fieldLinkable && inherited) {
+      // §16, §17. A Reflection and a Protocol have no `projectId`, so a Project
+      // chip here would be a control that cannot do what it appears to do —
+      // LIFEOS-080's worst finding, arriving by a different door. What they CAN
+      // hold is the Goal, through `linkedKnowledge`, so that is what is offered.
+      push({
+        candidateId: candidate.id,
+        contextType: "goal",
+        contextId: inherited.contextId,
+        label: inherited.label,
+        reason: `“${word}” matches “${record.title}”, which supports this Goal.`,
+        strength: "possible",
+        authority: "confirm",
+        ambiguousAlternatives: [],
+      });
+    } else if (fieldLinkable) {
+      push({
+        candidateId: candidate.id,
+        contextType: "project",
+        contextId: record.id,
+        label: record.title,
+        reason: `“${word}” matches this Project.`,
+        strength: "possible",
+        authority: "confirm",
+        ambiguousAlternatives: [],
+        inheritedGoal: inherited,
+      });
+    }
   } else if (projects.length > 1 || projectMatch.contested.length > 1) {
     // §24. Several grounded Projects is a question, not a pick — whether they
     // were reached by different words or by the same one.
@@ -640,9 +667,12 @@ export function contextFields(
   // write. Returning fields for them would have the UI offer a link the commit
   // path then silently drops — see `contextKnowledgeGoal` for the relationship
   // those kinds DO have.
-  if (!FIELD_LINKABLE_KINDS.includes(kind)) return {};
-  const project = accepted.find((s) => s.contextType === "project" && !!s.contextId);
-  const goal = accepted.find((s) => s.contextType === "goal" && !!s.contextId);
+  const project = FIELD_LINKABLE_KINDS.includes(kind)
+    ? accepted.find((s) => s.contextType === "project" && !!s.contextId)
+    : undefined;
+  const goal = GOAL_LINKABLE_KINDS.includes(kind)
+    ? accepted.find((s) => s.contextType === "goal" && !!s.contextId)
+    : undefined;
   return {
     ...(project ? { projectId: project.contextId } : {}),
     // §12. Goal-only linkage is a first-class outcome: a Goal can carry direct
@@ -651,8 +681,15 @@ export function contextFields(
   };
 }
 
-/** Kinds whose confirmed context becomes a field on the record itself. */
+/**
+ * Which kinds can hold which link, which is not one question but two.
+ *
+ * A new Project has no `projectId` and DOES have a `goalId` — `commitCapture`
+ * passes one straight to `createProject`. Treating "can be linked" as a single
+ * list dropped a Project candidate's Goal context on the floor.
+ */
 export const FIELD_LINKABLE_KINDS: readonly string[] = ["action", "waiting", "event"];
+export const GOAL_LINKABLE_KINDS: readonly string[] = ["action", "waiting", "event", "project"];
 
 /**
  * The Goal a note-shaped record attaches to, through `goal.linkedKnowledge`.
@@ -670,15 +707,28 @@ export function contextKnowledgeGoal(
   accepted: CaptureContextSuggestion[],
   kind: string,
 ): string | undefined {
-  if (FIELD_LINKABLE_KINDS.includes(kind)) return undefined;
-  const goal = accepted.find((s) => s.contextType === "goal" && !!s.contextId);
-  if (goal) return goal.contextId;
-  return accepted.find((s) => s.contextType === "project" && s.inheritedGoal)?.inheritedGoal?.contextId;
+  // A kind that carries its Goal as a FIELD does not also need it as linked
+  // knowledge — that would be the same fact stored twice.
+  if (GOAL_LINKABLE_KINDS.includes(kind)) return undefined;
+  // Only a Goal, because that is the only shape these kinds are ever offered:
+  // a Project match on a note is promoted to the Goal it supports before it
+  // ever reaches the user (see `suggestContext`).
+  return accepted.find((s) => s.contextType === "goal" && !!s.contextId)?.contextId;
 }
 
 // ----------------------------------------------------------------- words ---
 
 export const CONTEXT_HEADING = "Possible context";
+
+/**
+ * §13, §47. The inheritance, said ONCE.
+ *
+ * The component renders "Supports Goal X" and this sentence sat next to it
+ * repeating the same fact in different words — the duplication the visual
+ * review catches every sprint. It is now the reason a suggestion carries when
+ * something needs to read it on its own; the panel does not print both.
+ */
+export const INHERITED_REASON = "It already supports that Goal.";
 
 /** §27. The existing-record handoff, which never acts on its own. */
 export const EXISTING_RECORD_LEAD = "Looks like this may refer to:";

@@ -36,7 +36,9 @@ import {
   contextKnowledgeGoal, contextTokens, contextStrings,
   mentionIsDisavowed, mentionIsHistorical,
   MAX_SUGGESTIONS, MAX_ALTERNATIVES, MIN_ACTION_WORDS,
-  CONTEXT_FORBIDDEN_WORDS, EXISTING_RECORD_LEAD, CHOOSE_ONE,
+  CONTEXT_FORBIDDEN_WORDS, EXISTING_RECORD_LEAD, CHOOSE_ONE, INHERITED_REASON,
+  FIELD_LINKABLE_KINDS,
+  GOAL_LINKABLE_KINDS,
   type CaptureContextSuggestion,
 } from "@/lib/capture/context";
 
@@ -131,7 +133,7 @@ export function runCaptureContextSelfTests(): SelfTestReport {
     ok("89.4 §13 …and the Goal that Project supports arrives as inherited fact",
       p?.inheritedGoal?.label === "Open the clinic", JSON.stringify(p?.inheritedGoal));
     ok("89.5 §13 …stated as inheritance, not as a second match",
-      p?.inheritedGoal?.reason === "This Project already supports that Goal.", String(p?.inheritedGoal?.reason));
+      p?.inheritedGoal?.reason === INHERITED_REASON, String(p?.inheritedGoal?.reason));
     ok("89.6 §23 …and the hop stops there",
       rows.every((r) => r.contextType !== "goal"), JSON.stringify(kinds(rows)));
     // The measured red: the old matcher found nothing at all.
@@ -156,11 +158,17 @@ export function runCaptureContextSelfTests(): SelfTestReport {
       c.kind !== "action", c.kind);
     ok("89.12 §10 …and still reaches context",
       rows.length > 0, JSON.stringify(kinds(rows)));
-    const p = of(rows, "project");
-    ok("89.13 …the Project, through “applications”",
-      p?.label === "Fall applications", String(p?.label));
-    ok("89.14 §13 …carrying the Goal it supports",
-      p?.inheritedGoal?.label === "Graduate school", String(p?.inheritedGoal?.label));
+    // §16. A note has no `projectId`, so offering a Project chip would be a
+    // control that cannot do what it appears to do. What it CAN hold is the
+    // Goal, so the Project's Goal is what is offered — naming both.
+    const p = of(rows, "goal");
+    ok("89.13 §16 …the Goal, reached through the Project that matched",
+      p?.label === "Graduate school", String(p?.label));
+    ok("89.14 §16 …and the explanation names both",
+      /“applications” matches “Fall applications”, which supports this Goal/.test(p?.reason ?? ""),
+      String(p?.reason));
+    ok("89.14a §16 …with no Project chip a note could never honour",
+      rows.every((r) => r.contextType !== "project"), JSON.stringify(kinds(rows)));
     // "grad" is a prefix of "graduate" — LIFEOS-085's rule, and the reason the
     // audit's headline sentence reaches anything at all.
     // The tokenizer keeps the short form...
@@ -186,6 +194,17 @@ export function runCaptureContextSelfTests(): SelfTestReport {
       JSON.stringify(kinds(ctx("Book the schooling paperwork.", gradOnly))));
     ok("89.16 §16 a note gets NO projectId — it has nowhere to put one",
       Object.keys(contextFields(rows, "note")).length === 0, JSON.stringify(contextFields(rows, "note")));
+    // `contextFields` is exported and takes the kind as an argument, so the
+    // guard has to hold for rows that DID come from an action — otherwise it is
+    // only ever protected by the caller happening to agree.
+    const actionRows = ctx("Email Marcus about the clinic lease tomorrow.");
+    ok("89.16a §29 …even when the rows themselves name a Project",
+      actionRows.some((r) => r.contextType === "project")
+      && contextFields(actionRows, "note").projectId === undefined,
+      JSON.stringify(contextFields(actionRows, "note")));
+    ok("89.16b §29 …while the same rows DO give an Action its projectId",
+      contextFields(actionRows, "action").projectId === "p-clinic",
+      JSON.stringify(contextFields(actionRows, "action")));
     ok("89.17 §16, §33 …it attaches to the Goal through linkedKnowledge instead",
       contextKnowledgeGoal(rows, "note") === "g-grad", String(contextKnowledgeGoal(rows, "note")));
     ok("89.18 §16 context never raises a note to an Action",
@@ -272,6 +291,10 @@ export function runCaptureContextSelfTests(): SelfTestReport {
       p?.strength === "exact" && p.label === "Fall applications", `${p?.strength}/${p?.label}`);
     ok("89.41 §22 …with the record's own words as the reason",
       /“Fall applications” appears in what you wrote/.test(p?.reason ?? ""), String(p?.reason));
+    // The exact tier carries ancestry too. Only the `possible` tier's copy was
+    // asserted, so the exact tier's could be removed with nothing going red.
+    ok("89.41a §13 …and an EXACT match carries its Goal as inherited fact too",
+      p?.inheritedGoal?.label === "Graduate school", JSON.stringify(p?.inheritedGoal));
 
     // A fuzzy recent Project must not outrank an exact old one.
     const two = {
@@ -342,7 +365,10 @@ export function runCaptureContextSelfTests(): SelfTestReport {
       projects: [proj({ id: "px", title: "Berlin trip" })],
       nextActions: [],
     } as StoreState;
-    const rows = ctx("Plan the Berlin marathon weekend.", both);
+    const rows = ctx("Email the Berlin marathon organisers.", both);
+    const kind = interpret("Email the Berlin marathon organisers.", both, TODAY).candidates[0].kind;
+    ok("89.82a the fixture's candidate can hold both links",
+      FIELD_LINKABLE_KINDS.includes(kind) && GOAL_LINKABLE_KINDS.includes(kind), kind);
     ok("89.83 §11 a Project and an unrelated Goal are both shown",
       of(rows, "project")?.label === "Berlin trip" && of(rows, "goal")?.label === "Marathon training",
       JSON.stringify(kinds(rows)));
@@ -475,15 +501,22 @@ export function runCaptureContextSelfTests(): SelfTestReport {
       nextActions: [
         act({ id: "c1", title: "Book the Berlin hotel" }),
         act({ id: "c2", title: "Ask Marcus Webb for the survey" }),
-        act({ id: "c3", title: "Ask Priya about the visa" }),
+        act({ id: "c3", title: "Chase Priya about the visa" }),
+        act({ id: "c4", title: "Thank Jordan for the reference" }),
       ],
     } as StoreState;
-    const many = ctx("Ask Marcus and Priya about the Berlin marathon hotel.", crowded);
+    // Verb-led, so the candidate is an Action and CAN take a Project: this
+    // yields a Project, a Goal, an existing Action and three people — six.
+    const CROWDED = "Email Marcus, Priya and Jordan about the Berlin marathon hotel.";
+    const many = ctx(CROWDED, crowded);
+    const uncapped = suggestContext(
+      interpret(CROWDED, crowded, TODAY).candidates[0],
+      crowded, buildCaptureContextIndex(crowded),
+    );
+    // A fixture that never exceeds a cap cannot test the cap, so this asserts
+    // the fixture first.
     ok("89.70a the crowded fixture really does over-produce",
-      suggestContext(
-        interpret("Ask Marcus and Priya about the Berlin marathon hotel.", crowded, TODAY).candidates[0],
-        crowded, buildCaptureContextIndex(crowded),
-      ).length === MAX_SUGGESTIONS, String(many.length));
+      uncapped.length === MAX_SUGGESTIONS, `${uncapped.length} kept of at least 5 available`);
     ok("89.70 §26 context is capped", many.length <= MAX_SUGGESTIONS && rows.length <= MAX_SUGGESTIONS,
       `${many.length} / ${rows.length}`);
     ok("89.71 §24 alternatives are capped",

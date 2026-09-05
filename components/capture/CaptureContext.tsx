@@ -149,7 +149,7 @@ export default function CaptureContext({
                 {/* §13. Inherited, stated as fact — not a second link. */}
                 {s.inheritedGoal && (
                   <span data-context-inherited={s.inheritedGoal.label} className="text-[11px] text-zinc-400">
-                    Supports Goal <strong className="font-medium">{s.inheritedGoal.label}</strong>. {s.inheritedGoal.reason}
+                    Supports Goal <strong className="font-medium">{s.inheritedGoal.label}</strong>.
                   </span>
                 )}
               </div>
