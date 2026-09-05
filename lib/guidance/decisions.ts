@@ -166,6 +166,25 @@ export const DECISION_EMPTY = "Nothing needs your decision right now.";
 export const MAX_DECISIONS = 5;
 
 /**
+ * How many unfiled captures the queue looks at (§49).
+ *
+ * Every other source here reads an index or a filter. This one cannot: deciding
+ * whether a capture's context is contested means running `interpret` and
+ * `suggestContext`, and `suggestContext` calls LIFEOS-089's `matchRecords`,
+ * which walks the store. That is right for one composer keystroke and wrong
+ * five hundred times. Measured on a 5,000-record store with 500 unfiled
+ * captures, the unbounded version took 2.2 SECONDS per build — and this builder
+ * runs on Today, on every store change.
+ *
+ * So the queue looks at the most recent few, newest first. It is a decision
+ * surface, not a counter for the capture inbox: an inbox with hundreds of
+ * unfiled items is a processing backlog, and `/process` is the surface for it.
+ * The bound is named here so the report can state it and the count means
+ * something checkable — decisions among the captures actually examined.
+ */
+export const DECISION_CAPTURE_SCAN = 12;
+
+/**
  * Words this layer may never use (§44, §20, §38).
  *
  * The psychology ban is the load-bearing half. Three deferrals is evidence of
@@ -309,9 +328,13 @@ function deferralDecisions(state: StoreState, today: DayKey, offsetMinutes?: num
  * capture is saved has no record at all. Neither is eligible.
  */
 function captureDecisions(state: StoreState, today: DayKey): DecisionItem[] {
-  const captures = (state.captures ?? []).filter(
-    (c) => (c.processingStatus ?? "inbox") === "inbox" && !c.archivedAt,
-  );
+  const captures = (state.captures ?? [])
+    .filter((c) => (c.processingStatus ?? "inbox") === "inbox" && !c.archivedAt)
+    // Newest first, then bounded — see `DECISION_CAPTURE_SCAN`. Recency rather
+    // than any scoring: the capture you wrote an hour ago is the one whose
+    // context you can still remember, and there is no other honest order.
+    .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
+    .slice(0, DECISION_CAPTURE_SCAN);
   if (captures.length === 0) return [];
 
   const index = buildCaptureContextIndex(state);

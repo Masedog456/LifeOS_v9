@@ -35,7 +35,7 @@ import { buildAttentionShortlist, ATTENTION_MAX_LIMIT } from "@/lib/guidance/att
 import { REPEATED_THRESHOLD } from "@/lib/memory/changes";
 import {
   buildDecisionInbox, decisionCountLine, decisionStillStands, decisionStrings,
-  DECISION_ORDER, DECISION_EMPTY, DECISION_HEADING, MAX_DECISIONS,
+  DECISION_ORDER, DECISION_EMPTY, DECISION_HEADING, MAX_DECISIONS, DECISION_CAPTURE_SCAN,
   DECISION_FORBIDDEN_WORDS,
   type DecisionInbox,
 } from "@/lib/guidance/decisions";
@@ -423,6 +423,25 @@ export function runDecisionInboxSelfTests() {
   }
 
   // ---- §49. Bounded work at scale ----------------------------------------
+  {
+    // The measured regression, pinned. Unbounded, a store with 500 unfiled
+    // captures took 2.2 seconds per build because `suggestContext` walks the
+    // store once per capture — and this builder runs on Today. The bound is
+    // what keeps that from reaching a page, so it is asserted, not trusted.
+    const many = world();
+    for (let i = 0; i < 200; i += 1) {
+      many.captures.push({ id: `cx${i}`, text: "Follow up on the applications and the portfolio review",
+        createdAt: D(T, 7), processingStatus: "inbox", linkedEntityRefs: [] } as StoreState["captures"][number]);
+    }
+    const t = Date.now();
+    const q = buildDecisionInbox(many, buildTodayIndexes(many, T), { today: T, offsetMinutes: 0, limit: 50 });
+    const ms = Date.now() - t;
+    const caps = q.items.filter((i) => i.kind === "AMBIGUOUS_CAPTURE_CONTEXT").length;
+    ok("94.46b §49 the capture scan is bounded, not proportional to the inbox",
+      caps <= DECISION_CAPTURE_SCAN, `${caps} capture rows from 201 unfiled captures`);
+    ok("94.46c §49 …so 200 unfiled captures do not make the queue slow",
+      ms < 400, `${ms}ms`);
+  }
   for (const n of [100, 1000]) {
     const big = emptyStoreState();
     for (let i = 0; i < n; i += 1) {
