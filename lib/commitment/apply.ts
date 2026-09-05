@@ -25,6 +25,7 @@
  */
 
 import type { DayKey } from "@/lib/reviews/dates";
+import { formatDayKey } from "@/lib/reviews/dates";
 import type { RecordRefLite } from "@/types/mvp";
 import type { ResolutionAction, ResolutionChoice } from "@/lib/commitment/resolve";
 
@@ -117,6 +118,30 @@ export function applyResolution(input: ApplyInput, ops: ResolutionOps): Resoluti
       if (!choice.day) return { applied: false, message: "Pick when it should come back.", ref };
       ops.deferAction(id, { date: choice.day });
       return { applied: true, message: `Deferred until ${choice.day}.`, ref };
+    }
+
+    /**
+     * LIFEOS-090 §5, §28. The same store operation as `defer`, reached by the
+     * intent rather than the mechanism — and the choices are wider, so a bare
+     * weekday from `notTodayChoices` lands here as a dated deferral.
+     *
+     * It is a DEFERRAL, not a due-date change: the user intended to do this and
+     * is pushing it forward, which is the fact `history[].deferred` records and
+     * the one LIFEOS-081 counts (§4, §26).
+     */
+    case "not_today": {
+      if (!choice) return { applied: false, message: "Pick when it should come back.", ref };
+      if (choice.id === "someday") {
+        ops.deferAction(id, "someday");
+        return { applied: true, message: "Set aside. It stays out of the way until you bring it back.", ref };
+      }
+      if (choice.id === "next_week") {
+        ops.deferAction(id, "next_week");
+        return { applied: true, message: "Not today — back next week.", ref };
+      }
+      if (!choice.day) return { applied: false, message: "Pick when it should come back.", ref };
+      ops.deferAction(id, { date: choice.day });
+      return { applied: true, message: `Not today — back ${formatDayKey(choice.day)}.`, ref };
     }
 
     case "reschedule": {

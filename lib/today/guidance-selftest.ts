@@ -25,7 +25,7 @@ import {
 import { isDeferredAhead } from "@/lib/actions/defer";
 import { answerMemoryQuery } from "@/lib/memory/answer";
 import { planMemoryQuery } from "@/lib/memory/query";
-import { resolutionsForAction } from "@/lib/commitment/resolve";
+import { resolutionsForAction, RESOLUTION_KINDS } from "@/lib/commitment/resolve";
 import { violatesTodayLanguage, buildTodayView } from "@/lib/today/view";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
@@ -387,8 +387,12 @@ export async function runGuidanceSelfTests(): Promise<SelfTestReport> {
     ok("7.1 the recommended action carries resolution controls", actions.length > 0);
     ok("7.2 …from the shared resolver, including completion",
       actions.some((a) => a.kind === "complete_action"));
+    // The guarantee is that the recommended row uses the SHARED vocabulary and
+    // never a kind invented for recommendations. Pinning the literal list made
+    // it fail when LIFEOS-090 widened that vocabulary, which is not the same
+    // thing — so it now asserts membership of the shared set.
     ok("7.3 …and never a recommendation-specific mutation kind",
-      actions.every((a) => ["complete_action", "complete_occurrence", "defer", "reschedule", "open_record"].includes(a.kind)),
+      actions.every((a) => (RESOLUTION_KINDS as readonly string[]).includes(a.kind)),
       actions.map((a) => a.kind).join(","));
 
     // §21. The question routes, and to the same builder.

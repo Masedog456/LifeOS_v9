@@ -40,6 +40,8 @@ import type { NextAction, RecordRefLite, StoreState } from "@/types/mvp";
 import type { DayKey } from "@/lib/reviews/dates";
 import { addDays, todayKey, formatDayKey } from "@/lib/reviews/dates";
 import { DEFER_LABEL } from "@/lib/actions/defer";
+import { readRule } from "@/lib/time/recurrence";
+import { notTodayChoices, RECURRING_NOTE, WAITING_NOTE } from "@/lib/planning/replan";
 import { blockersOf } from "@/lib/actions/dependencies";
 import type { TodayIndexes } from "@/lib/today/indexes";
 import type { CommitmentKind, CommitmentSignal } from "@/lib/commitment/signals";
@@ -57,6 +59,8 @@ import type { CommitmentKind, CommitmentSignal } from "@/lib/commitment/signals"
 export type ResolutionKind =
   | "complete_action"
   | "complete_occurrence"
+  /** LIFEOS-090 §5. The everyday intent, named as the user thinks of it. */
+  | "not_today"
   | "defer"
   | "reschedule"
   | "open_record"
@@ -67,7 +71,7 @@ export type ResolutionKind =
   | "create_goal_project";
 
 export const RESOLUTION_KINDS: readonly ResolutionKind[] = [
-  "complete_action", "complete_occurrence", "defer", "reschedule",
+  "complete_action", "complete_occurrence", "not_today", "defer", "reschedule",
   "open_record", "open_blocker", "set_follow_up", "stop_waiting",
   "create_project_next_action", "create_goal_project",
 ];
@@ -190,15 +194,61 @@ export function resolutionsFor(
  * same authority; only the entry point differs.
  */
 export const RECOMMENDATION_RESOLUTIONS: readonly ResolutionKind[] = [
-  "complete_action", "complete_occurrence", "defer", "reschedule", "open_record",
+  "complete_action", "complete_occurrence", "not_today", "reschedule", "open_record",
 ];
+
+/**
+ * The controls that FIT this record (LIFEOS-090 §11, §13, §14).
+ *
+ * The flat list above was offered to every action regardless of what it was,
+ * and only `complete_*` varied — so the row for a wait on Maria, the row for a
+ * weekly chore and the row for an ordinary errand all offered the same "Defer",
+ * which means one thing: `status → "deferred"`. On the wait that orphaned
+ * `waitingOn`; on the recurring record it parked the series.
+ *
+ * `MAX_INLINE` still caps what renders, so each list is written most-useful
+ * first rather than trimmed at the call site.
+ */
+export function recommendationResolutionsFor(
+  action: NextAction | undefined,
+  ix: TodayIndexes,
+): readonly ResolutionKind[] {
+  if (!action) return ["open_record"];
+
+  // §11. A wait is not deferred work. The two honest operations are moving the
+  // next follow-up and ending the wait, and LIFEOS-071 already built both.
+  if (action.status === "waiting") {
+    return ["complete_action", "set_follow_up", "stop_waiting", "open_record"];
+  }
+
+  const blocked = ix.blockedActionIds.has(action.id);
+
+  // §14, §15. A recurring record is a standing source. `complete_occurrence`
+  // closes today without ending the series; `not_today` is offered disabled,
+  // because moving one occurrence is not something the model can represent.
+  if (readRule(action.recurrence)) {
+    return blocked
+      ? ["complete_occurrence", "open_blocker", "not_today", "open_record"]
+      : ["complete_occurrence", "not_today", "open_record"];
+  }
+
+  // §13. The blocker leads, because a new date on blocked work is still a date
+  // the work cannot be done on. Replanning stays available underneath it.
+  if (blocked) return ["open_blocker", "not_today", "complete_action", "open_record"];
+
+  return ["complete_action", "not_today", "reschedule", "open_record"];
+}
 
 export function resolutionsForAction(
   state: StoreState,
   actionId: string,
   ctx: ResolveContext,
 ): ResolutionAction[] {
-  return buildResolutions(state, { kind: "action", id: actionId }, RECOMMENDATION_RESOLUTIONS, ctx);
+  const action = ctx.ix.actionsById.get(actionId);
+  return buildResolutions(
+    state, { kind: "action", id: actionId },
+    recommendationResolutionsFor(action, ctx.ix), ctx,
+  );
 }
 
 function buildResolutions(
@@ -266,6 +316,39 @@ function build(
         ...base, label: "Defer", authority: "confirm",
         explanation: "Steps away until the day you pick. It comes back then.",
         choices: deferChoices(today),
+      };
+    }
+
+    /**
+     * LIFEOS-090 §5. The same operation as `defer`, led by the intent.
+     *
+     * "Defer" names a mechanism; "Not today" names what the person actually
+     * means, and it is the single most common thing they want to do to a row.
+     * The choices are wider than `deferChoices` — the remaining days of this
+     * week appear as themselves rather than as a guessed "later this week" (§7).
+     *
+     * On a record the operation would damage it is offered DISABLED with the
+     * reason, rather than hidden: the user goes looking for it either way, and
+     * §15 asks for the limitation to be stated rather than faked.
+     */
+    case "not_today": {
+      if (!action) return null;
+      if (action.status === "waiting") {
+        return {
+          ...base, label: "Not today", authority: "confirm", enabled: false,
+          explanation: WAITING_NOTE(action.waitingOn),
+        };
+      }
+      if (readRule(action.recurrence)) {
+        return {
+          ...base, label: "Not today", authority: "confirm", enabled: false,
+          explanation: RECURRING_NOTE,
+        };
+      }
+      return {
+        ...base, label: "Not today", authority: "confirm",
+        explanation: "Leaves today and comes back on the day you pick.",
+        choices: notTodayChoices(today),
       };
     }
 
