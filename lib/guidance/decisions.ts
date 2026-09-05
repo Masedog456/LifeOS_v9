@@ -51,6 +51,8 @@ import { goalsWithoutAnyPath } from "@/lib/execution/alignment";
 import { interpret } from "@/lib/capture/interpret";
 import { buildCaptureContextIndex, suggestContext } from "@/lib/capture/context";
 import { isLive } from "@/lib/actions/due";
+import type { ResolutionKind } from "@/lib/commitment/resolve";
+import type { ReplanIntent } from "@/lib/planning/replan";
 
 // ----------------------------------------------------------------- kinds ---
 
@@ -98,12 +100,29 @@ const RANK = new Map(DECISION_ORDER.map((k, i) => [k, i]));
 
 // ----------------------------------------------------------------- model ---
 
-/** One thing a person can do about a decision. Never a fake button (§21). */
+/**
+ * One thing a person can do about a decision. Never a fake button (§21).
+ *
+ * Exactly one of `resolution`, `replan` or `href` is set, and the first two are
+ * the EXISTING vocabularies rather than strings: `ResolutionKind` is
+ * LIFEOS-071's table and `ReplanIntent` is LIFEOS-090's, both imported as
+ * types, so a label that names an operation nothing implements cannot compile.
+ * That matters here more than usual — the first draft of this file offered
+ * "Stop doing this" as `resolution: "stop"`, which is not a `ResolutionKind` at
+ * all and would have rendered a button with nothing behind it.
+ *
+ * Two vocabularies rather than one because neither covers the queue alone: 071
+ * has no way to end a commitment, and 090 has no follow-up or goal-project
+ * operation. Both already write through store primitives, and this layer adds
+ * no third path.
+ */
 export interface DecisionOption {
   id: string;
   label: string;
-  /** The resolution vocabulary this maps to, when it maps to one. */
-  resolution?: string;
+  /** LIFEOS-071's operation, when the answer is one of those. */
+  resolution?: ResolutionKind;
+  /** LIFEOS-090's intent, when the answer is a replan or an ending. */
+  replan?: ReplanIntent;
   /** Where it goes, when the honest answer is "look at this". */
   href?: string;
 }
@@ -257,10 +276,14 @@ function deferralDecisions(state: StoreState, today: DayKey, offsetMinutes?: num
       // §44. The count is the claim. What it means is the person's business.
       reason: `You deferred this ${p.count} times.`,
       evidence: "action.history[].deferred",
+      // The labels are the ones the engines themselves produce, so the row and
+      // the control cannot disagree about what a button does. There is no
+      // no-op "Keep it": keeping this means committing to a date, and a button
+      // that changes nothing is the fake button §21 forbids.
       options: [
-        { id: "keep", label: "Keep it", resolution: "reschedule" },
+        { id: "reschedule", label: "Reschedule", resolution: "reschedule" },
         { id: "not_today", label: "Not today", resolution: "not_today" },
-        { id: "stop", label: "Stop doing this", resolution: "stop" },
+        { id: "stop", label: "Stop doing this", replan: { kind: "stop" } },
         { id: "open", label: "Open", href: actionHref(p.action.id) },
       ],
       href: actionHref(p.action.id),

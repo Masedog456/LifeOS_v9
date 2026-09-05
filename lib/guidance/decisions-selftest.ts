@@ -28,6 +28,9 @@ import type { NextAction, StoreState, Goal } from "@/types/mvp";
 import { emptyStoreState } from "@/lib/ux/backup";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { goalsMissingPath } from "@/lib/execution/alignment";
+import { resolutionsFor, resolutionsForAction } from "@/lib/commitment/resolve";
+import { planReplan } from "@/lib/planning/replan";
+import { buildCommitmentSignals } from "@/lib/commitment/signals";
 import { buildAttentionShortlist, ATTENTION_MAX_LIMIT } from "@/lib/guidance/attention";
 import { REPEATED_THRESHOLD } from "@/lib/memory/changes";
 import {
@@ -242,9 +245,48 @@ export function runDecisionInboxSelfTests() {
   ok("94.21 §21 every row offers two to four options",
     inbox.items.every((i) => i.options.length >= 2 && i.options.length <= 4),
     inbox.items.map((i) => i.options.length).join(","));
-  ok("94.22 §21 …each mapping to a resolution or a real destination",
-    inbox.items.every((i) => i.options.every((o) => !!o.resolution || !!o.href)),
-    "");
+  ok("94.22 §21 …each mapping to exactly one engine, never zero and never two",
+    inbox.items.every((i) => i.options.every((o) =>
+      [o.resolution, o.replan, o.href].filter(Boolean).length === 1)),
+    inbox.items.flatMap((i) => i.options.map((o) =>
+      `${o.id}:${[o.resolution, o.replan && "replan", o.href && "href"].filter(Boolean).join("+")}`)).join(" "));
+  {
+    // §21's real test. A label is not a path — the first draft offered "Stop
+    // doing this" as `resolution: "stop"`, which is not a `ResolutionKind`, and
+    // nothing in the model noticed. So every named operation is checked against
+    // the engine that would have to run it, on the actual record.
+    const ix = buildTodayIndexes(s, T);
+    const ctx = { ix, today: T };
+    const signals = buildCommitmentSignals(s, ix, { today: T });
+    const missing: string[] = [];
+    for (const item of inbox.items) {
+      for (const o of item.options) {
+        if (o.resolution) {
+          const built = item.entity.kind === "action"
+            ? resolutionsForAction(s, item.entity.id, ctx)
+            : signals.filter((g) => g.recordRef.id === item.entity.id)
+              .flatMap((g) => resolutionsFor(s, g, ctx));
+          const hit = built.find((r) => r.kind === o.resolution);
+          if (!hit) missing.push(`${item.key}/${o.id}: ${o.resolution} not offered`);
+          else if (hit.label !== o.label) missing.push(`${item.key}/${o.id}: "${o.label}" vs "${hit.label}"`);
+          else if (!hit.enabled) missing.push(`${item.key}/${o.id}: ${o.resolution} disabled`);
+        }
+        if (o.replan) {
+          if (item.entity.kind !== "action") { missing.push(`${item.key}/${o.id}: replan on a non-action`); continue; }
+          const plan = planReplan(s, [item.entity.id], o.replan, ix, T);
+          if (plan.proposals.length !== 1) missing.push(`${item.key}/${o.id}: ${plan.exceptions.length} exceptions, no proposal`);
+        }
+      }
+    }
+    ok("94.22b §21 …and every named operation is one the engine actually offers, enabled, under that label",
+      missing.length === 0, missing.join(" | "));
+  }
+  ok("94.22c §21 the deferral row can answer its own question both ways",
+    (() => {
+      const o = inbox.items.find((i) => i.kind === "REPEATED_DEFERRAL_REVIEW")?.options ?? [];
+      return o.some((x) => x.resolution === "reschedule") && o.some((x) => x.replan?.kind === "stop");
+    })(),
+    (inbox.items.find((i) => i.kind === "REPEATED_DEFERRAL_REVIEW")?.options ?? []).map((x) => x.id).join(","));
   ok("94.23 §22 nothing is preselected",
     !JSON.stringify(inbox.items).includes('"selected"')
     && !JSON.stringify(inbox.items).includes('"default"'));
