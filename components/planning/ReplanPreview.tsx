@@ -29,32 +29,15 @@
  */
 
 import { useMemo, useState } from "react";
-import {
-  completeAction, completeOccurrence, deferAction, setActionDueDate,
-  setNextFollowUpDate, stopWaiting, createAction, reopenAction, uncompleteOccurrence,
-  cancelAction, useStore,
-} from "@/lib/mvpStore";
+import { useStore } from "@/lib/mvpStore";
+import { storeReplanOps } from "@/components/planning/replanOps";
 import { todayKey } from "@/lib/reviews/dates";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { toast } from "@/lib/ux/feedback";
 import {
   planReplan, applyReplan, summarize, notTodayChoices,
-  type ReplanIntent, type ReplanOps, type ReplanProposal,
+  type ReplanIntent, type ReplanProposal,
 } from "@/lib/planning/replan";
-
-/** Every member is an existing primitive. Nothing here sets a field directly. */
-const storeOps: ReplanOps = {
-  completeAction: (id) => completeAction(id),
-  completeOccurrence: (id, day) => completeOccurrence(id, day),
-  deferAction: (id, option) => deferAction(id, option),
-  setActionDueDate: (id, d) => setActionDueDate(id, d),
-  setNextFollowUpDate: (id, d) => setNextFollowUpDate(id, d),
-  stopWaiting: (id) => stopWaiting(id),
-  createAction: (input) => createAction({ title: input.title, projectId: input.projectId }),
-  reopenAction: (id) => reopenAction(id),
-  uncompleteOccurrence: (id, day) => uncompleteOccurrence(id, day),
-  cancelAction: (id) => cancelAction(id),
-};
 
 const chip =
   "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
@@ -95,7 +78,7 @@ export default function ReplanPreview({
     const extra = plan.exceptions
       .filter((e) => e.instead && taken.has(e.actionId))
       .map((e) => e.instead as ReplanProposal);
-    const outcome = applyReplan([...plan.proposals, ...extra], storeOps);
+    const outcome = applyReplan([...plan.proposals, ...extra], storeReplanOps);
     toast({
       kind: outcome.refused.length ? "info" : "success",
       message: outcome.refused.length

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Review today — the day closed from evidence, not from a form (LIFEOS-073 §5).
+ * Review today — the day closed from evidence, not from a form (LIFEOS-091).
  *
  * ## Why this is not the `/daily` wizard
  *
@@ -11,34 +11,52 @@
  * the default way to find out what happened today, because it requires the user
  * to type the answer to a question the store can already answer.
  *
- * This page requires nothing. It reads the same autobiographical evidence Week
- * in Review reads, over a one-day range, and creates no record by being viewed
- * (§17).
+ * ## What LIFEOS-091 changed here
+ *
+ * The page used to render `buildDailyExecutiveView` in six sections and printed
+ * every completion twice — once under "Completed today" and again under
+ * "Changed today", because `COMPLETION_KINDS` is a subset of `CHANGE_KINDS`. It
+ * also showed six of the twelve changes LIFEOS-081 can prove for the same day,
+ * had no Goal movement, no carry-forward, and spoke in weeks ("in this period",
+ * "not a complete record of your week") on a page about one day.
+ *
+ * It now renders `buildEveningClose` in §5's five sections — DONE, CHANGED,
+ * STILL OPEN, IN YOUR OWN WORDS, TOMORROW — each omitted when empty, with the
+ * two tomorrow concepts kept structurally apart (§14) and carry-forward
+ * requiring an explicit press (§16).
  *
  * ## What it refuses to say
  *
- *   "Your day is complete"  — evening is a time, not a verdict (§20)
- *   "You did nothing today" — an empty day is a fact about records (§22)
- *   "Unfinished" / "missed" — the word is "Still open" (§13, §19)
- *   "You attended X"        — nothing records attendance (§29)
+ *   "Your day is complete"  — evening is a time, not a verdict (§22)
+ *   "You did nothing today" — a quiet day is a fact about records (§24)
+ *   "Great job"             — this is a memory surface, not an evaluation (§36)
+ *   "You attended X"        — nothing records attendance
+ *   any narrative at all    — facts are summarized; prose is never generated (§22)
  */
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useStore } from "@/lib/mvpStore";
+import { useStore, addReflection } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import {
-  buildDailyExecutiveView, CHANGE_LABEL, NO_CHANGES_TODAY, NOTHING_TOMORROW,
-  REVIEW_TODAY_LABEL,
-} from "@/lib/today/daily";
+  buildEveningClose, deferralLine, movementLine, eveningHeading, previousDay,
+  EVENING_CHANGE_LABEL,
+  QUIET_DAY, MEMORY_PROMPT, MEMORY_PROMPT_HINT, CARRY_FORWARD_NOTE,
+  TOMORROW_SCHEDULED_HEADING, CARRY_FORWARD_HEADING,
+  type CarryCandidate,
+} from "@/lib/today/evening";
 import { resolutionsForAction } from "@/lib/commitment/resolve";
+import { planReplan, applyReplan } from "@/lib/planning/replan";
+import { storeReplanOps } from "@/components/planning/replanOps";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { formatLocalTime } from "@/lib/time/localtime";
-import { formatDayKey, todayKey } from "@/lib/reviews/dates";
-import { nowLocalTime } from "@/lib/time/events";
+import { formatDayKey, todayKey, addDays } from "@/lib/reviews/dates";
+import { toast } from "@/lib/ux/feedback";
 
 const metaClass = "shrink-0 text-[11px] text-zinc-500";
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
+const chip =
+  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
 
 function Block({ title, show, children, id }: {
   title: string; show: boolean; children: React.ReactNode; id: string;
@@ -55,72 +73,210 @@ function Block({ title, show, children, id }: {
 export default function ReviewToday() {
   const state = useStore();
   const today = todayKey();
-  const [now] = useState(() => nowLocalTime());
-  const ix = useMemo(() => buildTodayIndexes(state, today, now), [state, today, now]);
-  const v = useMemo(() => buildDailyExecutiveView(state, ix, today), [state, ix, today]);
+  /** §26. The day under review. Reusing existing date keys, not a new window. */
+  const [date, setDate] = useState(today);
+  const ix = useMemo(() => buildTodayIndexes(state, date), [state, date]);
+  const c = useMemo(
+    () => buildEveningClose(state, ix, { date, today }),
+    [state, ix, date, today],
+  );
+
+  /** §20. Optional. Empty is a complete answer. */
+  const [memory, setMemory] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  /**
+   * §16, §17, and LIFEOS-090 §33. The user presses; LIFEOS-090 decides.
+   *
+   * This called `deferAction` directly at first, and the browser proved what
+   * that costs: carrying "Reply from Marcus" set `status: "deferred"` while
+   * `waitingOn: "Marcus"` stayed on the record — the wait orphaned, the person
+   * still owed a reply, and the record gone from every surface that asks what
+   * you are waiting on. That is 090's RED 1 exactly, reintroduced on a new
+   * surface by a second mutation path, which is the thing 090 §33 warned about.
+   *
+   * `planReplan` already knows a wait cannot be pushed and already offers the
+   * honest alternative: keep waiting, follow up tomorrow. So the button asks it
+   * rather than deciding for itself, and reports what actually happened.
+   */
+  function carry(f: CarryCandidate) {
+    const plan = planReplan(state, [f.item.entity.id], { kind: "defer", option: "tomorrow" }, ix, date);
+    if (plan.proposals.length > 0) {
+      const outcome = applyReplan(plan.proposals, storeReplanOps);
+      toast({ kind: outcome.applied > 0 ? "success" : "info", message: outcome.message });
+      return;
+    }
+    // §19 of 090: an exception carries its own way forward, and the user takes
+    // it explicitly. Here the press IS that explicit act — but on the honest
+    // operation, and the message says which one it was.
+    const ex = plan.exceptions[0];
+    if (ex?.instead) {
+      const outcome = applyReplan([ex.instead], storeReplanOps);
+      toast({ kind: "info", message: `${ex.note} ${outcome.message}` });
+      return;
+    }
+    toast({ kind: "info", message: ex?.note ?? `${f.item.title} can't move to a day.` });
+  }
+
+  function remember() {
+    const text = memory.trim();
+    if (!text) return;
+    // §21. The existing reflection path, with the prompt kept as the prompt so
+    // provenance survives: this is the user's answer to a question, not a
+    // "daily diary" record type invented for this surface.
+    addReflection({ prompt: MEMORY_PROMPT, response: text, context: date });
+    setMemory("");
+    setSaved(true);
+    toast({ kind: "success", message: "Saved to your reflections." });
+  }
+
+  const hasDone = c.completed.length > 0 || c.waitingResolved.length > 0 || c.movedForward.length > 0;
+  const hasChanged = c.changed.length > 0 || c.deferred.length > 0
+    || c.rescheduled.length > 0 || c.changedDirection.length > 0;
+  const hasOpen = c.stillOpen.length > 0 || c.waitingOpen.length > 0;
+  const hasTomorrow = c.tomorrowScheduled.length > 0 || c.carryForward.length > 0;
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8">
       <header>
-        {/* "Review today" — a thing you can do, not a state the day is in. The
-            heading is the same at 7 PM as at 2 PM (§20, §21). */}
-        <h1 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">{REVIEW_TODAY_LABEL}</h1>
-        <p className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(v.date)}</p>
-        <p data-review-summary className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">
-          {v.changedToday.length === 0 && v.completedToday.length === 0 ? NO_CHANGES_TODAY : v.summary}
-        </p>
+        {/* "Review" — a thing you can do, not a state the day is in (§22). */}
+        <h1 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">Review {eveningHeading(c).toLowerCase()}</h1>
+        <p className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(c.date)}</p>
+
+        {/* §23. Counts. Never an evaluation, and absent when there is nothing
+            to count — a line of zeroes is an appraisal wearing arithmetic. */}
+        {c.quiet ? (
+          <p data-review-quiet className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">{QUIET_DAY}</p>
+        ) : c.calmSummary ? (
+          <p data-review-summary className="mt-2 text-sm text-zinc-700 dark:text-zinc-200">{c.calmSummary}</p>
+        ) : null}
+
+        {/* §26. Existing date keys, one day at a time. No rolling window. */}
+        <div className="mt-2 flex items-center gap-1.5">
+          <button type="button" data-review-prev onClick={() => setDate(previousDay(date))} className={chip}>
+            ← {formatDayKey(previousDay(date), { weekday: "long" })}
+          </button>
+          {date < today && (
+            <button type="button" data-review-next onClick={() => setDate(addDays(date, 1))} className={chip}>
+              {addDays(date, 1) === today ? "Today" : formatDayKey(addDays(date, 1), { weekday: "long" })} →
+            </button>
+          )}
+        </div>
       </header>
 
-      <Block title="Completed today" id="completed" show={v.completedToday.length > 0}>
+      {/* ---- 1. DONE (§6, §7, §12, §28) ----------------------------------- */}
+      <Block title="Done" id="done" show={hasDone}>
+        {c.movedForward.length > 0 && (
+          <>
+            <h3 className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">Moved forward</h3>
+          <ul data-review-moved className="mb-3 flex flex-col gap-0.5">
+            {c.movedForward.map((m) => (
+              <li key={m.goal.id} data-review-movement={m.goal.id} className={rowClass}>
+                <Link href={`/goal/${m.goal.id}`}
+                  className="min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100">
+                  {m.goal.title}
+                </Link>
+                {/* §28. A count of records. No momentum, no percentage. */}
+                <span className={metaClass}>{movementLine(m)}</span>
+              </li>
+            ))}
+          </ul>
+          </>
+        )}
+        {c.completed.length + c.waitingResolved.length > 0 && c.movedForward.length > 0 && (
+          <h3 className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">Completed</h3>
+        )}
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {v.completedToday.map((e) => (
+          {c.completed.map((e) => (
             <li key={`${e.recordRef.id}:${e.kind}`} data-review-completed className={rowClass}>
               <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
-              <span className={metaClass}>{CHANGE_LABEL[e.kind]}</span>
+              <span className={metaClass}>
+                {e.kind === "recurring_completion" ? "Done for the day" : "Completed"}
+              </span>
             </li>
           ))}
-        </ul>
-      </Block>
-
-      {/* §10, §21. Every row names the transition and traces to the field that
-          recorded it. There is no "worked on" here because nothing records it. */}
-      <Block title="Changed today" id="changed" show={v.changedToday.length > 0}>
-        <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {v.changedToday.map((e) => (
-            <li key={`${e.kind}:${e.recordRef.id}:${e.at}`} data-review-changed={e.kind} className={rowClass}>
+          {/* §6, §12. A wait that ended is something that finished, not a
+              "change" — and the person it was on is part of the fact. */}
+          {c.waitingResolved.map((e) => (
+            <li key={`resolved:${e.entity.id}`} data-review-waiting-resolved className={rowClass}>
               <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
               <span className={metaClass}>
-                {CHANGE_LABEL[e.kind] ?? e.kind}{e.detail ? ` · ${e.detail}` : ""}
+                {e.detail ? `Stopped waiting on ${e.detail}` : "Stopped waiting"}
               </span>
             </li>
           ))}
         </ul>
       </Block>
 
-      {/* §13, §19, §27. "Still open" is a status. Each row carries the SAME
-          resolver every other surface uses — no closure-specific controls. */}
-      <Block title="Still open" id="still-open" show={v.stillOpen.length > 0}>
+      {/* ---- 2. CHANGED (§8, §9, §10) ------------------------------------- */}
+      <Block title="Changed" id="changed" show={hasChanged}>
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {v.stillOpen.map((o) => (
-            <li key={o.action.id} data-review-open className="py-1">
+          {/* §9. Deferred and rescheduled are never pooled under "postponed". */}
+          {c.deferred.map((d) => (
+            <li key={`def:${d.change.entity.id}`} data-review-deferred className="py-1">
               <div className={rowClass}>
-                <Link href={`/actions/${o.action.id}`}
-                  className="min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100">
-                  {o.action.title}
-                </Link>
-                <span className={metaClass}>{o.detail}</span>
+                <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{d.change.title}</span>
+                <span className={metaClass}>Deferred</span>
               </div>
-              <ResolutionControls title={o.action.title}
-                actions={resolutionsForAction(state, o.action.id, { today, ix })} />
+              {/* §10. Inline, factual, and only once the count supports it —
+                  never a warning wall. */}
+              {d.repeated && (
+                <p data-review-repeated className="text-[11px] text-zinc-500">{deferralLine(d)}</p>
+              )}
+            </li>
+          ))}
+          {c.rescheduled.map((e) => (
+            <li key={`res:${e.entity.id}`} data-review-rescheduled className={rowClass}>
+              <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
+              <span className={metaClass}>Date changed{e.detail ? ` · ${e.detail}` : ""}</span>
+            </li>
+          ))}
+          {/* §8. Direction, and never called progress. The arrow appears only
+              when the history actually recorded both ends of the transition. */}
+          {c.changedDirection.map((e) => (
+            <li key={`dir:${e.id}`} data-review-direction={e.kind} className={rowClass}>
+              <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
+              <span className={metaClass}>
+                {EVENING_CHANGE_LABEL[e.kind] ?? e.kind}
+                {e.from && e.to ? ` · ${e.from} → ${e.to}` : ""}
+              </span>
+            </li>
+          ))}
+          {c.changed.map((e) => (
+            <li key={`chg:${e.id}`} data-review-changed={e.kind} className={rowClass}>
+              <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
+              <span className={metaClass}>
+                {EVENING_CHANGE_LABEL[e.kind] ?? e.kind}{e.detail ? ` · ${e.detail}` : ""}
+              </span>
             </li>
           ))}
         </ul>
       </Block>
 
-      <Block title="Waiting" id="waiting" show={v.waiting.length > 0}>
+      {/* ---- 3. STILL OPEN (§11, §12, §13, §17) --------------------------- */}
+      <Block title="Still open" id="still-open" show={hasOpen}>
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {v.waiting.map((w) => (
-            <li key={w.action.id} data-review-waiting className="py-1">
+          {c.stillOpen.map((a) => (
+            <li key={a.id} data-review-open={a.kind} className="py-1">
+              <div className={rowClass}>
+                <Link href={`/actions/${a.entity.id}`}
+                  className="min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100">
+                  {a.title}
+                </Link>
+                {/* §13. The blocker is named by the shortlist's own sentence. */}
+                <span className={metaClass}>{a.explanation}</span>
+              </div>
+              {/* §17. The same resolver every other surface uses. No
+                  closure-specific mutations were invented for this page. */}
+              {a.entity.kind === "action" && (
+                <ResolutionControls title={a.title}
+                  actions={resolutionsForAction(state, a.entity.id, { today: date, ix })} />
+              )}
+            </li>
+          ))}
+          {/* §12. Still waiting, structurally apart from the waits that ended. */}
+          {c.waitingOpen.map((w) => (
+            <li key={`wait:${w.action.id}`} data-review-waiting className="py-1">
               <div className={rowClass}>
                 <Link href={`/actions/${w.action.id}`}
                   className="min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100">
@@ -128,65 +284,132 @@ export default function ReviewToday() {
                 </Link>
                 <span className={metaClass}>
                   {w.waitingOn ? `Waiting on ${w.waitingOn}` : "Waiting"}
-                  {w.followUpDue ? " · follow-up due" : ""}
+                  {/* §12. The recorded follow-up date, and nothing about what
+                      the other person owes anyone. */}
+                  {w.followUpDate ? ` · follow up ${formatDayKey(w.followUpDate)}` : ""}
                 </span>
               </div>
               <ResolutionControls title={w.action.title}
-                actions={resolutionsForAction(state, w.action.id, { today, ix })} />
+                actions={resolutionsForAction(state, w.action.id, { today: date, ix })} />
             </li>
           ))}
         </ul>
+        {c.waitingMore > 0 && (
+          <p data-review-waiting-more className="mt-1 text-[11px] text-zinc-500">
+            {c.waitingMore} more {c.waitingMore === 1 ? "wait is" : "waits are"} open.{" "}
+            <Link href="/actions" className="underline-offset-4 hover:underline">See all</Link>
+          </p>
+        )}
       </Block>
 
-      {/* §15. Dated evidence only. Undated open work is never moved here. */}
-      <section data-review-section="tomorrow" className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-        <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Tomorrow</h2>
-        {v.tomorrow.length === 0 ? (
-          <p data-review-no-tomorrow className="text-[11px] text-zinc-500">{NOTHING_TOMORROW}</p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-            {v.tomorrow.map((t) => (
-              <li key={`${t.kind}:${t.id}`} data-review-tomorrow={t.kind} className={rowClass}>
-                <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{t.title}</span>
-                <span className={metaClass}>
-                  {[t.time ? formatLocalTime(t.time) : undefined, t.detail].filter(Boolean).join(" · ")}
-                </span>
+      {/* ---- 4. IN YOUR OWN WORDS (§19, §20, §21) ------------------------- */}
+      <Block title="In your own words" id="reflections"
+        show={c.reflections.length > 0 || c.isToday}>
+        {c.reflections.length > 0 && (
+          <ul className="mb-2 flex flex-col gap-1.5">
+            {c.reflections.map((r) => (
+              <li key={`${r.entity.kind}:${r.entity.id}`} data-review-words
+                className="text-sm text-zinc-700 dark:text-zinc-200">
+                “{r.title}”
               </li>
             ))}
           </ul>
         )}
-      </section>
+        {/* §20. One optional prompt. A sentence or nothing — and no nagging if
+            it stays empty, which is why there is no "incomplete" state here. */}
+        {c.isToday && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="evening-memory" className="text-[11px] text-zinc-500">
+              {MEMORY_PROMPT} <span className="text-zinc-400">{MEMORY_PROMPT_HINT}</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="evening-memory"
+                data-review-memory-input
+                value={memory}
+                onChange={(e) => { setMemory(e.target.value); setSaved(false); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); remember(); } }}
+                placeholder="Optional"
+                className="min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/12"
+              />
+              <button type="button" data-review-memory-save disabled={!memory.trim()} onClick={remember}
+                className="rounded-full bg-zinc-900 px-3 py-1 text-[11px] font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">
+                Save
+              </button>
+            </div>
+            {saved && (
+              <p data-review-memory-saved className="text-[11px] text-zinc-500">
+                Saved with your reflections.
+              </p>
+            )}
+          </div>
+        )}
+      </Block>
 
-      {/* §18, §26. The user's own words only. `buildRangeReview` filters machine
-          prose out upstream by provenance, so AI text can never appear here. */}
-      <Block title="In your own words" id="reflections" show={v.reflections.length > 0}>
-        <ul className="flex flex-col gap-1.5">
-          {v.reflections.map((r) => (
-            <li key={`${r.recordRef.kind}:${r.recordRef.id}`} data-review-words
-              className="text-sm text-zinc-700 dark:text-zinc-200">
-              “{r.title}”
-            </li>
-          ))}
-        </ul>
+      {/* ---- 5. TOMORROW (§14, §15, §16, §18) ---------------------------- */}
+      <Block title="Tomorrow" id="tomorrow" show={hasTomorrow}>
+        {/* §14, §18. Two lists, never merged: what already has a place, and
+            what the review is only proposing. */}
+        {c.tomorrowScheduled.length > 0 && (
+          <>
+            <h3 className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
+              {TOMORROW_SCHEDULED_HEADING}
+            </h3>
+            <ul data-review-scheduled className="mb-3 flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+              {c.tomorrowScheduled.map((t) => (
+                <li key={`${t.kind}:${t.id}`} data-review-tomorrow={t.kind} className={rowClass}>
+                  <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{t.title}</span>
+                  <span className={metaClass}>
+                    {[t.time ? formatLocalTime(t.time) : undefined, t.detail].filter(Boolean).join(" · ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {c.carryForward.length > 0 && (
+          <>
+            <h3 className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
+              {CARRY_FORWARD_HEADING}
+            </h3>
+            <ul data-review-carry className="flex flex-col gap-1">
+              {c.carryForward.map((f) => (
+                <li key={f.item.id} data-review-carry-item={f.item.reason} className="py-1">
+                  <div className={rowClass}>
+                    <Link href={`/actions/${f.item.entity.id}`}
+                      className="min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100">
+                      {f.item.title}
+                    </Link>
+                    {/* §41. Still open above already gave this item's reason;
+                        printing it again here is one fact rendered twice. */}
+                    {!f.echoesStillOpen && <span className={metaClass}>{f.item.explanation}</span>}
+                  </div>
+                  {/* §16. A proposal. Nothing has moved, and nothing will until
+                      this is pressed. */}
+                  <button type="button" data-review-carry-confirm={f.item.entity.id}
+                    onClick={() => carry(f)} className={chip}>
+                    Carry to tomorrow
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <p data-review-carry-note className="mt-1.5 text-[11px] text-zinc-500">{CARRY_FORWARD_NOTE}</p>
+          </>
+        )}
       </Block>
 
       <footer className="flex flex-col gap-2 text-[11px] text-zinc-500">
-        <p data-review-coverage>{v.coverage}</p>
-        {v.limitations.length > 0 && (
-          <ul data-review-limitations className="flex flex-col gap-0.5">
-            {v.limitations.map((l) => <li key={l}>· {l}</li>)}
-          </ul>
-        )}
+        {/* §24. A day surface says what it covers in a day's words. The old
+            line said "not a complete record of your week" on this page. */}
+        <p data-review-coverage>
+          This reflects what was recorded in Conqify. It is not a complete record of your day.
+        </p>
         <p className="mt-1">
-          {/* The wizard remains, named as what it is: optional reflection on top
-              of evidence the user did not have to write down (§17). */}
           <Link href="/daily" className="underline-offset-4 hover:underline">
-            Add your own reflection →
+            Add a fuller reflection →
           </Link>
           {" · "}
-          {/* LIFEOS-084 §29. `/memory/week` has never existed — this link has
-              404'd since LIFEOS-073. The weekly review lives on `/memory`,
-              which is the one weekly review surface. */}
           <Link href="/memory" data-review-week className="underline-offset-4 hover:underline">Review this week →</Link>
         </p>
       </footer>
