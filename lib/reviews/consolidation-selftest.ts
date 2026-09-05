@@ -113,7 +113,7 @@ export function runDailyReviewConsolidationSelfTests() {
   ok("92.2 §27 the old route still answers, so bookmarks do not 404",
     exists("app/daily/page.tsx") && exists("app/daily/[date]/page.tsx"));
   {
-    const daily = read("app/daily/page.tsx");
+    const daily = code("app/daily/page.tsx");
     ok("92.3 §27 …and it redirects rather than rendering a second review",
       /router\.replace\(/.test(daily) && daily.includes(CANONICAL_REVIEW_ROUTE),
       daily.slice(0, 0));
@@ -123,16 +123,20 @@ export function runDailyReviewConsolidationSelfTests() {
       /router\.replace\(/.test(daily) && !/router\.push\(/.test(daily));
   }
   {
-    const dated = read("app/daily/[date]/page.tsx");
+    // `code`, not `read`: the first version matched "?date=" inside this file's
+    // own doc comment, so a mutation that dropped the day from the redirect
+    // still passed. A prose mention is not an implementation.
+    const dated = code("app/daily/[date]/page.tsx");
     ok("92.6 §7, §17 the dated route carries its day across the redirect",
-      dated.includes("?date=") && /router\.replace\(/.test(dated), "");
+      /\?date=\$\{date\}/.test(dated) && /router\.replace\(/.test(dated),
+      dated.includes("?date=") ? "" : "no ?date= in code");
     ok("92.7 §17 …and an unparseable date still lands on a review",
       /isDayKey\(/.test(dated));
   }
   ok("92.8 §7 the canonical route accepts a day as a parameter",
-    read("app/today/review/page.tsx").includes('params.get("date")'));
+    code("app/today/review/page.tsx").includes('params.get("date")'));
   ok("92.9 §17 …and validates it rather than trusting the URL",
-    /isDayKey\(/.test(read("app/today/review/page.tsx")));
+    /isDayKey\(/.test(code("app/today/review/page.tsx")));
 
   // ---- §6, §20, §22, §28. One door ---------------------------------------
   //
@@ -152,12 +156,12 @@ export function runDailyReviewConsolidationSelfTests() {
       offenders.length === 0, offenders.join(", "));
   }
   {
-    const src = read("app/today/page.tsx");
+    const src = code("app/today/page.tsx");
     ok("92.11 §20 Today does not render the old review card",
       !/TodayReviewCard/.test(src));
   }
   {
-    const nav = read("components/Nav.tsx");
+    const nav = code("components/Nav.tsx");
     ok("92.12 §22 navigation names the canonical route",
       nav.includes(`href: "${CANONICAL_REVIEW_ROUTE}"`), "");
     ok("92.13 §22 …and does not also carry the old one",
@@ -271,7 +275,7 @@ export function runDailyReviewConsolidationSelfTests() {
   // opening the page to LOOK created a `not_started` record that then appeared
   // in history as something begun and abandoned.
   {
-    const canonical = read("components/today/ReviewToday.tsx");
+    const canonical = code("components/today/ReviewToday.tsx");
     ok("92.33 §16 the canonical review creates nothing by being read",
       !/getOrCreateReviewForDate|startDailyReview|completeDailyReview/.test(canonical),
       "");
@@ -305,7 +309,7 @@ export function runDailyReviewConsolidationSelfTests() {
 
   // ---- §21. Daily and weekly stay separate --------------------------------
   {
-    const canonical = read("components/today/ReviewToday.tsx");
+    const canonical = code("components/today/ReviewToday.tsx");
     ok("92.40 §21 the daily review links to the week rather than embedding it",
       /href="\/memory"/.test(canonical) && !/WeeklyRollup|buildWeeklyExecutiveReview/.test(canonical));
   }

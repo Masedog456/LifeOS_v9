@@ -185,6 +185,10 @@ async function settle(page, ms = 900) { await page.waitForTimeout(ms); }
   ok("22 §12 still open stays bounded",
     await page.evaluate(() => document.querySelectorAll("[data-review-open]").length) <= 3,
     String(await page.evaluate(() => document.querySelectorAll("[data-review-open]").length)));
+  ok("22a §18 today's carry button reads naturally",
+    await page.evaluate(() =>
+      /^Carry to tomorrow$/.test((document.querySelector("[data-review-carry-confirm]")?.textContent || "").trim())),
+    await page.evaluate(() => (document.querySelector("[data-review-carry-confirm]")?.textContent || "").trim()));
   ok("23 §13 tomorrow keeps its two lists",
     /Tomorrow already has/.test(sections.tomorrow || "")
     && /Possible carry-forward/.test(sections.tomorrow || ""), (sections.tomorrow || "").slice(0, 120));
@@ -242,6 +246,24 @@ async function settle(page, ms = 900) { await page.waitForTimeout(ms); }
     await page.evaluate(() => !/Send application/.test(document.body.innerText)));
   ok("35 §16 …and the optional prompt is not offered for a past day",
     await page.evaluate(() => !document.querySelector("[data-review-memory-input]")));
+  // §37. The heading lowercased a formatted date — "Review friday, sep 4".
+  ok("35a §37 the heading names the day properly",
+    await page.evaluate(() => /^Review [A-Z]/.test((document.querySelector("h1")?.textContent || "").trim())),
+    await page.evaluate(() => document.querySelector("h1")?.textContent || ""));
+  // §18. The button said "Carry to tomorrow" while moving work to the day after
+  // TODAY, not the day after the day being read.
+  {
+    const label = await page.evaluate(() =>
+      (document.querySelector("[data-review-carry-confirm]")?.textContent || "").trim());
+    ok("35b §18 a past day's carry button names the day it targets",
+      label !== "" && !/^Carry to tomorrow$/.test(label), label || "(no candidates)");
+    ok("35c §18 …and the section is not called 'Tomorrow' on a past day",
+      await page.evaluate(() => {
+        const s = document.querySelector('[data-review-section="tomorrow"]');
+        return !s || !/^TOMORROW/i.test((s.textContent || "").trim());
+      }),
+      await page.evaluate(() => (document.querySelector('[data-review-section="tomorrow"]')?.textContent || "").slice(0, 40)));
+  }
   {
     // §18. A forward-looking action taken while reviewing yesterday must aim at
     // the day AFTER today, never at yesterday's tomorrow.
