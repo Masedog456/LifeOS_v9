@@ -266,7 +266,11 @@ function goalDecisions(state: StoreState): DecisionItem[] {
     kind: "GOAL_NO_PATH" as const,
     entity: { kind: "goal", id: g.id } as RecordRefLite,
     title: g.title,
-    question: "What should carry this goal?",
+    // Named, not "this goal". A queue can hold several of these at once, and
+    // the visual review found three rows reading "What should carry this
+    // goal?" one under another — identical questions whose only difference sat
+    // on a secondary line.
+    question: `What should carry “${g.title}”?`,
     // §13. A fact about records, and no implication of failure.
     reason: "No active project or live action is linked to this goal.",
     evidence: "project.goalId",

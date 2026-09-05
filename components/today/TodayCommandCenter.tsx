@@ -39,7 +39,7 @@ import {
 } from "@/lib/commitment/signals";
 import { resolutionsFor, resolutionsForAction } from "@/lib/commitment/resolve";
 import { buildDailyCommandView, SINCE_YESTERDAY_HEADING } from "@/lib/today/command";
-import { buildDecisionInbox, decisionCountLine } from "@/lib/guidance/decisions";
+import { buildDecisionInbox, DECISION_HEADING } from "@/lib/guidance/decisions";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { toast } from "@/lib/ux/feedback";
 
@@ -105,7 +105,10 @@ export default function TodayCommandCenter() {
    * rather than showing "· 0". Same indexes again; no extra store scan.
    */
   const decisions = useMemo(() => buildDecisionInbox(state, ix, { today }), [state, ix, today]);
-  const decisionCount = decisionCountLine(decisions);
+  // The count is stated once, by the orientation line above the link (§27).
+  // Rendering it in both put "4 needing your decision" and "Needs your
+  // decision · 4" three lines apart on the same card — the visual review
+  // caught it, and a count repeated is a count nobody reads.
   const decisionTotal = decisions.total;
   // Split once, from the already-deduplicated list. Each section renders its own
   // slice; no section re-derives what belongs in it.
@@ -206,10 +209,10 @@ export default function TodayCommandCenter() {
             how a calm surface acquires a thing to keep clearing. The count is
             all it says; the questions live on their own page.
           */}
-          {decisionCount && (
+          {decisionTotal > 0 && (
             <Link href="/today/decisions" data-decision-count-link
               className="text-[11px] text-zinc-500 underline-offset-4 hover:underline">
-              {decisionCount} →
+              {DECISION_HEADING} →
             </Link>
           )}
         </div>

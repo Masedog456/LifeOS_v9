@@ -152,34 +152,48 @@ export default function DecisionInbox({ limit = MAX_DECISIONS }: { limit?: numbe
               >
                 {/* §20. The question leads. The record's own words sit under it. */}
                 <p className="text-sm font-medium" data-decision-question>{item.question}</p>
-                <p className="mt-0.5 truncate text-[12px] text-zinc-500 dark:text-zinc-400"
-                  data-decision-title title={item.title}>
-                  {item.title}
-                </p>
+                {/*
+                  …unless the question already quoted them. Two of the four
+                  kinds name the record inside the question, and printing the
+                  title again under it read as a stutter — "Keep “Request
+                  recommendation”?" above "Request recommendation".
+                */}
+                {!item.question.includes(item.title) && (
+                  <p className="mt-0.5 truncate text-[12px] text-zinc-500 dark:text-zinc-400"
+                    data-decision-title title={item.title}>
+                    {item.title}
+                  </p>
+                )}
                 {/* §38. Why this is being asked, in one checkable sentence. */}
                 <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400" data-decision-reason>
                   {item.reason}
                 </p>
 
-                {controls.length > 0 && (
-                  <ResolutionControls title={item.title} actions={controls} />
-                )}
-
-                {(links.length > 0 || stops.length > 0) && (
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    {stops.map((o) => (
-                      <button key={o.id} type="button" data-decision-option={o.id}
-                        onClick={() => stop(item, o)} className={btn}>
-                        {o.label}
-                      </button>
-                    ))}
-                    {links.map((o) => (
-                      <Link key={o.id} href={o.href ?? "#"} data-decision-option={o.id} className={btn}>
-                        {o.label}
-                      </Link>
-                    ))}
-                  </div>
-                )}
+                {/*
+                  One row, not two stacked ones. `ResolutionControls` brings its
+                  own column — its buttons, the reason a disabled one is
+                  disabled, its confirm panel — so it becomes a flex ITEM here
+                  and the options this file owns sit beside it rather than
+                  orphaned on a line below, which is how the visual review found
+                  a lone "Open" under every wait.
+                */}
+                <div className="flex flex-wrap items-start gap-x-1.5">
+                  {controls.length > 0 && (
+                    <ResolutionControls title={item.title} actions={controls} />
+                  )}
+                  {stops.map((o) => (
+                    <button key={o.id} type="button" data-decision-option={o.id}
+                      onClick={() => stop(item, o)} className={`mt-1 ${btn}`}>
+                      {o.label}
+                    </button>
+                  ))}
+                  {links.map((o) => (
+                    <Link key={o.id} href={o.href ?? "#"} data-decision-option={o.id}
+                      className={`mt-1 ${btn}`}>
+                      {o.label}
+                    </Link>
+                  ))}
+                </div>
               </li>
             );
           })}

@@ -271,10 +271,12 @@ const rows = (page) => page.evaluate(() =>
     link: document.querySelector("[data-decision-count-link]")?.textContent ?? "",
     body: document.body.innerText,
   }));
-  ok("25 §26 Today links to the queue with a count",
-    /Needs your decision · 4/.test(todayLine.link), todayLine.link);
-  ok("26 §27 …and the orientation line keeps decision separate from attention",
-    /needing your decision/.test(todayLine.body), "");
+  ok("25 §26 Today links to the queue",
+    /Needs your decision/.test(todayLine.link), todayLine.link);
+  ok("26 §27 …states the count once, in the orientation line, in its own words",
+    /4 needing your decision/.test(todayLine.body)
+    && !/Needs your decision · /.test(todayLine.link),
+    `${todayLine.link} | ${(todayLine.body.match(/[^\n]*needing your decision[^\n]*/) ?? [""])[0]}`);
   await seed(page, { ...EMPTY() });
   await page.goto(`${BASE}/today`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(900);
