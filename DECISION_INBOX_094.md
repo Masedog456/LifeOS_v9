@@ -76,9 +76,24 @@ So **the queue cannot be a filter over the shortlist.** Filtering it would hide
 every decision that happens to sit on a record with a louder attention signal.
 The queue must derive from the sources directly and apply its own precedence.
 
-The same run showed 088's semantics working correctly in the other direction:
-once that action was linked to `g-none`, the goal had executable work and its
-`goal_path_missing` signal disappeared on its own.
+**Correction to a first reading of that same run.** The goal `g-none` also
+vanished from the shortlist once an action was linked to it, and I first read
+that as the `goal_path_missing` signal resolving itself. It was not — the
+shortlist is capped, and the new row displaced it. Measured directly:
+
+```
+goalPathState       → "actions"
+goalsMissingPath    → ["g-none"]     ← still listed
+goalsWithoutAnyPath → []
+```
+
+`goalPathMissing` asks only about **projects**, and LIFEOS-088 kept it that way
+deliberately: Today's sentence claims only that no active project carries the
+goal. This queue's row asks *"what should carry this goal?"* and states *"no
+active project or live action is linked"* — a stronger claim, and a false one
+for a goal with a live directly-linked action. So §13's "088 semantics" here
+means `goalsWithoutAnyPath`, the predicate 088 added for exactly this question.
+Assertions 94.6b–94.6d pin all three facts.
 
 ## 1.4 F — What stays contextual
 
@@ -171,7 +186,7 @@ each already built:
 ```
 WAITING_FOLLOW_UP      follow_up_due signals            (070)
 REPEATED_DEFERRAL      repeatedlyPostponed, threshold 2 (081)
-GOAL_NO_PATH           goalsMissingPath                 (088 semantics)
+GOAL_NO_PATH           goalsWithoutAnyPath              (088 semantics)
 AMBIGUOUS_CAPTURE      interpret + suggestContext       (080/089)
 ```
 
