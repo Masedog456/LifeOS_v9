@@ -36,7 +36,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useStore, deferAction, addReflection } from "@/lib/mvpStore";
+import { useStore, addReflection } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import {
   buildEveningClose, deferralLine, movementLine, eveningHeading, previousDay,
@@ -46,6 +46,8 @@ import {
   type CarryCandidate,
 } from "@/lib/today/evening";
 import { resolutionsForAction } from "@/lib/commitment/resolve";
+import { planReplan, applyReplan } from "@/lib/planning/replan";
+import { storeReplanOps } from "@/components/planning/replanOps";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { formatLocalTime } from "@/lib/time/localtime";
 import { formatDayKey, todayKey, addDays } from "@/lib/reviews/dates";
@@ -84,24 +86,36 @@ export default function ReviewToday() {
   const [saved, setSaved] = useState(false);
 
   /**
-   * §16, §17. The user presses; the existing setter writes. Carrying to
-   * tomorrow IS a deferral to tomorrow — the same primitive LIFEOS-090 binds,
-   * so a carried item records a deferral like any other and no new mutation
-   * path is introduced.
+   * §16, §17, and LIFEOS-090 §33. The user presses; LIFEOS-090 decides.
+   *
+   * This called `deferAction` directly at first, and the browser proved what
+   * that costs: carrying "Reply from Marcus" set `status: "deferred"` while
+   * `waitingOn: "Marcus"` stayed on the record — the wait orphaned, the person
+   * still owed a reply, and the record gone from every surface that asks what
+   * you are waiting on. That is 090's RED 1 exactly, reintroduced on a new
+   * surface by a second mutation path, which is the thing 090 §33 warned about.
+   *
+   * `planReplan` already knows a wait cannot be pushed and already offers the
+   * honest alternative: keep waiting, follow up tomorrow. So the button asks it
+   * rather than deciding for itself, and reports what actually happened.
    */
   function carry(f: CarryCandidate) {
-    // The model already refuses to offer anything but an action, and this is
-    // the belt to that pair of braces: the first version pressed on through
-    // whatever it was handed, so carrying a GOAL wrote nothing and still
-    // announced "Open the clinic — back tomorrow". A success message for a
-    // mutation that did not happen is worse than no button at all.
-    const target = state.nextActions?.find((a) => a.id === f.item.entity.id);
-    if (!target) {
-      toast({ kind: "info", message: `${f.item.title} isn't work that can move to a day.` });
+    const plan = planReplan(state, [f.item.entity.id], { kind: "defer", option: "tomorrow" }, ix, date);
+    if (plan.proposals.length > 0) {
+      const outcome = applyReplan(plan.proposals, storeReplanOps);
+      toast({ kind: outcome.applied > 0 ? "success" : "info", message: outcome.message });
       return;
     }
-    deferAction(target.id, "tomorrow");
-    toast({ kind: "success", message: `${f.item.title} — back tomorrow.` });
+    // §19 of 090: an exception carries its own way forward, and the user takes
+    // it explicitly. Here the press IS that explicit act — but on the honest
+    // operation, and the message says which one it was.
+    const ex = plan.exceptions[0];
+    if (ex?.instead) {
+      const outcome = applyReplan([ex.instead], storeReplanOps);
+      toast({ kind: "info", message: `${ex.note} ${outcome.message}` });
+      return;
+    }
+    toast({ kind: "info", message: ex?.note ?? `${f.item.title} can't move to a day.` });
   }
 
   function remember() {
@@ -153,7 +167,9 @@ export default function ReviewToday() {
       {/* ---- 1. DONE (§6, §7, §12, §28) ----------------------------------- */}
       <Block title="Done" id="done" show={hasDone}>
         {c.movedForward.length > 0 && (
-          <ul data-review-moved className="mb-2 flex flex-col gap-0.5">
+          <>
+            <h3 className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">Moved forward</h3>
+          <ul data-review-moved className="mb-3 flex flex-col gap-0.5">
             {c.movedForward.map((m) => (
               <li key={m.goal.id} data-review-movement={m.goal.id} className={rowClass}>
                 <Link href={`/goal/${m.goal.id}`}
@@ -165,6 +181,10 @@ export default function ReviewToday() {
               </li>
             ))}
           </ul>
+          </>
+        )}
+        {c.completed.length + c.waitingResolved.length > 0 && c.movedForward.length > 0 && (
+          <h3 className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">Completed</h3>
         )}
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
           {c.completed.map((e) => (
@@ -274,6 +294,12 @@ export default function ReviewToday() {
             </li>
           ))}
         </ul>
+        {c.waitingMore > 0 && (
+          <p data-review-waiting-more className="mt-1 text-[11px] text-zinc-500">
+            {c.waitingMore} more {c.waitingMore === 1 ? "wait is" : "waits are"} open.{" "}
+            <Link href="/actions" className="underline-offset-4 hover:underline">See all</Link>
+          </p>
+        )}
       </Block>
 
       {/* ---- 4. IN YOUR OWN WORDS (§19, §20, §21) ------------------------- */}

@@ -145,6 +145,8 @@ export interface EveningClose {
   stillOpen: ExecutiveAttentionItem[];
   /** Open waits tonight. Separate from the ones that resolved (§12). */
   waitingOpen: WaitingLine[];
+  /** How many further open waits exist beyond the ones shown (§11, §41). */
+  waitingMore: number;
 
   // ---- 4. IN YOUR OWN WORDS (§19) ----------------------------------------
   /** User-authored only, capped at three. Machine prose can never appear. */
@@ -201,6 +203,9 @@ export const EVENING_CHANGE_LABEL: Record<string, string> = {
   decision_recorded: "Decision recorded",
   event_scheduled: "Scheduled",
 };
+
+/** §11, §41. Waits shown in full before the rest are counted instead. */
+export const MAX_WAITING = 3;
 
 /** §24. A quiet day is a fact about records, never a shortfall. */
 export const QUIET_DAY =
@@ -316,6 +321,8 @@ export function buildEveningClose(
 
   // ---- 1. DONE ------------------------------------------------------------
   const daily = buildDailyExecutiveView(state, ix, date);
+  /** What "Tomorrow already has" will say, so nothing else restates it. */
+  const tomorrowIds = new Set(daily.tomorrow.map((t) => t.id));
   const completed = daily.completedToday;
   const waitingResolved = changes.filter((c) => c.kind === "waiting_ended");
 
@@ -396,11 +403,26 @@ export function buildEveningClose(
   // §11. The shortlist, capped. Not the backlog: the dense-day fixture put 45
   // items through the attention layer and 8 through the old still-open list.
   const shortlist = buildAttentionShortlist(state, ix, date, { limit: ATTENTION_MAX_LIMIT });
-  const stillOpen = shortlist.slice(0, MAX_UNRESOLVED);
+  // §41. Work already dated tomorrow is not unresolved tonight — it is
+  // scheduled, and the Tomorrow section says so. The first draft printed
+  // "Submit the second application · Due tomorrow." under Still open and
+  // "Submit the second application · Due Sun, Sep 6" under Tomorrow: one date,
+  // two sections, two formats.
+  const stillOpen = shortlist
+    .filter((a) => !tomorrowIds.has(a.entity.id))
+    .slice(0, MAX_UNRESOLVED);
+  const shortlistIds = new Set(stillOpen.map((a) => a.entity.id));
 
   // §12. Open tonight, and structurally apart from the ones that resolved.
-  const waitingOpen: WaitingLine[] = (state.nextActions ?? [])
+  //
+  // §41. A wait whose follow-up has arrived is ALSO on the attention shortlist,
+  // so the first draft rendered "Reply from Marcus · follow-up date was Fri" and
+  // "Reply from Marcus · waiting on Marcus · follow up Fri" as two rows inside
+  // one section, each with its own identical three-button menu. One commitment,
+  // one row: the shortlist leads, and the roster holds what it did not.
+  const openWaits: WaitingLine[] = (state.nextActions ?? [])
     .filter((a) => a.status === "waiting" && isLive(a))
+    .filter((a) => !shortlistIds.has(a.id))
     .map((a) => ({
       action: a,
       waitingOn: a.waitingOn,
@@ -409,6 +431,12 @@ export function buildEveningClose(
     }))
     .sort((x, y) => Number(y.followUpDue) - Number(x.followUpDue)
       || x.action.title.localeCompare(y.action.title));
+  // §11, §41. Five people to hear from is a legitimate state; nine rows with
+  // nine identical menus is the backlog dump this section exists to avoid. The
+  // remainder is COUNTED rather than dropped — hiding it silently would be the
+  // review deciding which of someone's commitments are worth mentioning.
+  const waitingOpen = openWaits.slice(0, MAX_WAITING);
+  const waitingMore = openWaits.length - waitingOpen.length;
 
   // ---- 4. IN YOUR OWN WORDS ----------------------------------------------
   //
@@ -469,7 +497,7 @@ export function buildEveningClose(
     rescheduled: rescheduled.length,
     changed: changed.length + changedDirection.length,
     stillOpen: stillOpen.length,
-    waitingOpen: waitingOpen.length,
+    waitingOpen: openWaits.length,
   });
 
   const quiet = completed.length === 0 && waitingResolved.length === 0
@@ -481,7 +509,7 @@ export function buildEveningClose(
     date, isToday,
     completed, waitingResolved, movedForward,
     changed, deferred, rescheduled, changedDirection,
-    stillOpen, waitingOpen,
+    stillOpen, waitingOpen, waitingMore,
     reflections,
     tomorrowScheduled, carryForward,
     calmSummary, quiet,

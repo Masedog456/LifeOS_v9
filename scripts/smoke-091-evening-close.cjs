@@ -278,6 +278,44 @@ const textsOf = (page, sel) => page.evaluate((s) =>
     }
   }
 
+  // ---- Carrying a WAIT must not orphan it (LIFEOS-090 §33, RED 1) -------
+  //
+  // "Carry to tomorrow" called `deferAction` directly at first. Pressing it on
+  // a wait set `status: "deferred"` and left `waitingOn: "Marcus"` sitting on
+  // the record — the wait gone from every surface that asks what you are
+  // waiting on, while the person still owed a reply. Measured here, in the
+  // browser, before it was routed through `planReplan`.
+  {
+    const waits = WORLD();
+    ["Marcus", "Priya"].forEach((n, i) => waits.nextActions.push(act({
+      id: `w${i}`, title: `Reply from ${n}`, status: "waiting", waitingOn: n,
+      waitingSince: at(-10), followUpDate: dk(i - 2),
+      history: [h("created", at(-10)),
+        h("waiting", at(-10, 9), { detail: n, fromStatus: "open", toStatus: "waiting" })] })));
+    await seed(page, waits);
+    await review(page);
+    const offered = await page.evaluate(() =>
+      [...document.querySelectorAll("[data-review-carry-confirm]")]
+        .map((e) => e.getAttribute("data-review-carry-confirm")));
+    const wid = offered.find((id) => /^w\d/.test(id));
+    ok("39d §12 a due wait can reach the carry list", !!wid, JSON.stringify(offered));
+    if (wid) {
+      await page.click(`[data-review-carry-confirm="${wid}"]`);
+      await page.waitForTimeout(800);
+      const w = await actionOf(page, wid);
+      ok("39e §11 …and carrying it NEVER orphans the wait",
+        !(w.status === "deferred" && !!w.waitingOn),
+        JSON.stringify({ status: w.status, waitingOn: w.waitingOn }));
+      ok("39f §12 …it is still a wait, on the same person",
+        w.status === "waiting" && w.waitingOn === (wid === "w0" ? "Marcus" : "Priya"),
+        JSON.stringify({ status: w.status, waitingOn: w.waitingOn }));
+      ok("39g §12 …with the wait's start date untouched",
+        w.waitingSince === at(-10), String(w.waitingSince));
+      ok("39h §11 …and the follow-up date is what moved",
+        w.followUpDate === dk(1), String(w.followUpDate));
+    }
+  }
+
   // ---- 13, 14. The user's own words (§19, §22) --------------------------
   await seed(page);
   await review(page);

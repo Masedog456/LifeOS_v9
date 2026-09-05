@@ -367,6 +367,46 @@ export function runEveningCloseSelfTests() {
     !c.waitingOpen.some((w) => w.action.id === "a-transcript"));
   ok("91.41 §12 the two waiting lists never intersect",
     c.waitingOpen.every((w) => !ids(c.waitingResolved).includes(w.action.id)));
+  {
+    // §41. Five people to hear from, three of whose follow-ups have arrived.
+    // The shortlist raises those three; the roster held them again, so one
+    // commitment rendered as two rows inside one section, each with its own
+    // identical menu. The screenshots found this; nothing else could have.
+    const many = world();
+    ["Marcus", "Priya", "the registrar", "the landlord", "Dr Okafor"].forEach((n, i) =>
+      many.nextActions.push(act({ id: `w${i}`, title: `Reply from ${n}`, status: "waiting",
+        waitingOn: n, waitingSince: D("2026-09-01"), followUpDate: addDays(TODAY, i - 2),
+        history: [h("created", D("2026-09-01")),
+          h("waiting", D("2026-09-01", 9), { detail: n, fromStatus: "open", toStatus: "waiting" })] })));
+    const cm = close(many);
+    const openIds = ids(cm.stillOpen);
+    ok("91.41a §41 a wait on the shortlist is not repeated in the roster",
+      cm.waitingOpen.every((w) => !openIds.includes(w.action.id)),
+      cm.waitingOpen.map((w) => w.action.id).filter((x) => openIds.includes(x)).join(","));
+    ok("91.41b §11 the waiting roster is bounded",
+      cm.waitingOpen.length <= 3, String(cm.waitingOpen.length));
+    ok("91.41c §41 …and the remainder is counted, never silently dropped",
+      cm.waitingMore > 0 && cm.waitingOpen.length + cm.waitingMore
+        === many.nextActions.filter((a) => a.status === "waiting").length - openIds
+          .filter((id) => many.nextActions.some((a) => a.id === id && a.status === "waiting")).length,
+      `${cm.waitingOpen.length} shown + ${cm.waitingMore} more`);
+    ok("91.41d §23 …and the calm line counts every open wait, not just the shown ones",
+      cm.calmSummary.includes(`${cm.waitingOpen.length + cm.waitingMore} waiting`), cm.calmSummary);
+    {
+      const seen = new Map();
+      for (const id of [...openIds, ...cm.waitingOpen.map((w) => w.action.id)]) {
+        seen.set(id, (seen.get(id) ?? 0) + 1);
+      }
+      ok("91.41e §41 no record appears twice inside Still open",
+        [...seen.values()].every((n) => n === 1),
+        [...seen.entries()].filter(([, n]) => n > 1).map(([id]) => id).join(","));
+    }
+  }
+  ok("91.41f §41 work already dated tomorrow is not ALSO still open",
+    !ids(c.stillOpen).includes("a-submit"), ids(c.stillOpen).join(","));
+  ok("91.41g §41 …and every still-open item is absent from the tomorrow list",
+    c.stillOpen.every((a) => !c.tomorrowScheduled.some((t) => t.id === a.entity.id)),
+    c.stillOpen.map((a) => a.entity.id).join(","));
 
   // ---- §14, §15, §16. Tomorrow vs carry-forward -------------------------
   ok("91.42 §14 work already dated tomorrow is SCHEDULED",
