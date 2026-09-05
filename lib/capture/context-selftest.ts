@@ -163,8 +163,27 @@ export function runCaptureContextSelfTests(): SelfTestReport {
       p?.inheritedGoal?.label === "Graduate school", String(p?.inheritedGoal?.label));
     // "grad" is a prefix of "graduate" — LIFEOS-085's rule, and the reason the
     // audit's headline sentence reaches anything at all.
-    ok("89.15 §22 “grad” reaches “Graduate school” by prefix",
+    // The tokenizer keeps the short form...
+    ok("89.15 §22 the capture's own word survives as “grad”",
       contextTokens(text).includes("grad"), JSON.stringify(contextTokens(text)));
+    // ...and the MATCH is what the prefix direction is for. Asserted in a world
+    // with no competing Project, so the Goal is reached by "grad" alone and
+    // nothing else can carry the assertion. Reversing the comparison —
+    // "grad".startsWith("graduate") — breaks exactly this and nothing else,
+    // which is why it needs its own case.
+    const gradOnly = {
+      ...s,
+      projects: [],
+      nextActions: [],
+      goals: [goal({ id: "gg", title: "Graduate school" })],
+    } as StoreState;
+    const gradRows = ctx("I'm worried about grad applications.", gradOnly);
+    ok("89.15a §22 a SHORTER capture word reaches a LONGER title word",
+      of(gradRows, "goal")?.label === "Graduate school", JSON.stringify(kinds(gradRows)));
+    ok("89.15b §22 …and the direction is one-way: a longer capture word does not",
+      ctx("Book the schooling paperwork.", gradOnly)
+        .every((r) => r.label !== "Graduate school"),
+      JSON.stringify(kinds(ctx("Book the schooling paperwork.", gradOnly))));
     ok("89.16 §16 a note gets NO projectId — it has nowhere to put one",
       Object.keys(contextFields(rows, "note")).length === 0, JSON.stringify(contextFields(rows, "note")));
     ok("89.17 §16, §33 …it attaches to the Goal through linkedKnowledge instead",
@@ -311,6 +330,39 @@ export function runCaptureContextSelfTests(): SelfTestReport {
   }
 
   // ==========================================================================
+  // §11 — a Goal and a Project can BOTH be true, and both are shown.
+  // ==========================================================================
+  {
+    // The Goal is NOT the Project's parent, so it is a second grounded context
+    // rather than inherited ancestry. Nothing in the earlier fixtures had this
+    // shape, so nothing was testing what happens when both are accepted.
+    const both = {
+      ...s,
+      goals: [goal({ id: "gy", title: "Marathon training" })],
+      projects: [proj({ id: "px", title: "Berlin trip" })],
+      nextActions: [],
+    } as StoreState;
+    const rows = ctx("Plan the Berlin marathon weekend.", both);
+    ok("89.83 §11 a Project and an unrelated Goal are both shown",
+      of(rows, "project")?.label === "Berlin trip" && of(rows, "goal")?.label === "Marathon training",
+      JSON.stringify(kinds(rows)));
+    ok("89.84 §11 …and neither is folded into the other",
+      of(rows, "project")?.inheritedGoal === undefined, JSON.stringify(of(rows, "project")?.inheritedGoal));
+    // §13. Accepting the Project must not ALSO write the Goal: an Action in a
+    // Project already reaches its Goal, and two links would say it twice.
+    const accepted = rows.filter((r) => r.contextType === "project");
+    ok("89.85 §13 accepting the Project writes one link, not two",
+      contextFields(accepted, "action").projectId === "px"
+      && contextFields(accepted, "action").goalId === undefined,
+      JSON.stringify(contextFields(accepted, "action")));
+    // And accepting BOTH still writes only the Project — the Goal a Project
+    // belongs to is the Project's business.
+    ok("89.86 §13 …and accepting both still writes only the Project",
+      contextFields(rows, "action").goalId === undefined,
+      JSON.stringify(contextFields(rows, "action")));
+  }
+
+  // ==========================================================================
   // §12 — a Goal match never forces a Project into existence.
   // ==========================================================================
   {
@@ -414,7 +466,26 @@ export function runCaptureContextSelfTests(): SelfTestReport {
   // ==========================================================================
   {
     const rows = ctx("Email Marcus about the clinic lease tomorrow.");
-    ok("89.70 §26 context is capped", rows.length <= MAX_SUGGESTIONS, String(rows.length));
+    // A fixture that never exceeds a cap cannot test the cap. This one names a
+    // Project, a Goal, an existing Action and two people at once.
+    const crowded = {
+      ...s,
+      goals: [goal({ id: "cg", title: "Marathon training" })],
+      projects: [proj({ id: "cp", title: "Berlin trip" })],
+      nextActions: [
+        act({ id: "c1", title: "Book the Berlin hotel" }),
+        act({ id: "c2", title: "Ask Marcus Webb for the survey" }),
+        act({ id: "c3", title: "Ask Priya about the visa" }),
+      ],
+    } as StoreState;
+    const many = ctx("Ask Marcus and Priya about the Berlin marathon hotel.", crowded);
+    ok("89.70a the crowded fixture really does over-produce",
+      suggestContext(
+        interpret("Ask Marcus and Priya about the Berlin marathon hotel.", crowded, TODAY).candidates[0],
+        crowded, buildCaptureContextIndex(crowded),
+      ).length === MAX_SUGGESTIONS, String(many.length));
+    ok("89.70 §26 context is capped", many.length <= MAX_SUGGESTIONS && rows.length <= MAX_SUGGESTIONS,
+      `${many.length} / ${rows.length}`);
     ok("89.71 §24 alternatives are capped",
       rows.every((r) => r.ambiguousAlternatives.length <= MAX_ALTERNATIVES));
     ok("89.72 §5 nothing here is auto-applied",
