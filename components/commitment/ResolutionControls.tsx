@@ -123,7 +123,8 @@ export default function ResolutionControls({
               disabled={!a.enabled}
               title={a.explanation}
               onClick={() => {
-                if (!a.enabled) { setProblem(a.explanation ?? null); return; }
+                // A disabled button never fires this, which is why the reason
+                // it is disabled is rendered below rather than waiting here.
                 // A bounded choice or a text field opens first; an
                 // auto-with-undo action runs on this press.
                 if (a.authority === "confirm") setOpen(open === a.kind ? null : a.kind);
@@ -136,6 +137,21 @@ export default function ResolutionControls({
           );
         })}
       </div>
+
+      {/*
+        LIFEOS-090 §15, §43. A control that is offered but cannot be used owes
+        the reader a reason, and a `title` is not one: it needs a pointer and a
+        hover, so a touch user and a screen-reader user both get silence. The
+        recurring row's "Not today" is the case that matters — the honest answer
+        is that one occurrence cannot move without moving the series, and that
+        sentence has to be readable on the page.
+      */}
+      {shown.filter((a) => !a.enabled && a.explanation).map((a) => (
+        <p key={`why-${a.kind}`} data-resolution-unavailable={a.kind}
+          className="text-[11px] text-zinc-500 dark:text-zinc-400">
+          {a.explanation}
+        </p>
+      ))}
 
       {shown.map((a) => {
         if (open !== a.kind) return null;

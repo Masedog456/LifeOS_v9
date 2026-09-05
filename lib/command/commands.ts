@@ -285,7 +285,7 @@ export function actionsProvider(ctx: CommandContext): CommandItem[] {
   if (inProgress) {
     items.push(
       { id: "action:complete-current", title: "Complete current action", subtitle: inProgress.title, group: "Actions", kind: "navigate", href: `/actions/${inProgress.id}?do=complete`, icon: "✓", keywords: ["done", "finish"] },
-      { id: "action:defer-current", title: "Defer current action", group: "Actions", kind: "navigate", href: `/actions/${inProgress.id}?do=defer`, icon: "⏳", keywords: ["later", "postpone"] },
+      { id: "action:defer-current", title: "Replan current action", group: "Actions", kind: "navigate", href: `/actions/${inProgress.id}`, icon: "⏳", keywords: ["later", "postpone", "not today"] },
       { id: "action:wait-current", title: "Mark current action waiting", group: "Actions", kind: "navigate", href: `/actions/${inProgress.id}?do=wait`, icon: "◷", keywords: ["blocked", "waiting", "on"] },
     );
   }
