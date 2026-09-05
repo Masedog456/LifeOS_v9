@@ -1776,7 +1776,54 @@ const TOPICLESS_TERMS = new Set([
   "mattered", "matter", "matters", "important", "thinking", "think", "thought",
   "on my mind", "mind", "going on", "happening", "say", "said", "saying",
   "write", "wrote", "writing", "reflect", "reflected", "reflecting",
+  // LIFEOS-093 §16. The meaning prompts, which are frame in exactly the same
+  // way: "what did I learn this week?" was searching reflections for the
+  // literal word "learn" and answering "nothing mentions 'learn'" on a week
+  // full of things learned. The mechanism for this already existed — these are
+  // the words it had not been told about.
+  "learn", "learned", "learnt", "learning",
+  "difficult", "hard", "felt difficult", "was difficult", "felt hard",
+  "realizing", "realising", "realize", "realise", "realization", "realisation",
+  "decision", "decisions", "decided", "decide",
+  "remember", "remembering", "worth remembering",
 ]);
+
+/**
+ * Filler that survives topic extraction without naming a subject.
+ *
+ * Kept separate from `TOPICLESS_TERMS`: these words are never the point of a
+ * question on their own, whereas "learn" and "decision" ARE the point — they
+ * are just the point of a question about the user's own words rather than
+ * about a topic.
+ */
+const TOPICLESS_FILLER = new Set([
+  "i", "we", "my", "me", "you", "did", "do", "does", "was", "were", "is", "are",
+  "have", "has", "had", "to", "the", "a", "an", "about", "on", "in", "of",
+  "want", "wanted", "felt", "feel", "feeling", "am", "be", "been", "any",
+]);
+
+/**
+ * Whether an extracted term names a topic, or is the question's own frame.
+ *
+ * A whole-string lookup handled the single words LIFEOS-081 knew about, and
+ * broke on the multiword remnants the meaning prompts produce: "what decisions
+ * did I want to remember this week?" leaves "decisions i want remember", which
+ * is not in any set and was searched for literally.
+ *
+ * So the test is per word, and it is conservative in the direction that
+ * matters: a term counts as topicless only when EVERY word is frame or filler
+ * AND at least one is a real frame word. "philosophy" is neither, so
+ * "what did I say about philosophy?" still searches for philosophy.
+ */
+export function isTopiclessTerm(term: string): boolean {
+  const t = term.toLowerCase().trim();
+  if (!t) return false;
+  if (TOPICLESS_TERMS.has(t)) return true;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  return words.every((w) => TOPICLESS_TERMS.has(w) || TOPICLESS_FILLER.has(w))
+    && words.some((w) => TOPICLESS_TERMS.has(w));
+}
 
 /**
  * What the user said about something (§5, §6).
@@ -1805,7 +1852,7 @@ function answerReflection(state: StoreState, plan: MemoryQueryPlan, searchIndex:
   // The provenance boundary is untouched by this: the split below is what keeps
   // "you said" restricted to what the person actually wrote, and a topicless
   // question goes through exactly the same split.
-  const topicless = !plan.emotionWord && TOPICLESS_TERMS.has(term.toLowerCase().trim());
+  const topicless = !plan.emotionWord && isTopiclessTerm(term);
   const hits = topicless && plan.range
     ? pool.map((entry) => ({ entry }))
     : searchFlat(pool, term, 40);

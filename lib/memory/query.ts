@@ -534,10 +534,25 @@ const SIGNALS: Array<{ kind: MemoryQueryKind; re: RegExp; aspect?: TimeAspect }>
   // question Conqify can answer about a mood, but it IS a question it can answer
   // about text — and routing it here is what lets the answer layer say exactly
   // that, instead of the router shrugging and the product saying nothing.
+  //
+  // LIFEOS-093 §16 adds the MEANING verbs. The prompts this product now asks —
+  // what mattered, what you learned, what felt difficult, what you are
+  // realizing, a decision worth remembering — produce reflections, and every
+  // one of those questions used to fall through to the generic capability line
+  // with no evidence at all, on days that had reflections in them.
+  //
+  // They join the existing class rather than becoming six new ones: it is the
+  // same evidence, read the same way, with the same attribution rules.
   { kind: "REFLECTION", re: new RegExp(
     "\\b(?:did|have) (?:i|we) (?:say|said|write|wrote|note|record|think|thought|mention|reflect)\\b"
     + "|\\bmy (?:notes?|reflections?|thoughts?)\\b"
-    + "|\\bwhat (?:was|were) (?:i|we) (?:worried|worrying|thinking|feeling|sad|anxious|stressed|upset|excited|angry|afraid|scared|frustrated|overwhelmed|lonely|happy)\\b") },
+    + "|\\bwhat (?:was|were) (?:i|we) (?:worried|worrying|thinking|feeling|sad|anxious|stressed|upset|excited|angry|afraid|scared|frustrated|overwhelmed|lonely|happy)\\b"
+    + "|\\bwhat (?:mattered|matters)\\b"
+    + "|\\bwhat (?:did|have) (?:i|we) learn(?:ed|t)?\\b|\\bwhat (?:i|we) learn(?:ed|t)\\b"
+    + "|\\bwhat (?:felt|was|has been) (?:difficult|hard)\\b"
+    + "|\\bwhat (?:am|was) (?:i|we) realiz|\\bwhat (?:am|was) (?:i|we) realis"
+    + "|\\bdecisions?\\b[^?]*\\bremember\\b"
+    + "|\\bworth remembering\\b") },
 
   // Goals, by name (LIFEOS-078).
   //
