@@ -31,8 +31,16 @@ export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
 export const REVIEW_STEPS = [] as const;
 export type ReviewStepKey = string;
 
+/**
+ * Where a review record's day is read (LIFEOS-092 §6).
+ *
+ * This returned `/daily/<date>`, which now redirects — so every entity link,
+ * backlink and insight row took a redirect hop to reach the page it meant. The
+ * redirect exists for bookmarks the product cannot edit; internal links should
+ * not lean on it.
+ */
 export function reviewHref(date: DayKey): string {
-  return `/daily/${date}`;
+  return `/today/review?date=${date}`;
 }
 
 export function reviewRef(review: DailyReview): EntityRef {

@@ -209,31 +209,30 @@ export function executionProvider(ctx: CommandContext): CommandItem[] {
 }
 
 /**
- * LIFEOS-034, Feature 13 — Daily review commands, contextual to today's review
- * status. Start/Continue/Complete/Reopen all navigate to the review page (which
- * owns the buttons — no logic is duplicated here); history and resume-focus are
- * always available. Deterministic.
+ * Review commands (LIFEOS-092 §28).
+ *
+ * This used to branch on a `DailyReview` lifecycle — start / continue /
+ * complete / reopen — and offer a palette entry for each. Two of those were
+ * still being offered after the wizard was retired: "Complete daily review"
+ * pointed at `/daily/<today>?step=complete`, a step that no longer exists, and
+ * "Reopen daily review" offered to reopen a record nothing can edit. A palette
+ * entry for an action that cannot happen is the same defect as a button that
+ * announces a mutation it never made.
+ *
+ * And "Review today" appeared TWICE — once here and once in `NAV_COMMANDS` —
+ * which the browser caught and the source-level assertion did not, because that
+ * assertion only read the static list. There is one review, so there is one
+ * entry; what remains here is history, which is a different question.
  */
 export function reviewProvider(ctx: CommandContext): CommandItem[] {
-  const today = todayKey();
-  const todays = findReviewByDate(ctx.state, today);
-  const status = todays?.status ?? "not_started";
   const items: CommandItem[] = [];
-
-  if (status === "not_started" || !todays) {
-    items.push({ id: "review:start", title: "Review today", group: "Review", kind: "navigate", href: "/today/review", icon: "☑", keywords: ["reflect", "daily", "review", "close the day"] });
-  } else if (status === "in_progress" || status === "reopened") {
-    items.push({ id: "review:continue", title: "Review today", group: "Review", kind: "navigate", href: "/today/review", icon: "☑", keywords: ["reflect", "resume", "daily", "review"] });
-    items.push({ id: "review:complete", title: "Complete daily review", group: "Review", kind: "navigate", href: `/daily/${today}?step=complete`, icon: "✓", keywords: ["finish", "done", "daily", "review"] });
-  } else if (status === "completed") {
-    items.push({ id: "review:reopen", title: "Reopen daily review", group: "Review", kind: "navigate", href: `/daily/${today}`, icon: "↺", keywords: ["edit", "reopen", "daily", "review"] });
-  }
-
   items.push({ id: "review:history", title: "Open review history", group: "Review", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["past", "reviews", "weekly", "history"] });
 
+  // A completed review's focus list is still readable history, so the entry
+  // stays — it opens the day it belongs to, and creates nothing.
   const latest = latestCompletedReview(ctx.state);
   if (latest && latest.tomorrowFocus.length > 0) {
-    items.push({ id: "review:resume-focus", title: "Resume tomorrow focus", subtitle: `From ${latest.date}`, group: "Review", kind: "navigate", href: reviewHref(latest.date), icon: "▸", keywords: ["focus", "next", "resume", "plan"] });
+    items.push({ id: "review:resume-focus", title: "Open that day's review", subtitle: `From ${latest.date}`, group: "Review", kind: "navigate", href: reviewHref(latest.date), icon: "▸", keywords: ["focus", "past", "review", "day"] });
   }
   return items;
 }

@@ -31,7 +31,7 @@
 
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { staticCommands } from "@/lib/command/commands";
+import { staticCommands, reviewProvider } from "@/lib/command/commands";
 import { ROUTE_INVENTORY, REQUIRED_SURFACES } from "@/lib/design/route-inventory";
 import { findReviewByDate, listReviews, REVIEW_STEPS } from "@/lib/reviews/review";
 import { emptyStoreState } from "@/lib/ux/backup";
@@ -177,10 +177,27 @@ export function runDailyReviewConsolidationSelfTests() {
       canonical.length >= 1, canonical.map((c) => c.title).join(", "));
     ok("92.17 §28 …exactly once, not three times",
       canonical.length === 1, canonical.map((c) => c.title).join(", "));
-    // The dynamic entries live in a builder, so they are checked as source.
-    const src = read("lib/command/commands.ts");
-    const dyn = [...src.matchAll(/href: "\/daily"/g)];
-    ok("92.18 §28 …including the contextual ones", dyn.length === 0, String(dyn.length));
+    // §28. And the CONTEXTUAL entries, which this assertion originally missed:
+    // it read `staticCommands()` alone, so the browser was the thing that found
+    // "Review today" listed twice — once from nav, once from `reviewProvider`.
+    // A palette with two identical rows is the duplication this sprint is about,
+    // in a smaller font.
+    const ctx = { state: emptyStoreState() } as Parameters<typeof reviewProvider>[0];
+    const all = [...COMMANDS, ...reviewProvider(ctx)];
+    const reviewDoors = all.filter((c) => c.href === CANONICAL_REVIEW_ROUTE);
+    ok("92.18 §28 one review door across static AND contextual commands",
+      reviewDoors.length === 1, reviewDoors.map((c) => `${c.id}:${c.title}`).join(", "));
+    const titles = all.map((c) => (c.title || "").toLowerCase());
+    const dupes = titles.filter((t, i) => t.includes("review today") && titles.indexOf(t) !== i);
+    ok("92.18a §28 …and no two entries share the review's name",
+      dupes.length === 0, dupes.join(", "));
+    // A palette entry for something no surface can do any more.
+    const impossible = all.filter((c) => /complete daily review|reopen daily review/i.test(c.title || ""));
+    ok("92.18b §28 …and none offers an action the product cannot perform",
+      impossible.length === 0, impossible.map((c) => c.title).join(", "));
+    const stale = all.filter((c) => typeof c.href === "string" && /^\/daily\/[^/]+/.test(c.href) && !c.href.startsWith("/daily/history") && !c.href.startsWith("/daily/week"));
+    ok("92.18c §6 …and none links through the redirect to reach a day",
+      stale.length === 0, stale.map((c) => `${c.id}:${c.href}`).join(", "));
   }
   {
     // History is a different question from closing a day, and keeps its door.
@@ -281,6 +298,8 @@ export function runDailyReviewConsolidationSelfTests() {
     ok("92.38 §8 …and exactly one renders the canonical one",
       evening.length === 1, evening.join(", "));
   }
+  ok("92.38a §6 internal links to a day use the canonical route",
+    read("lib/reviews/review.ts").includes("/today/review?date="));
   ok("92.39 §8 the weekly rollup keeps its own use of the day summary",
     /buildDaySummary/.test(read("lib/reviews/weekly-rollup.ts")));
 
