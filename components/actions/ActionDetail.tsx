@@ -33,6 +33,7 @@ import EntityPicker from "@/components/reviews/EntityPicker";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { resolutionsForAction } from "@/lib/commitment/resolve";
 import { buildTodayIndexes } from "@/lib/today/indexes";
+import { readRule } from "@/lib/time/recurrence";
 import ActionHistory from "@/components/actions/ActionHistory";
 import ActionDependencies from "@/components/actions/ActionDependencies";
 import ConflictNotice from "@/components/sync/ConflictNotice";
@@ -158,6 +159,17 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
             {action.dueDate && <span className="text-xs text-zinc-500">{dueLabel(action)}</span>}
           </div>
           <p className="mt-1 text-[11px] text-zinc-500">A day, not a time. Nothing is scheduled and you won&apos;t be notified — it shows up on Today.</p>
+          {/*
+            §15, §41. Replan below refuses to move a single occurrence and says
+            why. This field can still change the date — it is the series anchor
+            it changes, not one instance — and saying nothing here would leave
+            the screen giving two different answers to the same question.
+          */}
+          {readRule(action.recurrence) && (
+            <p data-due-recurrence-note className="mt-1 text-[11px] text-zinc-500">
+              This repeats: changing the date here moves the whole repeat, not just today.
+            </p>
+          )}
         </section>
 
         {/* Defer options. */}
@@ -176,7 +188,17 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Replan</p>
             <ResolutionControls
               title={action.title}
-              actions={resolutionsForAction(state, action.id, { ix, today: todayKey() })}
+              /*
+               * §41. The record's own lifecycle bar above already carries
+               * Complete, and this page IS the record, so a second Complete and
+               * an "Open" that goes nowhere are two controls meaning what
+               * something else on screen already means. The guarded operations
+               * stay — including `complete_occurrence`, which the bar does NOT
+               * offer and which is the only safe way to close today's instance
+               * of a repeat.
+               */
+              actions={resolutionsForAction(state, action.id, { ix, today: todayKey() })
+                .filter((a) => a.kind !== "complete_action" && a.kind !== "open_record")}
             />
           </section>
         )}

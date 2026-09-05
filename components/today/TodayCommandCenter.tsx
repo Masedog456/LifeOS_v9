@@ -111,6 +111,11 @@ export default function TodayCommandCenter() {
     () => buildDailyCommandView(state, ix, view, today),
     [state, ix, view, today],
   );
+  /** Actions the shortlist above already leads with, controls and all (§41). */
+  const onAttentionList = useMemo(
+    () => new Set(command.attention.map((a) => a.actionId ?? a.entity.id).filter(Boolean) as string[]),
+    [command.attention],
+  );
   const returns = useMemo(() => signalsForSection(view.signals, "return"), [view.signals]);
   // Resolutions for every rendered signal, computed once per store snapshot
   // rather than per button.
@@ -405,7 +410,14 @@ export default function TodayCommandCenter() {
                     controls — a wait with no due follow-up is not actionable,
                     and putting buttons on it would manufacture urgency the
                     record does not support. */}
-                {waitingSignal(w.action.id) && (
+                {/* LIFEOS-090 §41. …and only ONCE. A wait whose follow-up has
+                    arrived is also on the attention shortlist above, with these
+                    same three buttons. Two identical menus for one commitment,
+                    a few hundred pixels apart, is the "two controls that mean
+                    the same thing" §41 sends me looking for. The roster entry
+                    stays — it belongs in the waiting list — but the controls
+                    live on the row that led with the reason. */}
+                {waitingSignal(w.action.id) && !onAttentionList.has(w.action.id) && (
                   <ResolutionControls
                     title={w.action.title}
                     actions={actionsFor(waitingSignal(w.action.id)!)}

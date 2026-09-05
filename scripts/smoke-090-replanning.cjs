@@ -346,6 +346,45 @@ async function rowControls(page, id) {
     a.status === "deferred" && a.deferredUntil === dk(1),
     JSON.stringify({ status: a.status, until: a.deferredUntil }));
 
+  // ---- 11b. §41. One control per meaning, one answer per question -------
+  await seed(page);
+  await page.goto(`${BASE}/actions/a-recur`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-action-replan]", { timeout: 20000 });
+  await page.waitForTimeout(600);
+  ok("53a §41 the replan section does not repeat the record's own Complete",
+    await page.evaluate(() => !document.querySelector('[data-action-replan] [data-resolution="complete_action"]')));
+  ok("53b §41 …nor offer an 'Open' that leads to the page you are on",
+    await page.evaluate(() => !document.querySelector('[data-action-replan] [data-resolution="open_record"]')));
+  ok("53c §14 …while the occurrence-scoped close stays",
+    await page.evaluate(() => !!document.querySelector('[data-action-replan] [data-resolution="complete_occurrence"]')));
+  ok("53d §15, §41 the due field says what changing it does to a repeat",
+    await page.evaluate(() => /moves the whole repeat/.test(
+      document.querySelector("[data-due-recurrence-note]")?.textContent || "")),
+    await page.evaluate(() => document.querySelector("[data-due-recurrence-note]")?.textContent?.trim() ?? "(absent)"));
+  await page.goto(`${BASE}/actions/a-plain`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-action-replan]", { timeout: 20000 });
+  await page.waitForTimeout(500);
+  ok("53e §41 …and says nothing about repeats on an action that does not repeat",
+    await page.evaluate(() => !document.querySelector("[data-due-recurrence-note]")));
+
+  // A wait whose follow-up has arrived is on the shortlist AND in the waiting
+  // roster. It must not carry the same three buttons in both places.
+  await seed(page);
+  await page.goto(`${BASE}/today`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("[data-attention]", { timeout: 20000 });
+  await page.waitForTimeout(800);
+  const waitMenus = await page.evaluate(() => {
+    const count = (sel) => [...document.querySelectorAll(sel)]
+      .filter((el) => /Transcript from Maria/.test(el.textContent || ""))
+      .filter((el) => el.querySelector("[data-resolutions]")).length;
+    return { attention: count("[data-attention]"), roster: count("[data-waiting]") };
+  });
+  ok("53f §41 the due wait carries exactly one menu, on the row that explains it",
+    waitMenus.attention === 1 && waitMenus.roster === 0, JSON.stringify(waitMenus));
+  ok("53g §11 …and it is still listed as waiting",
+    await page.evaluate(() => [...document.querySelectorAll("[data-waiting]")]
+      .some((el) => /Transcript from Maria/.test(el.textContent || ""))));
+
   // ---- 12. Nothing here reasons about the person (§32) ------------------
   await seed(page);
   await page.goto(`${BASE}/today`, { waitUntil: "domcontentloaded" });
