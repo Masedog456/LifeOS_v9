@@ -51,7 +51,7 @@ export const NAV_COMMANDS: CommandItem[] = [
   // LIFEOS-094 §32. Deliberately NOT titled "Decisions": `nav:decisions` above
   // opens the knowledge Decision record type, and two entries on one noun is
   // how a palette stops being findable. This one is named for the question.
-  { id: "nav:needs-decision", title: "Needs your decision", group: "Navigate", kind: "navigate", href: "/today/decisions", icon: "⁇", keywords: ["decision", "decide", "unresolved", "choice", "choices", "judgment", "what needs my decision", "waiting on me", "undecided"] },
+  { id: "nav:needs-decision", title: "Needs your decision", group: "Navigate", kind: "navigate", href: "/today/decisions", icon: "⁇", keywords: ["decision", "decisions", "decide", "unresolved", "choice", "choices", "judgment", "what needs my decision", "waiting on me", "undecided"] },
   { id: "nav:process", title: "Open capture inbox", group: "Navigate", kind: "navigate", href: "/process", icon: "▤", keywords: ["inbox", "process", "capture", "clarify", "convert", "zero"] },
   { id: "nav:actions", title: "Open action queue", group: "Navigate", kind: "navigate", href: "/actions", icon: "☑", keywords: ["next", "actions", "todo", "tasks", "do", "commitments", "queue"] },
   { id: "action:new", title: "New action", group: "Navigate", kind: "navigate", href: "/actions?new=1", icon: "＋", keywords: ["create", "next action", "task", "todo", "add"] },
