@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { batchAction, type BatchActionOp } from "@/lib/mvpStore";
 import EntityPicker from "@/components/reviews/EntityPicker";
+import ReplanPreview from "@/components/planning/ReplanPreview";
 import { toast } from "@/lib/ux/feedback";
 
 const LARGE = 10;
@@ -19,6 +20,14 @@ export default function BatchActionBar({ ids, onClear }: { ids: string[]; onClea
   const [mode, setMode] = useState<"" | "link_project" | "link_workspace" | "add_tag" | "set_context">("");
   const [text, setText] = useState("");
   const [pending, setPending] = useState<null | { op: BatchActionOp; payload?: Parameters<typeof batchAction>[2]; label: string }>(null);
+  /**
+   * LIFEOS-090 §18, §19. Deferring a mixed selection is not one mutation.
+   *
+   * The old button called `batchAction(ids, "defer")` straight through, which
+   * the audit measured orphaning a wait and parking a recurring series in the
+   * same press. It now opens a preview that judges each item on its own.
+   */
+  const [replanning, setReplanning] = useState(false);
   if (ids.length === 0) return null;
 
   const apply = (op: BatchActionOp, payload: Parameters<typeof batchAction>[2] | undefined, label: string) => {
@@ -30,6 +39,18 @@ export default function BatchActionBar({ ids, onClear }: { ids: string[]; onClea
     if (ids.length >= LARGE || DESTRUCTIVE.has(op)) setPending({ op, payload, label });
     else apply(op, payload, label);
   };
+
+  if (replanning) {
+    return (
+      <div className="sticky bottom-0 z-10 rounded-t-2xl border border-black/[.10] bg-white/95 p-3 shadow-lg backdrop-blur dark:border-white/[.12] dark:bg-zinc-900/95">
+        <ReplanPreview
+          ids={ids}
+          onDone={() => { setReplanning(false); onClear(); }}
+          onCancel={() => setReplanning(false)}
+        />
+      </div>
+    );
+  }
 
   if (pending) {
     return (
@@ -57,7 +78,7 @@ export default function BatchActionBar({ ids, onClear }: { ids: string[]; onClea
           <button type="button" onClick={() => setMode("set_context")} className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] dark:border-white/[.15]">Set context</button>
           <button type="button" onClick={() => run("set_energy", { energy: "high" }, "Energy: high")} className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] dark:border-white/[.15]">Energy: high</button>
           <button type="button" onClick={() => run("set_size", { size: "small" }, "Size: small")} className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] dark:border-white/[.15]">Size: small</button>
-          <button type="button" onClick={() => run("defer", { option: "tomorrow" }, "Defer")} className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] dark:border-white/[.15]">Defer</button>
+          <button type="button" data-batch-not-today onClick={() => setReplanning(true)} className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] dark:border-white/[.15]">Not today</button>
           <button type="button" onClick={() => run("mark_waiting", { waitingOn: "" }, "Mark waiting")} className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] dark:border-white/[.15]">Mark waiting</button>
           <button type="button" onClick={() => run("complete", undefined, "Complete")} className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] dark:border-white/[.15]">Complete</button>
           <button type="button" onClick={() => run("cancel", undefined, "Cancel")} className="rounded-full border border-rose-500/30 px-3 py-1 text-[11px] text-rose-600 dark:text-rose-400">Cancel</button>
