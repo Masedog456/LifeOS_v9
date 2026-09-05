@@ -208,10 +208,12 @@ export function runMeaningCaptureSelfTests() {
       cards.some((c) => c.kind === "mattered"), cards.map((c) => c.kind).join(","));
     ok("93.32 §31 …with no reflection from another day",
       !cards.some((c) => c.reflection.id === "r-yest"), cards.map((c) => c.reflection.id).join(","));
+    // Guarded: a mutation that empties this list must REDDEN the assertion, not
+    // crash it on `undefined.writtenLater`. A throw is not a catch.
     const later = meaningForDay(s.reflections, YEST)[0];
     ok("93.33 §13 a reflection written later says so",
-      later?.writtenLater === true && !!writtenLaterNote(later, (d) => d),
-      String(writtenLaterNote(later, (d) => d)));
+      !!later && later.writtenLater === true && !!writtenLaterNote(later, (d) => d),
+      later ? String(writtenLaterNote(later, (d) => d)) : "(yesterday has no reflection)");
     ok("93.34 §13 …and one written on the day it is about does not",
       cards.every((c) => c.writtenLater === false),
       cards.map((c) => `${c.reflection.id}:${c.writtenLater}`).join(","));
@@ -238,6 +240,19 @@ export function runMeaningCaptureSelfTests() {
     ]) {
       ok(`93.36 §16 Memory answers “${q}”`, grounded(q),
         `${asked(q).heading ?? ""} — ${(asked(q).summary ?? "").slice(0, 80)}`);
+      // …and answers it as a question about the PERIOD, not about the literal
+      // word. Removing "learn" from the vocabulary first escaped this suite
+      // because the fixture's own prompt text contains "learn", so a literal
+      // search still found two records — the wrong answer, passing a test that
+      // only asked whether SOME answer came back.
+      const a = asked(q);
+      ok(`93.36a §16 …as a question about the period, not the word`,
+        !/mention/i.test(`${a.heading ?? ""} ${a.summary ?? ""}`),
+        `${a.heading ?? ""} — ${(a.summary ?? "").slice(0, 80)}`);
+    }
+    for (const term of ["learn", "learned", "mattered", "difficult", "realizing", "decisions", "remember"]) {
+      ok(`93.36b §16 “${term}” is frame, not a topic to search for`,
+        isTopiclessTerm(term), String(isTopiclessTerm(term)));
     }
     ok("93.37 §17 a topic question still searches for its topic",
       /philosophy/i.test(asked("what did I say about philosophy?").summary ?? ""),
