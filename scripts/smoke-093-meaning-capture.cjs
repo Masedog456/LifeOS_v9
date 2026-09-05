@@ -175,6 +175,17 @@ async function answer(page, kind, text) {
   await review(page, dk(0));
   ok("25 §14 …while today still shows it",
     await page.evaluate(() => /turning point/.test(document.body.innerText)));
+  // §41. The reviewed date, stated once.
+  ok("25a §41 today names the date under the heading",
+    await page.evaluate(() => !!document.querySelector("[data-review-date]")));
+  await review(page, dk(-1));
+  {
+    const head = await page.evaluate(() => document.querySelector("h1")?.textContent || "");
+    ok("25b §41 a past day names its date in the heading",
+      /Sep|Sat|Sun|Mon|Tue|Wed|Thu|Fri/.test(head), head);
+    ok("25c §41 …and does not repeat it one line below",
+      await page.evaluate(() => !document.querySelector("[data-review-date]")));
+  }
 
   // A reflection explicitly filed against yesterday belongs to yesterday.
   {

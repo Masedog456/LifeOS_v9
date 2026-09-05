@@ -180,6 +180,17 @@ export interface MeaningCard {
  * reflection, and the prompt appears once above its answer rather than being
  * repeated around it.
  */
+/**
+ * How many answers a day shows before the rest are counted (§30, §41).
+ *
+ * There are six prompts, so six answers is a day where every question was
+ * taken up — a legitimate ceiling rather than an arbitrary one. Beyond that the
+ * remainder is counted, because 250 cards is the wall this product caps
+ * everywhere else (still open at three, the waiting roster at three) and a
+ * performance run at 5,000 records rendered exactly that.
+ */
+export const MAX_MEANING_CARDS = REFLECTION_PROMPTS.length;
+
 export function meaningForDay(reflections: readonly Reflection[], day: DayKey): MeaningCard[] {
   return reflections
     .filter((r) => reflectionDayKey(r) === day)
@@ -193,6 +204,14 @@ export function meaningForDay(reflections: readonly Reflection[], day: DayKey): 
       writtenLater: (dayKeyFromIso(r.createdAt) as string) !== day,
     }))
     .sort((a, b) => a.reflection.createdAt.localeCompare(b.reflection.createdAt));
+}
+
+/** Everything for the day, and how many the cap left out. Never dropped silently. */
+export function meaningPageForDay(reflections: readonly Reflection[], day: DayKey): {
+  cards: MeaningCard[]; more: number;
+} {
+  const all = meaningForDay(reflections, day);
+  return { cards: all.slice(0, MAX_MEANING_CARDS), more: Math.max(0, all.length - MAX_MEANING_CARDS) };
 }
 
 /** "You wrote this on Fri, Sep 4" — only when it differs from the day shown. */

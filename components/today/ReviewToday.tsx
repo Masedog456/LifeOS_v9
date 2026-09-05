@@ -53,7 +53,7 @@ import { formatLocalTime } from "@/lib/time/localtime";
 import { formatDayKey, todayKey, addDays } from "@/lib/reviews/dates";
 import { toast } from "@/lib/ux/feedback";
 import MeaningCapture from "@/components/today/MeaningCapture";
-import { meaningForDay } from "@/lib/reviews/meaning";
+import { meaningPageForDay } from "@/lib/reviews/meaning";
 
 const metaClass = "shrink-0 text-[11px] text-zinc-500";
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
@@ -148,10 +148,21 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
    * `meaningForDay` uses the same `reflectionDayKey` the timeline does, so the
    * two cannot disagree about which day a reflection belongs to.
    */
-  const meaningCards = useMemo(
-    () => meaningForDay(state.reflections ?? [], date),
+  const meaning = useMemo(
+    () => meaningPageForDay(state.reflections ?? [], date),
     [state.reflections, date],
   );
+  const meaningCards = meaning.cards;
+  /**
+   * The day's other user-authored words. §31: a reflection is owned by its
+   * card, so anything already rendered as one is excluded here rather than
+   * printed twice.
+   */
+  const shownIds = new Set(meaningCards.map((m) => m.reflection.id));
+  const otherWords = c.reflections
+    .filter((r) => !shownIds.has(r.entity.id))
+    .filter((r) => !(state.reflections ?? []).some((x) => x.id === r.entity.id))
+    .map((r) => ({ id: `${r.entity.kind}:${r.entity.id}`, text: r.title }));
 
   const hasDone = c.completed.length > 0 || c.waitingResolved.length > 0 || c.movedForward.length > 0;
   const hasChanged = c.changed.length > 0 || c.deferred.length > 0
@@ -169,7 +180,12 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
         <h1 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
           {c.isToday ? "Review today" : `Review ${eveningHeading(c)}`}
         </h1>
-        <p className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(c.date)}</p>
+        {/* §41. On a past day the heading already names it — "Review Friday,
+            Sep 4" above "Fri, Sep 4" was the same date twice, one line apart.
+            The subtitle earns its place only when the heading says "today". */}
+        {c.isToday && (
+          <p data-review-date className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(c.date)}</p>
+        )}
 
         {/* §23. Counts. Never an evaluation, and absent when there is nothing
             to count — a line of zeroes is an appraisal wearing arithmetic. */}
@@ -339,8 +355,9 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
         more — you cannot add to a day you are only looking at.
       */}
       <Block title="In your own words" id="reflections"
-        show={meaningCards.length > 0 || c.isToday}>
-        <MeaningCapture reviewedDay={date} cards={meaningCards} canWrite={c.isToday} />
+        show={meaningCards.length > 0 || otherWords.length > 0 || c.isToday}>
+        <MeaningCapture reviewedDay={date} cards={meaningCards} more={meaning.more}
+          otherWords={otherWords} canWrite={c.isToday} />
       </Block>
 
       {/* ---- 5. TOMORROW (§14, §15, §16, §18) ---------------------------- */}

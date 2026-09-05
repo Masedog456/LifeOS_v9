@@ -39,12 +39,24 @@ const chipOn =
   "rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white dark:bg-zinc-100 dark:text-zinc-900";
 
 export default function MeaningCapture({
-  reviewedDay, cards, canWrite,
+  reviewedDay, cards, more, otherWords, canWrite,
 }: {
   /** The day being reviewed — not necessarily today (§14). */
   reviewedDay: DayKey;
   /** What is already written for this day, rendered here and nowhere else (§31). */
   cards: MeaningCard[];
+  /** How many further answers the cap left out. Counted, never dropped (§41). */
+  more: number;
+  /**
+   * The day's other user-authored words — notes, captures — as LIFEOS-091's
+   * "In your own words" already showed them.
+   *
+   * They belong here because the section is about what the person wrote, not
+   * about which record type they wrote it into. The first version of this
+   * component rendered only prompt answers and silently dropped notes from a
+   * section that had been showing them; 091's own suite caught it.
+   */
+  otherWords: { id: string; text: string }[];
   /** Past days are read-only: you cannot add to a day you are only looking at. */
   canWrite: boolean;
 }) {
@@ -88,6 +100,20 @@ export default function MeaningCapture({
             </li>
           ))}
         </ul>
+      )}
+      {otherWords.length > 0 && (
+        <ul data-meaning-other className="flex flex-col gap-1.5">
+          {otherWords.map((w) => (
+            <li key={w.id} data-review-words className="text-sm text-zinc-700 dark:text-zinc-200">
+              “{w.text}”
+            </li>
+          ))}
+        </ul>
+      )}
+      {more > 0 && (
+        <p data-meaning-more-count className="text-[11px] text-zinc-400">
+          {more} more {more === 1 ? "answer" : "answers"} from this day.
+        </p>
       )}
 
       {canWrite && (

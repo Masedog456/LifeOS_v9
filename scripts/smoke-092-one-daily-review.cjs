@@ -219,9 +219,13 @@ async function settle(page, ms = 900) { await page.waitForTimeout(ms); }
   await seed(page);
   await page.goto(`${BASE}${CANONICAL}`, { waitUntil: "domcontentloaded" });
   await settle(page);
-  ok("27 §15 there is exactly one reflection prompt",
-    await page.evaluate(() => document.querySelectorAll("[data-review-memory-input]").length) === 1,
-    String(await page.evaluate(() => document.querySelectorAll("[data-review-memory-input]").length)));
+  // LIFEOS-093 offers a small prompt SET rather than one input. §15's claim is
+  // "one reflection path", not "one question" — so what must stay true is that
+  // there is one composer, and only after a prompt is chosen.
+  ok("27 §15 there is one reflection path, and it is not open by default",
+    await page.evaluate(() => document.querySelectorAll("[data-meaning-input]").length) === 0
+    && await page.evaluate(() => document.querySelectorAll("[data-meaning-prompt]").length) > 0,
+    String(await page.evaluate(() => document.querySelectorAll("[data-meaning-prompt]").length)));
   ok("28 §15 …and no second journaling flow beside it",
     await page.evaluate(() => !/Wins|Lessons|Friction/.test(document.body.innerText)));
   ok("29 §16 …it is labelled optional",
@@ -332,9 +336,11 @@ async function settle(page, ms = 900) { await page.waitForTimeout(ms); }
         const b = document.querySelector("[data-review-prev]");
         return !!b && (b.textContent || "").trim().length > 1;
       }));
-    ok("49 §38 the optional prompt is labelled",
-      await m.evaluate(() => {
-        const i = document.querySelector("[data-review-memory-input]");
+    ok("49 §38 the optional prompt is labelled once opened",
+      await m.evaluate(async () => {
+        document.querySelector("[data-meaning-prompt]")?.click();
+        await new Promise((r) => setTimeout(r, 300));
+        const i = document.querySelector("[data-meaning-input]");
         return !!i && !!document.querySelector(`label[for="${i.id}"]`);
       }));
     ok("50 §38 the day control is keyboard reachable",

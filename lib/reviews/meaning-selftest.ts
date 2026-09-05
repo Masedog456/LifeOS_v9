@@ -36,7 +36,8 @@ import { dayKeyFromIso } from "@/lib/reviews/dates";
 import {
   REFLECTION_PROMPTS, PRIMARY_PROMPT_KINDS, MAX_VISIBLE_PROMPTS,
   primaryPrompts, otherPrompts, promptFor, promptKindOf,
-  reflectionDayKey, hasReviewedDay, meaningEntry, meaningForDay,
+  reflectionDayKey, hasReviewedDay, meaningEntry, meaningForDay, meaningPageForDay,
+  MAX_MEANING_CARDS,
   writtenLaterNote, meaningStrings,
   MEANING_EMPTY, MEANING_MORE, MEANING_FORBIDDEN_WORDS,
   type ReflectionPromptKind,
@@ -311,6 +312,16 @@ export function runMeaningCaptureSelfTests() {
     ok("93.51 §42 two thousand reflections filter in under 100ms", ms < 100, `${ms}ms`);
     ok("93.52 §42 …and only the day's own are returned",
       cards.length === 1000, String(cards.length));
+    // §41. A performance run at 5,000 records rendered 251 cards. Everything
+    // else in this product caps a list and counts the rest; this does too.
+    const page = meaningPageForDay(big.reflections, TODAY);
+    ok("93.52a §41 the rendered page is bounded",
+      page.cards.length <= MAX_MEANING_CARDS, String(page.cards.length));
+    ok("93.52b §41 …and the remainder is counted rather than dropped",
+      page.cards.length + page.more === 1000, `${page.cards.length} + ${page.more}`);
+    ok("93.52c §41 a normal day is not truncated at all",
+      meaningPageForDay(s.reflections, TODAY).more === 0,
+      String(meaningPageForDay(s.reflections, TODAY).more));
   }
 
   // ---- §4. The close survives with nothing written -----------------------
