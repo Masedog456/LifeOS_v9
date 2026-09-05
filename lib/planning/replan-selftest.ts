@@ -34,7 +34,7 @@ import { resolutionsForAction, recommendationResolutionsFor, RESOLUTION_KINDS } 
 import { extractTemporal } from "@/lib/capture/dates";
 import { isLive } from "@/lib/actions/due";
 import { isDeferredAhead } from "@/lib/actions/defer";
-import { addDays, weekStartKey, type DayKey } from "@/lib/reviews/dates";
+import { addDays, weekStartKey } from "@/lib/reviews/dates";
 import {
   planReplan, applyReplan, summarize, notTodayChoices, restOfWeek, dayFor,
   replanStrings, NEEDS_A_DAY, RECURRING_NOTE, WAITING_NOTE, STOP_NOTE, REPLAN_FORBIDDEN_WORDS,
@@ -157,7 +157,7 @@ export function runReplanSelfTests(): SelfTestReport {
     const p = plan(["a-wait"], { kind: "defer", option: "tomorrow" });
     ok("90.6 §11 a wait cannot be deferred", p.proposals.length === 0, JSON.stringify(p.proposals));
     ok("90.7 §11 …it becomes an exception naming the wait",
-      p.exceptions[0]?.reason === "waiting" && /Maria/.test(p.exceptions[0]?.note ?? ""),
+      p.exceptions[0]?.reason === "waiting" && p.exceptions[0]?.note === WAITING_NOTE("Maria"),
       String(p.exceptions[0]?.note));
     ok("90.8 §11 …offering the follow-up instead, at the day already chosen",
       p.exceptions[0]?.instead?.op === "setNextFollowUpDate"

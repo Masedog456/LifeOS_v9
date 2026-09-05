@@ -252,10 +252,12 @@ export function planReplan(
     intent,
     proposals,
     exceptions,
-    // §30. A batch, a stop, and anything still blocked are all consequential.
+    // §30. A batch is consequential because it is a batch; everything else
+    // that asks does so because its own proposal asked. A stop needs no clause
+    // of its own — `planOne` gives it `authority: "confirm"`, and a second
+    // condition saying the same thing would be logic no assertion could reach.
     requiresConfirmation:
-      intent.kind === "stop"
-      || actionIds.length > 1
+      actionIds.length > 1
       || proposals.some((p) => p.authority === "confirm"),
   };
 }
