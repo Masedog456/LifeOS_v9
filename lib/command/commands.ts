@@ -14,8 +14,7 @@ import type { CommandContext } from "@/lib/command/registry";
 import type { CommandItem } from "@/lib/command/types";
 import { buildContinueThinking } from "@/lib/memory/continue";
 import { RECORD_LABELS, resolveRecord } from "@/lib/command/records";
-import { todayKey } from "@/lib/reviews/dates";
-import { findReviewByDate, latestCompletedReview, reviewHref } from "@/lib/reviews/review";
+import { latestCompletedReview, reviewHref } from "@/lib/reviews/review";
 import { readInboxMemory } from "@/lib/inbox/memory";
 
 /** Feature 1 — navigate to any major section. */

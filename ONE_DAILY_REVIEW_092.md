@@ -3,7 +3,7 @@
 **North star:** Conqify should have one clear place to close a day, not two
 competing review experiences.
 
-## STATUS: AUDIT COMPLETE — IMPLEMENTATION IN PROGRESS
+## STATUS: COMPLETE
 
 | | |
 |---|---|
@@ -216,3 +216,200 @@ exported, backlinked domain is a far larger change than this sprint's remit.
 
 **None.** No schema is added, changed or removed. Head stays at **0047**;
 `0048` is not written.
+
+---
+
+# 2. The decision (§3)
+
+**`/today/review` is canonical.** It is the only surface whose account of the
+day is complete and internally consistent, the only one that can actually close
+a loop, and the only one that creates nothing by being read.
+
+`/daily` was not kept because it existed. It was measured against the same day
+and lost on every axis but one.
+
+# 3. Unique value preserved (§7, §17)
+
+**The addressable day.** `/daily/2026-09-04` was a URL; the evening close's
+previous-day control was React state, so a past day could not be linked,
+bookmarked or shared. The canonical route now takes `?date=`, validates it with
+`isDayKey`, and falls back to today rather than erroring — and `/daily/[date]`
+hands its day across the redirect, so a bookmark from a year ago still lands on
+the day it named.
+
+**Past reviews stay readable.** `/daily/history` and `/daily/week/[start]` keep
+working, and `reviewHref` now points at the canonical route so entity links,
+backlinks and insight rows reach the page directly instead of through a
+redirect hop.
+
+**Not preserved:** wins / lessons / friction as separate structured lists. §15
+prefers one optional reflection path unless the audit proves unique value, and
+what those steps produced was review-record text that no other surface reads.
+Existing entries remain readable in history. This is a real product tradeoff and
+it is listed under known gaps rather than waved through.
+
+# 4. Duplication removed (§8, §26)
+
+| Removed | Why |
+|---|---|
+| `DailyReviewFlow` + 5 step components | the second daily review |
+| `DaySummary` | the second day derivation |
+| `TodayReviewCard` | Today's duplicate "Review today →" |
+| `lib/reviews/open-loops.ts` | second "what is unresolved" — 082 answers it |
+| `lib/reviews/tomorrow-focus.ts` | second "what next" — 072/091 answer it |
+| `startTomorrowActions` | read focus lists nothing produces now |
+| `REVIEW_STEPS` contents | a stepped vocabulary for a surface with no steps |
+
+**Deliberately kept:** the `DailyReview` record type and the store primitives
+that write it. `dailyReviews` is read by the sync adapters, backup, versioning,
+the entity system and backlinks, command records, insights, the planning inbox,
+today-plan, release fixtures and the security authorization audit. Deleting it
+would be a migration (§33 forbids one) and would orphan every review already
+written. `buildDaySummary` stays too — `weekly-rollup.ts` still uses it.
+
+# 5. Route strategy (§5, §27)
+
+```
+/today/review          canonical; ?date= selects the day
+/today/review?date=…   a past day, addressable
+/daily                 → replace → /today/review
+/daily/[date]          → replace → /today/review?date=<date>
+/daily/history         unchanged — past reviews
+/daily/week/[start]    unchanged — weekly rollup
+```
+
+`router.replace`, not `push`, so Back does not land on a dead route. Both
+redirects return 200 and render a one-line fallback with a real link, so a
+reader is never stranded if the client-side navigation is slow.
+
+# 6. Mutation paths (§9)
+
+The audit found nothing to consolidate here, and says so: the wizard imported no
+setter that touched a `NextAction`. Its "open loops" and "tomorrow's focus" wrote
+review-record text.
+
+What §9 *did* protect is the canonical surface, and assertion 92.35 states it:
+carrying work goes through `planReplan` and `deferAction` is not called directly
+anywhere on the page. Mutation **M14** reintroduces the direct call and is
+caught.
+
+# 7. Reflection (§15, §16)
+
+One optional prompt — "Anything about today worth remembering?" — writing a
+`Reflection` through the existing path with the prompt preserved as provenance.
+Offered for today only. There is no progress meter, nothing marked incomplete,
+and no second journaling flow beside it (browser 27–32). Mutation **M13** adds
+"Step 3 of 7 — required" and is caught twice.
+
+# 8. Navigation and copy (§22, §23, §28)
+
+One vocabulary: **"Review today"**, which was already `REVIEW_TODAY_LABEL`.
+
+```
+before                          after
+nav      "Daily Review" → /daily        "Review today" → /today/review
+palette  Open Daily Review    → /daily  Review today        → /today/review
+         Start daily review   → /daily  Open review history → /daily/history
+         Continue daily review→ /daily
+         Complete daily review→ /daily/<today>?step=complete
+         Reopen daily review  → /daily/<today>
+Today    "Review today →" ×2, two targets   "Review today →" ×1
+```
+
+The palette's `reviewProvider` branched on a `DailyReview` lifecycle that no
+surface can advance any more: it offered "Complete daily review" pointing at a
+step that no longer exists, and "Reopen daily review" for a record nothing can
+edit. A palette entry for an impossible action is the same defect as a button
+announcing a mutation it never made.
+
+# 9. Visual findings (§37)
+
+Eight states: Today, the canonical review, quiet, dense, yesterday,
+tomorrow-heavy, the redirect, and mobile.
+
+**V1 — a button that named the wrong day.** Reviewing Friday, the page offered
+"Tomorrow · Possible carry-forward · Carry to tomorrow", and the press moved the
+work to the day after **today**. The action was right — you cannot schedule into
+a day that has gone — and the word was wrong. On a past day the section is now
+"Carry forward", the sub-heading names the target, and the button reads "Carry
+to Sun, Sep 6". `planReplan` is also given `today` rather than the reviewed day,
+so the intent and the label agree by construction rather than by coincidence.
+
+**V2 — "Review friday, sep 4".** `.toLowerCase()` on a formatted date, so that
+"Review today" would read naturally. They were always two different sentences.
+
+**Checked and clean:** no stepper anywhere, no "Back / Skip / Next" on mobile,
+no duplicate titles, no second review call-to-action, and no "close the day"
+button on a page that is already closing the day.
+
+**Recorded, out of scope:** Today's "TODAY SO FAR" tile still reports "Actions
+completed · 1" in its own vocabulary. It agrees with the review — it is an
+insights preview, not a second daily review — so it is not a contradiction, but
+it is a third place a count of the day appears.
+
+# 10. Performance (§39)
+
+```
+                canonical      via /daily redirect    previous day
+n=  100         189ms          200ms                  77ms
+n= 1000         297ms          273ms                  205ms
+n= 5000         945ms          966ms                  596ms
+```
+
+The 091 baseline was 223 / 270 / 1056ms for first render. The canonical route is
+the same work plus a `useSearchParams` read, and measures at or slightly below
+that baseline. **The redirect costs ~10ms**, which is the client-side navigation
+and not a second render. No page errors at any size.
+
+# 11. Known gaps
+
+1. **Structured journaling is gone.** Wins, lessons and friction as separate
+   lists have no writer any more. Past entries stay readable at
+   `/daily/history`; new ones would have to be typed into the one reflection
+   sentence. This is the tradeoff §15 asked for, made deliberately.
+2. **The store still exposes wizard primitives.** `addReviewWin`,
+   `addReviewFocus`, `startDailyReview` and friends are live and unused by any
+   surface. They are not duplicate mutation paths — nothing else writes a review
+   record — and removing persistence for a synced, exported, backlinked domain is
+   a larger change than this sprint's remit.
+3. **`/daily/week/[start]` and `/memory` both review a week.** Out of scope: §21
+   and §30 say not to rewrite Weekly Review, so the overlap is recorded rather
+   than resolved.
+4. **Today's "TODAY SO FAR" tile** — §9 above.
+
+# 12. Gates (§40)
+
+| Gate | Result |
+|---|---|
+| Deterministic — full regression | **5751/5751** across 56 suites, none failing |
+| `reviews/consolidation` selftest | **55/55** |
+| §35 browser torture (092) | **59/59** |
+| §36 mutation proofs | **16/16 caught**, 0 escapes, 0 patch failures |
+| 081 / 082 / 083 / 084 | 72 · 64 · 77 · 62 |
+| 090 replanning / 091 evening close | 69/69 · 87/87 |
+| `release:audit` | PASS 17/17 · migration count 47, nothing beyond 0047 |
+| `release:routes` | PASS 24/24 — `/daily` and `/today/review` both covered |
+| `release:export` | PASS 14/14 |
+| `audit:security` | PASS — RLS, secrets, routes, auth, deps |
+| `tsc --noEmit` | clean |
+| `eslint` | 0 errors (2 pre-existing warnings in unrelated files) |
+| `next build` | clean |
+
+# 13. The ten claims (§42)
+
+1. **One canonical daily review** — `/today/review`; 92.10, 92.37–92.38.
+2. **All entry points converge** — browser 1–4, 15, 16a; M1, M2, M8.
+3. **Unique value preserved** — `?date=` and the dated redirect; browser 10–14;
+   M5, M6, M7.
+4. **Duplicate derivation removed** — 92.37, M11.
+5. **Duplicate mutation paths removed** — none existed in the wizard, and 92.35
+   holds the canonical surface to the replanning layer; M14.
+6. **Reflection stays optional** — browser 27–32; M13.
+7. **Tomorrow stays distinct from carry-forward** — browser 23, inherited from
+   091 and re-asserted here.
+8. **Old bookmarks stay safe** — browser 5, 10, 14; both redirects return 200;
+   M3, M4.
+9. **Morning, Evening and Week form one rhythm** — Today → "Review today" →
+   `/memory`; browser 38–40.
+10. **No migration, no new review engine** — head 0047; 92.27; the canonical
+    surface composes LIFEOS-091 unchanged.
