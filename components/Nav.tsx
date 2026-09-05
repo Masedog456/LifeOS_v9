@@ -52,7 +52,7 @@ const NAV: NavItem[] = [
   {
     kind: "menu", key: "reflect", label: "Reflect",
     sections: [{ links: [
-      { href: "/daily", label: "Daily Review" },
+      { href: "/today/review", label: "Review today" },
       { href: "/insights", label: "Insights" },
       { href: "/timeline", label: "Timeline" },
       { href: "/memory", label: "Memory" },

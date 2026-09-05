@@ -70,11 +70,18 @@ function Block({ title, show, children, id }: {
   );
 }
 
-export default function ReviewToday() {
+export default function ReviewToday({ initialDate }: { initialDate?: string } = {}) {
   const state = useStore();
   const today = todayKey();
-  /** §26. The day under review. Reusing existing date keys, not a new window. */
-  const [date, setDate] = useState(today);
+  /**
+   * The day under review. Existing date keys, not a new window.
+   *
+   * LIFEOS-092 §7, §17: it starts from `?date=` when there is one, so a past day
+   * has an address. That was the single thing the old `/daily/[date]` route did
+   * better than this one, and it is the reason `/daily/[date]` can redirect here
+   * without losing anything.
+   */
+  const [date, setDate] = useState(initialDate ?? today);
   const ix = useMemo(() => buildTodayIndexes(state, date), [state, date]);
   const c = useMemo(
     () => buildEveningClose(state, ix, { date, today }),
@@ -100,7 +107,10 @@ export default function ReviewToday() {
    * rather than deciding for itself, and reports what actually happened.
    */
   function carry(f: CarryCandidate) {
-    const plan = planReplan(state, [f.item.entity.id], { kind: "defer", option: "tomorrow" }, ix, date);
+    // `today`, not `date`: a carry taken while reading Friday's review still
+    // lands on the day after TODAY. Passing the reviewed day would schedule
+    // work into a day that has already gone.
+    const plan = planReplan(state, [f.item.entity.id], { kind: "defer", option: "tomorrow" }, ix, today);
     if (plan.proposals.length > 0) {
       const outcome = applyReplan(plan.proposals, storeReplanOps);
       toast({ kind: outcome.applied > 0 ? "success" : "info", message: outcome.message });
@@ -130,6 +140,17 @@ export default function ReviewToday() {
     toast({ kind: "success", message: "Saved to your reflections." });
   }
 
+  /**
+   * §18. Where a carry actually lands.
+   *
+   * `planReplan(…, { option: "tomorrow" })` resolves against the CURRENT day,
+   * not the reviewed one — correctly, since you cannot schedule work into a day
+   * that has already passed. So the label follows the behaviour rather than the
+   * page you happen to be reading.
+   */
+  const carryTarget = addDays(today, 1);
+  const carryLabel = c.isToday ? "Carry to tomorrow" : `Carry to ${formatDayKey(carryTarget)}`;
+
   const hasDone = c.completed.length > 0 || c.waitingResolved.length > 0 || c.movedForward.length > 0;
   const hasChanged = c.changed.length > 0 || c.deferred.length > 0
     || c.rescheduled.length > 0 || c.changedDirection.length > 0;
@@ -140,7 +161,12 @@ export default function ReviewToday() {
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8">
       <header>
         {/* "Review" — a thing you can do, not a state the day is in (§22). */}
-        <h1 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">Review {eveningHeading(c).toLowerCase()}</h1>
+        {/* §37. `Review {heading.toLowerCase()}` printed "Review friday, sep 4":
+            lowercasing a formatted date to make one word fit broke every other
+            word. The two cases are just different sentences. */}
+        <h1 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
+          {c.isToday ? "Review today" : `Review ${eveningHeading(c)}`}
+        </h1>
         <p className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(c.date)}</p>
 
         {/* §23. Counts. Never an evaluation, and absent when there is nothing
@@ -347,7 +373,15 @@ export default function ReviewToday() {
       </Block>
 
       {/* ---- 5. TOMORROW (§14, §15, §16, §18) ---------------------------- */}
-      <Block title="Tomorrow" id="tomorrow" show={hasTomorrow}>
+      {/*
+        §18. Reviewing Friday, the section said "Tomorrow · Carry to tomorrow" —
+        and the press moved the work to the day after TODAY, not the day after
+        Friday. The action was right and the word was wrong, which is the same
+        defect as a button announcing a mutation it did not make. On a past day
+        the section is named for what it actually is, and the button names the
+        day it actually targets.
+      */}
+      <Block title={c.isToday ? "Tomorrow" : "Carry forward"} id="tomorrow" show={hasTomorrow}>
         {/* §14, §18. Two lists, never merged: what already has a place, and
             what the review is only proposing. */}
         {c.tomorrowScheduled.length > 0 && (
@@ -371,7 +405,7 @@ export default function ReviewToday() {
         {c.carryForward.length > 0 && (
           <>
             <h3 className="mb-1 text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
-              {CARRY_FORWARD_HEADING}
+              {c.isToday ? CARRY_FORWARD_HEADING : `Possible carry-forward to ${formatDayKey(carryTarget)}`}
             </h3>
             <ul data-review-carry className="flex flex-col gap-1">
               {c.carryForward.map((f) => (
@@ -389,7 +423,7 @@ export default function ReviewToday() {
                       this is pressed. */}
                   <button type="button" data-review-carry-confirm={f.item.entity.id}
                     onClick={() => carry(f)} className={chip}>
-                    Carry to tomorrow
+                    {carryLabel}
                   </button>
                 </li>
               ))}
@@ -405,12 +439,13 @@ export default function ReviewToday() {
         <p data-review-coverage>
           This reflects what was recorded in Conqify. It is not a complete record of your day.
         </p>
+        {/* §21. The week is a secondary link, and the only one — "add a fuller
+            reflection" pointed at the wizard, which now redirects back to this
+            page, so the link was a loop. */}
         <p className="mt-1">
-          <Link href="/daily" className="underline-offset-4 hover:underline">
-            Add a fuller reflection →
-          </Link>
-          {" · "}
           <Link href="/memory" data-review-week className="underline-offset-4 hover:underline">Review this week →</Link>
+          {" · "}
+          <Link href="/daily/history" data-review-history className="underline-offset-4 hover:underline">Past reviews →</Link>
         </p>
       </footer>
     </div>

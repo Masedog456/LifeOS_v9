@@ -14,8 +14,7 @@ import type { CommandContext } from "@/lib/command/registry";
 import type { CommandItem } from "@/lib/command/types";
 import { buildContinueThinking } from "@/lib/memory/continue";
 import { RECORD_LABELS, resolveRecord } from "@/lib/command/records";
-import { todayKey } from "@/lib/reviews/dates";
-import { findReviewByDate, latestCompletedReview, reviewHref } from "@/lib/reviews/review";
+import { latestCompletedReview, reviewHref } from "@/lib/reviews/review";
 import { readInboxMemory } from "@/lib/inbox/memory";
 
 /** Feature 1 — navigate to any major section. */
@@ -48,7 +47,7 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:workspaces", title: "Open Workspaces", group: "Navigate", kind: "navigate", href: "/workspaces", icon: "◲", keywords: ["workspace", "project", "session", "switch"] },
   { id: "nav:goals", title: "Open Goals", group: "Navigate", kind: "navigate", href: "/goals", icon: "◎", keywords: ["goal", "objective", "accomplish", "execution"] },
   { id: "nav:projects", title: "Open Projects", group: "Navigate", kind: "navigate", href: "/projects", icon: "▤", keywords: ["project", "work", "execution", "milestone"] },
-  { id: "nav:daily", title: "Open Daily Review", group: "Navigate", kind: "navigate", href: "/daily", icon: "☑", keywords: ["review", "reflect", "plan", "daily", "wins", "lessons"] },
+  { id: "nav:daily", title: "Review today", group: "Navigate", kind: "navigate", href: "/today/review", icon: "☑", keywords: ["review", "reflect", "daily", "evening", "close the day", "what happened"] },
   { id: "nav:process", title: "Open capture inbox", group: "Navigate", kind: "navigate", href: "/process", icon: "▤", keywords: ["inbox", "process", "capture", "clarify", "convert", "zero"] },
   { id: "nav:actions", title: "Open action queue", group: "Navigate", kind: "navigate", href: "/actions", icon: "☑", keywords: ["next", "actions", "todo", "tasks", "do", "commitments", "queue"] },
   { id: "action:new", title: "New action", group: "Navigate", kind: "navigate", href: "/actions?new=1", icon: "＋", keywords: ["create", "next action", "task", "todo", "add"] },
@@ -209,31 +208,30 @@ export function executionProvider(ctx: CommandContext): CommandItem[] {
 }
 
 /**
- * LIFEOS-034, Feature 13 — Daily review commands, contextual to today's review
- * status. Start/Continue/Complete/Reopen all navigate to the review page (which
- * owns the buttons — no logic is duplicated here); history and resume-focus are
- * always available. Deterministic.
+ * Review commands (LIFEOS-092 §28).
+ *
+ * This used to branch on a `DailyReview` lifecycle — start / continue /
+ * complete / reopen — and offer a palette entry for each. Two of those were
+ * still being offered after the wizard was retired: "Complete daily review"
+ * pointed at `/daily/<today>?step=complete`, a step that no longer exists, and
+ * "Reopen daily review" offered to reopen a record nothing can edit. A palette
+ * entry for an action that cannot happen is the same defect as a button that
+ * announces a mutation it never made.
+ *
+ * And "Review today" appeared TWICE — once here and once in `NAV_COMMANDS` —
+ * which the browser caught and the source-level assertion did not, because that
+ * assertion only read the static list. There is one review, so there is one
+ * entry; what remains here is history, which is a different question.
  */
 export function reviewProvider(ctx: CommandContext): CommandItem[] {
-  const today = todayKey();
-  const todays = findReviewByDate(ctx.state, today);
-  const status = todays?.status ?? "not_started";
   const items: CommandItem[] = [];
-
-  if (status === "not_started" || !todays) {
-    items.push({ id: "review:start", title: "Start daily review", group: "Review", kind: "navigate", href: "/daily", icon: "☑", keywords: ["reflect", "plan", "daily", "review"] });
-  } else if (status === "in_progress" || status === "reopened") {
-    items.push({ id: "review:continue", title: "Continue daily review", group: "Review", kind: "navigate", href: "/daily", icon: "☑", keywords: ["reflect", "resume", "daily", "review"] });
-    items.push({ id: "review:complete", title: "Complete daily review", group: "Review", kind: "navigate", href: `/daily/${today}?step=complete`, icon: "✓", keywords: ["finish", "done", "daily", "review"] });
-  } else if (status === "completed") {
-    items.push({ id: "review:reopen", title: "Reopen daily review", group: "Review", kind: "navigate", href: `/daily/${today}`, icon: "↺", keywords: ["edit", "reopen", "daily", "review"] });
-  }
-
   items.push({ id: "review:history", title: "Open review history", group: "Review", kind: "navigate", href: "/daily/history", icon: "≡", keywords: ["past", "reviews", "weekly", "history"] });
 
+  // A completed review's focus list is still readable history, so the entry
+  // stays — it opens the day it belongs to, and creates nothing.
   const latest = latestCompletedReview(ctx.state);
   if (latest && latest.tomorrowFocus.length > 0) {
-    items.push({ id: "review:resume-focus", title: "Resume tomorrow focus", subtitle: `From ${latest.date}`, group: "Review", kind: "navigate", href: reviewHref(latest.date), icon: "▸", keywords: ["focus", "next", "resume", "plan"] });
+    items.push({ id: "review:resume-focus", title: "Open that day's review", subtitle: `From ${latest.date}`, group: "Review", kind: "navigate", href: reviewHref(latest.date), icon: "▸", keywords: ["focus", "past", "review", "day"] });
   }
   return items;
 }

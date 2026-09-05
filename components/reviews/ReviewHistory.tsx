@@ -41,13 +41,13 @@ export default function ReviewHistory() {
           <label className="text-xs text-zinc-500">Open a date</label>
           <input type="date" value={jump} onChange={(e) => setJump(e.target.value)} aria-label="Jump to date" className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" />
           <Link href={reviewHref(jump)} className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Open</Link>
-          <Link href="/daily" className="ml-auto rounded-full border border-black/[.12] px-3 py-1 text-xs hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Today’s review</Link>
+          <Link href="/today/review" className="ml-auto rounded-full border border-black/[.12] px-3 py-1 text-xs hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Review today</Link>
         </div>
       </header>
 
       {groups.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm text-zinc-500 dark:border-white/[.12]">
-          No reviews yet. <Link href="/daily" className="underline underline-offset-4">Start today’s review →</Link>
+          No reviews yet. <Link href="/today/review" className="underline underline-offset-4">Review today →</Link>
         </div>
       ) : (
         <div className="flex flex-col gap-5">

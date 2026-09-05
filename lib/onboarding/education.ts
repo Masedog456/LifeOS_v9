@@ -59,7 +59,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   { id: "capture", title: "Capture & Processing", doc: "CAPTURE_PROCESSING.md", routes: ["/", "/process", "/inbox"] },
   { id: "actions", title: "Projects & Actions", doc: "NEXT_ACTIONS.md", routes: ["/actions", "/projects", "/goals"] },
   { id: "planning", title: "Planning & Focus", doc: "PLANNING_AND_FOCUS.md", routes: ["/plan", "/focus"] },
-  { id: "review", title: "Daily Review", doc: "DAILY_REVIEW.md", routes: ["/daily", "/review"] },
+  { id: "review", title: "Review today", doc: "DAILY_REVIEW.md", routes: ["/today/review", "/review"] },
   { id: "reading", title: "Reading & Knowledge", doc: "README.md", routes: ["/reading", "/library"] },
   { id: "maintenance", title: "Maintenance", doc: "KNOWLEDGE_MAINTENANCE.md", routes: ["/maintenance"] },
   { id: "insights", title: "Insights", doc: "DETERMINISTIC_INSIGHTS.md", routes: ["/insights"] },

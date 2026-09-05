@@ -21,7 +21,7 @@ const STEP_LINK: Record<string, { href: string; label: string } | null> = {
   action: { href: "/actions", label: "Open Actions" },
   today: { href: "/today", label: "Open Today" },
   focus: { href: "/focus", label: "Open Focus" },
-  review: { href: "/daily", label: "Open Daily Review" },
+  review: { href: "/today/review", label: "Review today" },
   privacy: { href: "/privacy", label: "Open Privacy" },
   finish: null,
 };

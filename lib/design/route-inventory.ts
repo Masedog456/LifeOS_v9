@@ -34,7 +34,7 @@ export const ROUTE_INVENTORY: readonly RouteAudit[] = [
   { route: "/actions", surface: "Actions", purpose: "Concrete next steps.", primaryAction: "Complete action", secondaryActions: ["New action", "Defer", "Wait", "Filter"], emptyState: "filtered", loadingState: "skeleton", errorState: "boundary", mobile: "rows→cards", keyboard: "c new; j/k move", inspector: "drawer", onboardingDependency: true, notes: [] },
   { route: "/plan", surface: "Planning", purpose: "Assign horizons to work.", primaryAction: "Move to a horizon", secondaryActions: ["Filter", "Focus on item"], emptyState: "route", loadingState: "skeleton", errorState: "boundary", mobile: "single-column board", keyboard: "1-5 move", inspector: "drawer", onboardingDependency: false, notes: [] },
   { route: "/focus", surface: "Focus", purpose: "Quiet work on one target.", primaryAction: "Start / end focus", secondaryActions: ["Log interruption", "Open document"], emptyState: "route", loadingState: "none", errorState: "boundary", mobile: "reduced chrome", keyboard: "f start; esc end", inspector: "n/a", onboardingDependency: true, notes: [] },
-  { route: "/daily", surface: "Daily Review", purpose: "Short honest look back.", primaryAction: "Complete review", secondaryActions: ["Open period summary"], emptyState: "date-range", loadingState: "skeleton", errorState: "boundary", mobile: "stacked", keyboard: "tab through", inspector: "n/a", onboardingDependency: true, notes: [] },
+  { route: "/today/review", surface: "Review today", purpose: "Close the day from what was recorded.", primaryAction: "Carry to tomorrow", secondaryActions: ["Review a past day", "Review this week"], emptyState: "route", loadingState: "skeleton", errorState: "boundary", mobile: "one scroll", keyboard: "tab through", inspector: "n/a", onboardingDependency: true, notes: ["LIFEOS-092: /daily and /daily/[date] redirect here; the day is addressable as ?date="] },
   { route: "/reading", surface: "Reading", purpose: "Read and cite documents.", primaryAction: "Open document", secondaryActions: ["Import", "Filter"], emptyState: "account", loadingState: "skeleton", errorState: "boundary", mobile: "list", keyboard: "arrow nav", inspector: "panel", onboardingDependency: false, notes: [] },
   { route: "/document", surface: "Document", purpose: "Read one text closely.", primaryAction: "Highlight / annotate", secondaryActions: ["Cite", "Convert"], emptyState: "route", loadingState: "skeleton", errorState: "boundary", mobile: "single pane + tabs", keyboard: "j/k passages", inspector: "drawer", onboardingDependency: false, notes: ["reading width capped for line length"] },
   { route: "/world", surface: "Knowledge", purpose: "Concepts and relationships.", primaryAction: "Open record", secondaryActions: ["Filter"], emptyState: "account", loadingState: "skeleton", errorState: "boundary", mobile: "list", keyboard: "arrow nav", inspector: "panel", onboardingDependency: false, notes: ["relationship density bounded"] },
@@ -56,7 +56,7 @@ export const ROUTE_INVENTORY: readonly RouteAudit[] = [
 /** Surfaces the spec (Feature 1) requires the inventory to cover. */
 export const REQUIRED_SURFACES = [
   "Today", "Capture", "Workspaces", "Goals", "Projects", "Actions", "Planning", "Focus",
-  "Daily Review", "Reading", "Document", "Knowledge", "Beliefs", "Research", "Maintenance",
+  "Review today", "Reading", "Document", "Knowledge", "Beliefs", "Research", "Maintenance",
   "Insights", "Search", "Inspector", "Backup", "Recovery", "Privacy", "Diagnostics",
 ];
 

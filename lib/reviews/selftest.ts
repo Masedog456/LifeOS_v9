@@ -10,18 +10,16 @@
  */
 
 import type {
-  DailyReview, ReviewFocusItem, StoreState, WorkspaceSession,
+  DailyReview, StoreState, WorkspaceSession,
 } from "@/types/mvp";
 import {
   localDateKeyAtOffset, dayBoundsAtOffset, isoOnDayAtOffset, dayBoundsLocal,
   addDays, weekStartKey, weekDays, dayDiff, recencyBucket, isDayKey,
 } from "@/lib/reviews/dates";
 import { buildDaySummary, daySummaryTotal } from "@/lib/reviews/day-summary";
-import { deriveOpenLoops } from "@/lib/reviews/open-loops";
-import { orderedFocus, moveFocus, normalizeFocusOrder, focusSuggestions } from "@/lib/reviews/tomorrow-focus";
 import { buildWeeklyRollup } from "@/lib/reviews/weekly-rollup";
 import { reviewReferences, reviewsReferencing } from "@/lib/reviews/relationships";
-import { findReviewByDate, reviewCounts, isReviewEmpty, groupReviewsByRecency, startTomorrowActions, latestCompletedReview } from "@/lib/reviews/review";
+import { findReviewByDate, reviewCounts, isReviewEmpty, groupReviewsByRecency, latestCompletedReview } from "@/lib/reviews/review";
 import { buildSearchEntries } from "@/lib/command/records";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
@@ -184,38 +182,20 @@ export function runReviewSelfTests(): SelfTestReport {
     check("friction fields present", r.friction[0].area === "navigation" && r.friction[0].severity === "medium" && r.friction[0].resolved === false);
   }
 
-  // 9. Open-loop derivation.
-  {
-    const s = activityState();
-    // make the session active (in-progress) for the loop test
-    s.sessions = [{ ...s.sessions[0], endedAt: undefined }];
-    const loops = deriveOpenLoops(s, { unresolvedConflicts: 2, unsyncedPending: true });
-    const has = (id: string) => loops.some((l) => l.id === id);
-    check("open loop: in-progress session", has("session:s1"));
-    check("open loop: incomplete milestone", has("milestone:m2"));
-    check("open loop: active project", has("project:p1"));
-    check("open loop: unresolved decision", has("decision:dec1"));
-    check("open loop: unfinished reading", has("reading:d1"));
-    check("open loop: unresolved conflicts (live)", has("conflict:unresolved"));
-    check("open loop: unsynced changes (live)", has("unsynced:pending"));
-    check("open loops never auto-complete anything", eq(s.projects[0].milestones[1].status, "open"));
-  }
+  // 9. (removed in LIFEOS-092) Open-loop derivation.
+  //
+  // `deriveOpenLoops` was the daily wizard's answer to "what is unresolved?",
+  // and LIFEOS-082's attention shortlist is the product's answer now — the one
+  // the evening close, Today and the weekly review all read. Two derivations of
+  // one question is the duplication this sprint came to remove, so the builder
+  // and these assertions went with the surface that used it.
 
-  // 10. Tomorrow-focus ordering.
-  {
-    const items: ReviewFocusItem[] = [
-      { id: "f1", text: "A", order: 0, createdAt: at("20:00") },
-      { id: "f2", text: "B", order: 1, createdAt: at("20:00") },
-      { id: "f3", text: "C", order: 2, createdAt: at("20:00") },
-    ];
-    const moved = moveFocus(items, "f3", -1);
-    check("focus move reorders", orderedFocus(moved).map((f) => f.id).join(",") === "f1,f3,f2");
-    check("focus order normalized 0..n", normalizeFocusOrder(moved).every((f, i) => f.order === i));
-    check("focus suggestions are deterministic + bounded", eq(focusSuggestions(activityState()), focusSuggestions(activityState())));
-    // start-tomorrow actions reuse existing systems (project→resume).
-    const r = review({ id: "rt", date: "2026-07-27", status: "completed", tomorrowFocus: [{ id: "f", text: "Chapter 3", ref: { kind: "project", id: "p1" }, order: 0, createdAt: at("20:00") }] });
-    check("start-tomorrow action resumes a project", startTomorrowActions(r)[0]?.kind === "resume_project");
-  }
+  // 10. (removed in LIFEOS-092) Tomorrow-focus ordering.
+  //
+  // The wizard's hand-ordered intention list, and `focusSuggestions` behind it.
+  // LIFEOS-091's Tomorrow section answers the same question from evidence —
+  // what already has a place, and what may be carried — and carrying goes
+  // through LIFEOS-090's replanning layer rather than into a text list.
 
   // 11. Weekly rollup projection.
   {
@@ -259,7 +239,6 @@ export function runReviewSelfTests(): SelfTestReport {
     const s = activityState();
     const before = JSON.stringify(s);
     buildDaySummary(s, DAY, { offsetMinutes: 0 });
-    deriveOpenLoops(s);
     buildWeeklyRollup(s, weekStartKey(DAY), { offsetMinutes: 0 });
     check("projections do not mutate the store", JSON.stringify(s) === before);
     check("date arithmetic is calendar-safe", addDays("2026-02-28", 1) === "2026-03-01" && dayDiff("2026-07-27", "2026-07-20") === 7 && weekDays(weekStartKey("2026-07-27")).length === 7 && recencyBucket("2026-07-27", "2026-07-27") === "Today");
