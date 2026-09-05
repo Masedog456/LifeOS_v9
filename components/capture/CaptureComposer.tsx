@@ -34,7 +34,10 @@ import {
   setActionDueDate, setActionDueTime, setActionRecurrence, stopActionRecurrence,
   deferAction, updateEvent, stopEventRecurrence, deleteEvent,
   completeAction, completeOccurrence,
+  // LIFEOS-089 §29. The existing domain setter — never a raw store write.
+  linkGoalKnowledge,
 } from "@/lib/mvpStore";
+import type { StoreState } from "@/types/mvp";
 import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/lib/capture/interpret";
 import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/capture/commit";
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
@@ -51,6 +54,11 @@ import { buildProposal, type EditTarget, type TemporalEditIntent } from "@/lib/c
 import { readChanges } from "@/lib/capture/completion";
 import { applyTemporalEdit, type EditOps } from "@/lib/capture/apply-edit";
 import ChangeConfirm from "@/components/capture/ChangeConfirm";
+import CaptureContext, { defaultChoice, type ContextChoice } from "@/components/capture/CaptureContext";
+import {
+  buildCaptureContextIndex, suggestContext, contextFields, contextKnowledgeGoal,
+  type CaptureContextSuggestion,
+} from "@/lib/capture/context";
 
 /**
  * The store writers the change path may use (LIFEOS-065 §4).
@@ -99,14 +107,23 @@ interface Row {
   trigger: string;
   response: string;
   chosen?: MatchOption;
+  /** LIFEOS-089. Existing context this capture may belong to. Never persisted. */
+  context: CaptureContextSuggestion[];
+  /** What the user has accepted of it. Empty means "no link". */
+  choice: ContextChoice;
   removed: boolean;
 }
 
 /** Kinds whose editable text is the BODY, not the shortened title. */
 const BODY_KINDS: CandidateKind[] = ["note", "reflection"];
 
-function rowsFrom(candidates: Candidate[]): Row[] {
-  return candidates.map((c) => ({
+function rowsFrom(candidates: Candidate[], state: StoreState): Row[] {
+  // §42. Built once per interpretation, not once per candidate: Capture is a
+  // hot path and a capture can hold several clauses.
+  const index = buildCaptureContextIndex(state);
+  return candidates.map((c) => {
+    const context = suggestContext(c, state, index);
+    return {
     candidate: c,
     // The authority gradient decides what arrives ticked (§4).
     selected: preselected(c.authority),
@@ -119,9 +136,14 @@ function rowsFrom(candidates: Candidate[]): Row[] {
     title: BODY_KINDS.includes(c.kind) ? (c.fields.body ?? c.fields.title ?? "") : (c.fields.title ?? c.fields.body ?? ""),
     trigger: c.fields.trigger ?? "",
     response: c.fields.response ?? "",
-    chosen: c.association.strength === "strong" ? c.association.options[0] : undefined,
+    // LIFEOS-089 replaces the 060 association chip: `suggestContext`'s exact
+    // tier IS `matchRecords`, so keeping both would print the same match twice.
+    chosen: undefined,
+    context,
+    choice: defaultChoice(context),
     removed: false,
-  }));
+    };
+  });
 }
 
 export default function CaptureComposer() {
@@ -177,7 +199,7 @@ export default function CaptureComposer() {
     if (changes.length > 0) {
       setRaw(src);
       setEdits(changes);
-      setRows(remainder.trim() ? rowsFrom(interpret(remainder, state, today).candidates) : null);
+      setRows(remainder.trim() ? rowsFrom(interpret(remainder, state, today).candidates, state) : null);
       setBusy(false);
       return;
     }
@@ -185,7 +207,7 @@ export default function CaptureComposer() {
     // Deterministic first, and it renders before any model is considered.
     let interpretation = interpret(src, state, today);
     setRaw(src);
-    setRows(rowsFrom(interpretation.candidates));
+    setRows(rowsFrom(interpretation.candidates, state));
 
     // Escalate only when the rules said they were out of their depth (§11).
     // Failure here is a no-op: the candidates above already stand.
@@ -196,7 +218,7 @@ export default function CaptureComposer() {
         const extra = validateAiCandidates(result, interpretation.candidates.length);
         if (extra.length > 0) {
           interpretation = mergeAiCandidates(interpretation, extra);
-          setRows(rowsFrom(interpretation.candidates));
+          setRows(rowsFrom(interpretation.candidates, state));
         }
       } catch {
         // Deliberately silent. Nothing was lost, so there is nothing to report,
@@ -236,24 +258,33 @@ export default function CaptureComposer() {
     // whole sentence then would offer the user a second copy of what they just
     // confirmed, so this ends the interaction instead.
     if (committed) { reset(); return; }
-    setRows(rowsFrom(interpret(raw || text.trim(), state, today).candidates));
+    setRows(rowsFrom(interpret(raw || text.trim(), state, today).candidates, state));
   }
 
   /** The rows the user ticked, reduced to what becomes a record. */
-  function pickedCandidates(): CommitCandidate[] {
+  function pickedPairs(): { candidate: CommitCandidate; row: Row }[] {
     return live
       .filter((r) => r.selected)
       .map((r) => {
         const base = toCommitCandidate(r.candidate, r.chosen);
-        return {
+        const candidate: CommitCandidate = {
           ...base,
+          // LIFEOS-089 §28. The existing create path, with only the context
+          // relationships the user actually left on. `contextFields` returns
+          // nothing for a kind that has no field to hold them (§29).
+          ...contextFields(acceptedContext(r), r.candidate.kind),
           title: r.title.trim() || base.title,
           body: r.candidate.kind === "note" || r.candidate.kind === "reflection" ? (r.title.trim() || base.body) : base.body,
           trigger: r.trigger.trim() || base.trigger,
           response: r.response.trim() || base.response,
         };
+        return { candidate, row: r };
       })
-      .filter(isCommittable);
+      .filter((x) => isCommittable(x.candidate));
+  }
+
+  function pickedCandidates(): CommitCandidate[] {
+    return pickedPairs().map((x) => x.candidate);
   }
 
   /**
@@ -282,9 +313,46 @@ export default function CaptureComposer() {
     if (href) router.push(href);
   }
 
+  /**
+   * The suggestions the user left ON, as suggestion rows (§25).
+   *
+   * Read back from `choice` rather than tracked twice, so the chips on screen
+   * and the links that get written cannot disagree.
+   */
+  function acceptedContext(r: Row): CaptureContextSuggestion[] {
+    const ids = new Set([r.choice.projectId, r.choice.goalId].filter(Boolean) as string[]);
+    // A Project the user accepted brings its inherited Goal along as a fact,
+    // which is what `contextKnowledgeGoal` reads for note-shaped kinds (§16).
+    return r.context.filter((s) => !!s.contextId && ids.has(s.contextId));
+  }
+
   function confirmSelected() {
-    const picked = pickedCandidates();
-    const { created } = commitCapture(raw, picked);
+    const pairs = pickedPairs();
+    const { created } = commitCapture(raw, pairs.map((x) => x.candidate));
+
+    /**
+     * §16, §17, §33. A Reflection or a Protocol carries Goal context through
+     * `goal.linkedKnowledge` — the relationship that already means "this record
+     * is part of that goal's material", with its own setter and its own place
+     * on the goal page. Applied AFTER the records exist, and only for the rows
+     * whose context the user left on.
+     */
+    // Paired by position AND checked by kind. `commitCapture` skips a candidate
+    // it cannot build, so a bare index would drift and attach a reflection's
+    // context to somebody else's record — the kind check is what makes the
+    // pairing safe rather than merely usual.
+    const KIND_OF: Record<string, string> = {
+      action: "action", waiting: "action", note: "note",
+      reflection: "reflection", protocol: "protocol",
+    };
+    for (let i = 0; i < pairs.length; i++) {
+      const ref = created[i];
+      const { row } = pairs[i];
+      if (!ref || ref.kind !== KIND_OF[row.candidate.kind]) continue;
+      const goalId = contextKnowledgeGoal(acceptedContext(row), row.candidate.kind);
+      if (goalId) linkGoalKnowledge(goalId, ref.kind, ref.id);
+    }
+
     toast({
       kind: "success",
       message: created.length === 0
@@ -476,24 +544,15 @@ export default function CaptureComposer() {
                       </ul>
                     )}
 
-                    {/* Association: strong is offered, ambiguous is asked (§10). */}
-                    {r.candidate.association.strength === "strong" && r.chosen && (
-                      <p className="mt-1.5 text-[11px] text-zinc-500">
-                        Connected to <strong>{r.chosen.title}</strong>{" "}
-                        <button type="button" onClick={() => patch(i, { chosen: undefined })} className="underline underline-offset-2">detach</button>
-                      </p>
-                    )}
-                    {r.candidate.association.strength === "ambiguous" && (
-                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <span className="text-zinc-500">Connect to:</span>
-                        {r.candidate.association.options.map((o) => (
-                          <button key={`${o.kind}:${o.id}`} type="button" onClick={() => patch(i, { chosen: r.chosen?.id === o.id ? undefined : o })}
-                            className={`rounded-full px-2 py-0.5 ${r.chosen?.id === o.id ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-black/[.12] dark:border-white/[.15]"}`}>
-                            {o.title}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {/* LIFEOS-089. Existing context, replacing the 060
+                        association chip — that chip WAS this layer's exact
+                        tier, and rendering both put the same match on screen
+                        twice (§47). */}
+                    <CaptureContext
+                      rows={r.context}
+                      choice={r.choice}
+                      onChange={(choice) => patch(i, { choice })}
+                    />
 
                     {/* The destination a suggest-only kind was missing (§6). */}
                     {isSuggestOnly(r.candidate.kind) && (

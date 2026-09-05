@@ -68,7 +68,7 @@
  * own, no network, no AI, no persistence.
  */
 
-import type { Goal, NextAction, Project, StoreState } from "@/types/mvp";
+import type { Goal, NextAction, StoreState } from "@/types/mvp";
 import type { Candidate } from "@/lib/capture/interpret";
 import type { AuthorityLevel } from "@/lib/capture/authority";
 import { normalizeQuery, queryTokens } from "@/lib/command/ranking";
@@ -172,7 +172,10 @@ export function buildCaptureContextIndex(state: StoreState): CaptureContextIndex
     // 060's guard, reused rather than re-derived: a project called "Work" would
     // match half of everything a person captures.
     if (!isMatchableTitle(t)) return;
-    const words = normalizeQuery(t).split(" ").filter(Boolean);
+    // Filtered with the same rule the capture's own words go through: a title's
+    // stopwords and verbs are not what identifies it, and indexing them let
+    // "the" and "open" ground matches.
+    const words = contextTokens(t);
     if (words.length === 0) return;
     records.push({ kind, id, title: t, words, goalId });
   };
@@ -253,6 +256,12 @@ const WEAK_TOKENS = new Set([
   "month", "months", "year", "years", "time", "today", "tomorrow", "plan",
   "project", "projects", "goal", "goals", "task", "tasks", "note", "notes",
   "thing", "list", "stuff", "get", "make", "one", "two", "first", "last",
+  // Verbs. A verb is what you DO, not what a Project or Goal is ABOUT, and
+  // titles routinely open with one — "Open the clinic" was reached by "open"
+  // in "Book a school open day", which is noise wearing a match's clothes.
+  "open", "close", "start", "finish", "read", "write", "send", "call", "email",
+  "book", "draft", "order", "ask", "check", "review", "update", "fix", "buy",
+  "pay", "learn", "practise", "practice", "sort", "keep", "run", "do", "go",
 ]);
 
 /** The capture's own words, normalized once. */
@@ -273,19 +282,32 @@ function distinctiveHits(
   tokens: string[],
   records: IndexedRecord[],
   kind: "project" | "goal",
-): Map<string, { record: IndexedRecord; word: string }> {
+): {
+  hits: Map<string, { record: IndexedRecord; word: string }>;
+  contested: IndexedRecord[];
+} {
   const pool = records.filter((r) => r.kind === kind);
-  const out = new Map<string, { record: IndexedRecord; word: string }>();
+  const hits = new Map<string, { record: IndexedRecord; word: string }>();
+  let contested: IndexedRecord[] = [];
 
   for (const token of tokens) {
     const reached = pool.filter((r) => r.words.some((w) => w.startsWith(token)));
-    // A word that reaches two records of the same kind is a coin flip, and a
-    // wrong attachment is silent. It grounds nothing.
-    if (reached.length !== 1) continue;
-    const r = reached[0];
-    if (!out.has(r.id)) out.set(r.id, { record: r, word: token });
+    if (reached.length === 1) {
+      const r = reached[0];
+      if (!hits.has(r.id)) hits.set(r.id, { record: r, word: token });
+      continue;
+    }
+    // A word reaching several records of one kind is a coin flip, and a wrong
+    // attachment is silent — so it never grounds a link. But DROPPING it is
+    // also silent, and hiding an ambiguity is the defect §24 exists to prevent:
+    // the user is shown the choice instead, with nothing preselected.
+    if (reached.length > 1 && reached.length <= MAX_ALTERNATIVES && contested.length === 0) {
+      contested = reached;
+    }
   }
-  return out;
+  // A record that ended up grounded by another word is not contested.
+  contested = contested.filter((r) => !hits.has(r.id));
+  return { hits, contested: hits.size > 0 ? [] : contested };
 }
 
 /** How many shared distinctive words an existing Action must have (§7, §18). */
@@ -461,8 +483,10 @@ export function suggestContext(
   }
 
   // ---- Tier 3 (§9, §10). A shared distinctive title word ----------------
-  const projectHits = distinctiveHits(tokens, index.records, "project");
-  const goalHits = distinctiveHits(tokens, index.records, "goal");
+  const projectMatch = distinctiveHits(tokens, index.records, "project");
+  const goalMatch = distinctiveHits(tokens, index.records, "goal");
+  const projectHits = projectMatch.hits;
+  const goalHits = goalMatch.hits;
 
   // The exact tier already spoke for these records.
   for (const id of exactIds) { projectHits.delete(id); goalHits.delete(id); }
@@ -481,17 +505,19 @@ export function suggestContext(
       ambiguousAlternatives: [],
       inheritedGoal: inheritedFor(record),
     });
-  } else if (projects.length > 1) {
-    // §24. Several grounded Projects is a question, not a pick.
+  } else if (projects.length > 1 || projectMatch.contested.length > 1) {
+    // §24. Several grounded Projects is a question, not a pick — whether they
+    // were reached by different words or by the same one.
+    const rows = projects.length > 1 ? projects.map((p) => p.record) : projectMatch.contested;
     push({
       candidateId: candidate.id,
       contextType: "project",
       contextId: "",
-      label: projects.map((p) => p.record.title).join(" · "),
+      label: rows.map((r) => r.title).join(" · "),
       reason: "More than one Project matches — choose which.",
       strength: "ambiguous",
       authority: "confirm",
-      ambiguousAlternatives: ambiguousOf(projects.map((p) => p.record)),
+      ambiguousAlternatives: ambiguousOf(rows),
     });
   }
 
@@ -518,16 +544,19 @@ export function suggestContext(
       authority: "confirm",
       ambiguousAlternatives: [],
     });
-  } else if (goals.length > 1) {
+  } else if (goals.length > 1 || goalMatch.contested.filter((g) => !inheritedIds.has(g.id)).length > 1) {
+    const rows = goals.length > 1
+      ? goals.map((g) => g.record)
+      : goalMatch.contested.filter((g) => !inheritedIds.has(g.id));
     push({
       candidateId: candidate.id,
       contextType: "goal",
       contextId: "",
-      label: goals.map((g) => g.record.title).join(" · "),
+      label: rows.map((r) => r.title).join(" · "),
       reason: "More than one Goal matches — choose which.",
       strength: "ambiguous",
       authority: "confirm",
-      ambiguousAlternatives: ambiguousOf(goals.map((g) => g.record)),
+      ambiguousAlternatives: ambiguousOf(rows),
     });
   }
 
