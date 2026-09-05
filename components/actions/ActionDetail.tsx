@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  useStore, updateAction, startAction, completeAction, deferAction, markActionWaiting, setActionDueDate,
+  useStore, updateAction, startAction, completeAction, markActionWaiting, setActionDueDate,
   pauseAction, cancelAction, restoreAction, reopenAction, duplicateAction,
   deleteAction, deleteActionWithHistory, stopActionRecurrence, completionsFor,
   linkActionRef, unlinkActionRef, addActionTag, removeActionTag,
@@ -30,6 +30,9 @@ import { toast } from "@/lib/ux/feedback";
 import { todayKey } from "@/lib/reviews/dates";
 import { writeActionMemory } from "@/lib/actions/memory";
 import EntityPicker from "@/components/reviews/EntityPicker";
+import ResolutionControls from "@/components/commitment/ResolutionControls";
+import { resolutionsForAction } from "@/lib/commitment/resolve";
+import { buildTodayIndexes } from "@/lib/today/indexes";
 import ActionHistory from "@/components/actions/ActionHistory";
 import ActionDependencies from "@/components/actions/ActionDependencies";
 import ConflictNotice from "@/components/sync/ConflictNotice";
@@ -55,16 +58,17 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
   const [tag, setTag] = useState("");
   // `?do=complete|defer|wait` deep-links a panel open (read once at mount).
   const doParam = search.get("do");
-  const [deferOpen, setDeferOpen] = useState(doParam === "defer");
   const [waitOpen, setWaitOpen] = useState(doParam === "wait");
   const [completeOpen, setCompleteOpen] = useState(doParam === "complete");
   const [completeNote, setCompleteNote] = useState("");
   const [waitOn, setWaitOn] = useState("");
   const [waitDate, setWaitDate] = useState("");
-  const [deferDate, setDeferDate] = useState("");
   const [dueDraft, setDueDraft] = useState(action?.dueDate ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const historyCount = action ? completionsFor(state, action.id).length : 0;
+  // Built once per render; the shared resolver needs the blocker map to decide
+  // what this record can safely be offered.
+  const ix = useMemo(() => buildTodayIndexes(state, todayKey()), [state]);
 
   if (action && seenId !== action.id) { setSeenId(action.id); setTitleDraft(action.title); setDescDraft(action.description); setNotesDraft(action.notes); }
   useEffect(() => { writeActionMemory({ activeActionId: actionId }); }, [actionId]);
@@ -120,7 +124,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
           {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: true }); toast({ kind: "success", message: "Started with a session" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Start + session</button>}
           {action.status === "in_progress" && <button type="button" onClick={() => { pauseAction(action.id); toast({ kind: "info", message: "Paused" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Pause</button>}
           {action.status !== "completed" && action.status !== "cancelled" && <button type="button" onClick={() => setCompleteOpen((v) => !v)} className="rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">Complete</button>}
-          {action.status !== "completed" && action.status !== "cancelled" && <button type="button" onClick={() => setDeferOpen((v) => !v)} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Defer</button>}
+
           {action.status !== "completed" && action.status !== "cancelled" && action.status !== "waiting" && <button type="button" onClick={() => setWaitOpen((v) => !v)} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Wait on…</button>}
           {(action.status === "completed" || action.status === "cancelled") && <button type="button" onClick={() => { reopenAction(action.id); toast({ kind: "success", message: "Reopened" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Reopen</button>}
           {(action.status === "completed" || action.status === "cancelled" || action.status === "deferred") && <button type="button" onClick={() => { restoreAction(action.id); toast({ kind: "success", message: "Restored" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Restore</button>}
@@ -157,13 +161,23 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
         </section>
 
         {/* Defer options. */}
-        {deferOpen && (
-          <section className="mb-4 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
-            <div className="flex flex-wrap items-center gap-2">
-              {(["tomorrow", "next_week", "someday"] as const).map((o) => <button key={o} type="button" onClick={() => { deferAction(action.id, o); setDeferOpen(false); toast({ kind: "info", message: "Deferred" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">{o === "next_week" ? "Next week" : o[0].toUpperCase() + o.slice(1)}</button>)}
-              <input type="date" value={deferDate} onChange={(e) => setDeferDate(e.target.value)} aria-label="Defer to date" className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" />
-              <button type="button" onClick={() => { if (deferDate) { deferAction(action.id, { date: deferDate }); setDeferOpen(false); toast({ kind: "info", message: "Deferred" }); } }} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Defer to date</button>
-            </div>
+        {/*
+          * LIFEOS-090 §33. The replanning controls, from the shared resolver.
+          *
+          * This page used to carry its own Defer button and its own panel,
+          * calling `deferAction` straight through — a second set of rules for
+          * the same operation, and one that had no idea what kind of record it
+          * was acting on. Deferring a wait from here orphaned `waitingOn`; a
+          * recurring record was parked series and all. The shared controls know
+          * the difference, so there is now one path and one set of rules.
+          */}
+        {action.status !== "completed" && action.status !== "cancelled" && (
+          <section data-action-replan className="mb-4 rounded-2xl border border-black/[.08] p-3 dark:border-white/[.10]">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Replan</p>
+            <ResolutionControls
+              title={action.title}
+              actions={resolutionsForAction(state, action.id, { ix, today: todayKey() })}
+            />
           </section>
         )}
 
