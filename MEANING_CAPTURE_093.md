@@ -3,7 +3,7 @@
 **North star:** Conqify should help me preserve what a day meant without making
 me complete a journal.
 
-## STATUS: AUDIT COMPLETE — IMPLEMENTATION IN PROGRESS
+## STATUS: COMPLETE
 
 | | |
 |---|---|
@@ -176,3 +176,202 @@ answering. **Confirmed.**
 
 **None.** The prompt is a field, the reviewed day is a field, and the only work
 is to start reading one of them. Head stays at **0047**; `0048` is not written.
+
+---
+
+# 2. The model (§7, §35)
+
+`lib/reviews/meaning.ts`. No new record type, no session, no completion state.
+
+```
+Reflection.prompt    which question was answered   → the prompt kind
+Reflection.response  the user's words, immutable   → the meaning
+Reflection.context   the day under review          → §13's reviewed day
+Reflection.createdAt when it was typed             → untouched
+```
+
+Six prompt kinds — `mattered`, `learned`, `difficult`, `realization`,
+`decision`, `remember` — carried by the prompt TEXT, which is what persists.
+`promptKindOf` reads a stored reflection back into a kind, including LIFEOS-091's
+older single prompt, and returns `null` rather than guessing for anything else.
+
+# 3. Prompts (§5, §6, §26)
+
+Three offered; three more behind one press; **one composer open at a time**.
+
+```
+[ What mattered ] [ What you learned ] [ Worth remembering ]   Another prompt
+Optional. One sentence, or nothing at all.
+```
+
+Six textareas on arrival IS the wizard, in one column instead of seven steps.
+Choosing a prompt is a chip press; being confronted with six empty boxes is not.
+
+The language is plain (§6): no "describe your emotional state", no "rate the
+quality of your day", no "what limiting beliefs arose". `MEANING_FORBIDDEN_WORDS`
+is swept over every string the layer produces, and mutation **M12** — replacing
+one prompt with a mood rating — reddens three assertions.
+
+# 4. Date semantics (§13, §14)
+
+**The audit's sharpest red.** LIFEOS-091 already wrote `context: date` on every
+reflection and **nothing read it**, so a reflection typed at 22:00 about
+yesterday appeared on today's review and was absent from the day it was about.
+
+`reflectionDayKey` decides this in one place, and conservatively:
+
+* an explicit context wins **only when it is a valid day key**, so an older
+  reflection whose context reads "on the train" still falls back to `createdAt`
+  (mutation **M2**);
+* the recorded instant is **never restamped** — `at` stays exactly what it was,
+  and only the day the reflection is filed under moves (**M4**);
+* `evidence` names which field decided: `reflection.context` or
+  `reflection.createdAt` (**M5**).
+
+Because Evening Close, Week Review and Memory all read the one timeline, they
+agree by construction (§32, §33). And the card says "Written Sat, Sep 5" when
+the two differ, rather than hiding one behind the other.
+
+A past day is **read-only**: you cannot add meaning to a day you are only
+looking at, which is why no prompts are offered there.
+
+# 5. Provenance (§12, §34)
+
+Structural and unchanged. `classifyOrigin({ kind: "reflection" })` returns
+`user_authored` because a reflection is something the user typed, and an
+attribution marker in the text still wins, so machine prose saved into one is
+reported as machine prose. Search says "You wrote this Sat, Sep 5" (browser 43).
+An AI-authored note never appears under "In your own words" (browser 30–31).
+
+# 6. Memory and Search (§16, §17)
+
+A `REFLECTION` question class already existed and worked — *when given a topic*.
+Every meaning question fell through to the generic capability line:
+
+```
+before  "what did I learn this week?"  → capability line, evidence []
+after   "what did I learn this week?"  → What you wrote · Sep 7 – Sep 9
+```
+
+The fix reuses LIFEOS-081's own `TOPICLESS_TERMS` mechanism, built for exactly
+this. My first attempt reached for the wrong hook — adding the meaning words to
+the framing-verb stripper, which deleted them entirely and left no term at all.
+
+The whole-string lookup then broke on the multiword remnants these questions
+produce ("decisions i want remember"), so the test is per word and conservative
+in the direction that matters: topicless only when **every** word is frame or
+filler and at least one is a real frame word. `"what did I say about
+philosophy?"` still searches for philosophy (**M16**, **M17**).
+
+Search needed no work at all — it already indexed reflections and attributed
+them correctly.
+
+# 7. Goal and Project context (§18, §19)
+
+**Not implemented, and not faked.** A `Reflection` has no goal ref, no project
+ref and no free-form entity refs. §18 and §19 are conditional — *"where the
+current relationship model supports that"* — and it does not. Misusing
+`sourceIds`, which means knowledge sources, to carry a goal id would be a lie in
+the schema, and §8 forbids a migration by default. Recorded as a gap below.
+
+What IS proven is the safety half: a decision written as prose mutates no goal
+and creates no rule (browser 32–34, assertions 93.45–93.49).
+
+# 8. What it refuses to infer (§21, §22, §23, §24, §25)
+
+* *"I decided not to apply to law school."* → a reflection. No goal moves.
+* *"I need to stop replying when angry."* → a reflection. No standard is created.
+* *"Writing the statement felt impossible."* → stored exactly as written. Nothing
+  on the page says avoidance, anxiety, burnout or struggling.
+* No sentiment, no mood, no score, no streak, no generated summary of the day's
+  themes.
+
+# 9. Visual findings (§41)
+
+**V1 — the date twice.** On a past day the heading reads "Review Friday, Sep 4"
+and the subtitle repeated "Fri, Sep 4" one line below. The subtitle now earns
+its place only when the heading says "today".
+
+**V2 — 251 cards.** The performance run at 5,000 records rendered every
+reflection for the day, unbounded, while the close's own list is capped at three.
+Bounded at six — one answer per prompt, a real ceiling — with the remainder
+counted rather than dropped.
+
+**V3 — notes vanished.** Caught by LIFEOS-091's suite, not by me: the old "In
+your own words" rendered the close's user-authored words, which includes notes;
+my component rendered only prompt answers. The section is about what the person
+wrote, not which record type they wrote it into. Notes are back, and excluded
+from the card list they already appear in.
+
+**Checked and clean:** no textarea wall, no repeated prompts, no journal
+heaviness, no duplicate cards, and no copy that pressures anyone to write.
+
+# 10. Performance (§42)
+
+```
+                render      prompt opens    save settles
+n=  100         217ms       88ms            96ms
+n= 1000         242ms       68ms            181ms
+n= 5000         907ms       92ms            757ms
+```
+
+The 092 baseline was 189 / 297 / 945ms. Meaning capture is at or slightly below
+it. A prompt opens in ~90ms at every size; the save at 5,000 is dominated by the
+store's own persist. Two thousand reflections filter in under 100ms
+(assertion 93.51).
+
+# 11. Known gaps
+
+1. **A reflection cannot be linked to a Goal or Project.** The record has no
+   field for it. §18 is conditional on the relationship model supporting it,
+   §8 forbids a migration, and misusing `sourceIds` would be a lie in the
+   schema. So §20's capture-context suggest-confirm flow has nothing to attach
+   to either, and neither is implemented.
+2. **Past days are read-only.** You can read what you wrote about Friday but not
+   add to it. That is a deliberate choice about what "reviewing a past day"
+   means, not a limitation — but a person who thinks of something on Sunday
+   about Friday currently has nowhere to put it.
+3. **A reflection cannot be edited or deleted from this surface.** §28 says
+   capture first; `Reflection.response` is immutable by design and annotations
+   are append-only, so editing would need its own decision.
+4. **Old wins / lessons / friction still have no writer.** They stay readable at
+   `/daily/history`, and the meaning prompts are the replacement — but a person
+   who wants three separate lists of wins no longer has them.
+
+# 12. Gates (§44)
+
+| Gate | Result |
+|---|---|
+| Deterministic — full regression | **5825/5825** across 57 suites, none failing |
+| `reviews/meaning` selftest | **74/74** |
+| §39 browser torture (093) | **57/57** |
+| §40 mutation proofs | **17/17 caught**, 0 escapes, 0 patch failures |
+| 081 memory / 083 morning / 084 week | 72/72 · 77/77 · 62/62 |
+| 085 search / 089 capture context | 54/54 · 66/66 |
+| 090 replanning / 091 evening / 092 consolidation | 69/69 · 87/87 · 59/59 |
+| `release:audit` | PASS 17/17 · migration count 47, nothing beyond 0047 |
+| `release:routes` | PASS 24/24 |
+| `release:export` | PASS 14/14 |
+| `audit:security` | PASS — RLS, secrets, routes, auth, deps |
+| `tsc --noEmit` | clean |
+| `eslint` | 0 errors (2 pre-existing warnings in unrelated files) |
+| `next build` | clean |
+
+# 13. The twelve claims (§46)
+
+1. **Useful with zero reflection** — browser 1–3; 93.53, 93.54.
+2. **Minimal effort** — a chip and a sentence; browser 4–7.
+3. **Multiple reflections save independently** — browser 14–16; §27.
+4. **User-authored and correctly attributed** — browser 43 ("You wrote this");
+   §12 is structural.
+5. **Past-day reflections attach to the reviewed day** — browser 26–29;
+   93.17–93.29; M1–M5.
+6. **They appear in Memory and Week Review** — browser 39–41; 93.36.
+7. **Search retrieves them** — browser 42.
+8. **Goal/Project linkage requires confirmation** — not implemented, because the
+   schema cannot represent it; §7 and §11 above.
+9. **No automatic Goal mutation** — browser 32–34; 93.45, 93.46.
+10. **No diary, mood scoring, streaks or journal subsystem** — browser 12, 37,
+    38; M11, M12.
+11. **Historical structured content readable** — 93.41–93.44.
+12. **No migration** — head stays 0047.
