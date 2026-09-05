@@ -202,6 +202,33 @@ export function runCaptureHomeSelfTests() {
     ok("95.28 §16 an unfiled capture says nothing it did not do",
       rows.find((r) => r.id === "c2")?.unfiled === true
       && rows.find((r) => r.id === "c2")?.outcomes.length === 0, "");
+    {
+      // The defect a fixture found before a user did. `convertCapture` files a
+      // capture as a concept, a dialogue, a practice and six other kinds this
+      // surface has no reader for — so an empty outcome list is not evidence
+      // the capture is unfiled, and treating it that way told people their
+      // filed capture was still waiting and pointed them at an inbox it is not
+      // in. `unfiled` reads `processingStatus`, which is the store's answer.
+      const w2 = world();
+      w2.captures = [{ id: "cx", text: "A thought worth keeping", createdAt: D(T, 10),
+        processingStatus: "processed", processedAt: D(T, 10),
+        linkedEntityRefs: [{ kind: "concept", id: "k1" }] }] as StoreState["captures"];
+      const r2 = recentCaptures(w2)[0];
+      ok("95.28b §16 a capture filed into a domain Home cannot render is still filed",
+        r2?.unfiled === false, `unfiled=${r2?.unfiled}`);
+      ok("95.28c §16 …and Home claims no outcome it cannot name",
+        r2?.outcomes.length === 0, String(r2?.outcomes.length));
+      const w3 = world();
+      w3.beliefs = [{ id: "b1", captureId: "cb", proposalId: "pr1",
+        text: "Teaching is the safe path.", status: "accepted", revisions: [], judgments: [],
+        createdAt: D(T, 9), updatedAt: D(T, 9) }] as unknown as StoreState["beliefs"];
+      w3.captures = [{ id: "cb", text: "Teaching is the safe path", createdAt: D(T, 9),
+        processingStatus: "processed", processedAt: D(T, 9),
+        linkedEntityRefs: [{ kind: "belief", id: "b1" }] }] as StoreState["captures"];
+      ok("95.28d §16 a capture converted to a belief says so",
+        recentCaptures(w3)[0]?.outcomes[0]?.label === "Belief",
+        String(recentCaptures(w3)[0]?.outcomes[0]?.label));
+    }
     ok("95.29 §34 reading the recent list writes nothing",
       (() => { const before = JSON.stringify(w); recentCaptures(w); recentCaptures(w); return JSON.stringify(w) === before; })());
     ok("95.30 §15 a limit of zero is honoured rather than ignored",

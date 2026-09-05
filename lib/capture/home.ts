@@ -69,6 +69,9 @@ export const OUTCOME_LABEL: Record<string, string> = {
   formation: "Reflection",
   project: "Project",
   goal: "Goal",
+  // `/process` can convert a capture to a belief, and a capture filed that way
+  // is filed. Leaving it out made those rows read "Not filed yet".
+  belief: "Belief",
 };
 
 /**
@@ -175,6 +178,7 @@ function hrefFor(kind: string, id: string): string {
     case "note": return `/notes?note=${id}`;
     case "event": return `/calendar?event=${id}`;
     case "protocol": return `/protocols`;
+    case "belief": return `/beliefs`;
     case "project": return `/project/${id}`;
     case "goal": return `/goal/${id}`;
     default: return "/memory";
@@ -241,6 +245,12 @@ export function describeCreated(state: StoreState, refs: readonly RefLite[]): Ca
       out.push({ kind: ref.kind, id: ref.id, title: r.title, label, href: hrefFor(ref.kind, ref.id) });
       continue;
     }
+    if (ref.kind === "belief") {
+      const b = (state.beliefs ?? []).find((x) => x.id === ref.id);
+      if (!b) continue;
+      out.push({ kind: ref.kind, id: ref.id, title: b.text, label, href: hrefFor(ref.kind, ref.id) });
+      continue;
+    }
     if (ref.kind === "formation") {
       const r = (state.reflections ?? []).find((x) => x.id === ref.id);
       if (!r) continue;
@@ -257,9 +267,18 @@ export interface RecentCapture {
   /** §17. What the person actually typed, always. */
   text: string;
   at: string;
-  /** What it became, or empty when it is still unfiled. */
+  /** What it became — possibly empty even when it was filed; see `unfiled`. */
   outcomes: CaptureOutcome[];
-  /** True when nothing was made of it yet — it is waiting in `/process`. */
+  /**
+   * True when nothing has been made of it yet — it is waiting in `/process`.
+   *
+   * Read from `processingStatus`, which is the STORE's answer, and not from
+   * whether this module managed to describe the outcomes. `convertCapture` can
+   * file a capture as a concept, a dialogue, a practice and six other kinds
+   * this surface has no reader for; deriving "unfiled" from an empty outcome
+   * list told the user their filed capture was still waiting, and pointed them
+   * at an inbox it is not in.
+   */
   unfiled: boolean;
 }
 
@@ -281,13 +300,13 @@ export function recentCaptures(state: StoreState, limit = MAX_RECENT_CAPTURES): 
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
     .slice(0, Math.max(0, limit))
     .map((c) => {
-      const outcomes = describeCreated(state, c.linkedEntityRefs ?? []);
+      const refs = c.linkedEntityRefs ?? [];
       return {
         id: c.id,
         text: c.workingText?.trim() || c.text,
         at: c.createdAt,
-        outcomes,
-        unfiled: outcomes.length === 0,
+        outcomes: describeCreated(state, refs),
+        unfiled: (c.processingStatus ?? "inbox") === "inbox" && refs.length === 0,
       };
     });
 }

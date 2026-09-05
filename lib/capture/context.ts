@@ -731,7 +731,15 @@ export const CONTEXT_HEADING = "Possible context";
 export const INHERITED_REASON = "It already supports that Goal.";
 
 /** §27. The existing-record handoff, which never acts on its own. */
-export const EXISTING_RECORD_LEAD = "Looks like this may refer to:";
+/**
+ * LIFEOS-095 §12. Shorter, and it says the same thing.
+ *
+ * Was "Looks like this may refer to:", which took a line of its own above a
+ * link whose label is the record's title — and the title is usually the words
+ * the person just typed, so the capture appeared three times on one screen
+ * (§18). The hedge ("may") is the part that carries meaning and it is kept.
+ */
+export const EXISTING_RECORD_LEAD = "May already exist:";
 
 /** §24. Said where nothing is preselected. */
 export const CHOOSE_ONE = "Nothing is selected — pick the one you meant.";

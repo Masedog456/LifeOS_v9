@@ -110,12 +110,16 @@ export default function CaptureContext({
           <li key={`${s.contextType}:${s.contextId}:${i}`} data-context-row={s.contextType} data-context-strength={s.strength}>
             {/* ---- an existing record this may already be (§18, §27) ------ */}
             {s.contextType === "action" && s.strength !== "ambiguous" && (
+              /* §12. One line, not three. */
               <div data-context-existing>
                 <p className="text-[11px] text-zinc-500">
                   {EXISTING_RECORD_LEAD}{" "}
                   <Link href={`/actions/${s.contextId}`} className="underline underline-offset-2">{s.label}</Link>
+                  {/* The disclaimer stays — it is the one thing on this row a
+                      reader could get wrong, and §27 of 089 depends on it
+                      being visible. It moves onto the line rather than off. */}
+                  <span className="text-zinc-400"> · Nothing has been changed.</span>
                 </p>
-                <p className="text-[11px] text-zinc-400">{s.reason} Nothing has been changed.</p>
               </div>
             )}
 
@@ -126,7 +130,10 @@ export default function CaptureContext({
                   <span className="text-zinc-400">{KIND_WORD.person} · </span>
                   <Link href={`/people/${encodeURIComponent(s.label)}`} className="underline underline-offset-2">{s.label}</Link>
                 </p>
-                <p className="text-[11px] text-zinc-400">{s.reason}</p>
+                {/* §12. "Name appears in the capture." beside the name it
+                    appears as is a line that tells the reader nothing. The
+                    reason is kept where a reader who wants it can get it. */}
+                <p className="sr-only">{s.reason}</p>
                 {s.ambiguousAlternatives.length > 0 && (
                   <p data-context-person-ambiguous className="text-[11px] text-zinc-400">
                     Conqify also has “{s.ambiguousAlternatives[0].label}”. It cannot tell whether that is the same {s.label}.
@@ -145,7 +152,11 @@ export default function CaptureContext({
                   describe={`${isOn(s) ? "Remove" : "Add"} ${KIND_WORD[s.contextType].toLowerCase()} context: ${s.label}`}
                   onClick={() => pick(s.contextType as "project" | "goal", s.contextId)}
                 />
-                <span className="text-[11px] text-zinc-400">{s.reason}</span>
+                {/* §12. An exact match's reason restates the chip's own label
+                    — "“Graduate applications” appears in what you wrote"
+                    beside a chip reading "Graduate applications". It is kept for
+                    the weaker tiers, where it is the evidence. */}
+                {s.strength !== "exact" && <span className="text-[11px] text-zinc-400">{s.reason}</span>}
                 {/* §13. Inherited, stated as fact — not a second link. */}
                 {s.inheritedGoal && (
                   <span data-context-inherited={s.inheritedGoal.label} className="text-[11px] text-zinc-400">
