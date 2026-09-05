@@ -45,6 +45,7 @@ import { resolveRange, type ResolvedRange } from "@/lib/insights/range";
 import { buildActivityIndex, eventsInRange, type ActivityEvent } from "@/lib/insights/activity";
 import { occurrencesBetween, readRule, describeRule } from "@/lib/time/recurrence";
 import { classifyOrigin } from "@/lib/provenance/classify";
+import { reflectionDayKey, hasReviewedDay } from "@/lib/reviews/meaning";
 import { isMachineProduced, type OriginType } from "@/lib/provenance";
 import { isLive, overdueActions, dueTodayActions, upcomingActions, sortByDue } from "@/lib/actions/due";
 import { isDeferredAhead } from "@/lib/actions/defer";
@@ -205,6 +206,17 @@ const middayOf = (day: DayKey): string => `${day}T12:00:00.000Z`;
  * the shared index. Two different notions of "inside the week" on one page is
  * how a record shows up in the timeline and not in a section.
  */
+/**
+ * Whether a DAY falls inside a range (LIFEOS-093 §13).
+ *
+ * The existing `within` takes an instant. A reflection filed against a reviewed
+ * day has no instant for that day — only the key — so the two tests sit side by
+ * side rather than one being bent to do both jobs.
+ */
+function withinDay(day: string, range: ResolvedRange): boolean {
+  return day >= range.startKey && day <= range.endKey;
+}
+
 function within(iso: string | undefined, range: ResolvedRange): boolean {
   if (!iso) return false;
   const t = Date.parse(iso);
@@ -474,9 +486,23 @@ export function buildAutobiographicalTimeline(
   }
 
   for (const r of state.reflections ?? []) {
-    if (!within(r.createdAt, range)) continue;
+    // LIFEOS-093 §13, §14. The day a reflection is ABOUT, which is not always
+    // the day it was typed. `reflectionDayKey` honours an explicit reviewed-day
+    // context and falls back to `createdAt` — so a reflection written at 22:00
+    // about yesterday belongs to yesterday's review, where it was until now
+    // absent while appearing on today's.
+    //
+    // `at` stays `createdAt` exactly as recorded: nothing is restamped, and the
+    // instant the words were typed remains the truth about when they were
+    // typed. Only the DAY it is filed under is affected, and `evidence` names
+    // which field decided it.
+    const day = reflectionDayKey(r);
+    const reviewed = hasReviewedDay(r);
+    // A reviewed-day reflection is ranged by that day; everything else keeps
+    // being ranged by when it was written.
+    if (reviewed ? !withinDay(day, range) : !within(r.createdAt, range)) continue;
     out.push({
-      at: r.createdAt, day: dayOf(r.createdAt), kind: "reflection_captured",
+      at: r.createdAt, day, kind: "reflection_captured",
       title: (r.response || r.prompt).trim(),
       // `reflection`, not `formation`. LIFEOS-064 used the formation kind here
       // and the link it produced 404'd: `/formation/<id>` resolves formation
@@ -484,7 +510,7 @@ export function buildAutobiographicalTimeline(
       // space. LIFEOS-069 §16 forbids dead-end prose, and `lib/command/records`
       // now knows where a Reflection actually opens.
       recordRef: { kind: "reflection", id: r.id },
-      evidence: "reflection.createdAt",
+      evidence: reviewed ? "reflection.context" : "reflection.createdAt",
       origin: classifyOrigin({ kind: "reflection", text: r.response }),
     });
   }

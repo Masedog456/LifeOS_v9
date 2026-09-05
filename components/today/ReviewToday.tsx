@@ -36,12 +36,12 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useStore, addReflection } from "@/lib/mvpStore";
+import { useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import {
   buildEveningClose, deferralLine, movementLine, eveningHeading, previousDay,
   EVENING_CHANGE_LABEL,
-  QUIET_DAY, MEMORY_PROMPT, MEMORY_PROMPT_HINT, CARRY_FORWARD_NOTE,
+  QUIET_DAY, CARRY_FORWARD_NOTE,
   TOMORROW_SCHEDULED_HEADING, CARRY_FORWARD_HEADING,
   type CarryCandidate,
 } from "@/lib/today/evening";
@@ -52,6 +52,8 @@ import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { formatLocalTime } from "@/lib/time/localtime";
 import { formatDayKey, todayKey, addDays } from "@/lib/reviews/dates";
 import { toast } from "@/lib/ux/feedback";
+import MeaningCapture from "@/components/today/MeaningCapture";
+import { meaningPageForDay } from "@/lib/reviews/meaning";
 
 const metaClass = "shrink-0 text-[11px] text-zinc-500";
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
@@ -87,10 +89,6 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
     () => buildEveningClose(state, ix, { date, today }),
     [state, ix, date, today],
   );
-
-  /** §20. Optional. Empty is a complete answer. */
-  const [memory, setMemory] = useState("");
-  const [saved, setSaved] = useState(false);
 
   /**
    * §16, §17, and LIFEOS-090 §33. The user presses; LIFEOS-090 decides.
@@ -128,17 +126,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
     toast({ kind: "info", message: ex?.note ?? `${f.item.title} can't move to a day.` });
   }
 
-  function remember() {
-    const text = memory.trim();
-    if (!text) return;
-    // §21. The existing reflection path, with the prompt kept as the prompt so
-    // provenance survives: this is the user's answer to a question, not a
-    // "daily diary" record type invented for this surface.
-    addReflection({ prompt: MEMORY_PROMPT, response: text, context: date });
-    setMemory("");
-    setSaved(true);
-    toast({ kind: "success", message: "Saved to your reflections." });
-  }
+
 
   /**
    * §18. Where a carry actually lands.
@@ -150,6 +138,31 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
    */
   const carryTarget = addDays(today, 1);
   const carryLabel = c.isToday ? "Carry to tomorrow" : `Carry to ${formatDayKey(carryTarget)}`;
+
+  /**
+   * The day's reflections as cards (§30, §31).
+   *
+   * Derived from the store rather than from `c.reflections`, because a card
+   * needs the reflection RECORD — its prompt and its full response — and the
+   * close carries the timeline's flattened view. Same filter either way:
+   * `meaningForDay` uses the same `reflectionDayKey` the timeline does, so the
+   * two cannot disagree about which day a reflection belongs to.
+   */
+  const meaning = useMemo(
+    () => meaningPageForDay(state.reflections ?? [], date),
+    [state.reflections, date],
+  );
+  const meaningCards = meaning.cards;
+  /**
+   * The day's other user-authored words. §31: a reflection is owned by its
+   * card, so anything already rendered as one is excluded here rather than
+   * printed twice.
+   */
+  const shownIds = new Set(meaningCards.map((m) => m.reflection.id));
+  const otherWords = c.reflections
+    .filter((r) => !shownIds.has(r.entity.id))
+    .filter((r) => !(state.reflections ?? []).some((x) => x.id === r.entity.id))
+    .map((r) => ({ id: `${r.entity.kind}:${r.entity.id}`, text: r.title }));
 
   const hasDone = c.completed.length > 0 || c.waitingResolved.length > 0 || c.movedForward.length > 0;
   const hasChanged = c.changed.length > 0 || c.deferred.length > 0
@@ -167,7 +180,12 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
         <h1 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">
           {c.isToday ? "Review today" : `Review ${eveningHeading(c)}`}
         </h1>
-        <p className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(c.date)}</p>
+        {/* §41. On a past day the heading already names it — "Review Friday,
+            Sep 4" above "Fri, Sep 4" was the same date twice, one line apart.
+            The subtitle earns its place only when the heading says "today". */}
+        {c.isToday && (
+          <p data-review-date className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(c.date)}</p>
+        )}
 
         {/* §23. Counts. Never an evaluation, and absent when there is nothing
             to count — a line of zeroes is an appraisal wearing arithmetic. */}
@@ -329,47 +347,17 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
       </Block>
 
       {/* ---- 4. IN YOUR OWN WORDS (§19, §20, §21) ------------------------- */}
+      {/*
+        LIFEOS-093. The one place a reflection is rendered, and the one place a
+        new one is written. It used to be a single input asking one question of
+        today only; there are now three prompts offered, three more a press
+        away, and a past day shows what was written about it without inviting
+        more — you cannot add to a day you are only looking at.
+      */}
       <Block title="In your own words" id="reflections"
-        show={c.reflections.length > 0 || c.isToday}>
-        {c.reflections.length > 0 && (
-          <ul className="mb-2 flex flex-col gap-1.5">
-            {c.reflections.map((r) => (
-              <li key={`${r.entity.kind}:${r.entity.id}`} data-review-words
-                className="text-sm text-zinc-700 dark:text-zinc-200">
-                “{r.title}”
-              </li>
-            ))}
-          </ul>
-        )}
-        {/* §20. One optional prompt. A sentence or nothing — and no nagging if
-            it stays empty, which is why there is no "incomplete" state here. */}
-        {c.isToday && (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="evening-memory" className="text-[11px] text-zinc-500">
-              {MEMORY_PROMPT} <span className="text-zinc-400">{MEMORY_PROMPT_HINT}</span>
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="evening-memory"
-                data-review-memory-input
-                value={memory}
-                onChange={(e) => { setMemory(e.target.value); setSaved(false); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); remember(); } }}
-                placeholder="Optional"
-                className="min-w-0 flex-1 rounded-lg border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/12"
-              />
-              <button type="button" data-review-memory-save disabled={!memory.trim()} onClick={remember}
-                className="rounded-full bg-zinc-900 px-3 py-1 text-[11px] font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">
-                Save
-              </button>
-            </div>
-            {saved && (
-              <p data-review-memory-saved className="text-[11px] text-zinc-500">
-                Saved with your reflections.
-              </p>
-            )}
-          </div>
-        )}
+        show={meaningCards.length > 0 || otherWords.length > 0 || c.isToday}>
+        <MeaningCapture reviewedDay={date} cards={meaningCards} more={meaning.more}
+          otherWords={otherWords} canWrite={c.isToday} />
       </Block>
 
       {/* ---- 5. TOMORROW (§14, §15, §16, §18) ---------------------------- */}

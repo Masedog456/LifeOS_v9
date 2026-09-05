@@ -329,13 +329,18 @@ const textsOf = (page, sel) => page.evaluate((s) =>
     !/Generated overview of the application timeline/.test(await page.evaluate(() => document.body.innerText)));
 
   // ---- 20. The optional memory prompt (§20, §21) ------------------------
-  ok("44 §20 one optional prompt is offered",
-    await page.evaluate(() => /worth remembering/i.test(document.body.innerText)));
+  ok("44 §20 an optional prompt is offered",
+    await page.evaluate(() => !!document.querySelector('[data-meaning-prompt="remember"]')));
   ok("45 §20 …phrased as optional, never as an assignment",
     !/complete your|required|daily journal/i.test(await page.evaluate(() => document.body.innerText)));
   const beforeR = (await store(page)).reflections.length;
-  await page.fill("[data-review-memory-input]", "Sent the first application after four months.");
-  await page.click("[data-review-memory-save]");
+  // LIFEOS-093 replaced the single input with a chosen prompt and one composer.
+  // What 091 asserts is unchanged — an optional answer reaches the existing
+  // reflection path with its prompt preserved — so only the selectors move.
+  await page.click('[data-meaning-prompt="remember"]');
+  await page.waitForSelector('[data-meaning-input="remember"]', { timeout: 10000 });
+  await page.fill('[data-meaning-input="remember"]', "Sent the first application after four months.");
+  await page.click("[data-meaning-save]");
   await page.waitForTimeout(800);
   const st = await store(page);
   ok("46 §21 an answer is stored through the existing reflection path",
@@ -426,7 +431,7 @@ const textsOf = (page, sel) => page.evaluate((s) =>
     await page.evaluate(() => !/^Review today/i.test(document.querySelector("h1")?.textContent || "")),
     await page.evaluate(() => document.querySelector("h1")?.textContent || ""));
   ok("67 §20 …and the optional prompt is not offered for a past day",
-    await page.evaluate(() => !document.querySelector("[data-review-memory-input]")));
+    await page.evaluate(() => !document.querySelector("[data-meaning-prompt]")));
   await page.click("[data-review-next]");
   await page.waitForTimeout(700);
   ok("68 §26 …and you can come back to today",
@@ -467,9 +472,11 @@ const textsOf = (page, sel) => page.evaluate((s) =>
     ok("76 §43 every section has a real heading",
       await m.evaluate(() => [...document.querySelectorAll("[data-review-section]")]
         .every((s) => !!s.querySelector("h2")?.textContent?.trim())));
-    ok("77 §43 the optional prompt is labelled",
-      await m.evaluate(() => {
-        const i = document.querySelector("[data-review-memory-input]");
+    ok("77 §43 the optional prompt is labelled once opened",
+      await m.evaluate(async () => {
+        document.querySelector("[data-meaning-prompt]")?.click();
+        await new Promise((r) => setTimeout(r, 300));
+        const i = document.querySelector("[data-meaning-input]");
         return !!i && !!document.querySelector(`label[for="${i.id}"]`);
       }));
     ok("78 §43 the carry confirmation is keyboard reachable",

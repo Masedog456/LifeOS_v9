@@ -279,8 +279,14 @@ export function runDailyReviewConsolidationSelfTests() {
     ok("92.33 §16 the canonical review creates nothing by being read",
       !/getOrCreateReviewForDate|startDailyReview|completeDailyReview/.test(canonical),
       "");
+    // LIFEOS-093 moved the reflection writer into `MeaningCapture`, so the
+    // surface is the page PLUS its own components. The strict half is
+    // unchanged: no part of it may write a DailyReview.
+    const surface = canonical + code("components/today/MeaningCapture.tsx");
     ok("92.34 §16 …and its only write is the optional reflection",
-      /addReflection/.test(canonical) && !/updateDailyReview/.test(canonical));
+      /addReflection/.test(surface)
+      && !/updateDailyReview|startDailyReview|completeDailyReview|addReviewWin|addReviewLesson|addReviewFriction/.test(surface),
+      "");
     ok("92.35 §14 …and carrying work goes through the replanning layer",
       /planReplan/.test(canonical) && !/\bdeferAction\(/.test(canonical),
       "");
