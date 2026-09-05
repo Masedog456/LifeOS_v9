@@ -23,7 +23,6 @@ import { getPinned } from "@/lib/command/recent";
 import { resolveRecord } from "@/lib/command/records";
 import { openQuickCapture } from "@/lib/command/events";
 import FirstRun from "@/components/ux/FirstRun";
-import TodayReviewCard from "@/components/reviews/TodayReviewCard";
 import TodayInboxCard from "@/components/inbox/TodayInboxCard";
 import TodayCommandCenter from "@/components/today/TodayCommandCenter";
 import TodayPlanCard from "@/components/planning/TodayPlanCard";
@@ -153,8 +152,9 @@ export default function TodayPage() {
 
               The order is now: the day, then the ways into the rest of it. */}
 
-          {/* Daily review entry point (LIFEOS-034, Feature 12). */}
-          <TodayReviewCard />
+          {/* LIFEOS-092 §20. The review entry point lives ONCE, on the
+              orientation card above — this card was a second "Review today →"
+              with an identical label pointing at a different surface. */}
 
           <FirstRun />
 

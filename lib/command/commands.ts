@@ -48,7 +48,7 @@ export const NAV_COMMANDS: CommandItem[] = [
   { id: "nav:workspaces", title: "Open Workspaces", group: "Navigate", kind: "navigate", href: "/workspaces", icon: "◲", keywords: ["workspace", "project", "session", "switch"] },
   { id: "nav:goals", title: "Open Goals", group: "Navigate", kind: "navigate", href: "/goals", icon: "◎", keywords: ["goal", "objective", "accomplish", "execution"] },
   { id: "nav:projects", title: "Open Projects", group: "Navigate", kind: "navigate", href: "/projects", icon: "▤", keywords: ["project", "work", "execution", "milestone"] },
-  { id: "nav:daily", title: "Open Daily Review", group: "Navigate", kind: "navigate", href: "/daily", icon: "☑", keywords: ["review", "reflect", "plan", "daily", "wins", "lessons"] },
+  { id: "nav:daily", title: "Review today", group: "Navigate", kind: "navigate", href: "/today/review", icon: "☑", keywords: ["review", "reflect", "daily", "evening", "close the day", "what happened"] },
   { id: "nav:process", title: "Open capture inbox", group: "Navigate", kind: "navigate", href: "/process", icon: "▤", keywords: ["inbox", "process", "capture", "clarify", "convert", "zero"] },
   { id: "nav:actions", title: "Open action queue", group: "Navigate", kind: "navigate", href: "/actions", icon: "☑", keywords: ["next", "actions", "todo", "tasks", "do", "commitments", "queue"] },
   { id: "action:new", title: "New action", group: "Navigate", kind: "navigate", href: "/actions?new=1", icon: "＋", keywords: ["create", "next action", "task", "todo", "add"] },
@@ -221,9 +221,9 @@ export function reviewProvider(ctx: CommandContext): CommandItem[] {
   const items: CommandItem[] = [];
 
   if (status === "not_started" || !todays) {
-    items.push({ id: "review:start", title: "Start daily review", group: "Review", kind: "navigate", href: "/daily", icon: "☑", keywords: ["reflect", "plan", "daily", "review"] });
+    items.push({ id: "review:start", title: "Review today", group: "Review", kind: "navigate", href: "/today/review", icon: "☑", keywords: ["reflect", "daily", "review", "close the day"] });
   } else if (status === "in_progress" || status === "reopened") {
-    items.push({ id: "review:continue", title: "Continue daily review", group: "Review", kind: "navigate", href: "/daily", icon: "☑", keywords: ["reflect", "resume", "daily", "review"] });
+    items.push({ id: "review:continue", title: "Review today", group: "Review", kind: "navigate", href: "/today/review", icon: "☑", keywords: ["reflect", "resume", "daily", "review"] });
     items.push({ id: "review:complete", title: "Complete daily review", group: "Review", kind: "navigate", href: `/daily/${today}?step=complete`, icon: "✓", keywords: ["finish", "done", "daily", "review"] });
   } else if (status === "completed") {
     items.push({ id: "review:reopen", title: "Reopen daily review", group: "Review", kind: "navigate", href: `/daily/${today}`, icon: "↺", keywords: ["edit", "reopen", "daily", "review"] });

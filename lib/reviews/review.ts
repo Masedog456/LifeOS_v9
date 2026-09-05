@@ -6,7 +6,7 @@
  * and the deterministic "start tomorrow" action set. No AI, no scoring.
  */
 
-import type { DailyReview, RecordRefLite, ReviewStatus, StoreState } from "@/types/mvp";
+import type { DailyReview, ReviewStatus, StoreState } from "@/types/mvp";
 import type { EntityRef } from "@/lib/entities/entity";
 import { recencyBucket, formatDayKey, type DayKey } from "@/lib/reviews/dates";
 
@@ -20,16 +20,16 @@ export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
 };
 
 /** The seven guided steps (non-forced; the user may skip / jump freely). */
-export const REVIEW_STEPS = [
-  { key: "summary", label: "Today at a glance" },
-  { key: "wins", label: "Wins" },
-  { key: "lessons", label: "Lessons" },
-  { key: "friction", label: "Friction" },
-  { key: "openLoops", label: "Open loops" },
-  { key: "tomorrow", label: "Tomorrow’s focus" },
-  { key: "complete", label: "Confirm & complete" },
-] as const;
-export type ReviewStepKey = (typeof REVIEW_STEPS)[number]["key"];
+/**
+ * The wizard's seven steps, retired with it (LIFEOS-092 §23, §26).
+ *
+ * Kept as an empty list rather than deleted outright because the type is
+ * exported and the emptiness is the claim: there is no stepped daily review any
+ * more, and a future reader should not find seven step labels for a surface
+ * that has no steps.
+ */
+export const REVIEW_STEPS = [] as const;
+export type ReviewStepKey = string;
 
 export function reviewHref(date: DayKey): string {
   return `/daily/${date}`;
@@ -79,26 +79,9 @@ export function groupReviewsByRecency(state: StoreState, today: DayKey): ReviewG
   return order.map((bucket) => ({ bucket, reviews: buckets[bucket] })).filter((g) => g.reviews.length > 0);
 }
 
-export interface StartTomorrowAction { key: string; label: string; href?: string; ref?: RecordRefLite; kind: "resume_project" | "open_workspace" | "open_document" | "inspect" | "start_session" }
-
-/**
- * Deterministic "start tomorrow" actions derived from a completed review's focus
- * list — each REUSES an existing system (project/workspace/document/inspector/
- * session). No new navigation or session logic is introduced here; the UI wires
- * these to the existing store actions.
+/*
+ * `StartTomorrowAction` / `startTomorrowActions` were removed in LIFEOS-092
+ * along with the wizard that produced the focus lists they read. Nothing else
+ * ever called them, and LIFEOS-091's Tomorrow section answers the same question
+ * from recorded evidence instead of from a hand-typed list.
  */
-export function startTomorrowActions(review: DailyReview): StartTomorrowAction[] {
-  const out: StartTomorrowAction[] = [];
-  const ordered = [...review.tomorrowFocus].sort((a, b) => a.order - b.order);
-  for (const f of ordered) {
-    if (!f.ref) continue;
-    switch (f.ref.kind) {
-      case "project": out.push({ key: `resume:${f.ref.id}`, label: `Resume: ${f.text}`, href: `/project/${f.ref.id}`, ref: f.ref, kind: "resume_project" }); break;
-      case "workspace": out.push({ key: `ws:${f.ref.id}`, label: `Open workspace: ${f.text}`, href: `/workspace/${f.ref.id}`, ref: f.ref, kind: "open_workspace" }); break;
-      case "document": out.push({ key: `doc:${f.ref.id}`, label: `Open document: ${f.text}`, href: `/document/${f.ref.id}`, ref: f.ref, kind: "open_document" }); break;
-      case "goal": out.push({ key: `goal:${f.ref.id}`, label: `Open goal: ${f.text}`, href: `/goal/${f.ref.id}`, ref: f.ref, kind: "inspect" }); break;
-      default: out.push({ key: `inspect:${f.ref.kind}:${f.ref.id}`, label: `Inspect: ${f.text}`, ref: f.ref, kind: "inspect" }); break;
-    }
-  }
-  return out;
-}

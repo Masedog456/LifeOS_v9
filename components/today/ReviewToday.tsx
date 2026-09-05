@@ -70,11 +70,18 @@ function Block({ title, show, children, id }: {
   );
 }
 
-export default function ReviewToday() {
+export default function ReviewToday({ initialDate }: { initialDate?: string } = {}) {
   const state = useStore();
   const today = todayKey();
-  /** §26. The day under review. Reusing existing date keys, not a new window. */
-  const [date, setDate] = useState(today);
+  /**
+   * The day under review. Existing date keys, not a new window.
+   *
+   * LIFEOS-092 §7, §17: it starts from `?date=` when there is one, so a past day
+   * has an address. That was the single thing the old `/daily/[date]` route did
+   * better than this one, and it is the reason `/daily/[date]` can redirect here
+   * without losing anything.
+   */
+  const [date, setDate] = useState(initialDate ?? today);
   const ix = useMemo(() => buildTodayIndexes(state, date), [state, date]);
   const c = useMemo(
     () => buildEveningClose(state, ix, { date, today }),
@@ -405,12 +412,13 @@ export default function ReviewToday() {
         <p data-review-coverage>
           This reflects what was recorded in Conqify. It is not a complete record of your day.
         </p>
+        {/* §21. The week is a secondary link, and the only one — "add a fuller
+            reflection" pointed at the wizard, which now redirects back to this
+            page, so the link was a loop. */}
         <p className="mt-1">
-          <Link href="/daily" className="underline-offset-4 hover:underline">
-            Add a fuller reflection →
-          </Link>
-          {" · "}
           <Link href="/memory" data-review-week className="underline-offset-4 hover:underline">Review this week →</Link>
+          {" · "}
+          <Link href="/daily/history" data-review-history className="underline-offset-4 hover:underline">Past reviews →</Link>
         </p>
       </footer>
     </div>

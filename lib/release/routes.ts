@@ -25,7 +25,7 @@ import { HELP_SECTIONS } from "@/lib/onboarding/education";
  */
 const DATA_BEARING = new Set<string>([
   "/today", "/", "/process", "/workspaces", "/goals", "/projects", "/actions",
-  "/plan", "/focus", "/daily", "/reading", "/document", "/world", "/beliefs", "/constitution", "/constitution/reflection", "/constitution/build",
+  "/plan", "/focus", "/daily", "/today/review", "/reading", "/document", "/world", "/beliefs", "/constitution", "/constitution/reflection", "/constitution/build",
   "/research", "/maintenance", "/insights", "/backup", "/recovery", "/privacy", "/security",
 ]);
 
