@@ -3,7 +3,7 @@
 **North star:** when I tell Conqify something new, it should connect it to what
 it already knows before asking me to organize it.
 
-## STATUS: AUDIT COMPLETE — IMPLEMENTATION IN PROGRESS
+## STATUS: COMPLETE
 
 | | |
 |---|---|
@@ -224,3 +224,218 @@ correct**. They become mutation targets, not fixes.
 **None required.** Every proposed link is `Action.projectId`, `Action.goalId`, or
 the inherited `Project.goalId` — all existing, all writable through existing
 domain setters. `0048` is not written.
+
+---
+
+# 2. The existing-context architecture
+
+`lib/capture/context.ts` — pure, derived, never persisted (§4).
+
+```
+buildCaptureContextIndex(state)     once per interpretation (§42)
+suggestContext(candidate, state, index)  → CaptureContextSuggestion[]
+contextFields(accepted, kind)       → { projectId?, goalId? }
+contextKnowledgeGoal(accepted, kind) → a Goal id, for note-shaped kinds
+```
+
+## 2.1 The one new matching idea
+
+A **shared distinctive title word**. A capture word grounds a match against a
+live Project or Goal when it is a **prefix** of a word in that record's title
+AND no other record of that kind is reached by the same word.
+
+* **Prefix** is LIFEOS-085's rule, taken for 085's reason: it is what lets
+  "grad school" find "Graduate school", and it is one-directional, so "school"
+  never matches "sch".
+* **Distinctive** is what keeps it honest. A word reaching two Projects is a
+  coin flip, so it grounds no link — there is no threshold to tune, and the
+  explanation names the word (§20, §21).
+* **Not semantic.** "Call Maria" cannot reach "Call Marcus": they share only
+  "call", which reaches both (§7).
+* **Verbs are excluded.** A verb is what you DO, not what a Project is ABOUT,
+  and titles routinely open with one.
+
+## 2.2 The tiers, in precedence order (§22)
+
+| Tier | Source | Class |
+|---|---|---|
+| 1 | `matchRecords` — whole title, verbatim (060) | `exact` |
+| 2 | `matchEditTargets` — every content word covered (065/066), live only | `strong` |
+| 2b | ≥2 shared distinctive words against a live Action | `possible` |
+| 3 | 1 shared distinctive word against a live Project / Goal | `possible` |
+| — | several records reached equally | `ambiguous` |
+| 4 | LIFEOS-086 name references | `possible`, never a link |
+
+An exact match is taken first and a looser one never displaces it, so a fuzzy
+recent Project cannot outrank an exact old one.
+
+# 3. Action match semantics (§6, §7, §8)
+
+**Completion language is not this layer's job and was already correct.**
+`readChanges` runs *before* `interpret` in `CaptureComposer.look()`, so
+"I finished the recommendation request." becomes a `complete` intent with two
+candidate matches and `ambiguous` authority. It never reaches the create path.
+089 asserts this rather than changing it.
+
+Where this layer does surface an existing Action, it is a **handoff, not a
+mutation** (§27): the row links to the record and says "Nothing has been
+changed." Completed Actions are filtered out (§8) — `matchEditTargets` returns
+them, so the filter lives here rather than being assumed.
+
+# 4. Project and Goal context (§9–§13)
+
+A Project's Goal arrives **inherited**, never as a second link:
+`Project.goalId` already carries it and 087/088 already read it, so writing
+`action.goalId` alongside would say the same thing twice.
+
+**Goal-only linkage is first-class** (§12). A Goal match never forces a Project
+into existence, and no code path in this layer can create one.
+
+**One hop** (§23): candidate → Project → its Goal, and it stops.
+
+## 4.1 What each kind can actually hold
+
+"Can be linked" turned out to be two questions, not one:
+
+```
+FIELD_LINKABLE_KINDS   action, waiting, event            → projectId
+GOAL_LINKABLE_KINDS    action, waiting, event, project   → goalId
+everything else        note, reflection, protocol        → goal.linkedKnowledge
+```
+
+A new Project has no `projectId` and *does* take a `goalId` —
+`commitCapture` passes one straight to `createProject`. A note-shaped kind has
+neither, so a Project match on one is **promoted to the Goal that Project
+supports** before it ever reaches the user, and attaches through
+`linkGoalKnowledge` (§16, §17, §33).
+
+# 5. People (§14, §36)
+
+LIFEOS-086 unchanged. A name is a **text reference**, never an identity.
+"Marcus" and "Marcus Webb" stay two references and the longer form travels with
+the shorter as unresolved ambiguity. No Person domain, no merging, no id on a
+person suggestion — inventing one would be the first step toward the domain the
+brief forbids.
+
+A word that is part of a Project or Goal title is **not** a person: `personHint`
+finds a name anywhere in the store, and where it found "Portuguese" and "Fall"
+was a record title.
+
+# 6. Ambiguity (§24)
+
+Three shapes, all of which produce a question:
+
+1. two records reached by two different distinctive words
+2. **one word reaching two records** — this was silently dropped in the first
+   draft, and hiding an ambiguity is the defect §24 exists to prevent
+3. two open Actions covering the same clause
+
+Nothing is ever preselected, and `contextFields` writes nothing from an
+ambiguous row.
+
+# 7. Authority and relationship writes (§5, §29, §30, §37)
+
+Nothing in `lib/capture/context.ts` writes anything. Every link is
+`confirm`-tier; a person reference is `auto_safe` and is not a link at all.
+
+Writes go through paths that already exist: `CommitCandidate.projectId` /
+`.goalId` → `commitCapture` → `createAction` / `createProject`, and
+`linkGoalKnowledge` for note-shaped kinds. No raw store writes from the UI.
+
+**No existing record is reorganized** (§37). The layer proposes context for the
+record being created; it never moves an Action between Projects.
+
+**Provenance is untouched** (§30). A user-written capture stays user-authored;
+accepting a Project link changes no authorship field.
+
+# 8. Performance (§42)
+
+The index is built **once per interpretation**, not once per candidate.
+Measured in the suite at 100 / 1,000 / 5,000 actions: index build under 500ms
+and five matches under 1,500ms at every size, with the real numbers far below.
+
+# 9. Verification
+
+| Gate | Result |
+|---|---|
+| Deterministic (53 suites) | **5,513 / 5,513** |
+| LIFEOS-089 suite | **99** assertions |
+| Mutation testing (§46) | **24 applied, 24 caught, 0 escaped** |
+| Browser torture 089 (§45) | **66 / 66** (desktop + mobile) |
+| Browser 078 / 079 / 080 / 081 | 97 / 97 / 109 / 72 |
+| Browser 082 / 083 / 084 / 085 | 64 / 77 / 62 / 54 |
+| Browser 086 / 087 / 088 | 53 / 52 / 83 |
+| Release audit · export verify | 17/17 · 14/14 |
+| Security audit · route smoke | pass · 24/24 |
+| `tsc` · `eslint` · `next build` | clean |
+
+## 9.1 What the mutations found
+
+Five mutations survived a first run and one patch failed to apply. **None was a
+product defect.**
+
+* **Two fixture gaps** — nothing had a Project and an *unrelated* Goal both
+  matching, and nothing produced more suggestions than the cap. A fixture that
+  never exceeds a cap cannot test the cap.
+* **One assertion aimed at the wrong thing** — 89.15 claimed to prove the
+  prefix direction but only asserted the tokenizer kept the word; the match was
+  carried by a different record entirely.
+* **Two assertion gaps the refactor opened** — only the `possible` tier's
+  inherited Goal was asserted, and the `projectId` guard was only ever
+  exercised with rows that had no Project in them.
+* **One semantic no-op** — reverting the title-side word filter cannot change
+  behaviour while the capture side still filters. Replaced with one that does.
+* **One failed patch**, which the harness refuses to count as an escape.
+
+One dead branch was **removed** rather than left as code no test could redden.
+
+## 9.2 What the visual review found (§47)
+
+* The inherited-Goal line printed *"Supports Goal Open the clinic. This Project
+  already supports that Goal."* — the same fact twice, in two wordings.
+* A Protocol was offered a **Project chip that could never be honoured**.
+  `contextFields` returns nothing for a protocol, so the chip would look
+  accepted and write nothing — the exact defect the composer's own comment
+  records from LIFEOS-080. Fixing it exposed the coarse kinds list in §4.1.
+
+## 9.3 One prior-sprint fixture was fixed
+
+085's browser assertion 25 pinned a note to `at(-5)` and queried "notes from
+last week". The window jumps once a week; a day offset slides once a day, so
+the note sat on the last day of the window and fell out of it the next morning.
+It now derives midweek of the previous week from the same boundary the query
+uses. **Not a regression from 089** — this sprint touched no search code.
+
+# 10. Known gaps
+
+* **"I'm worried about the grad school applications." is classified `note`, not
+  `reflection`.** That is LIFEOS-080's classifier, and §53 says close 089 only.
+  The context behaviour is identical for both kinds.
+* **An existing-Action match does not expose that Action's own Project or
+  Goal.** Candidate → Action → Goal is a second hop, and §23 asks for restraint.
+* **A capture reaching an Action under a paused Project gets no Project
+  context.** The paused state is the user's decision about that work.
+* **The mobile command bar overlays the context panel** on a narrow viewport.
+  Pre-existing and global, not introduced here.
+* **Names are still plain strings.** 086's limitation, unchanged by design.
+
+# 11. Product claims (§51)
+
+1. Capture matches a likely existing Action before creating a duplicate —
+   through `readChanges` for completion language, and through a
+   distinctive-word tier for everything else.
+2. Ambiguous matches require a choice, whether two records were reached by two
+   words or by the same one.
+3. New Actions receive grounded Project suggestions, each naming the word it
+   matched on.
+4. Goal-only context works, and no Project is ever invented.
+5. A Project's ancestry exposes its Goal as inherited fact, stated once.
+6. Reflections carry context without becoming tasks.
+7. Protocols carry context without being created.
+8. Person references stay textual and unmerged under 086's rules.
+9. Every consequential link requires confirmation; nothing in the layer writes.
+10. Confirmed links appear in the 087 Project view and the 088 Goal view with
+    no 089-specific storage.
+11. The raw capture is preserved exactly, including where context is withheld.
+12. No migration, no new graph system, no embeddings, no Person domain.
+    Migration head stays at **0047**.

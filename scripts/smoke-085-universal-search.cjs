@@ -21,6 +21,22 @@ const EMPTY = () => Object.fromEntries(DOMAINS.map((d) => [d, []]));
 const dk = (o = 0) => { const d = new Date(); d.setDate(d.getDate() + o); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const at = (o = 0, h = 9) => `${dk(o)}T${String(h).padStart(2, "0")}:00:00.000Z`;
 
+/**
+ * Midweek of the PREVIOUS calendar week (LIFEOS-089).
+ *
+ * "notes from last week" resolves to a Monday–Sunday window that jumps once a
+ * week, while a fixed day offset slides once a day — so a fixture pinned to
+ * `at(-5)` sat on the last day of the window and fell out of it the next
+ * morning. Derived from the same week boundary the query uses, it cannot drift.
+ */
+const lastWeekMidday = (h = 7) => {
+  const d = new Date();
+  const dow = (d.getDay() + 6) % 7;          // 0 = Monday
+  d.setDate(d.getDate() - dow - 7 + 2);      // Wednesday of last week
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${key}T${String(h).padStart(2, "0")}:00:00.000Z`;
+};
+
 const act = (p) => ({ description: "", status: "open", notes: "", linkedEntityRefs: [], tags: [],
   estimatedSize: "unspecified", energy: "unspecified", order: 1, history: [], createdAt: at(-20), updatedAt: at(-20), ...p });
 const goal = (p) => ({ description: "", status: "active", priority: "medium", notes: "", tags: [],
@@ -44,7 +60,7 @@ const WORLD = () => ({ ...EMPTY(),
   ],
   reflections: [{ id: "rf1", prompt: "On teaching", response: "I think I care more about philosophy than teaching.", createdAt: at(-7, 20), annotations: [] }],
   notes: [
-    { id: "n1", title: "Application deadlines", body: "Deadlines: Berkeley Dec 1, NYU Dec 15.", archived: false, tags: ["grad"], linkedEntityRefs: [], createdAt: at(-5, 7), updatedAt: at(-5, 7) },
+    { id: "n1", title: "Application deadlines", body: "Deadlines: Berkeley Dec 1, NYU Dec 15.", archived: false, tags: ["grad"], linkedEntityRefs: [], createdAt: lastWeekMidday(), updatedAt: lastWeekMidday() },
     // The provenance trap.
     { id: "n2", body: "AI summary: your applications are progressing well.", fromAiText: true, archived: false, tags: [], linkedEntityRefs: [], createdAt: at(-1, 7), updatedAt: at(-1, 7) },
     // Soft-deleted. Must never appear.
