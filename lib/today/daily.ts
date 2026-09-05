@@ -376,7 +376,7 @@ export function buildDailyExecutiveView(
  * line that lists what did NOT happen is an appraisal wearing a count's
  * clothes, so zero-count clauses are simply absent.
  */
-export function orientationLine(v: DailyExecutiveView): string {
+export function orientationLine(v: DailyExecutiveView, decisions = 0): string {
   const parts: string[] = [];
   const events = v.fixedToday.filter((f) => f.kind === "event").length;
   if (events) parts.push(`${events} event${events === 1 ? "" : "s"}`);
@@ -384,6 +384,17 @@ export function orientationLine(v: DailyExecutiveView): string {
   if (timed) parts.push(`${timed} timed commitment${timed === 1 ? "" : "s"}`);
   if (v.flexibleToday.length) parts.push(`${v.flexibleToday.length} to fit in`);
   if (v.attention.length) parts.push(`${v.attention.length} item${v.attention.length === 1 ? "" : "s"} needing attention`);
+  /*
+   * LIFEOS-094 §27, §18. A separate clause, in different words.
+   *
+   * "needing attention" and "needing your decision" are the two halves of the
+   * distinction 094 exists to draw, and folding the second count into the first
+   * would erase it on the one line most people read. The count arrives as an
+   * argument rather than a field on the view, so this module keeps knowing
+   * nothing about how the queue is derived; zero is absent, like every other
+   * clause here (§27).
+   */
+  if (decisions > 0) parts.push(`${decisions} needing your decision`);
   if (parts.length === 0) return "Nothing dated for today stands out from what Conqify has recorded.";
   return parts.join(" · ");
 }

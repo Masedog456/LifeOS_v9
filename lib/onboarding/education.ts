@@ -60,6 +60,12 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   { id: "actions", title: "Projects & Actions", doc: "NEXT_ACTIONS.md", routes: ["/actions", "/projects", "/goals"] },
   { id: "planning", title: "Planning & Focus", doc: "PLANNING_AND_FOCUS.md", routes: ["/plan", "/focus"] },
   { id: "review", title: "Review today", doc: "DAILY_REVIEW.md", routes: ["/today/review", "/review"] },
+  // LIFEOS-094. Its own section rather than a route bolted onto "Review today":
+  // the release audit requires help coverage, and pointing at a doc about
+  // closing the day would answer a question this surface does not ask. The doc
+  // it names states what appears here and — the part people need — what never
+  // does, since the queue's whole value is being smaller than the backlog.
+  { id: "decisions", title: "Needs your decision", doc: "DECISION_INBOX_094.md", routes: ["/today/decisions"] },
   { id: "reading", title: "Reading & Knowledge", doc: "README.md", routes: ["/reading", "/library"] },
   { id: "maintenance", title: "Maintenance", doc: "KNOWLEDGE_MAINTENANCE.md", routes: ["/maintenance"] },
   { id: "insights", title: "Insights", doc: "DETERMINISTIC_INSIGHTS.md", routes: ["/insights"] },

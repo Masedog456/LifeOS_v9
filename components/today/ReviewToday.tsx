@@ -54,6 +54,7 @@ import { formatDayKey, todayKey, addDays } from "@/lib/reviews/dates";
 import { toast } from "@/lib/ux/feedback";
 import MeaningCapture from "@/components/today/MeaningCapture";
 import { meaningPageForDay } from "@/lib/reviews/meaning";
+import { buildDecisionInbox, decisionCountLine } from "@/lib/guidance/decisions";
 
 const metaClass = "shrink-0 text-[11px] text-zinc-500";
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
@@ -168,6 +169,18 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
   const hasChanged = c.changed.length > 0 || c.deferred.length > 0
     || c.rescheduled.length > 0 || c.changedDirection.length > 0;
   const hasOpen = c.stillOpen.length > 0 || c.waitingOpen.length > 0;
+  /**
+   * LIFEOS-094 §28. The count only, and always about TODAY.
+   *
+   * `todayKey()` rather than `date`: the queue is derived from the state of
+   * records now, so there is no such thing as "the decisions Thursday had", and
+   * computing it for a reviewed past day would print a number that describes
+   * the present under a heading about the past.
+   */
+  const decisionCount = useMemo(
+    () => decisionCountLine(buildDecisionInbox(state, buildTodayIndexes(state, today), { today })),
+    [state, today],
+  );
   const hasTomorrow = c.tomorrowScheduled.length > 0 || c.carryForward.length > 0;
 
   return (
@@ -342,6 +355,23 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
           <p data-review-waiting-more className="mt-1 text-[11px] text-zinc-500">
             {c.waitingMore} more {c.waitingMore === 1 ? "wait is" : "waits are"} open.{" "}
             <Link href="/actions" className="underline-offset-4 hover:underline">See all</Link>
+          </p>
+        )}
+        {/*
+          LIFEOS-094 §28. A pointer, not a second copy of the queue.
+          
+          Closing the day is when an unanswered question is most worth noticing,
+          but the evening close is a record of what happened — rendering the
+          questions here would put them in two places, which is the leak 094
+          exists to stop. So it says how many and where, only when there are
+          some, and only on today: a past day's decisions are today's, and
+          naming them under Thursday would date them wrongly.
+        */}
+        {c.isToday && decisionCount && (
+          <p className="mt-2 text-[11px] text-zinc-500" data-review-decisions>
+            <Link href="/today/decisions" className="underline-offset-4 hover:underline">
+              {decisionCount} →
+            </Link>
           </p>
         )}
       </Block>
