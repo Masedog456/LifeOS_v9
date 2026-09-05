@@ -16,7 +16,7 @@
       1
     ]
   },
-  "routeCount": 25,
+  "routeCount": 26,
   "productionRoutes": [
     "/today",
     "/",
@@ -27,6 +27,7 @@
     "/actions",
     "/plan",
     "/focus",
+    "/today/decisions",
     "/today/review",
     "/reading",
     "/document",

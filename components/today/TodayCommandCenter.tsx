@@ -39,6 +39,7 @@ import {
 } from "@/lib/commitment/signals";
 import { resolutionsFor, resolutionsForAction } from "@/lib/commitment/resolve";
 import { buildDailyCommandView, SINCE_YESTERDAY_HEADING } from "@/lib/today/command";
+import { buildDecisionInbox, DECISION_HEADING } from "@/lib/guidance/decisions";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { toast } from "@/lib/ux/feedback";
 
@@ -97,6 +98,18 @@ export default function TodayCommandCenter() {
   // The same indexes again — the daily loop composes existing engines and adds
   // one grouping pass, so orientation costs no extra store scan (§26).
   const daily = useMemo(() => buildDailyExecutiveView(state, ix, today), [state, ix, today]);
+  /**
+   * LIFEOS-094 §26. The count only — Today does not render the questions.
+   *
+   * `decisionCountLine` returns null at zero, so the link below disappears
+   * rather than showing "· 0". Same indexes again; no extra store scan.
+   */
+  const decisions = useMemo(() => buildDecisionInbox(state, ix, { today }), [state, ix, today]);
+  // The count is stated once, by the orientation line above the link (§27).
+  // Rendering it in both put "4 needing your decision" and "Needs your
+  // decision · 4" three lines apart on the same card — the visual review
+  // caught it, and a count repeated is a count nobody reads.
+  const decisionTotal = decisions.total;
   // Split once, from the already-deduplicated list. Each section renders its own
   // slice; no section re-derives what belongs in it.
   /**
@@ -164,7 +177,7 @@ export default function TodayCommandCenter() {
           never disagree. */}
       <section data-daily-orientation className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
         <p data-orientation-line className="text-sm text-zinc-800 dark:text-zinc-100">
-          {orientationLine(daily)}
+          {orientationLine(daily, decisionTotal)}
         </p>
         {daily.fixedToday.length > 0 && (
           <ul data-orientation-fixed className="mt-2 flex flex-col gap-0.5">
@@ -185,10 +198,24 @@ export default function TodayCommandCenter() {
             Yours to place: {daily.flexibleToday.map((f) => f.action.title).join(" · ")}
           </p>
         )}
-        <Link href="/today/review" data-review-today-link
-          className="mt-3 inline-block text-[11px] text-zinc-500 underline-offset-4 hover:underline">
-          {REVIEW_TODAY_LABEL} →
-        </Link>
+        <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <Link href="/today/review" data-review-today-link
+            className="text-[11px] text-zinc-500 underline-offset-4 hover:underline">
+            {REVIEW_TODAY_LABEL} →
+          </Link>
+          {/*
+            LIFEOS-094 §26. One line, secondary, and absent at zero — an empty
+            queue must not occupy a slot on Today, because a permanent "0" is
+            how a calm surface acquires a thing to keep clearing. The count is
+            all it says; the questions live on their own page.
+          */}
+          {decisionTotal > 0 && (
+            <Link href="/today/decisions" data-decision-count-link
+              className="text-[11px] text-zinc-500 underline-offset-4 hover:underline">
+              {DECISION_HEADING} →
+            </Link>
+          )}
+        </div>
       </section>
 
       {/* ---- NOW ---- */}
