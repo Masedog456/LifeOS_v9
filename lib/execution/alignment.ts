@@ -151,6 +151,52 @@ export function goalsMissingPath(state: StoreState): Goal[] {
   return (state.goals ?? []).filter((g) => goalPathMissing(state, g));
 }
 
+/**
+ * Whether anything is carrying a goal, and on what evidence (LIFEOS-088 §13, §14).
+ *
+ *   `project`  at least one linked project is active
+ *   `actions`  no active project, but live actions are linked STRAIGHT to the
+ *              goal — real support, because not every action has to be forced
+ *              through a project
+ *   `none`     neither
+ *
+ * This is the question `goalPathMissing` does NOT answer. That one asks only
+ * about projects, its sentence claims only that, and Today depends on it, so it
+ * is unchanged — but a goal whose work is tracked as directly-linked actions was
+ * being told it had no path while the recommender was naming its next step, and
+ * that is what this closes. Both live here so there is one definition of each.
+ *
+ * Actions reached only THROUGH a paused, completed or abandoned project are
+ * deliberately not counted: that project's state is the user's own decision
+ * about them, and inventing a path out of it would overclaim in the other
+ * direction.
+ */
+export type GoalPath = "project" | "actions" | "none";
+
+export function goalPathState(state: StoreState, goal: Goal): GoalPath {
+  if ((state.projects ?? []).some((p) => p.goalId === goal.id && p.status === "active")) return "project";
+  const direct = (state.nextActions ?? []).some((a) =>
+    a.goalId === goal.id && OPEN_ACTION.has(a.status));
+  return direct ? "actions" : "none";
+}
+
+/**
+ * Active goals with nothing at all carrying them — no active project, and no
+ * action linked directly.
+ *
+ * Only `active` goals, for the reason `goalPathMissing` gives: a paused goal has
+ * no path by the user's own decision, and a completed, abandoned or replaced one
+ * is finished.
+ */
+export function goalsWithoutAnyPath(state: StoreState): Goal[] {
+  return (state.goals ?? []).filter((g) => g.status === "active" && goalPathState(state, g) === "none");
+}
+
+/** Active goals with no project, carried by directly-linked actions instead. */
+export function goalsCarriedByActions(state: StoreState): Goal[] {
+  return (state.goals ?? []).filter((g) => g.status === "active" && goalPathState(state, g) === "actions");
+}
+
 // ------------------------------------------------------------- Today ancestry
 
 export interface ActionAncestry {

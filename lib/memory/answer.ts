@@ -42,7 +42,7 @@ import { addDays, formatDayKey, todayKey } from "@/lib/reviews/dates";
 import type { Goal, GoalHistoryEvent, GoalStatus, NextAction, RecordRefLite, StoreState } from "@/types/mvp";
 import { GOAL_HORIZON_LABEL } from "@/lib/execution/horizons";
 import { GOAL_LIFECYCLE_LABEL, goalHistory } from "@/lib/execution/lifecycle";
-import { goalLinkedProjects, goalsMissingPath } from "@/lib/execution/alignment";
+import { goalLinkedProjects, goalsCarriedByActions, goalsWithoutAnyPath } from "@/lib/execution/alignment";
 import {
   CODE_CONTEXTS, PROTOCOL_HISTORY_LIMITATION, allRules, ruleContexts,
   rulesMatchingText, type CodeRule,
@@ -68,7 +68,7 @@ import { buildTodayIndexes, type TodayIndexes } from "@/lib/today/indexes";
 import { recommendNextAction, NO_STANDOUT } from "@/lib/today/recommend";
 import { buildDailyExecutiveView, NOTHING_TOMORROW } from "@/lib/today/daily";
 import {
-  buildCommitmentSignals, COMMITMENT_ORDER, GOAL_PATH_MISSING, NOTHING_STANDS_OUT,
+  buildCommitmentSignals, COMMITMENT_ORDER, NOTHING_STANDS_OUT,
   type CommitmentSignal,
 } from "@/lib/commitment/signals";
 import {
@@ -339,12 +339,35 @@ export function resolveEntities(index: SearchEntry[], query: string, kinds?: rea
   const pool = index.filter((e) =>
     !MEMORY_EXCLUDED_KINDS.includes(e.kind) && (!kinds || kinds.includes(e.kind)));
 
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   const exact = pool.filter((e) => e.titleLower === q || e.aliasesLower.includes(q));
   if (exact.length) return exact;
-  const word = new RegExp(`\\b${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+  const word = new RegExp(`\\b${esc(q)}\\b`);
   const titled = pool.filter((e) => word.test(e.titleLower));
   if (titled.length) return titled;
-  return pool.filter((e) => e.titleLower.includes(q));
+  const contained = pool.filter((e) => e.titleLower.includes(q));
+  if (contained.length) return contained;
+
+  /**
+   * Last resort: every word of the fragment appears in the title (LIFEOS-088).
+   *
+   * The frame stripper removes stopwords, so "what changed with Open the
+   * clinic?" arrives here as "open clinic" — which is not a substring of "open
+   * the clinic" and matched nothing at all. The scope then silently did not
+   * apply and the answer reported the whole store while appearing to be about
+   * one goal, with a completed action from a DIFFERENT goal in the list.
+   *
+   * Word-level and unordered, so it cannot match on a fragment of a longer word;
+   * single-word fragments are excluded because the three passes above already
+   * cover them and a bare word here would only widen the net. When this matches
+   * more than one record the caller's ambiguity guard asks which was meant —
+   * that is the right outcome, not a silent pick.
+   */
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return [];
+  const words = tokens.map((t) => new RegExp(`\\b${esc(t)}\\b`));
+  return pool.filter((e) => words.every((w) => w.test(e.titleLower)));
 }
 
 function choicesOf(entries: SearchEntry[]): MemoryChoice[] {
@@ -771,18 +794,39 @@ function answerGoals(
   }
 
   if (aspect === "no_path") {
-    const missing = goalsMissingPath(state);
+    /**
+     * LIFEOS-088 §14. The question is about a PATH, so it is answered about the
+     * path.
+     *
+     * LIFEOS-078 answered it from linked projects alone and printed the gap as a
+     * limitation: "a goal whose work is tracked as directly-linked actions still
+     * appears here". It did appear here — an active goal with an open action
+     * linked straight to it, and a recommender happy to name that action, was
+     * listed as having nothing carrying it. Those goals are now named as what
+     * they are instead of counted as what they are not.
+     */
+    const missing = goalsWithoutAnyPath(state);
+    const carried = goalsCarriedByActions(state);
+    const carriedNote = carried.length
+      ? `${plural(carried.length, "other active goal has", "other active goals have")} no project, but ${carried.length === 1 ? "is" : "are"} carried by actions linked directly to ${carried.length === 1 ? "it" : "them"}.`
+      : undefined;
+
     if (missing.length === 0) {
-      return { ...noEvidence(plan), heading: "Every active goal has a project", summary: "No active goal is without one." };
+      return {
+        ...noEvidence(plan),
+        heading: "Every active goal has something carrying it",
+        summary: "No active goal is without a project or a directly-linked action.",
+        limitation: carriedNote,
+      };
     }
-    const items = missing.map((g) => goalItem(g, g.title, "project.goalId", GOAL_PATH_MISSING.toLowerCase()));
+    const items = missing.map((g) => goalItem(g, g.title, "project.goalId | action.goalId",
+      "no active project, and no action linked directly to it"));
     return {
       status: "ANSWERED",
-      heading: "Goals with no active project",
-      summary: `${plural(items.length, "active goal has", "active goals have")} no active project linked to ${items.length === 1 ? "it" : "them"}.`,
+      heading: "Goals with nothing carrying them",
+      summary: `${plural(items.length, "active goal has", "active goals have")} no active project and no action linked directly to ${items.length === 1 ? "it" : "them"}.`,
       items,
-      // The limitation the sprint measured rather than hid.
-      limitation: "This looks at linked projects only. A goal whose work is tracked as directly-linked actions still appears here.",
+      limitation: carriedNote,
       sourceRefs: refsOf(items), plan,
     };
   }

@@ -398,7 +398,34 @@ export function searchEverything(
     }
     hits.sort((a, b) => (a.entry.updatedAt < b.entry.updatedAt ? 1 : a.entry.updatedAt > b.entry.updatedAt ? -1 : a.entry.id.localeCompare(b.entry.id)));
   }
-  if (q) hits.sort(compareResults);
+  /**
+   * A filter must never swallow a record's own title (LIFEOS-088 RED 5).
+   *
+   * `readFilters` reads "open" as a STATUS, so searching for the goal "Open the
+   * clinic" left the fragment "clinic" and then matched it only against records
+   * whose status is `open` — and goals are `active`. Typing a goal's exact title
+   * returned nothing at all, which is LIFEOS-085 §7's rule (an exact title hit is
+   * never buried) broken by the filter layer rather than by ranking.
+   *
+   * The retry is narrow on purpose: it happens ONLY when a filter was consumed
+   * and the filtered scan found nothing, so every query where the filter does
+   * its job is untouched. An honest reading that finds nothing loses to a
+   * literal reading that finds the thing the person named.
+   */
+  let retried = false;
+  if (hits.length === 0 && !impossible && filters.consumed.length > 0) {
+    const literal = normalizeQuery(query);
+    if (literal) {
+      retried = true;
+      for (const entry of index) {
+        if (!inDomain(entry)) continue;
+        const r = scoreEntry(entry, literal);
+        if (r) hits.push(r);
+      }
+    }
+  }
+
+  if (q || retried) hits.sort(compareResults);
 
   // ---- §27: a capture that already became something is not a second result --
   //
@@ -541,7 +568,9 @@ export function searchEverything(
     query,
     results: all.slice(0, limit),
     handoff,
-    filters,
+    // On a retry the filters were NOT applied, so reporting them would put a
+    // chip on screen describing a narrowing that did not happen.
+    filters: retried ? { domains: [...domains], consumed: [] } : filters,
     total: all.length,
     capped: all.length > limit,
     suppressed,

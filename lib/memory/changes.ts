@@ -51,6 +51,7 @@ import type { OriginType } from "@/lib/provenance";
 import { classifyOrigin } from "@/lib/provenance/classify";
 import { readRule } from "@/lib/time/recurrence";
 import { goalHistory } from "@/lib/execution/lifecycle";
+import { goalLinkedActions, goalLinkedProjects } from "@/lib/execution/alignment";
 import { GOAL_HORIZON_LABEL } from "@/lib/execution/horizons";
 import { buildAutobiographicalTimeline, type AutobiographicalEvent } from "@/lib/memory/week";
 
@@ -390,10 +391,29 @@ export function buildExecutiveChanges(
    * so no change is ever *about* the project record. Its actions are, and every
    * change already carries the `projectRef` that says so.
    */
+  /**
+   * LIFEOS-088 RED 3. A GOAL scope means the goal's WORK as well as its history.
+   *
+   * A goal DOES have history, so unlike a project it always had at least one row
+   * — which made the gap harder to see: "what changed with Open the clinic?"
+   * returned one horizon edit and hid the action that completed and the one
+   * deferred three times, because no change is *about* the goal record. The
+   * links the user made are `Project.goalId` and `NextAction.goalId`, and both
+   * routes count, exactly as `goalLinkedActions` already defines them.
+   */
+  const goalScope = opts.entity?.kind === "goal"
+    ? {
+      actions: new Set(goalLinkedActions(state, opts.entity.id).map((a) => a.id)),
+      projects: new Set(goalLinkedProjects(state, opts.entity.id).map((p) => p.id)),
+    }
+    : undefined;
+
   const scoped = opts.entity
     ? all.filter((c) =>
         (c.entity.kind === opts.entity!.kind && c.entity.id === opts.entity!.id)
-        || (opts.entity!.kind === "project" && c.projectRef?.id === opts.entity!.id))
+        || (opts.entity!.kind === "project" && c.projectRef?.id === opts.entity!.id)
+        || (!!goalScope && ((c.entity.kind === "action" && goalScope.actions.has(c.entity.id))
+          || (c.entity.kind === "project" && goalScope.projects.has(c.entity.id)))))
     : all;
 
   return sortChanges(dedupe(scoped));
