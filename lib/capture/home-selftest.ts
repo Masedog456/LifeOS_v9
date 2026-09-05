@@ -101,12 +101,37 @@ export function runCaptureHomeSelfTests() {
   }
 
   // ---- §19 of 060. Something unstorable is said, never compressed away ----
+  //
+  // Both fixtures here were found by mutation. The first version of this block
+  // used "Dinner with Ana sometime next quarter maybe", which is ALSO a
+  // low-confidence note — so deleting the unresolved guard changed nothing and
+  // deleting the date guard changed nothing, and two clauses sat untested
+  // behind a third. These two captures are auto-safe in every respect except
+  // the one being tested.
   {
-    const inp = read(s, "Dinner with Ana sometime next quarter maybe");
+    // A high-confidence Action. "sometime" and "soon" are the user's own words
+    // about WHEN, and no field can hold them — finishing silently would drop
+    // the only part of the sentence Conqify could not keep.
+    const inp = read(s, "Call the dentist sometime soon");
     ok("95.8 §9 a capture with an unstorable fragment asks",
       !canFinishWithoutAsking(inp), String(askingBecause(inp)));
     ok("95.9 §9 …and says which half of it is the problem",
       /couldn't be stored/i.test(askingBecause(inp) ?? ""), String(askingBecause(inp)));
+    ok("95.9b §9 …on a capture that is otherwise entirely auto-safe",
+      inp.candidates.every((c) => preselected(c.authority)) && inp.candidates.length > 0,
+      inp.candidates.map((c) => `${c.kind}/${c.authority}`).join(","));
+  }
+  {
+    // A high-confidence Note carrying a Friday a note cannot keep. The kind is
+    // auto_with_undo and the context is clean; the date is the whole reason.
+    const inp = read(s, "Remember that the deadline is Friday");
+    ok("95.9c §9 a date the kind would drop asks instead of dropping it",
+      !canFinishWithoutAsking(inp), String(askingBecause(inp)));
+    ok("95.9d §9 …and says that is why",
+      /date/i.test(askingBecause(inp) ?? ""), String(askingBecause(inp)));
+    ok("95.9e §9 …on a capture that is otherwise entirely auto-safe",
+      inp.candidates.every((c) => preselected(c.authority) && c.unresolved.length === 0),
+      inp.candidates.map((c) => `${c.kind}/${c.authority}/${c.unresolved.length}`).join(","));
   }
 
   // ---- §33. A change to an existing record is never automatic ------------
