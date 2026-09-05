@@ -198,7 +198,11 @@ function waitingDecisions(state: StoreState, ix: TodayIndexes, today: DayKey): D
   for (const s of buildCommitmentSignals(state, ix, { today })) {
     if (s.kind !== "follow_up_due") continue;
     const a = (state.nextActions ?? []).find((x) => x.id === s.recordRef.id);
-    if (!a || !isLive(a)) continue;
+    // No `isLive` guard: `isFollowUpDue` requires `status === "waiting"`, and a
+    // waiting action is live by definition, so the check could never fire. It
+    // was here as belt-and-braces until mutation M6 removed it and nothing
+    // reddened — dead logic reads like a protection the code does not have.
+    if (!a) continue;
     const who = a.waitingOn?.trim();
     out.push({
       key: `follow_up:${a.id}`,

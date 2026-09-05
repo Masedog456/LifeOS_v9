@@ -104,6 +104,14 @@ function world(): StoreState {
     // Already processed — nothing unresolved about it.
     { id: "c2", text: "Follow up on the applications and the portfolio review",
       createdAt: D(T, 9), processingStatus: "processed", processedAt: D(T, 9), linkedEntityRefs: [] },
+    // In the inbox, and 089 DOES have something to say about it — but
+    // confidently, naming one project and offering no alternatives. A
+    // suggestion the composer can simply make is not a judgment boundary, and
+    // this is the capture that tells the two apart. Without it, "ambiguous" and
+    // "has a reason" select the same row and mutation M4 walks straight
+    // through the admission test.
+    { id: "c3", text: "Follow up on the graduate applications",
+      createdAt: D(T, 8), processingStatus: "inbox", linkedEntityRefs: [] },
   ] as StoreState["captures"];
   return s;
 }
@@ -148,6 +156,7 @@ export function runDecisionInboxSelfTests() {
     ["a-blocker", "an ordinary open action"],
     ["a-direct", "an action due today"],
     ["c2", "a capture already processed"],
+    ["c3", "an inbox capture whose context is suggested confidently"],
   ] as const) {
     ok(`94.6 §17 ${id} is not a decision — ${why}`, !ids.includes(id), ids.join(","));
   }
