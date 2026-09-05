@@ -154,7 +154,17 @@ function rowsFrom(candidates: Candidate[], state: StoreState): Row[] {
   });
 }
 
-export default function CaptureComposer() {
+export default function CaptureComposer({ onFinished }: {
+  /**
+   * The capture that just finished, or null.
+   *
+   * LIFEOS-095 §18. The finished panel and the recent list's newest row are the
+   * same captured moment — the visual review found them stacked, saying the
+   * same sentence and the same date twice within 150 px. Home uses this to omit
+   * the row while the panel is up, so one moment stays one thing on screen.
+   */
+  onFinished?: (captureId: string | null) => void;
+} = {}) {
   const state = useStore();
   const router = useRouter();
   const today = todayKey();
@@ -202,6 +212,7 @@ export default function CaptureComposer() {
     // than on every branch below means no path can leave a stale "Saved as…"
     // sitting above a fresh interpretation.
     setFinished(null);
+    onFinished?.(null);
     setKept(false);
 
     // Is this a CHANGE to something that already exists, rather than something
@@ -467,6 +478,7 @@ export default function CaptureComposer() {
       return;
     }
     setFinished({ captureId, outcomes: describeCreated(getSnapshot(), created) });
+    onFinished?.(captureId);
     setText("");
     setRows(null);
     setRaw("");
@@ -491,6 +503,7 @@ export default function CaptureComposer() {
     }
     restoreCapture(finished.captureId);
     setFinished(null);
+    onFinished?.(null);
     toast({ kind: "info", message: "Undone. Your words are still in the inbox." });
   }
 

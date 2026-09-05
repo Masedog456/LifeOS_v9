@@ -26,7 +26,7 @@
  * find rather than something you get past.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { resurfacedBelief, useStore } from "@/lib/mvpStore";
 import CaptureComposer from "@/components/capture/CaptureComposer";
@@ -39,6 +39,15 @@ export default function Home() {
   const state = useStore();
   const resurfaced = resurfacedBelief(state);
   const today = todayKey();
+  /**
+   * §18. One captured moment, one thing on screen.
+   *
+   * While the composer is showing "Saved as Action · Email Marcus about the
+   * lease · Sun, Sep 6", the recent list's newest row would say exactly that
+   * again, 150 px below. The visual review caught it; the row is omitted until
+   * the panel goes.
+   */
+  const [justFinished, setJustFinished] = useState<string | null>(null);
 
   /**
    * §14. A count, and only a count.
@@ -54,9 +63,9 @@ export default function Home() {
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
-      <CaptureComposer />
+      <CaptureComposer onFinished={setJustFinished} />
 
-      <RecentCaptures />
+      <RecentCaptures exclude={justFinished} />
 
       {/*
         §21, §22. One step away, never reproduced here.

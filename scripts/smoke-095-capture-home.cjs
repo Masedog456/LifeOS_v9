@@ -197,18 +197,26 @@ const shape = (page) => page.evaluate(() => ({
     await home(page);
     await say(page, "Call the dentist tomorrow, finish the report, and Marcus still owes me the file");
     let st = await shape(page);
-    ok("19 §18 one sentence, three records, ONE recent row",
-      st.recent.length === 1 && st.finished.length === 3,
-      `${st.recent.length} rows, ${st.finished.length} saved`);
-    ok("20 §17 …and the row keeps what was actually typed",
-      /Call the dentist tomorrow, finish the report/.test(st.recent[0] ?? ""), st.recent[0] ?? "");
-    ok("21 §16 …beside what it became, in product words",
-      /Action/.test(st.recent[0] ?? "") && /Waiting/.test(st.recent[0] ?? ""), st.recent[0] ?? "");
-    ok("22 §16 …and never a pipeline word",
-      !/candidate|auto_with_undo|processingStatus|confidence|inbox\b/i.test(st.recent[0] ?? ""), st.recent[0] ?? "");
+    ok("19 §10 one sentence, three records, all three named",
+      st.finished.length === 3, String(st.finished.length));
+    ok("19b §18 …and the recent list does not repeat what is on screen above it",
+      st.recent.length === 0, st.recent.join(" | "));
+    // The row exists — it is simply not shown twice. Reload and it is there,
+    // once, with everything the sentence became hanging off it.
+    await home(page);
+    const back = await shape(page);
+    ok("20 §18 one captured moment is ONE row, not four cards",
+      back.recent.length === 1, `${back.recent.length} rows`);
+    ok("21 §17 …and the row keeps what was actually typed",
+      /Call the dentist tomorrow, finish the report/.test(back.recent[0] ?? ""), back.recent[0] ?? "");
+    ok("22 §16 …beside what it became, in product words, and never a pipeline word",
+      /Action/.test(back.recent[0] ?? "") && /Waiting/.test(back.recent[0] ?? "")
+      && !/candidate|auto_with_undo|processingStatus|confidence/i.test(back.recent[0] ?? ""),
+      back.recent[0] ?? "");
 
     // Six genuinely different errands. Six variations on one sentence would
     // instead exercise the duplicate guard below, which is a different test.
+    await home(page);
     for (const t of ["Book the venue", "Renew the passport", "Return the library books",
       "Pay the electricity bill", "Order more coffee", "Collect the dry cleaning"]) {
       await say(page, t);
@@ -354,6 +362,43 @@ const shape = (page) => page.evaluate(() => ({
       ok(`39 §44 ${label} — the submit is a real tap target`,
         g.submitH >= 36 && g.submitW >= 60, `${Math.round(g.submitW)}×${Math.round(g.submitH)}`);
       ok(`40 §26 ${label} — nothing scrolls sideways`, g.overflow <= 1, String(g.overflow));
+      {
+        // The mobile command bar is `fixed bottom-0`, so it floats over whatever
+        // the page ends with. Measured on the review panel before this sprint:
+        // "Confirm all", "Keep the whole thing as a note" and "Start over" were
+        // all underneath it — including the escape hatch LIFEOS-060 §16
+        // promises is always one click away.
+        await say(p, "Follow up on the applications and the portfolio review");
+        // Scrolled to the end, because "currently under the bar" is true of any
+        // long page mid-scroll and is not a defect. The defect is a control
+        // that CANNOT be brought clear — which is what the page's bottom
+        // clearance decides.
+        await p.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await p.waitForTimeout(400);
+        const clearance = await p.evaluate(() => {
+          const bar = [...document.querySelectorAll("div")].find((d) => {
+            const st = getComputedStyle(d);
+            const r = d.getBoundingClientRect();
+            return st.position === "fixed" && st.bottom === "0px" && r.height > 20 && r.width > 200;
+          });
+          if (!bar) return { gap: Infinity, lowest: "" };
+          const top = bar.getBoundingClientRect().top;
+          const ctrls = [...document.querySelectorAll("main button, main a")]
+            .filter((el) => el.getBoundingClientRect().height > 0);
+          if (ctrls.length === 0) return { gap: Infinity, lowest: "" };
+          const last = ctrls.reduce((a, b) =>
+            a.getBoundingClientRect().bottom > b.getBoundingClientRect().bottom ? a : b);
+          return { gap: Math.round(top - last.getBoundingClientRect().bottom),
+            lowest: last.textContent.trim().slice(0, 30) };
+        });
+        // Clearance, not "is it covered". Measured without the layout's bottom
+        // padding, the lowest control ends TWO pixels above the bar at full
+        // scroll — technically clear, and flush against a translucent floating
+        // bar under a thumb. With it, 66. Sixteen tells those two apart.
+        ok(`40b §26 ${label} — the last control clears the command bar`,
+          clearance.gap >= 16, `${clearance.gap}px under "${clearance.lowest}"`);
+        await home(p);
+      }
       if (h === 844) {
         await say(p, "Email Marcus about the lease tomorrow");
         const st = await shape(p);

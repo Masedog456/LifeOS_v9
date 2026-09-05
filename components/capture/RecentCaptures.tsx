@@ -32,11 +32,25 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/mvpStore";
-import { recentCaptures } from "@/lib/capture/home";
+import { MAX_RECENT_CAPTURES, recentCaptures } from "@/lib/capture/home";
 
-export default function RecentCaptures() {
+export default function RecentCaptures({ exclude }: {
+  /**
+   * A capture the composer is already showing in full, or null (§18).
+   *
+   * One more is fetched than is shown, so omitting a row does not shrink the
+   * list — the fourth thing you said stays visible while the newest one is
+   * being confirmed above.
+   */
+  exclude?: string | null;
+} = {}) {
   const state = useStore();
-  const rows = useMemo(() => recentCaptures(state), [state]);
+  const rows = useMemo(
+    () => recentCaptures(state, MAX_RECENT_CAPTURES + 1)
+      .filter((r) => r.id !== exclude)
+      .slice(0, MAX_RECENT_CAPTURES),
+    [state, exclude],
+  );
 
   // §35. A returning user with nothing recent gets the composer and nothing
   // else. An empty panel saying "no recent captures" is decoration that makes
