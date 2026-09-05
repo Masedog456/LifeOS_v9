@@ -33,6 +33,7 @@ import type { NextAction, StoreState, Goal } from "@/types/mvp";
 import { emptyStoreState } from "@/lib/ux/backup";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildExecutiveChanges, MOVED_FORWARD_KINDS, DIRECTION_KINDS } from "@/lib/memory/changes";
+import { buildAttentionShortlist } from "@/lib/guidance/attention";
 import { resolveRange } from "@/lib/insights/range";
 import { isMachineProduced } from "@/lib/provenance";
 import { addDays } from "@/lib/reviews/dates";
@@ -128,6 +129,12 @@ function world(): StoreState {
       recurrence: { frequency: "weekly", interval: 1, weekdays: [0, 1, 2, 3, 4, 5, 6] },
       history: [h("created", D("2026-07-01"))] }),
     act({ id: "a-someday", title: "Read the funding guide", history: [h("created", D("2026-08-15"))] }),
+    // Completed today and linked to NOTHING. §7 says movement is completed
+    // LINKED work; without an unlinked completion in the day, dropping the link
+    // test changes no output and the mutation walks straight through.
+    act({ id: "a-loose", title: "Cancel the gym membership", status: "completed",
+      completedAt: D(TODAY, 9),
+      history: [h("created", D("2026-09-02")), h("completed", D(TODAY, 9), { fromStatus: "open", toStatus: "completed" })] }),
     act({ id: "a-drop", title: "Apply to the fifth school", projectId: "p-apps", status: "cancelled",
       history: [h("created", D("2026-08-10")), h("cancelled", D(TODAY, 13), { fromStatus: "open", toStatus: "cancelled" })] }),
   ];
@@ -179,7 +186,7 @@ export function runEveningCloseSelfTests() {
 
   // ---- §6. DONE is completion, and nothing else -------------------------
   ok("91.1 §6 completed work is listed",
-    ids(c.completed).sort().join(",") === "a-send,a-stmt", ids(c.completed).join(","));
+    ids(c.completed).sort().join(",") === "a-loose,a-send,a-stmt", ids(c.completed).join(","));
   ok("91.2 §6 …and a created record is not a completion",
     !ids(c.completed).includes("a-fee"));
   ok("91.3 §6 …nor a cancelled one",
@@ -233,6 +240,17 @@ export function runEveningCloseSelfTests() {
     c.movedForward.every((m) => m.changes.length === m.completed && m.completed > 0));
   ok("91.14 §7 …every underlying change is a completion kind",
     c.movedForward.every((m) => m.changes.every((x) => (MOVED_FORWARD_KINDS as string[]).includes(x.kind))));
+  ok("91.14a §7 a completion linked to NOTHING is not goal movement",
+    !c.movedForward.some((m) => m.changes.some((x) => x.entity.id === "a-loose")),
+    c.movedForward.map((m) => `${m.goal.id}:${m.changes.map((x) => x.entity.id).join("+")}`).join(" | "));
+  ok("91.14b §7 …though it is still listed as done",
+    ids(c.completed).includes("a-loose"), ids(c.completed).join(","));
+  ok("91.14c §7 …and every movement traces to work under that goal",
+    c.movedForward.every((m) => m.changes.every((x) => {
+      const a = s.nextActions.find((y) => y.id === x.entity.id);
+      const p = s.projects.find((y) => y.id === a?.projectId);
+      return a?.goalId === m.goal.id || p?.goalId === m.goal.id;
+    })));
 
   // ---- §8. Direction is recorded, and never called progress -------------
   ok("91.15 §8 a goal horizon change is shown",
@@ -327,6 +345,12 @@ export function runEveningCloseSelfTests() {
   ok("91.35 §11 a completed record is never still open",
     !ids(c.stillOpen).includes("a-send") && !ids(c.stillOpen).includes("a-stmt"),
     ids(c.stillOpen).join(","));
+  ok("91.35a §11 …and every still-open action is genuinely live",
+    c.stillOpen.filter((a) => a.entity.kind === "action").every((a) => {
+      const rec = s.nextActions.find((x) => x.id === a.entity.id);
+      return !!rec && rec.status !== "completed" && rec.status !== "cancelled";
+    }),
+    c.stillOpen.map((a) => `${a.entity.id}:${s.nextActions.find((x) => x.id === a.entity.id)?.status}`).join(","));
   ok("91.36 §13 blocked work names its blocker when it is shown",
     c.stillOpen.filter((a) => a.kind === "blocked").every((a) => /Need legal review/.test(a.explanation)),
     c.stillOpen.map((a) => `${a.kind}:${a.explanation}`).join(" | "));
@@ -370,6 +394,10 @@ export function runEveningCloseSelfTests() {
   ok("91.51 §15 open undated work is not invented into tomorrow",
     !c.carryForward.some((f) => f.item.entity.id === "a-someday")
     && !c.tomorrowScheduled.some((t) => t.id === "a-someday"));
+  ok("91.51a §15 only WORK is offered — never a goal or a rule",
+    c.carryForward.every((f) => f.item.entity.kind === "action"
+      && s.nextActions.some((a) => a.id === f.item.entity.id)),
+    c.carryForward.map((f) => `${f.item.entity.kind}:${f.item.entity.id}`).join(","));
   ok("91.52 §13 blocked work is not carried — it waits on its blocker",
     !c.carryForward.some((f) => f.item.entity.id === "a-final"),
     c.carryForward.map((f) => f.item.entity.id).join(","));
@@ -383,6 +411,24 @@ export function runEveningCloseSelfTests() {
     typeof (buildEveningClose as unknown as { length: number }).length === "number"
     && JSON.stringify(close(s)) === JSON.stringify(close(world())),
     "building twice yields the same close");
+
+  {
+    // A day with a goal that has no active project and NO competing action
+    // candidates — the only state in which LIFEOS-084's `goal_gap` reason
+    // reaches the front of the carry list. Without it the cap hid the case, and
+    // a mutation removing the "actions only" filter walked straight through
+    // while the browser was catching it.
+    const bare = emptyStoreState();
+    bare.goals = [goal({ id: "g-lonely", title: "Learn to sail" })];
+    const cb = close(bare);
+    ok("91.55a §15 a goal with no project is never offered as carry-forward",
+      cb.carryForward.every((f) => f.item.entity.kind === "action"),
+      cb.carryForward.map((f) => `${f.item.entity.kind}:${f.item.entity.id}`).join(","));
+    ok("91.55b §15 …even though it IS something the shortlist raises",
+      buildAttentionShortlist(bare, buildTodayIndexes(bare, TODAY), TODAY, { limit: 10 })
+        .some((a) => a.entity.kind === "goal"),
+      "the goal gap is a real signal — it is just not a thing you carry to a day");
+  }
 
   // ---- §19. The user's own words ----------------------------------------
   ok("91.56 §19 a user reflection is shown",

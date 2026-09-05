@@ -322,10 +322,15 @@ export function buildEveningClose(
   // §7. A completion is "forward" only when it is linked to a goal. The link is
   // what makes it movement rather than merely done — and `MOVED_FORWARD_KINDS`
   // holds completions only, so a horizon edit can never enter here.
-  const forwardChanges = changes.filter((c) =>
-    (MOVED_FORWARD_KINDS as string[]).includes(c.kind) && !!goalIdFor(state, c));
+  // The link test lives in ONE place. It was written twice — once as a filter
+  // here and again as the `if (!gid) continue` below — and a mutation that
+  // deleted the filter changed no output at all, because the second copy still
+  // did the work. A clause no assertion can redden is not defence, it is noise.
+  const forwardChanges = changes.filter((c) => (MOVED_FORWARD_KINDS as string[]).includes(c.kind));
   const byGoal = new Map<string, ExecutiveChange[]>();
   for (const c of forwardChanges) {
+    // §7. A completion is "forward" only when it is linked to a goal. An
+    // unlinked completion is still done — it simply moved no goal.
     const gid = goalIdFor(state, c);
     if (!gid) continue;
     byGoal.set(gid, [...(byGoal.get(gid) ?? []), c]);
