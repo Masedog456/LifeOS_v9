@@ -54,7 +54,6 @@ import type { TodayIndexes } from "@/lib/today/indexes";
 import type { AutobiographicalEvent } from "@/lib/memory/week";
 import { todayKey, addDays, formatDayKey } from "@/lib/reviews/dates";
 import { resolveRange } from "@/lib/insights/range";
-import { COMPLETION_KINDS } from "@/lib/memory/week";
 import {
   buildExecutiveChanges, repeatedlyPostponed,
   MOVED_FORWARD_KINDS, DIRECTION_KINDS,
@@ -164,6 +163,44 @@ export interface EveningClose {
 }
 
 // ------------------------------------------------------------- constants ---
+
+/**
+ * Neutral past-tense wording for an `ExecutiveChangeKind` (§8, §22).
+ *
+ * LIFEOS-073's `CHANGE_LABEL` is keyed by AUTOBIOGRAPHICAL kinds
+ * (`action_cancelled`), and 081's changes carry `ExecutiveChangeKind`
+ * (`cancelled`). Reusing the first for the second silently fell through to the
+ * raw key, and the browser run printed "Apply to the fifth school cancelled" —
+ * a database enum shown to a person. Two vocabularies, one lookup.
+ */
+export const EVENING_CHANGE_LABEL: Record<string, string> = {
+  created: "Added",
+  completed: "Completed",
+  recurring_completed: "Done for the day",
+  cancelled: "Cancelled",
+  deferred: "Deferred",
+  returned: "Came back from a deferral",
+  restored: "Restored",
+  rescheduled: "Date changed",
+  due_cleared: "Date removed",
+  planned: "Planned",
+  prerequisite_removed: "Prerequisite removed",
+  waiting_started: "Started waiting",
+  waiting_ended: "Stopped waiting",
+  goal_created: "Goal added",
+  goal_status_changed: "Goal status changed",
+  goal_horizon_changed: "Goal horizon changed",
+  goal_target_changed: "Goal target date changed",
+  goal_replaced: "Goal replaced",
+  rule_adopted: "Standard adopted",
+  rule_revised: "Standard revised",
+  rule_retired: "Standard retired",
+  reflection_added: "Reflection added",
+  note_added: "Note added",
+  capture_added: "Captured",
+  decision_recorded: "Decision recorded",
+  event_scheduled: "Scheduled",
+};
 
 /** §24. A quiet day is a fact about records, never a shortfall. */
 export const QUIET_DAY =
@@ -405,6 +442,14 @@ export function buildEveningClose(
       const a = actionById.get(c.entity.id);
       return !(a?.dueDate && a.dueDate > tomorrowKey);
     })
+    // Only work can be carried into a day. LIFEOS-084's `goal_gap` reason — "no
+    // active project is linked to this goal" — is a sensible thing to raise
+    // about a WEEK and meaningless as "bring this into tomorrow": a goal is not
+    // a commitment with a date. The browser found this the loud way: pressing
+    // Carry on the goal candidate changed nothing in the store and still
+    // announced "Open the clinic — back tomorrow", which is the product
+    // claiming a mutation it never made.
+    .filter((c) => c.entity.kind === "action" && actionById.has(c.entity.id))
     .slice(0, CARRY_FORWARD_DEFAULT);
 
   const stillOpenIds = new Set(stillOpen.map((a) => a.entity.id));
