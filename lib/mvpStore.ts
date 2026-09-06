@@ -5405,7 +5405,21 @@ export function createActionFromCapture(captureId: string, input: Partial<NewAct
 }
 
 /** Edit user-set fields on an action (Feature 5). Logs an `edited` event. */
-export function updateAction(actionId: string, patch: Partial<Pick<NextAction, "title" | "description" | "notes" | "workspaceId" | "goalId" | "projectId" | "milestoneId" | "tags" | "estimatedSize" | "energy" | "context">>): void {
+/**
+ * The neutral field editor.
+ *
+ * `waitingOn` joined the list in LIFEOS-097. `markActionWaiting` was the only
+ * writer of that field and it resets `waitingSince` — right when a wait BEGINS,
+ * and falsifying when the name is merely being corrected, because how long the
+ * wait has run is the one dated fact the waiting signal rests on. Correcting
+ * "Maria" to "Marcus" here writes `edited`, touches nothing else, and leaves
+ * the clock where it was.
+ *
+ * It does NOT set `status`. Naming somebody is not the same as starting to wait
+ * on them, and `markActionWaiting` remains the only door into the waiting
+ * state.
+ */
+export function updateAction(actionId: string, patch: Partial<Pick<NextAction, "title" | "description" | "notes" | "workspaceId" | "goalId" | "projectId" | "milestoneId" | "tags" | "estimatedSize" | "energy" | "context" | "waitingOn">>): void {
   bumpAction(actionId, (a) => appendActionHistory({ ...a, ...patch }, makeActionEvent({ action: "edited", at: now() })));
 }
 

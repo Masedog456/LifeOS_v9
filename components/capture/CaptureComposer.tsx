@@ -49,6 +49,8 @@ import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/ca
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
 import { authorityNote, authorityFor, preselected, isSuggestOnly, type CandidateKind } from "@/lib/capture/authority";
 import { cleanCandidateTitle } from "@/lib/capture/titles";
+import { correctableOutcome, createdBy } from "@/lib/capture/corrections";
+import CorrectionSheet from "@/components/capture/CorrectionSheet";
 import { personalCodeHandoffHref, HANDOFF_ACTION_LABEL, MAX_HANDOFF_CHARS } from "@/lib/code/handoff";
 import { UNRESOLVED_LABEL } from "@/lib/capture/dates";
 import { formatLocalTime } from "@/lib/time/localtime";
@@ -129,7 +131,7 @@ interface Row {
 /** Kinds whose editable text is the BODY, not the shortened title. */
 const BODY_KINDS: CandidateKind[] = ["note", "reflection"];
 
-function rowsFrom(candidates: Candidate[], state: StoreState): Row[] {
+function rowsFrom(candidates: Candidate[], state: StoreState, today: string): Row[] {
   // §42. Built once per interpretation, not once per candidate: Capture is a
   // hot path and a capture can hold several clauses.
   const index = buildCaptureContextIndex(state);
@@ -158,7 +160,7 @@ function rowsFrom(candidates: Candidate[], state: StoreState): Row[] {
      */
     title: BODY_KINDS.includes(c.kind)
       ? (c.fields.body ?? c.fields.title ?? "")
-      : cleanCandidateTitle(c).title || (c.fields.body ?? ""),
+      : cleanCandidateTitle(c, today).title || (c.fields.body ?? ""),
     trigger: c.fields.trigger ?? "",
     response: c.fields.response ?? "",
     // LIFEOS-089 replaces the 060 association chip: `suggestContext`'s exact
@@ -213,6 +215,8 @@ export default function CaptureComposer({ onFinished }: {
   } | null>(null);
   /** §29. Set when interpretation failed but the words were kept anyway. */
   const [kept, setKept] = useState(false);
+  /** LIFEOS-097 §5. Which just-saved record has its correction sheet open. */
+  const [correcting, setCorrecting] = useState<string | null>(null);
 
   const projectTitles = useMemo(
     () => buildEscalationContext("", state).projectTitles,
@@ -254,7 +258,7 @@ export default function CaptureComposer({ onFinished }: {
     if (changes.length > 0) {
       setRaw(src);
       setEdits(changes);
-      setRows(remainder.trim() ? rowsFrom(interpret(remainder, state, today).candidates, state) : null);
+      setRows(remainder.trim() ? rowsFrom(interpret(remainder, state, today).candidates, state, today) : null);
       setBusy(false);
       return;
     }
@@ -278,7 +282,7 @@ export default function CaptureComposer({ onFinished }: {
       return;
     }
     setRaw(src);
-    const built = rowsFrom(interpretation.candidates, state);
+    const built = rowsFrom(interpretation.candidates, state, today);
 
     /**
      * LIFEOS-095 §31. The capture that needs nothing from you.
@@ -308,7 +312,7 @@ export default function CaptureComposer({ onFinished }: {
         const extra = validateAiCandidates(result, interpretation.candidates.length);
         if (extra.length > 0) {
           interpretation = mergeAiCandidates(interpretation, extra);
-          setRows(rowsFrom(interpretation.candidates, state));
+          setRows(rowsFrom(interpretation.candidates, state, today));
         }
       } catch {
         // Deliberately silent. Nothing was lost, so there is nothing to report,
@@ -348,7 +352,7 @@ export default function CaptureComposer({ onFinished }: {
     // whole sentence then would offer the user a second copy of what they just
     // confirmed, so this ends the interaction instead.
     if (committed) { reset(); return; }
-    setRows(rowsFrom(interpret(raw || text.trim(), state, today).candidates, state));
+    setRows(rowsFrom(interpret(raw || text.trim(), state, today).candidates, state, today));
   }
 
   /** The rows the user ticked, reduced to what becomes a record. */
@@ -531,6 +535,19 @@ export default function CaptureComposer({ onFinished }: {
    * to the inbox, which is what "undo" means for a front door: the sentence you
    * typed is still yours (§17), it simply is not filed any more.
    */
+  /**
+   * §4. The sentence, read back from the store rather than from local state.
+   *
+   * The textarea was cleared the moment the capture finished, so the composer
+   * no longer holds it — and the capture record does. Reading it from there
+   * also means the correction sheet shows what was actually SAVED, not what a
+   * stale variable remembers.
+   */
+  function rawOf(captureId: string): string {
+    const c = (getSnapshot().captures ?? []).find((x) => x.id === captureId);
+    return c ? (c.workingText?.trim() || c.text) : "";
+  }
+
   function undoFinished() {
     if (!finished) return;
     for (const o of finished.outcomes) {
@@ -836,17 +853,40 @@ export default function CaptureComposer({ onFinished }: {
       {finished && (
         <div data-capture-finished className="mt-4 rounded-2xl border border-black/[.06] bg-black/[.02] p-4 dark:border-white/[.08] dark:bg-white/[.03]">
           <ul className="flex flex-col gap-2">
-            {finished.outcomes.map((o) => (
-              <li key={`${o.kind}:${o.id}`} data-capture-saved={o.kind}>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-                  {SAVED_LEAD} {o.label}
-                </p>
-                <Link href={o.href} className="text-sm text-zinc-900 underline-offset-4 hover:underline dark:text-zinc-100">
-                  {o.title}
-                </Link>
-                {o.detail && <p className="text-[11px] text-zinc-500">{o.detail}</p>}
-              </li>
-            ))}
+            {finished.outcomes.map((o) => {
+              const key = `${o.kind}:${o.id}`;
+              /**
+               * LIFEOS-097 §5, §21. One Edit per record, not one per capture.
+               *
+               * Built from the store at render, so the sheet offers the fields
+               * this record actually has — a wait gets a person, an action with
+               * no date gets no time control.
+               */
+              const correctable = correctableOutcome(state, { kind: o.kind, id: o.id } as Parameters<typeof correctableOutcome>[1],
+                { createdByCapture: createdBy(state, { kind: o.kind, id: o.id } as Parameters<typeof createdBy>[1], finished.captureId) });
+              return (
+                <li key={key} data-capture-saved={o.kind}>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                    {SAVED_LEAD} {o.label}
+                  </p>
+                  <Link href={o.href} className="text-sm text-zinc-900 underline-offset-4 hover:underline dark:text-zinc-100">
+                    {o.title}
+                  </Link>
+                  {o.detail && <p className="text-[11px] text-zinc-500">{o.detail}</p>}
+                  {correctable && (
+                    <button type="button" data-capture-edit={o.id}
+                      onClick={() => setCorrecting(correcting === key ? null : key)}
+                      className="mt-0.5 text-[11px] text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
+                      {correcting === key ? "Close" : "Edit"}
+                    </button>
+                  )}
+                  {correcting === key && correctable && (
+                    <CorrectionSheet source={rawOf(finished.captureId)} outcome={correctable}
+                      onClose={() => setCorrecting(null)} />
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {/*
             §9, §12. The offer that would otherwise have been lost.
