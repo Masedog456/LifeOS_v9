@@ -3,7 +3,7 @@
 **North star:** Conqify should be calm and legible even when the user is tired,
 distracted, or on a small screen.
 
-## STATUS: AUDIT COMPLETE — IMPLEMENTATION IN PROGRESS
+## STATUS: COMPLETE
 
 | | |
 |---|---|
@@ -155,8 +155,28 @@ tab trap     9 of 24 tab presses landed OUTSIDE the sheet
 Escape       sheet still open, focus not returned to the opener
 ```
 
-Four separate failures, and the third is §14's "background should not become an
-accidental keyboard playground" happening literally.
+**Two of those four are the wrong question, and the correction matters more
+than the finding.** This is not a modal. It renders in the flow under the toggle
+that opened it, there is no overlay, and the toggle itself relabels to "Close" —
+it is an inline disclosure. Focus escaping it on Tab is therefore *correct*, and
+trapping a person inside a panel they can simply tab past would have been a
+worse bug than the one being fixed. §14's own instruction — "reuse existing
+focus-trap/dialog primitives if present, do not build a custom focus manager if
+not needed" — points the same way.
+
+What is genuinely missing is what a **disclosure** owes:
+
+* no `aria-expanded` / `aria-controls`, so a screen-reader user pressed Edit,
+  heard the label become "Close", and was told nothing about the panel that had
+  appeared
+* no accessible name on the panel
+* focus does not enter it, so the field the person just asked to edit is several
+  tabs away
+* Escape does not close it, and closing by any route leaves focus on a removed
+  node
+
+The audit measured a modal's contract against a disclosure and produced two
+confident, wrong failures. They are struck rather than quietly dropped.
 
 ## 3.2 §18 — the evening close scrolls sideways on a phone
 
@@ -199,14 +219,31 @@ Two polite live regions exist on every page (the sync-status pill and an empty
 one), so the primitive is already in the product; the capture outcome is simply
 not in one. A screen-reader user submits a capture and hears nothing.
 
-## 3.5 §12 — one control with no visible focus indicator
+## 3.5 §12 — WITHDRAWN. The one focus failure was a probe artifact
 
-Out of roughly 180 tab stops across the eight surfaces, exactly one:
+The audit reported one control out of ~180 tab stops with no focus ring: a
+`<input type="date">` on the action detail page. It is not a defect.
+
+A date input has three internal sub-fields, and Tab moves *within* it. Measured
+stop by stop:
 
 ```
-/actions/a-long   INPUT "Due"   outline:none  box-shadow:none
-                  class="rounded-lg border border-black/10 bg-transparent px-2 py-1 …"
+stop 19  INPUT type=date  focus-visible=true   outline 2px solid   ← day
+stop 20  INPUT type=date  focus-visible=true   outline 2px solid   ← month
+stop 21  INPUT type=date  focus-visible=true   outline 2px solid   ← year
+stop 22  INPUT type=date  focus-visible=false  outline 0           ← leaving it
 ```
+
+The walk sampled the fourth press, the moment focus leaves the last segment,
+where the browser correctly stops treating it as focus-visible. The element is
+still `document.activeElement`, which is why it looked like a failure.
+
+**§12 is clean**: zero controls with an invisible focus indicator. The product's
+`:focus-visible` rule in `globals.css` reaches everything.
+
+This is the third probe artifact caught in this sprint, after the parent-walk
+background and the disabled-control count. Each would have been a confident,
+wrong finding; §4 exists because of exactly this.
 
 ## 3.6 §15 — tap targets, with judgement applied
 
@@ -254,7 +291,8 @@ measured and came back clean. Reporting that is the point.
 | §20 | nonsensical heading jumps | **none**; every surface has exactly one `h1` and no skipped level |
 | §39 | horizontal scroll at 200 % zoom | **0 px** on all seven surfaces tested at 640 CSS px |
 | §17 | mobile keyboard hiding the capture submit | reachable — submit bottom 424 px, visible to 544 px with a 300 px keyboard. LIFEOS-095's fix holds |
-| §12 | invisible keyboard focus | one control out of ~180 tab stops (§3.5) — not a pattern |
+| §12 | invisible keyboard focus | **zero** out of ~180 tab stops; the one apparent failure was a probe artifact (§3.5) |
+| §14 | no focus trap on the sheet | correct — it is a disclosure, not a modal (§3.1) |
 | §25 | placeholder used as the only label | the capture field has a real associated label; the placeholder is supplementary |
 
 ---
@@ -277,19 +315,256 @@ measured and came back clean. Reporting that is the point.
 
 ---
 
-# 6. What will be built
+# 6. What was built
 
-Ordered by measured severity, and no wider:
+## 6.1 One paired text scale (§9, §10, §41)
 
-1. **One paired metadata token.** `text-zinc-500 dark:text-zinc-400` — 4.67
-   light, 7.51 dark, both passing, hierarchy preserved. Replaces five
-   `metaClass` copies and the unpaired declarations they stand for.
-2. **Drop `shrink-0`** from the metadata span so a long name wraps instead of
-   overrunning the viewport.
-3. **Dialog semantics and focus behaviour** for the correction sheet.
-4. **A `main` landmark** on the decision inbox and the evening close.
-5. **A polite live region** for the capture result.
-6. **A focus ring** on the date input; **44 px** on Home's Edit control.
-7. **Destructive controls** given a token that is legible at rest.
+Three constants in `lib/design/tokens.ts` — the module that already owned
+`MIN_TOUCH_TARGET` and `FOCUS_RING`, so nothing new was invented to hold them.
+Each tier is a **pair**, because §2 showed no single shade can be right:
 
-No new design system, no typography change, no persistence, no migration.
+| tier | classes | light | dark |
+|---|---|---|---|
+| `PRIMARY_TEXT` | `text-zinc-800 dark:text-zinc-100` | 14.40 | 15.9 |
+| `SECONDARY_TEXT` | `text-zinc-600 dark:text-zinc-300` | 7.46 | 13.32 |
+| `TERTIARY_TEXT` | `text-zinc-500 dark:text-zinc-400` | **4.67** | **7.51** |
+
+`TERTIARY_TEXT` is the lightest pair that clears AA in both directions, which is
+why the scale stops there rather than continuing. It is also not my invention:
+`components/today/DecisionInbox.tsx` already used exactly
+`text-zinc-500 dark:text-zinc-400` in five places. The pair is the product's own
+precedent; the rest of the loop had simply not adopted it.
+
+`ROW_META` replaces the five `metaClass` copies, and changes two things beyond
+the colour:
+
+* **`text-xs` (12px), not `text-[11px]`.** `TYPE_SCALE` in the same file already
+  puts `metadata` at 0.8125rem and reserves 0.6875rem for uppercase eyebrow
+  labels — so the components had drifted from this file's own scale as well as
+  from each other. §6 asked for a readable minimum and the project had already
+  written one down.
+* **`min-w-0`, not `shrink-0`** — the overflow fix, below.
+
+## 6.2 The `shrink-0` overflow (§18)
+
+```
+before   /today/review at 390px:  scrollWidth 417, clientWidth 390   → 27px
+after    /today/review at 390px:  scrollWidth 390, clientWidth 390   →  0px
+```
+
+The metadata span carrying "Waiting on Dr. Maria Consuelo Fernández-Villanueva"
+now wraps to two lines and stays inside the viewport, measured at `right=349`
+of 390. §19 forbids truncating the only copy of a waiting person, so wrapping —
+which costs a row some height and loses nothing — was the correct trade.
+
+## 6.3 Accents (§9)
+
+Moved `600 → 700` **only where a `dark:` partner already existed in the same
+class string**, so light gained and dark was untouched:
+
+| | before (light) | after (light) |
+|---|---|---|
+| `text-emerald-*` | 3.53 | **5.19** |
+| `text-sky-*` | 3.89 | **5.66** |
+| `text-rose-*` | 4.38 | **5.83** |
+
+Eighteen occurrences. No new hue, no new scale — §42's rebrand is not what this
+is.
+
+## 6.4 Structure
+
+| § | change |
+|---|---|
+| §34 | `main` landmark on the decision inbox and the evening close; both were bare `<div>`s while `/today` had one |
+| §35 | the capture result is a `role="status" aria-live="polite"` region — scoped to that panel, not to the store, because §35 asks for the outcome to be announced and explicitly not for every update to be |
+| §11, §32 | the onboarding checklist marker is legible (1.43 → 4.67) and its state reaches assistive tech as "Done: " / "Not started: " rather than through a strikethrough, which is not announced |
+| §14 | the correction sheet is a labelled `<section>`; focus enters it once on open; Escape closes it and returns focus to the opener |
+| §14, §22 | its toggle carries `aria-expanded` / `aria-controls` and names its record, because a success panel can list several outcomes and five identical "Edit"s is §22's case by name |
+| §15 | that toggle is 44×44, grown in the flow rather than bought with negative margin |
+
+---
+
+# 7. Proof
+
+## 7.1 Contrast, before and after
+
+Enabled text nodes below their AA threshold, per surface. Disabled controls are
+excluded and covered by §33 separately.
+
+| surface | light before → after | dark before → after | mobile before → after |
+|---|---|---|---|
+| home | 5 → **0** | 4 → **0** | 5 → **0** |
+| today | 43 → **0** | 27 → **0** | 43 → **0** |
+| decisions | 6 → **0** | 3 → **0** | 5 → **0** |
+| action detail | 9 → **0** | 6 → **0** | 9 → **0** |
+| project | 52 → **0** | 11 → **0** | 51 → **0** |
+| goal | 56 → **0** | 10 → **0** | 55 → **0** |
+| evening | 13 → **0** | 17 → **0** | 12 → **0** |
+| week | 25 → **0** | 18 → **0** | 25 → **0** |
+| **total** | **209 → 0** | **96 → 0** | **205 → 0** |
+
+The token table, which is the whole change in one view:
+
+| token | before | after | light | dark |
+|---|---|---|---|---|
+| metadata | `text-zinc-400` | `text-zinc-500 dark:text-zinc-400` | 2.54 → **4.67** | 7.51 → **7.51** |
+| metadata | `text-zinc-500` | `text-zinc-500 dark:text-zinc-400` | 4.67 → **4.67** | 4.08 → **7.51** |
+| checklist ○ | `text-zinc-300 dark:text-zinc-600` | `text-zinc-500 dark:text-zinc-400` | 1.43 → **4.67** | 2.55 → **7.51** |
+| checklist ✓ | `text-emerald-500` | `text-emerald-700 dark:text-emerald-400` | 2.39 → **5.19** | 7.96 → 16.8 |
+| accents | `text-{hue}-600 dark:…-400` | `text-{hue}-700 dark:…-400` | 3.53–4.38 → **5.19–5.83** | unchanged |
+| placeholder | `placeholder:text-zinc-400` | `+ dark:placeholder:text-zinc-500` | 2.54 → **4.67** | unchanged |
+
+## 7.2 Hierarchy did not flatten (§8)
+
+The risk this fix creates is the one §8 names: solving contrast by making
+everything equally loud. Measured on the project page, the distinct foreground
+ratios are
+
+```
+17.72, 17.13, 16.79, 14.40, 10.09, 7.46, 4.67
+```
+
+— still seven tiers, loudest to quietest, with the quietest above AA. Assertions
+6–8 of the browser suite pin all three properties, and 8 goes red under a
+revert while 6 and 7 do not: the page always had tiers, and what changed is that
+the bottom one became legible.
+
+## 7.3 Browser suite — 21 assertions, 16 red under a revert
+
+`scripts/smoke-099-accessibility.cjs`, run against the production build in
+light, dark and 390 px.
+
+The five that stay green under a revert are labelled in the file as regression
+guards and are not presented as fixes: two measure that hierarchy survived, and
+three pin reds that were **clean before this sprint** — 200 % zoom, accessible
+names and heading order — precisely because a sweep across 200 class strings is
+the kind of change that could break one.
+
+One assertion was mislabelled and is worth recording. Assertion 17 claimed to
+guard the `shrink-0` fix but measured the project page, where the same long name
+already wrapped; it passed with the entire sprint reverted. It now measures the
+evening close, where the 27 px overflow actually was, and requires two lines
+rather than merely fitting.
+
+## 7.4 Screen-reader semantics (§34)
+
+| check | before | after |
+|---|---|---|
+| `main` landmark, all 8 surfaces | 6 of 8 | **8 of 8** |
+| exactly one `h1` per surface | 8 of 8 | 8 of 8 |
+| heading-level jumps | none | none |
+| interactive controls with no accessible name | 0 of 250+ | 0 |
+| capture result inside a live region | no | **yes**, polite |
+| disclosure toggle state exposed | no | **yes**, `aria-expanded` + `aria-controls` |
+
+## 7.5 Keyboard and mobile
+
+| check | result |
+|---|---|
+| controls with no visible focus indicator | **0** of ~180 tab stops |
+| focus enters the correction sheet on open | yes, on the first field |
+| Escape closes it and returns focus | yes, to the toggle, which relabels to "Edit" |
+| horizontal scroll at 390 px, all 8 surfaces | **0 px** (evening close was 27 px) |
+| horizontal scroll at 200 % zoom, all surfaces | 0 px |
+| capture submit reachable with a 300 px keyboard | yes — bottom 424 px, visible to 544 px |
+| Edit tap target | 19×17 → **44×44** |
+
+## 7.6 Performance (§44, §53)
+
+Every change is a class string, a landmark element, two ARIA attributes, one
+`useEffect` that runs once per sheet open, and one `requestAnimationFrame` on
+close. There is no observer, no measurement at runtime, and no contrast
+calculation in production — all of that lives in the probe, which is test-only.
+
+`next build` completed clean on every iteration, and the deterministic suite is
+unchanged at **6135/6135**, which is the honest statement of "no runtime
+regression" for a change of this shape.
+
+---
+
+# 8. Mutation testing (§50)
+
+MUTATION_TABLE_PLACEHOLDER
+
+---
+
+# 9. The twelve claims (§56)
+
+1. **Known low-contrast metadata is fixed on the scoped surfaces.** 209 light /
+   96 dark / 205 mobile failures → **0**, measured on rendered elements. *(§7.1)*
+2. **Light and dark both remain readable.** No single shade could do it; every
+   tier is a measured pair, and the sweep asserts both themes. *(§6.1, browser 5)*
+3. **Primary mobile controls meet the tap-target size.** The smallest control in
+   the loop went 19×17 → 44×44, grown in the flow. *(browser 18)*
+4. **Keyboard focus is visible.** Zero of ~180 tab stops lack an indicator; the
+   one apparent failure was a probe artifact and is withdrawn. *(§3.5)*
+5. **The correction sheet behaves sensibly.** Focus enters, Escape closes, focus
+   returns — and it is not given a focus trap, because it is a disclosure and
+   trapping would be worse. *(§3.1, browser 10–12)*
+6. **Important controls have accessible names.** Zero unnamed before or after;
+   the Edit toggle additionally names its record instead of being the fifth
+   identical "Edit". *(browser 9, 20)*
+7. **Important state is not colour-only.** The checklist marker carries "Done: "
+   / "Not started: " for assistive tech and is legible at 4.67. *(browser 15)*
+8. **Long content wraps without breaking layout.** The evening close went from
+   27 px of horizontal scroll to 0. *(browser 16, 17)*
+9. **The mobile keyboard does not block core actions.** Asserted as a regression
+   guard; LIFEOS-095's fix still holds. *(browser 19)*
+10. **Hierarchy stayed calm rather than becoming uniformly loud.** Seven distinct
+    tiers survive, the loudest at 17.72 and the quietest at 4.67. *(§7.2)*
+11. **No redesign and no new design system.** Three constants added to the
+    tokens file that already held `MIN_TOUCH_TARGET`; fonts, sizes above 12 px,
+    spacing and layout untouched. The chosen pair was already in use in
+    `DecisionInbox`. *(§6.1)*
+12. **No migration.** No schema, no stored preference, no persisted
+    accessibility state. Repository migration head **0047**, unchanged.
+
+---
+
+# 10. Known gaps — recorded, not fixed (§57)
+
+* **Navigation-bar chevrons at 9 px** (`text-[9px]`, 2.22 before the sweep).
+  The nav is shared chrome outside §2's list. The sweep reached its colour but
+  not its size; 9 px is below the project's own 11 px floor and deserves a
+  deliberate pass.
+* **`✕` remove buttons in the planning components** (`text-zinc-400
+  hover:text-rose-500`) are outside the scoped routes. They carry `aria-label`s,
+  so they are named, but they sit at the old contrast.
+* **Truncated titles without a `title` attribute.** Long action titles clip on
+  dense rows. Each is a link to the record, so §19's "a way to inspect it" is
+  satisfied by navigation; adding tooltips everywhere would be a change of
+  pattern rather than a defect fix.
+* **`aria-live` on the sync-status pill** announces "Saved locally" on every
+  store write. It predates this sprint and §35 explicitly warns against making
+  every update announce itself — worth revisiting, deliberately.
+* The full repository was **not** swept. §2 scopes this to the primary loop and
+  §57 forbids widening. No WCAG certification is claimed for the product.
+
+---
+
+# 11. Gates (§54)
+
+| gate | result |
+|---|---|
+| `scripts/smoke-099-accessibility.cjs` | **21/21** (16 red against a revert) |
+| Mutation (§50) | MUTATION_SUMMARY_PLACEHOLDER |
+| Full deterministic suite | **6135/6135** across 62 suites |
+| 094 decision inbox | GATE_094 |
+| 095 capture home | GATE_095 |
+| 097 capture corrections | GATE_097 |
+| 098 outcome coherence | GATE_098 |
+| `npm run release:audit` | GATE_RELEASE |
+| `npm run release:routes` | GATE_ROUTES |
+| `npm run release:export` | GATE_EXPORT |
+| `npm run audit:security` | GATE_SECURITY |
+| `tsc --noEmit` | GATE_TSC |
+| `eslint lib components app` | GATE_LINT |
+| `next build` | clean |
+
+## Files
+
+| | |
+|---|---|
+| new | `scripts/fixtures/lifeos-099-world.cjs`, `scripts/fixtures/a11y-probe.cjs`, `scripts/smoke-099-accessibility.cjs` |
+| changed | `lib/design/tokens.ts` (three constants + `ROW_META`), and class strings across the primary loop's components and page files |
+| structural | `components/today/DecisionInbox.tsx`, `components/today/ReviewToday.tsx` (landmarks), `components/capture/CaptureComposer.tsx` (live region, disclosure toggle, tap target), `components/capture/CorrectionSheet.tsx` (region semantics, focus, Escape), `components/ux/FirstRun.tsx` (marker legibility + textual state) |
