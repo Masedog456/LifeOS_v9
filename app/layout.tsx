@@ -41,7 +41,19 @@ export default function RootLayout({
         <PersistenceBootstrap />
         <Nav />
         <SessionBanner />
-        <div className="flex flex-1 flex-col">{children}</div>
+        {/*
+          LIFEOS-095 §26. Clearance for the mobile command bar.
+
+          `MobileCommandTrigger` is `fixed bottom-0 sm:hidden`, so on a phone it
+          floats over whatever the page ends with. Measured on the capture
+          review panel: "Confirm all", "Keep the whole thing as a note" and
+          "Start over" were all underneath it — including the escape hatch
+          LIFEOS-060 §16 promises is always one click away.
+
+          Fixed here rather than on one page: every route ends somewhere, and a
+          bar that covers content covers it everywhere.
+        */}
+        <div className="flex flex-1 flex-col pb-16 sm:pb-0">{children}</div>
         <CommandCenter />
         <Inspector />
         <ToastProvider />

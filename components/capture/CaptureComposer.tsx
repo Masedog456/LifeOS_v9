@@ -36,6 +36,12 @@ import {
   completeAction, completeOccurrence,
   // LIFEOS-089 §29. The existing domain setter — never a raw store write.
   linkGoalKnowledge,
+  // LIFEOS-095 §31. The undo behind an auto-finished capture. Every one of
+  // these already exists; nothing new was written to make undo possible.
+  deleteAction, deleteNote, unlinkCaptureRef, restoreCapture, getSnapshot,
+  // LIFEOS-095 §9. The existing setter behind the finished state's context
+  // offer. Nothing new was written to make that chip work.
+  updateAction,
 } from "@/lib/mvpStore";
 import type { StoreState } from "@/types/mvp";
 import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/lib/capture/interpret";
@@ -55,6 +61,11 @@ import { readChanges } from "@/lib/capture/completion";
 import { applyTemporalEdit, type EditOps } from "@/lib/capture/apply-edit";
 import ChangeConfirm from "@/components/capture/ChangeConfirm";
 import CaptureContext, { defaultChoice, type ContextChoice } from "@/components/capture/CaptureContext";
+import {
+  canFinishWithoutAsking, askingBecause, describeCreated, contextOffers,
+  HOME_PROMPT, HOME_PLACEHOLDER, SAVED_LEAD, KEPT_UNORGANISED,
+  type CaptureOutcome, type ContextOffer,
+} from "@/lib/capture/home";
 import {
   buildCaptureContextIndex, suggestContext, contextFields, contextKnowledgeGoal,
   type CaptureContextSuggestion,
@@ -146,7 +157,17 @@ function rowsFrom(candidates: Candidate[], state: StoreState): Row[] {
   });
 }
 
-export default function CaptureComposer() {
+export default function CaptureComposer({ onFinished }: {
+  /**
+   * The capture that just finished, or null.
+   *
+   * LIFEOS-095 §18. The finished panel and the recent list's newest row are the
+   * same captured moment — the visual review found them stacked, saying the
+   * same sentence and the same date twice within 150 px. Home uses this to omit
+   * the row while the panel is up, so one moment stays one thing on screen.
+   */
+  onFinished?: (captureId: string | null) => void;
+} = {}) {
   const state = useStore();
   const router = useRouter();
   const today = todayKey();
@@ -164,6 +185,20 @@ export default function CaptureComposer() {
   const [edits, setEdits] = useState<TemporalEditIntent[] | null>(null);
   /** True once the new half of a mixed utterance has been saved (§16). */
   const [committed, setCommitted] = useState(false);
+  /**
+   * LIFEOS-095 §10. What just happened, when the capture finished by itself.
+   *
+   * Presentation only — it is rebuilt from the store at commit time and thrown
+   * away on the next submit. Nothing about it is persisted (§34).
+   */
+  const [finished, setFinished] = useState<{
+    captureId: string;
+    outcomes: CaptureOutcome[];
+    /** §9. Context 089 offered that nobody has said yes to yet, by action id. */
+    offers: { actionId: string; offer: ContextOffer }[];
+  } | null>(null);
+  /** §29. Set when interpretation failed but the words were kept anyway. */
+  const [kept, setKept] = useState(false);
 
   const projectTitles = useMemo(
     () => buildEscalationContext("", state).projectTitles,
@@ -181,6 +216,12 @@ export default function CaptureComposer() {
     const src = text.trim();
     if (!src || busy) return;
     setBusy(true);
+    // A new submit answers whatever the last one said. Clearing here rather
+    // than on every branch below means no path can leave a stale "Saved as…"
+    // sitting above a fresh interpretation.
+    setFinished(null);
+    onFinished?.(null);
+    setKept(false);
 
     // Is this a CHANGE to something that already exists, rather than something
     // new? Checked first, because reading "move the dentist to Friday" as a new
@@ -205,9 +246,44 @@ export default function CaptureComposer() {
     }
 
     // Deterministic first, and it renders before any model is considered.
-    let interpretation = interpret(src, state, today);
+    let interpretation;
+    try {
+      interpretation = interpret(src, state, today);
+    } catch {
+      /**
+       * §29. The words survive an engine that did not.
+       *
+       * `commitCapture` with no candidates writes the raw capture and nothing
+       * else, which is the honest outcome: it IS saved, and it is NOT
+       * organized. Saying both is the only truthful sentence available here.
+       */
+      commitCapture(src, []);
+      setKept(true);
+      setText("");
+      setBusy(false);
+      return;
+    }
     setRaw(src);
-    setRows(rowsFrom(interpretation.candidates, state));
+    const built = rowsFrom(interpretation.candidates, state);
+
+    /**
+     * LIFEOS-095 §31. The capture that needs nothing from you.
+     *
+     * Not attempted when the rules escalated: `escalate` means the parser said
+     * it was out of its depth, and finishing on a reading that announced its
+     * own uncertainty is precisely what the authority gradient exists to stop.
+     */
+    if (!interpretation.escalate && canFinishWithoutAsking({
+      candidates: interpretation.candidates,
+      context: built.flatMap((r) => r.context),
+      hasPendingEdit: false,
+    })) {
+      finishNow(src, built);
+      setBusy(false);
+      return;
+    }
+
+    setRows(built);
 
     // Escalate only when the rules said they were out of their depth (§11).
     // Failure here is a no-op: the candidates above already stand.
@@ -263,7 +339,19 @@ export default function CaptureComposer() {
 
   /** The rows the user ticked, reduced to what becomes a record. */
   function pickedPairs(): { candidate: CommitCandidate; row: Row }[] {
-    return live
+    return pairsFrom(live);
+  }
+
+  /**
+   * The rows that are actually going to be written, from any row list.
+   *
+   * Takes the rows rather than reading `live`, because an auto-finished capture
+   * commits the rows it JUST built — they have not reached React state yet, and
+   * a version of this that read state would silently commit nothing.
+   */
+  function pairsFrom(source: Row[]): { candidate: CommitCandidate; row: Row }[] {
+    return source
+      .filter((r) => !r.removed)
       .filter((r) => r.selected)
       .map((r) => {
         const base = toCommitCandidate(r.candidate, r.chosen);
@@ -326,9 +414,16 @@ export default function CaptureComposer() {
     return r.context.filter((s) => !!s.contextId && ids.has(s.contextId));
   }
 
-  function confirmSelected() {
-    const pairs = pickedPairs();
-    const { created } = commitCapture(raw, pairs.map((x) => x.candidate));
+  /**
+   * The one write path (LIFEOS-095 §31).
+   *
+   * Both the reviewed commit and the auto-finished one come through here, so
+   * the Goal-context pairing below cannot exist on one path and be forgotten on
+   * the other — which is exactly the kind of drift a second commit site
+   * introduces.
+   */
+  function commitRows(rawText: string, pairs: ReturnType<typeof pickedPairs>) {
+    const { captureId, created } = commitCapture(rawText, pairs.map((x) => x.candidate));
 
     /**
      * §16, §17, §33. A Reflection or a Protocol carries Goal context through
@@ -353,6 +448,11 @@ export default function CaptureComposer() {
       if (goalId) linkGoalKnowledge(goalId, ref.kind, ref.id);
     }
 
+    return { captureId, created };
+  }
+
+  function confirmSelected() {
+    const { created } = commitRows(raw, pickedPairs());
     toast({
       kind: "success",
       message: created.length === 0
@@ -363,6 +463,73 @@ export default function CaptureComposer() {
     // whole surface here would discard it and make them retype the sentence.
     if (edits) { setRows(null); setText(""); setCommitted(true); return; }
     reset();
+  }
+
+  /**
+   * A capture that needed nothing from the person (LIFEOS-095 §10, §31).
+   *
+   * Written, then DESCRIBED FROM THE STORE — `describeCreated` reads back what
+   * actually landed, so the finished state cannot name a record `commitCapture`
+   * declined to write. That is the defect behind "Saved 1 thing": a count taken
+   * from the input rather than the result.
+   *
+   * The field is cleared and stays focused, because §10's whole point is that
+   * the next thing you want to say is the next thing you should be able to say.
+   */
+  function finishNow(rawText: string, built: Row[]) {
+    const pairs = pairsFrom(built);
+    const { captureId, created } = commitRows(rawText, pairs);
+    if (created.length === 0) {
+      // Nothing was written, so nothing may be claimed. The words are safe —
+      // `commitCapture` saves the raw capture before it attempts anything.
+      setKept(true);
+      setText("");
+      return;
+    }
+    /**
+     * §9. The context that was offered and not taken.
+     *
+     * Paired by position and checked by ref kind, for the same reason
+     * `commitRows` pairs its Goal links that way: `commitCapture` skips a
+     * candidate it cannot build, so a bare index would attach one row's offer
+     * to another row's record.
+     */
+    const offers: { actionId: string; offer: ContextOffer }[] = [];
+    for (let i = 0; i < pairs.length; i++) {
+      const ref = created[i];
+      if (!ref || ref.kind !== "action") continue;
+      for (const offer of contextOffers(pairs[i].row.context, pairs[i].row.choice)) {
+        if (!offer.accepted) offers.push({ actionId: ref.id, offer });
+      }
+    }
+    setFinished({ captureId, outcomes: describeCreated(getSnapshot(), created), offers });
+    onFinished?.(captureId);
+    setText("");
+    setRows(null);
+    setRaw("");
+  }
+
+  /**
+   * §31's other half. An undo that is offered has to work.
+   *
+   * Only the three kinds auto-finish can produce are deletable here, and every
+   * primitive already exists. The capture itself is NOT deleted — it goes back
+   * to the inbox, which is what "undo" means for a front door: the sentence you
+   * typed is still yours (§17), it simply is not filed any more.
+   */
+  function undoFinished() {
+    if (!finished) return;
+    for (const o of finished.outcomes) {
+      if (o.kind === "action") deleteAction(o.id);
+      else if (o.kind === "note") deleteNote(o.id);
+      else if (o.kind === "event") deleteEvent(o.id);
+      else continue;
+      unlinkCaptureRef(finished.captureId, { kind: o.kind, id: o.id });
+    }
+    restoreCapture(finished.captureId);
+    setFinished(null);
+    onFinished?.(null);
+    toast({ kind: "info", message: "Undone. Your words are still in the inbox." });
   }
 
   /**
@@ -397,25 +564,28 @@ export default function CaptureComposer() {
 
   return (
     <section>
-      <div className="mb-6">
-        <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-400">You live. Conqify keeps track.</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          What&apos;s on your mind?
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-500">
-          Errands, appointments, ideas, things you&apos;re waiting on — say it however it comes out. Conqify sorts it and you confirm.
-        </p>
-      </div>
+      {/*
+        LIFEOS-095 §7. One question, and then the field.
 
-      <label htmlFor="capture" className="sr-only">What&apos;s on your mind?</label>
+        This replaced a slogan, a heading and a two-line instructional
+        paragraph — 148 px of copy above the primary input of a capture
+        product, measured. The instructions were also the least true thing on
+        the page after §31: "Nothing is created until you confirm it" stopped
+        being so the moment an auto-safe capture began finishing itself.
+      */}
+      <h1 className="mb-3 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+        {HOME_PROMPT}
+      </h1>
+
+      <label htmlFor="capture" className="sr-only">{HOME_PROMPT}</label>
       <textarea
         id="capture"
         autoFocus
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); void look(); } }}
-        placeholder="Call the dentist tomorrow, finish the report, and Marcus still owes me the file…"
-        rows={4}
+        placeholder={HOME_PLACEHOLDER}
+        rows={3}
         disabled={busy || !!rows || !!edits}
         className="w-full resize-none rounded-2xl border border-black/[.08] bg-transparent p-5 text-lg leading-relaxed outline-none transition-colors placeholder:text-zinc-400 focus:border-black/[.20] disabled:opacity-60 dark:border-white/[.10] dark:focus:border-white/[.25]"
       />
@@ -444,6 +614,27 @@ export default function CaptureComposer() {
               ? (live.length === 1 ? "And 1 new thing:" : `And ${live.length} new things:`)
               : (live.length === 1 ? "I found 1 thing:" : `I found ${live.length} things:`)}
           </p>
+          {/*
+            LIFEOS-095 §9. Why this one is being shown rather than finished.
+
+            Since §31, most captures never reach this panel — so arriving here
+            is now information, and the reader is owed the reason. The sentence
+            comes from `askingBecause`, which walks the same clauses in the same
+            order as the decision, so the two cannot drift apart.
+          */}
+          {!edits && askingBecause({
+            candidates: live.map((r) => r.candidate),
+            context: live.flatMap((r) => r.context),
+            hasPendingEdit: false,
+          }) && (
+            <p data-capture-asking className="mt-0.5 text-[11px] text-zinc-500">
+              {askingBecause({
+                candidates: live.map((r) => r.candidate),
+                context: live.flatMap((r) => r.context),
+                hasPendingEdit: false,
+              })}
+            </p>
+          )}
 
           <ul className="mt-3 flex flex-col gap-2">
             {rows.map((r, i) => r.removed ? null : (
@@ -620,10 +811,75 @@ export default function CaptureComposer() {
         </div>
       )}
 
-      {!rows && !edits && (
-        <p className="mt-6 text-sm leading-relaxed text-zinc-400">
-          Start messy. Nothing is created until you confirm it, and{" "}
-          <Link href="/notes" className="underline underline-offset-2">a note</Link> is always a valid answer.
+      {/*
+        §10. What just happened, said once and then left alone.
+
+        The field above is already empty and still focused, so the next thing
+        you want to say is the next thing you can say. This block is not a step
+        in a flow and there is nothing here to dismiss — the next submit
+        replaces it.
+      */}
+      {finished && (
+        <div data-capture-finished className="mt-4 rounded-2xl border border-black/[.06] bg-black/[.02] p-4 dark:border-white/[.08] dark:bg-white/[.03]">
+          <ul className="flex flex-col gap-2">
+            {finished.outcomes.map((o) => (
+              <li key={`${o.kind}:${o.id}`} data-capture-saved={o.kind}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                  {SAVED_LEAD} {o.label}
+                </p>
+                <Link href={o.href} className="text-sm text-zinc-900 underline-offset-4 hover:underline dark:text-zinc-100">
+                  {o.title}
+                </Link>
+                {o.detail && <p className="text-[11px] text-zinc-500">{o.detail}</p>}
+              </li>
+            ))}
+          </ul>
+          {/*
+            §9, §12. The offer that would otherwise have been lost.
+
+            089 suggests context at three tiers, and the `possible` tier arrives
+            switched OFF — correctly, the evidence is weaker. In the review
+            panel the person sees the offer and decides. A capture that finishes
+            by itself never renders that panel, so without this the suggestion
+            was declined on their behalf and silently. One chip, one tap.
+          */}
+          {finished.offers.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {finished.offers.map(({ actionId, offer }) => (
+                <button
+                  key={`${actionId}:${offer.label}`}
+                  type="button"
+                  data-capture-offer={offer.label}
+                  onClick={() => {
+                    updateAction(actionId, offer.projectId
+                      ? { projectId: offer.projectId }
+                      : { goalId: offer.goalId });
+                    setFinished((f) => f && {
+                      ...f,
+                      outcomes: describeCreated(getSnapshot(), f.outcomes.map((o) => ({ kind: o.kind, id: o.id }))),
+                      offers: f.offers.filter((x) => !(x.actionId === actionId && x.offer.label === offer.label)),
+                    });
+                  }}
+                  className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300"
+                >
+                  Add to {offer.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button type="button" data-capture-undo onClick={undoFinished}
+            className="mt-3 rounded-full border border-black/[.12] px-3 py-1 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
+            Undo
+          </button>
+        </div>
+      )}
+
+      {/* §29. Saved, and not organized. Both halves, because only both are true. */}
+      {kept && (
+        <p data-capture-kept className="mt-4 text-sm text-zinc-500">
+          {KEPT_UNORGANISED}{" "}
+          <Link href="/process" className="underline underline-offset-2">Open the inbox →</Link>
         </p>
       )}
     </section>

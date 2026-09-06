@@ -206,16 +206,32 @@ const store = (page) => page.evaluate((k) => JSON.parse(localStorage.getItem(k) 
     /Email Marcus about the clinic lease/.test(inProject), inProject.slice(0, 120));
 
   // ---- 7. Goal-only context, no Project invented (§12) --------------------
+  //
+  // LIFEOS-095 changed the ROUTE this capability travels, not the capability.
+  // "Book a school open day." is a high-confidence Action with no ambiguity, so
+  // it now finishes on submit instead of rendering the review panel — and the
+  // Goal suggestion, which arrives switched OFF at the `possible` tier, comes
+  // through as an offer on the finished state. The assertions below are the
+  // same four questions asked of the new flow: is the Goal offered, is a
+  // Project invented, does accepting write a goalId, and is a Project created.
   await seed(page, { ...WORLD(), projects: [], nextActions: [] });
-  r = await look(page, "Book a school open day.");
-  const g1 = r.candidates[0]?.context.find((c) => c.type === "goal");
-  ok("24 §12 a Goal-only match is offered", /Graduate school/.test(g1?.text || ""), (g1?.text || "").slice(0, 80));
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#capture", { timeout: 20000 });
+  await page.waitForFunction(() => {
+    const b = document.querySelector("[data-capture-submit]");
+    return !!b && b.disabled;
+  }, { timeout: 20000 });
+  await page.fill("#capture", "Book a school open day.");
+  await page.click("[data-capture-submit]");
+  await page.waitForTimeout(1200);
+  const offers = await page.evaluate(() =>
+    [...document.querySelectorAll("[data-capture-offer]")].map((b) => ({
+      label: b.getAttribute("data-capture-offer"), text: b.textContent.trim() })));
+  ok("24 §12 a Goal-only match is offered", offers.some((o) => /Graduate school/.test(o.label || "")),
+    JSON.stringify(offers));
   ok("25 §12 …and no Project is suggested or invented",
-    r.candidates[0].context.every((c) => c.type !== "project"),
-    JSON.stringify(r.candidates[0].context.map((c) => c.type)));
-  await page.click('[data-context-row="goal"] [data-context-chip]');
-  await page.waitForTimeout(150);
-  await page.click("[data-confirm-all]");
+    offers.length === 1, JSON.stringify(offers.map((o) => o.label)));
+  await page.click('[data-capture-offer="Graduate school"]');
   await page.waitForTimeout(700);
   st = await store(page);
   const gAct = st.nextActions.find((a) => /Book a school open day/.test(a.title));

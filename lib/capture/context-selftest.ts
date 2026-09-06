@@ -532,7 +532,11 @@ export function runCaptureContextSelfTests(): SelfTestReport {
       !surfaces.some((x) => x.includes("p-clinic") || x.includes("g-clinic")),
       JSON.stringify(surfaces));
     ok("89.76 §27 the existing-record lead asks rather than acts",
-      /Looks like this may refer to/.test(EXISTING_RECORD_LEAD), EXISTING_RECORD_LEAD);
+      // LIFEOS-095 §12 shortened the lead. The assertion still guards what it
+      // always guarded — that the sentence HEDGES rather than claiming the
+      // records are the same — which is the property §27 needs, not the
+      // particular wording.
+      /may already exist/i.test(EXISTING_RECORD_LEAD), EXISTING_RECORD_LEAD);
   }
 
   // ==========================================================================
