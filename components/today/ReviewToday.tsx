@@ -36,7 +36,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ROW_META } from "@/lib/design/tokens";
+import { CONTROL_PILL, ROW_META } from "@/lib/design/tokens";
 import { useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import {
@@ -60,7 +60,7 @@ import { buildDecisionInbox, decisionCountLine } from "@/lib/guidance/decisions"
 const metaClass = ROW_META;
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
 const chip =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL;
 
 function Block({ title, show, children, id }: {
   title: string; show: boolean; children: React.ReactNode; id: string;

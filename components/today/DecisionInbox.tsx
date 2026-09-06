@@ -37,6 +37,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { CONTROL_PILL } from "@/lib/design/tokens";
 import { useStore, getSnapshot } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { todayKey } from "@/lib/reviews/dates";
@@ -53,7 +54,7 @@ import { storeReplanOps } from "@/components/planning/replanOps";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 
 const btn =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL;
 
 /**
  * The row's controls, taken from the engines rather than built here.

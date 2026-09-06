@@ -24,6 +24,7 @@
  */
 
 import { useState } from "react";
+import { CONTROL_PILL, CONTROL_PILL_PRIMARY } from "@/lib/design/tokens";
 import { addReflection } from "@/lib/mvpStore";
 import { toast } from "@/lib/ux/feedback";
 import { formatDayKey, type DayKey } from "@/lib/reviews/dates";
@@ -34,9 +35,9 @@ import {
 } from "@/lib/reviews/meaning";
 
 const chip =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL;
 const chipOn =
-  "rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white dark:bg-zinc-100 dark:text-zinc-900";
+  CONTROL_PILL_PRIMARY;
 
 export default function MeaningCapture({
   reviewedDay, cards, more, otherWords, canWrite,

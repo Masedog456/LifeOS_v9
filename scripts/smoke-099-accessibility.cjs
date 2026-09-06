@@ -101,28 +101,50 @@ const failures = (page) => page.evaluate(() => {
     page.on("pageerror", (e) => errors.push(String(e)));
     await seed(page);
     await visit(page, "/project/p1");
-    const tiers = await page.evaluate(() => {
-      const A = window.__a11y;
-      const seen = new Map();
-      for (const { el } of A.textLeaves(document.querySelector("main"))) {
-        const c = A.contrastOf(el);
-        if (c.disabled) continue;
-        const k = c.fg;
-        seen.set(k, Math.max(seen.get(k) || 0, Math.round(c.ratio * 100) / 100));
-      }
-      return [...seen.values()].sort((a, b) => b - a);
-    });
     /**
-     * §8. Three tiers, all legible, still distinguishable. "Do not solve
-     * contrast by making everything equally loud" is the failure mode this
-     * guards: a page where every ratio collapsed to one value would pass every
-     * other assertion in this file and would be worse than what it replaced.
+     * §8's failure mode is solving contrast by making everything equally loud,
+     * and it needs measuring WITHIN A ROW rather than across the page.
+     *
+     * The first version of these assertions checked the page's overall range —
+     * how many distinct ratios exist, and whether the extremes were far apart.
+     * Mutation M4 walked straight through it: flattening the metadata tier to
+     * the primary colour simply REMOVES the quiet end, leaving a page that is
+     * still varied, still wide-ranging, and still above AA everywhere, while a
+     * commitment row now shouts its due date as loudly as its title.
+     *
+     * So this compares the two halves of the same row: the record's title, and
+     * the metadata chip beside it. That is the hierarchy a person actually
+     * reads, and it is the thing the fix could plausibly have destroyed.
      */
-    ok("6 §8 the page still has distinct text tiers", tiers.length >= 3, tiers.slice(0, 6).join(", "));
-    ok("7 §8 …the loudest is clearly louder than the quietest",
-      tiers[0] >= 12 && tiers[tiers.length - 1] <= 8, `${tiers[0]} … ${tiers[tiers.length - 1]}`);
-    ok("8 §8 …and the quietest is still above AA",
-      tiers[tiers.length - 1] >= 4.5, String(tiers[tiers.length - 1]));
+    const rows = await page.evaluate(() => {
+      const A = window.__a11y;
+      const out = [];
+      for (const row of document.querySelectorAll("[data-project-section] li")) {
+        const title = row.querySelector("a, span.truncate");
+        const meta = row.querySelector("[class*='text-right']");
+        if (!title || !meta) continue;
+        const t = A.contrastOf(title), m = A.contrastOf(meta);
+        if (t.disabled || m.disabled) continue;
+        out.push({
+          text: (title.textContent || "").trim().slice(0, 24),
+          title: Math.round(t.ratio * 100) / 100,
+          meta: Math.round(m.ratio * 100) / 100,
+        });
+      }
+      return out;
+    });
+    ok("6 §8 the fixture really produces rows with a title and a metadata chip",
+      rows.length >= 3, `${rows.length} rows`);
+    const flattened = rows.filter((r) => r.title - r.meta < 2);
+    ok("7 §8 metadata stays quieter than the title it sits beside",
+      rows.length > 0 && flattened.length === 0,
+      flattened.slice(0, 2).map((r) => `"${r.text}" title ${r.title} vs meta ${r.meta}`).join(" | ")
+        || rows.slice(0, 2).map((r) => `${r.title}/${r.meta}`).join(", "));
+    const tooFaint = rows.filter((r) => r.meta < 4.5);
+    ok("8 §5, §8 …and is still above AA while being quieter",
+      rows.length > 0 && tooFaint.length === 0,
+      tooFaint.slice(0, 2).map((r) => `"${r.text}" meta ${r.meta}`).join(" | ")
+        || `min meta ${Math.min(...rows.map((r) => r.meta))}`);
     await ctx.close();
   }
 
@@ -290,13 +312,36 @@ const failures = (page) => page.evaluate(() => {
     await page.fill("#capture", "Email the registrar tomorrow");
     await page.click("[data-capture-submit]");
     await page.waitForTimeout(1400);
-    const edit = await page.evaluate(() => {
-      const r = document.querySelector("[data-capture-edit]").getBoundingClientRect();
-      return { w: Math.round(r.width), h: Math.round(r.height) };
+    /**
+     * BOTH Edit controls, and that is the point.
+     *
+     * The composer's success panel has one; `RecentCaptures` renders a second
+     * that opens the same correction sheet from the recent list. The first
+     * version of this assertion measured only the composer's, so the sprint
+     * shipped one fixed control and one still at 19x17 on the same surface —
+     * caught by measuring every button on the page rather than the one the fix
+     * had been aimed at.
+     */
+    const edits = await page.evaluate(() => {
+      const out = [];
+      for (const sel of ["[data-capture-edit]", "[data-recent-edit]", "[data-recent-undo]"]) {
+        for (const el of document.querySelectorAll(sel)) {
+          const r = el.getBoundingClientRect();
+          if (r.width < 1) continue;
+          out.push({ sel, w: Math.round(r.width), h: Math.round(r.height),
+            named: !!el.getAttribute("aria-label") });
+        }
+      }
+      return out;
     });
-    /** §15. Measured at 19x17 — the smallest target in the primary loop. */
-    ok("18 §15 the Edit control is a real tap target",
-      edit.w >= 44 && edit.h >= 44, `${edit.w}x${edit.h}`);
+    const tiny = edits.filter((e) => e.w < 44 || e.h < 44);
+    const unnamed = edits.filter((e) => !e.named);
+    ok("18 §15 every capture correction control is a real tap target",
+      edits.length >= 2 && tiny.length === 0,
+      tiny.map((e) => `${e.sel} ${e.w}x${e.h}`).join(" | ") || `${edits.length} controls`);
+    ok("18b §22 …and each names the record it acts on",
+      edits.length >= 2 && unnamed.length === 0,
+      unnamed.map((e) => e.sel).join(",") || `${edits.length} named`);
 
     const kb = await page.evaluate(() => {
       const visible = innerHeight - 300;             // a realistic soft keyboard

@@ -121,16 +121,16 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
 
         {/* Primary lifecycle actions. */}
         <section className="mb-4 flex flex-wrap items-center gap-2">
-          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: false }); toast({ kind: "success", message: "Started" }); }} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Start</button>}
-          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: true }); toast({ kind: "success", message: "Started with a session" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Start + session</button>}
-          {action.status === "in_progress" && <button type="button" onClick={() => { pauseAction(action.id); toast({ kind: "info", message: "Paused" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Pause</button>}
-          {action.status !== "completed" && action.status !== "cancelled" && <button type="button" onClick={() => setCompleteOpen((v) => !v)} className="rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">Complete</button>}
+          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: false }); toast({ kind: "success", message: "Started" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Start</button>}
+          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: true }); toast({ kind: "success", message: "Started with a session" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Start + session</button>}
+          {action.status === "in_progress" && <button type="button" onClick={() => { pauseAction(action.id); toast({ kind: "info", message: "Paused" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Pause</button>}
+          {action.status !== "completed" && action.status !== "cancelled" && <button type="button" onClick={() => setCompleteOpen((v) => !v)} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">Complete</button>}
 
-          {action.status !== "completed" && action.status !== "cancelled" && action.status !== "waiting" && <button type="button" onClick={() => setWaitOpen((v) => !v)} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Wait on…</button>}
-          {(action.status === "completed" || action.status === "cancelled") && <button type="button" onClick={() => { reopenAction(action.id); toast({ kind: "success", message: "Reopened" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Reopen</button>}
-          {(action.status === "completed" || action.status === "cancelled" || action.status === "deferred") && <button type="button" onClick={() => { restoreAction(action.id); toast({ kind: "success", message: "Restored" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Restore</button>}
-          <button type="button" onClick={() => { const id = duplicateAction(action.id); if (id) { toast({ kind: "success", message: "Duplicated" }); router.push(`/actions/${id}`); } }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Duplicate</button>
-          {action.status !== "cancelled" && <button type="button" onClick={() => { cancelAction(action.id); toast({ kind: "info", message: "Cancelled (reversible)" }); }} className="rounded-full border border-rose-500/40 px-3 py-1.5 text-xs text-rose-700 dark:text-rose-400">Cancel</button>}
+          {action.status !== "completed" && action.status !== "cancelled" && action.status !== "waiting" && <button type="button" onClick={() => setWaitOpen((v) => !v)} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Wait on…</button>}
+          {(action.status === "completed" || action.status === "cancelled") && <button type="button" onClick={() => { reopenAction(action.id); toast({ kind: "success", message: "Reopened" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Reopen</button>}
+          {(action.status === "completed" || action.status === "cancelled" || action.status === "deferred") && <button type="button" onClick={() => { restoreAction(action.id); toast({ kind: "success", message: "Restored" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Restore</button>}
+          <button type="button" onClick={() => { const id = duplicateAction(action.id); if (id) { toast({ kind: "success", message: "Duplicated" }); router.push(`/actions/${id}`); } }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Duplicate</button>
+          {action.status !== "cancelled" && <button type="button" onClick={() => { cancelAction(action.id); toast({ kind: "info", message: "Cancelled (reversible)" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-rose-500/40 px-3 py-1.5 text-xs text-rose-700 dark:text-rose-400">Cancel</button>}
         </section>
 
         {/* Complete evidence. */}
@@ -151,10 +151,10 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
               className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" />
             <button type="button" disabled={dueDraft === (action.dueDate ?? "")}
               onClick={() => { setActionDueDate(action.id, dueDraft || undefined); toast({ kind: "success", message: dueDraft ? "Due date set" : "Due date removed" }); }}
-              className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Save</button>
+              className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Save</button>
             {action.dueDate && (
               <button type="button" onClick={() => { setDueDraft(""); setActionDueDate(action.id, undefined); toast({ kind: "info", message: "Due date removed" }); }}
-                className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Clear</button>
+                className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Clear</button>
             )}
             {action.dueDate && <span className="text-xs text-zinc-500 dark:text-zinc-400">{dueLabel(action)}</span>}
           </div>
@@ -210,7 +210,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
               <input list="waiting-suggest" value={waitOn} onChange={(e) => setWaitOn(e.target.value)} placeholder="Waiting on…" aria-label="Waiting on" className="min-w-40 flex-1 rounded-lg border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/12" />
               <datalist id="waiting-suggest">{WAITING_SUGGESTIONS.map((w) => <option key={w} value={w} />)}</datalist>
               <input type="date" value={waitDate} onChange={(e) => setWaitDate(e.target.value)} aria-label="Follow-up date" className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" />
-              <button type="button" onClick={() => { markActionWaiting(action.id, waitOn, waitDate || undefined); setWaitOpen(false); setWaitOn(""); setWaitDate(""); toast({ kind: "info", message: "Marked waiting" }); }} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Mark waiting</button>
+              <button type="button" onClick={() => { markActionWaiting(action.id, waitOn, waitDate || undefined); setWaitOpen(false); setWaitOn(""); setWaitDate(""); toast({ kind: "info", message: "Marked waiting" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Mark waiting</button>
             </div>
           </section>
         )}

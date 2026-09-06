@@ -29,7 +29,7 @@
  * history event. This is a read (§34, §38).
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   useStore, getSnapshot, deleteAction, deleteNote, deleteEvent,
@@ -60,6 +60,8 @@ export default function RecentCaptures({ exclude }: {
 
   /** Which outcome's correction sheet is open, as `captureId:kind:id`. */
   const [editing, setEditing] = useState<string | null>(null);
+  /** §14. The opener per outcome, so focus can return to it on close. */
+  const editRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   /**
    * LIFEOS-097 §19, §20. Undo one record, and only if this capture made it.
@@ -139,24 +141,52 @@ export default function RecentCaptures({ exclude }: {
                           actually created, so a matched record shows no control
                           that could remove it.
                         */}
+                        {/*
+                          LIFEOS-099 §14, §15, §22. The SECOND Edit control.
+
+                          The composer's success panel has one of these and it
+                          was fixed first; this one opens the same correction
+                          sheet from the recent list, and measuring found it
+                          still at 19x17 with no disclosure semantics. Half a
+                          surface fixed is the kind of thing only a measurement
+                          catches, so both now carry the same contract.
+                        */}
                         {correctable && (
                           <button type="button" data-recent-edit={o.id}
+                            aria-expanded={editing === key}
+                            aria-controls={editing === key ? `correction-${o.id}` : undefined}
+                            aria-label={`${editing === key ? "Close" : "Edit"} ${o.title}`}
+                            ref={(el) => { if (editing === key) editRefs.current[key] = el; }}
                             onClick={() => setEditing(editing === key ? null : key)}
-                            className="text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center sm:min-h-0 sm:min-w-0 text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
                             {editing === key ? "Close" : "Edit"}
                           </button>
                         )}
+                        {/*
+                          §22, §30. "Undo" five times in a list is the ambiguous
+                          label §22 names, and the rose tint arrives only on
+                          hover — so the word, not the colour, has to carry that
+                          this removes something.
+                        */}
                         {correctable?.createdByCapture && (
                           <button type="button" data-recent-undo={o.id}
+                            aria-label={`Undo ${o.title}`}
                             onClick={() => { setEditing(null); undoOne(r.id, o.kind, o.id, o.title); }}
-                            className="text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-rose-500">
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center sm:min-h-0 sm:min-w-0 text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-rose-500">
                             Undo
                           </button>
                         )}
                       </span>
                       {editing === key && correctable && (
                         <CorrectionSheet source={r.text} outcome={correctable}
-                          onClose={() => setEditing(null)} />
+                          onClose={() => {
+                            // §14. Focus returns to the toggle, which relabels
+                            // to "Edit"; without it a keyboard user is dropped
+                            // at the top of the document.
+                            const opener = editRefs.current[key];
+                            setEditing(null);
+                            requestAnimationFrame(() => opener?.focus());
+                          }} />
                       )}
                     </li>
                   );
