@@ -48,6 +48,7 @@ import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/li
 import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/capture/commit";
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
 import { authorityNote, authorityFor, preselected, isSuggestOnly, type CandidateKind } from "@/lib/capture/authority";
+import { cleanCandidateTitle } from "@/lib/capture/titles";
 import { personalCodeHandoffHref, HANDOFF_ACTION_LABEL, MAX_HANDOFF_CHARS } from "@/lib/code/handoff";
 import { UNRESOLVED_LABEL } from "@/lib/capture/dates";
 import { formatLocalTime } from "@/lib/time/localtime";
@@ -144,7 +145,20 @@ function rowsFrom(candidates: Candidate[], state: StoreState): Row[] {
     // would vanish from the record entirely. That is exactly the silent drop
     // §18 forbids: an action moves its date into a field, a note keeps its
     // sentence whole.
-    title: BODY_KINDS.includes(c.kind) ? (c.fields.body ?? c.fields.title ?? "") : (c.fields.title ?? c.fields.body ?? ""),
+    /**
+     * LIFEOS-096. The name the record will carry, not the sentence that made it.
+     *
+     * Applied HERE and nowhere else, because this is the one place both commit
+     * paths read from: the review panel renders this value in an editable
+     * field, and the auto-finish path commits it. A cleanup applied at the
+     * write site instead would save a title the review panel never showed.
+     *
+     * The user's own edit still wins — `pairsFrom` prefers `r.title` over the
+     * candidate's, and this only changes what that field starts as.
+     */
+    title: BODY_KINDS.includes(c.kind)
+      ? (c.fields.body ?? c.fields.title ?? "")
+      : cleanCandidateTitle(c).title || (c.fields.body ?? ""),
     trigger: c.fields.trigger ?? "",
     response: c.fields.response ?? "",
     // LIFEOS-089 replaces the 060 association chip: `suggestContext`'s exact

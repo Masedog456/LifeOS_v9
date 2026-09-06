@@ -198,8 +198,19 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
   }
 
   // Next actions (LIFEOS-036): title, description, notes, tags, context, waitingOn.
+  //
+  // LIFEOS-096 §27 adds the SOURCE CAPTURE's words. Cleaner titles are the
+  // point of that sprint — "I'm waiting on Maria for the transcript" becomes
+  // "Transcript from Maria" — and a shorter title is a smaller haystack, so
+  // searching the phrase you actually typed would have stopped finding the
+  // record it produced. The capture is indexed separately too, but its route
+  // is Home, which cannot take you to the Action. Recall is not something to
+  // trade for prettier names.
+  const captureText = new Map<string, string>();
+  for (const c of state.captures ?? []) captureText.set(c.id, `${c.text} ${c.workingText ?? ""}`);
   for (const a of state.nextActions ?? []) {
-    const body = `${a.title} ${a.description} ${a.notes} ${a.tags.join(" ")} ${a.context ?? ""} ${a.waitingOn ?? ""}`;
+    const source = a.sourceCaptureId ? captureText.get(a.sourceCaptureId) ?? "" : "";
+    const body = `${a.title} ${a.description} ${a.notes} ${a.tags.join(" ")} ${a.context ?? ""} ${a.waitingOn ?? ""} ${source}`;
     add("action", a.id, a.title || "(untitled action)", { body, status: a.status, updatedAt: a.updatedAt, href: `/actions/${a.id}` });
   }
   for (const t of state.actionTemplates ?? []) {

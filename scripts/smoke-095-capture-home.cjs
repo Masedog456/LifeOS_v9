@@ -110,7 +110,11 @@ const shape = (page) => page.evaluate(() => ({
     // Case-insensitive: the label is upper-cased in CSS, and asserting the
     // rendered casing would be asserting a stylesheet.
     ["Email Marcus about the lease tomorrow", "action", /saved as action[\s\S]*Email Marcus about the lease/i],
-    ["I'm waiting on Maria for the transcript", "action", /saved as waiting[\s\S]*Waiting on Maria/i],
+    // LIFEOS-096 named this record "Transcript from Maria" and stopped
+    // repeating "Waiting on Maria" underneath it — the title carries the person
+    // now. What 095 asserts is unchanged: the row says it saved a wait, and it
+    // says who. Only the address of the second half moved.
+    ["I'm waiting on Maria for the transcript", "action", /saved as waiting[\s\S]*Maria/i],
   ]) {
     await say(page, text);
     const st = await shape(page);
