@@ -247,8 +247,16 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
       closed: !${FIND},
       focus: document.activeElement && document.activeElement.id,
     }))()`);
-    ok("5 §28, §29 Escape closes the sheet and returns focus to the opener",
-      r.closed && r.focus === "lifeos-100-opener", JSON.stringify(r));
+
+    // The other way out, which nothing else covers: click the backdrop.
+    await openSheet(page);
+    await page.mouse.click(20, 20);
+    await page.waitForTimeout(400);
+    const clickOut = await page.evaluate(`!${FIND}`);
+
+    ok("5 §28, §29 Escape and a backdrop click both close the sheet, and focus returns to the opener",
+      r.closed && r.focus === "lifeos-100-opener" && clickOut,
+      JSON.stringify({ ...r, clickOut }));
   }
 
   // 6. §26. Nothing survives the close — no draft, no new storage key.
@@ -428,7 +436,7 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
         h: Math.round(r.height),
         chromeAboveInput: Math.round(input.top - r.top),
         // §25 — Home's recent list, by its own testids, must not be here.
-        recent: d.querySelectorAll("[data-recent-capture], [data-capture-recent]").length,
+        recent: d.querySelectorAll("[data-recent-capture], [data-recent-captures]").length,
         // The nav and the page's own content stay outside it.
         nav: d.querySelectorAll("nav").length,
         headings: [...d.querySelectorAll("h1,h2,h3")].map((h) => h.tagName + ":" + h.textContent.trim()),
