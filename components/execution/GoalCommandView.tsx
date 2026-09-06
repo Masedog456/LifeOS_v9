@@ -31,6 +31,7 @@
  */
 
 import Link from "next/link";
+import { ROW_META } from "@/lib/design/tokens";
 import { formatDayKey } from "@/lib/reviews/dates";
 import type { TodayIndexes } from "@/lib/today/indexes";
 import type { DayKey } from "@/lib/reviews/dates";
@@ -47,7 +48,7 @@ import {
 } from "@/lib/execution/goal-context";
 
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
-const metaClass = "shrink-0 text-[11px] text-zinc-400";
+const metaClass = ROW_META;
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
 
 /** A recorded transition, stated as the transition (§16, §17). */
@@ -57,8 +58,8 @@ function Section({ title, id, show, note, children }: {
   if (!show) return null;
   return (
     <section data-goal-section={id} aria-labelledby={`goal-h-${id}`} className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-      <h2 id={`goal-h-${id}`} className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>
-      {note && <p className="mt-0.5 text-[11px] text-zinc-400">{note}</p>}
+      <h2 id={`goal-h-${id}`} className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
+      {note && <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{note}</p>}
       <div className="mt-2">{children}</div>
     </section>
   );
@@ -69,7 +70,7 @@ function Block({ label, show, children }: { label: string; show: boolean; childr
   if (!show) return null;
   return (
     <div data-goal-block={label.toLowerCase().replace(/[^a-z]+/g, "-")} className="mt-3 first:mt-0">
-      <p className="text-[11px] font-medium text-zinc-500">{label}</p>
+      <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
       <div className="mt-0.5">{children}</div>
     </div>
   );
@@ -79,7 +80,7 @@ function Block({ label, show, children }: { label: string; show: boolean; childr
 function RowNotes({ row }: { row: GoalRow }) {
   const parts = [row.attention, row.deferral].filter(Boolean);
   if (parts.length === 0) return null;
-  return <p data-goal-rownote className="mt-0.5 text-[11px] text-zinc-400">{parts.join(" ")}</p>;
+  return <p data-goal-rownote className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{parts.join(" ")}</p>;
 }
 
 /**
@@ -120,24 +121,24 @@ export default function GoalCommandView({
             carry none. Nothing compares one against the other. */}
         <div className="flex flex-wrap gap-x-6 gap-y-1">
           <p className="text-sm" data-goal-horizon-fact={ctx.horizon ?? ""}>
-            <span className="text-zinc-400">Horizon </span>
+            <span className="text-zinc-500 dark:text-zinc-400">Horizon </span>
             {ctx.horizon
               ? <span className="text-zinc-800 dark:text-zinc-100">{ctx.horizonLabel}</span>
-              : <span className="text-zinc-500">{NO_HORIZON}</span>}
+              : <span className="text-zinc-500 dark:text-zinc-400">{NO_HORIZON}</span>}
           </p>
           <p className="text-sm" data-goal-target={ctx.targetDate ?? ""}>
-            <span className="text-zinc-400">Target </span>
+            <span className="text-zinc-500 dark:text-zinc-400">Target </span>
             {ctx.targetDate
               // With the YEAR, unlike every other date on this page. A due date
               // is days away and a weekday is the useful part; a goal's target
               // is routinely months or years out, and "Sat, Jan 2" without a
               // year is ambiguous exactly where the ambiguity costs most.
               ? <span className="text-zinc-800 dark:text-zinc-100">{formatDayKey(ctx.targetDate, { year: "numeric", month: "short", day: "numeric" })}</span>
-              : <span className="text-zinc-500">{NO_TARGET}</span>}
+              : <span className="text-zinc-500 dark:text-zinc-400">{NO_TARGET}</span>}
           </p>
         </div>
         {ctx.horizon && (
-          <p className="mt-1 text-[11px] text-zinc-400">{GOAL_HORIZON_GUIDANCE[ctx.horizon]}</p>
+          <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">{GOAL_HORIZON_GUIDANCE[ctx.horizon]}</p>
         )}
 
         {/* What is carrying this, as counts. LIFEOS-078's alignment facts said
@@ -157,7 +158,7 @@ export default function GoalCommandView({
         {/* §13, §14. Said only when there is something to say, and it names the
             checks it made rather than pronouncing on the goal. */}
         {ctx.pathNote && (
-          <p data-goal-path={ctx.path} className="mt-2 text-sm text-zinc-500">
+          <p data-goal-path={ctx.path} className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
             {ctx.pathNote}
             {ctx.path === "none" && (
               <> <Link href={`/projects?new=1&goal=${ctx.goal.id}`} className="underline">Add a project</Link></>
@@ -179,7 +180,7 @@ export default function GoalCommandView({
                       : <span data-goal-project-percent={p.percent}>{p.percent}%</span>}
                   </span>
                 </div>
-                <p className="mt-0.5 text-[11px] text-zinc-400">
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                   {p.open} open · {p.blocked} blocked · {p.waiting} waiting · {p.completed} completed
                 </p>
               </li>
@@ -200,17 +201,17 @@ export default function GoalCommandView({
       >
         {ctx.next ? (
           <div data-goal-next className="rounded-xl border border-black/[.06] p-3 dark:border-white/[.08]">
-            <p className="text-[11px] font-medium text-zinc-500">Suggested next</p>
+            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Suggested next</p>
             <Link href={`/actions/${ctx.next.action.id}`} className="mt-0.5 block text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100">
               {ctx.next.action.title}
             </Link>
             {/* §15. The recommender's own reasons, verbatim. This page adds no
                 ranking of its own and no reason of its own. */}
-            <p className="mt-0.5 text-[11px] text-zinc-400">{ctx.next.reasons.map((r) => r.text).join(" · ")}</p>
+            <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{ctx.next.reasons.map((r) => r.text).join(" · ")}</p>
             {controls(ctx.next.action.id, ctx.next.action.title)}
           </div>
         ) : (
-          <p data-goal-nonext className="text-sm text-zinc-500">{ctx.nextNote}</p>
+          <p data-goal-nonext className="text-sm text-zinc-500 dark:text-zinc-400">{ctx.nextNote}</p>
         )}
 
         {/* §34. The recommendation is NOT repeated here — it is owned above. */}
@@ -249,7 +250,7 @@ export default function GoalCommandView({
                   <Link href={`/actions/${r.action.id}`} className={linkClass}>{r.action.title}</Link>
                 </div>
                 {r.blockedBy && (
-                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                  <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                     Blocked by{" "}
                     <Link href={`/actions/${r.blockedBy.id}`} className="underline underline-offset-2">
                       “{r.blockedBy.title}”
@@ -274,7 +275,7 @@ export default function GoalCommandView({
                     {followUpPhrase(r.followUpDate, today) ?? "Waiting"}
                   </span>
                 </div>
-                <p className="mt-0.5 text-[11px] text-zinc-400">
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                   Waiting on {r.waitingOn ?? "someone"}{r.since ? ` since ${formatDayKey(r.since)}` : ""}.
                 </p>
                 <RowNotes row={r} />
@@ -292,7 +293,7 @@ export default function GoalCommandView({
           {ctx.movement.length === 0 ? (
             // §29. Scoped exactly to recorded linked completions — never "no
             // progress", which claims something the records do not say.
-            <p data-goal-nomovement className="text-sm text-zinc-500">{NOTHING_MOVED(ctx.range.label)}</p>
+            <p data-goal-nomovement className="text-sm text-zinc-500 dark:text-zinc-400">{NOTHING_MOVED(ctx.range.label)}</p>
           ) : (
             <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
               {ctx.movement.map((c) => (
@@ -344,20 +345,20 @@ export default function GoalCommandView({
         {/* §9. Factual, dated from the history entry, and never a UUID. */}
         <Block label="Replacement" show={ctx.lineage.length > 1 || ctx.successorMissing}>
           {ctx.successorMissing ? (
-            <p data-goal-successor-missing className="text-sm text-zinc-500">
+            <p data-goal-successor-missing className="text-sm text-zinc-500 dark:text-zinc-400">
               Replaced by a goal that has since been deleted.
             </p>
           ) : (
             <ol className="flex flex-col gap-1" data-goal-lineage={ctx.lineage.length}>
               {ctx.lineage.map((g) => (
-                <li key={g.id} className={g.id === ctx.goal.id ? "text-sm font-medium" : "text-sm text-zinc-500"}>
+                <li key={g.id} className={g.id === ctx.goal.id ? "text-sm font-medium" : "text-sm text-zinc-500 dark:text-zinc-400"}>
                   {g.id === ctx.goal.id ? g.title : <Link href={`/goal/${g.id}`} className="hover:underline">{g.title}</Link>}
                 </li>
               ))}
             </ol>
           )}
           {ctx.replacedOn && (
-            <p data-goal-replaced-on={ctx.replacedOn} className="mt-1 text-[11px] text-zinc-400">
+            <p data-goal-replaced-on={ctx.replacedOn} className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
               Recorded {formatDayKey(ctx.replacedOn)}.
             </p>
           )}
@@ -376,7 +377,7 @@ export default function GoalCommandView({
                   </span>
                 </div>
                 {p.longerForms.length > 0 && (
-                  <p data-goal-person-ambiguous className="mt-0.5 text-[11px] text-zinc-400">
+                  <p data-goal-person-ambiguous className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                     Conqify also has “{p.longerForms[0]}”. It cannot tell whether that is the same {p.name}.
                   </p>
                 )}
@@ -391,7 +392,7 @@ export default function GoalCommandView({
         <Block label="From your Personal Code" show={ctx.rules.length > 0}>
           <ul className="flex flex-col gap-1">
             {ctx.rules.map((r) => (
-              <li key={r} data-goal-rule className="text-[11px] text-zinc-500">“{r}”</li>
+              <li key={r} data-goal-rule className="text-[11px] text-zinc-500 dark:text-zinc-400">“{r}”</li>
             ))}
           </ul>
         </Block>

@@ -74,7 +74,7 @@ export default function Home() {
         rendered on this page would make Home the dashboard §36 says not to
         build. A line of links is the whole handoff.
       */}
-      <nav aria-label="Elsewhere" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-zinc-500">
+      <nav aria-label="Elsewhere" className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-zinc-500 dark:text-zinc-400">
         <Link href="/today" className="underline-offset-4 hover:underline">Today →</Link>
         {decisions > 0 && (
           <Link href="/today/decisions" data-home-decisions className="underline-offset-4 hover:underline">
@@ -92,9 +92,9 @@ export default function Home() {
       */}
       {resurfaced && (
         <section data-resurfaced className="rounded-2xl border border-black/[.06] bg-black/[.02] p-5 dark:border-white/[.08] dark:bg-white/[.03]">
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">You once wrote</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">You once wrote</p>
           <p className="mt-2 text-lg leading-relaxed text-zinc-800 dark:text-zinc-200">{resurfaced.text}</p>
-          <Link href="/beliefs" className="mt-3 inline-block text-sm text-zinc-500 underline-offset-4 hover:underline">
+          <Link href="/beliefs" className="mt-3 inline-block text-sm text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:underline">
             Does this still feel true? →
           </Link>
         </section>

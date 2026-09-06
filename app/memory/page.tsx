@@ -46,14 +46,14 @@ export default function MemoryPage() {
   const shown = kind === "all" ? candidates : candidates.filter((c) => c.kind === kind);
 
   if (!mounted) {
-    return <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Recalling…</p></main>;
+    return <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500 dark:text-zinc-400">Recalling…</p></main>;
   }
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Memory</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
           What happened, and what is worth coming back to — both read straight from your own records. Nothing here is stored; every line is a way back to the thing it describes.
         </p>
       </header>
@@ -74,12 +74,12 @@ export default function MemoryPage() {
       </section>
 
       <h2 className="mb-2 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Worth revisiting</h2>
-      <p className="mb-4 text-[11px] text-zinc-400">
+      <p className="mb-4 text-[11px] text-zinc-500 dark:text-zinc-400">
         Meaningful ideas resurfaced by transparent rules. Every item says exactly why it appeared.
       </p>
 
       {candidates.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm text-zinc-500 dark:border-white/[.12]">
+        <div className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm text-zinc-500 dark:text-zinc-400 dark:border-white/[.12]">
           <p>Nothing to resurface yet. As your beliefs, dialogues, research, and decisions accumulate, Living Memory will bring the meaningful ones back to you.</p>
           <Link href="/" className="mt-2 inline-block rounded-full border border-black/[.12] px-4 py-2 text-sm hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">Capture a thought →</Link>
         </div>
@@ -107,7 +107,7 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`rounded-full px-2.5 py-1 text-[11px] transition-colors ${active ? "bg-black/[.08] font-medium dark:bg-white/[.12]" : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"}`}
+      className={`rounded-full px-2.5 py-1 text-[11px] transition-colors ${active ? "bg-black/[.08] font-medium dark:bg-white/[.12]" : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"}`}
     >
       {label}
     </button>
@@ -119,7 +119,7 @@ function MemoryCard({ candidate }: { candidate: MemoryCandidate }) {
     <li className="rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{KIND_LABEL[candidate.kind]}</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{KIND_LABEL[candidate.kind]}</span>
           <p className="mt-1 text-sm text-zinc-800 dark:text-zinc-100">{candidate.title}</p>
         </div>
         <Link href={candidate.href} className="shrink-0 rounded-full border border-black/[.12] px-3 py-1.5 text-[11px] hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">

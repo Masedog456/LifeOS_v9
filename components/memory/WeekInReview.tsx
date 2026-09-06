@@ -58,6 +58,7 @@
 
 import { useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
+import { ROW_META } from "@/lib/design/tokens";
 import { useStore } from "@/lib/mvpStore";
 import { formatDayKey, todayKey } from "@/lib/reviews/dates";
 import { formatLocalTime } from "@/lib/time/localtime";
@@ -78,7 +79,7 @@ import {
 const RANGES: WeekRangeKind[] = ["this_week", "last_week", "last_7_days"];
 
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
-const metaClass = "shrink-0 text-[11px] text-zinc-400";
+const metaClass = ROW_META;
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
 
 /** Where a record lives, so every line in the review is a way back to it. */
@@ -105,8 +106,8 @@ function Section({ title, id, show, note, children }: {
   if (!show) return null;
   return (
     <section data-week-section={id} className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{title}</h3>
-      {note && <p className="mt-0.5 text-[11px] text-zinc-400">{note}</p>}
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h3>
+      {note && <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{note}</p>}
       <div className="mt-2">{children}</div>
     </section>
   );
@@ -119,8 +120,8 @@ function Block({ label, show, note, children }: {
   if (!show) return null;
   return (
     <div data-week-block={label.toLowerCase().replace(/[^a-z]+/g, "-")} className="mt-2 first:mt-0">
-      <p className="text-[11px] font-medium text-zinc-500">{label}</p>
-      {note && <p className="text-[11px] text-zinc-400">{note}</p>}
+      <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
+      {note && <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{note}</p>}
       <div className="mt-0.5">{children}</div>
     </div>
   );
@@ -145,7 +146,7 @@ function DayGroups({ groups, render }: {
     <ul className="flex flex-col gap-2">
       {groups.map(([day, items]) => (
         <li key={day}>
-          <p className="text-[11px] font-medium text-zinc-500">{formatDayKey(day)}</p>
+          <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{formatDayKey(day)}</p>
           <ul className="mt-0.5 flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
             {items.map((e) => (
               <li key={`${e.kind}:${e.recordRef.id}:${e.day}`} data-week-item={e.kind} className={rowClass}>
@@ -182,7 +183,7 @@ export default function WeekInReview() {
   );
 
   if (!mounted || !review) {
-    return <p className="text-sm text-zinc-400">Looking back…</p>;
+    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Looking back…</p>;
   }
 
   const base = review.base;
@@ -262,7 +263,7 @@ export default function WeekInReview() {
               className={`rounded-full px-3 py-1 text-[11px] transition-colors ${
                 rangeKind === k
                   ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  : "border border-black/[.10] text-zinc-500 hover:text-zinc-900 dark:border-white/[.12] dark:hover:text-zinc-100"
+                  : "border border-black/[.10] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:border-white/[.12] dark:hover:text-zinc-100"
               }`}
             >
               {WEEK_RANGE_LABEL[k]}
@@ -271,17 +272,17 @@ export default function WeekInReview() {
         </div>
       </div>
 
-      <p className="text-[11px] text-zinc-400">{base.range.label}</p>
+      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{base.range.label}</p>
       {/* §28. A week still running is not a finished week, and saying so is the
           difference between a report and a premature verdict. */}
       {review.partial && (
-        <p data-week-partial className="text-[11px] text-zinc-500">{PARTIAL_WEEK_NOTE}</p>
+        <p data-week-partial className="text-[11px] text-zinc-500 dark:text-zinc-400">{PARTIAL_WEEK_NOTE}</p>
       )}
 
       {base.empty ? (
         <div data-week-empty className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm dark:border-white/[.12]">
           <p className="text-zinc-700 dark:text-zinc-200">{EMPTY_WEEK}</p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             That is a statement about the records, not about the week.
           </p>
         </div>
@@ -330,7 +331,7 @@ export default function WeekInReview() {
                       <Link href={`/goal/${g.goal.id}`} className="text-sm text-zinc-800 hover:underline dark:text-zinc-100">
                         {g.goal.title}
                       </Link>
-                      <p className="text-[11px] text-zinc-500">
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                         {[
                           g.completedThisWeek > 0
                             ? `${g.completedThisWeek} linked item${g.completedThisWeek === 1 ? "" : "s"} completed`
@@ -391,7 +392,7 @@ export default function WeekInReview() {
                         <span className={metaClass}>{p.count} times</span>
                       </div>
                       {undatedNote(p.action.id) && (
-                        <p className="mt-0.5 text-[11px] text-zinc-400">{undatedNote(p.action.id)}</p>
+                        <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{undatedNote(p.action.id)}</p>
                       )}
                     </li>
                   ))}
@@ -436,7 +437,7 @@ export default function WeekInReview() {
                           enough to truncate the title to "Request re…" at 390px
                           — the row's most important word, lost to its least. */}
                       {(deferralCount.has(o.action.id) || undatedNote(o.action.id)) && (
-                        <p data-week-deferral-count className="mt-0.5 text-[11px] text-zinc-400">
+                        <p data-week-deferral-count className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                           {[deferralCount.has(o.action.id) ? `Deferred ${deferralCount.get(o.action.id)} times.` : "",
                             undatedNote(o.action.id)].filter(Boolean).join(" ")}
                         </p>
@@ -492,7 +493,7 @@ export default function WeekInReview() {
                           undatedNote(c.entity.id),
                         ].filter(Boolean);
                         return extra.length > 0 ? (
-                          <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-400">{extra.join(" ")}</p>
+                          <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{extra.join(" ")}</p>
                         ) : null;
                       })()}
                       {/* LIFEOS-071/072. The only way an item reaches next week
@@ -545,7 +546,7 @@ export default function WeekInReview() {
 
               {/* §23. One arithmetic line, said only when it is literally true. */}
               {review.leftBehind && (
-                <p data-week-left-behind className="mt-2 text-[11px] text-zinc-500">{review.leftBehind}</p>
+                <p data-week-left-behind className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{review.leftBehind}</p>
               )}
             </Section>
           </div>
@@ -553,9 +554,9 @@ export default function WeekInReview() {
       )}
 
       {base.limitations.map((l) => (
-        <p key={l} data-week-limitation className="px-1 text-[11px] text-zinc-400">{l}</p>
+        <p key={l} data-week-limitation className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400">{l}</p>
       ))}
-      <p data-week-coverage className="px-1 text-[11px] text-zinc-400">{base.coverage}</p>
+      <p data-week-coverage className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400">{base.coverage}</p>
     </div>
   );
 }

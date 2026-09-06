@@ -30,7 +30,7 @@ export default function ProjectActions({ projectId }: { projectId: string }) {
     <section className="mt-8" aria-label="Project actions" data-project-actions>
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-tight">Next actions</h2>
-        <button type="button" onClick={() => setCreating((v) => !v)} className="text-[11px] text-sky-600 dark:text-sky-400">{creating ? "Close" : "+ Add action"}</button>
+        <button type="button" onClick={() => setCreating((v) => !v)} className="text-[11px] text-sky-700 dark:text-sky-400">{creating ? "Close" : "+ Add action"}</button>
       </div>
 
       {creating && (
@@ -40,15 +40,15 @@ export default function ProjectActions({ projectId }: { projectId: string }) {
       )}
 
       <div className="mb-3 flex flex-wrap gap-1.5 text-[11px]">
-        {chips.map((c) => <span key={c.label} className="rounded-full border border-black/[.10] px-2 py-0.5 text-zinc-500 dark:border-white/[.12]">{c.label}: {c.n}</span>)}
+        {chips.map((c) => <span key={c.label} className="rounded-full border border-black/[.10] px-2 py-0.5 text-zinc-500 dark:text-zinc-400 dark:border-white/[.12]">{c.label}: {c.n}</span>)}
       </div>
 
-      {actions.length === 0 ? <p className="text-xs text-zinc-400">No actions for this project yet.</p> : (
+      {actions.length === 0 ? <p className="text-xs text-zinc-500 dark:text-zinc-400">No actions for this project yet.</p> : (
         <ul className="flex flex-col gap-1">
           {actions.slice(0, 12).map((a) => (
             <li key={a.id} className="flex items-center justify-between gap-2 text-sm">
-              <Link href={`/actions/${a.id}`} className={`truncate hover:underline ${a.status === "completed" || a.status === "cancelled" ? "text-zinc-400 line-through" : "text-zinc-700 dark:text-zinc-200"}`}>{a.title || "(untitled action)"}</Link>
-              <span className="shrink-0 text-[10px] text-zinc-400">{STATUS_LABEL[a.status]}{a.milestoneId ? " · milestone" : ""}</span>
+              <Link href={`/actions/${a.id}`} className={`truncate hover:underline ${a.status === "completed" || a.status === "cancelled" ? "text-zinc-500 dark:text-zinc-400 line-through" : "text-zinc-700 dark:text-zinc-200"}`}>{a.title || "(untitled action)"}</Link>
+              <span className="shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{STATUS_LABEL[a.status]}{a.milestoneId ? " · milestone" : ""}</span>
             </li>
           ))}
         </ul>

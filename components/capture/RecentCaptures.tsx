@@ -97,7 +97,7 @@ export default function RecentCaptures({ exclude }: {
 
   return (
     <section data-recent-captures aria-label="Recent captures">
-      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Recently</h2>
+      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recently</h2>
       <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
         {rows.map((r) => (
           <li key={r.id} data-recent-capture={r.id} className="py-2">
@@ -109,7 +109,7 @@ export default function RecentCaptures({ exclude }: {
             {r.unfiled ? (
               // Said plainly rather than dressed as a status. It is not a
               // failure and it is not a queue item to feel behind on.
-              <p className="mt-0.5 text-[11px] text-zinc-400">
+              <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                 Not filed yet ·{" "}
                 <Link href="/process" className="underline underline-offset-2">Open the inbox</Link>
               </p>
@@ -118,7 +118,7 @@ export default function RecentCaptures({ exclude }: {
                  `convertCapture`'s targets are domains Home does not render.
                  It says the one thing it can verify and offers no link it
                  cannot honour. */
-              <p className="mt-0.5 text-[11px] text-zinc-400">Filed</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">Filed</p>
             ) : (
               <ul className="mt-0.5 flex flex-col gap-1">
                 {r.outcomes.map((o) => {
@@ -126,12 +126,12 @@ export default function RecentCaptures({ exclude }: {
                   const correctable = correctableOutcome(state, { kind: o.kind, id: o.id } as Parameters<typeof correctableOutcome>[1],
                     { createdByCapture: createdBy(state, { kind: o.kind, id: o.id } as Parameters<typeof createdBy>[1], r.id) });
                   return (
-                    <li key={`${o.kind}:${o.id}`} data-recent-outcome={o.kind} className="text-[11px] text-zinc-500">
+                    <li key={`${o.kind}:${o.id}`} data-recent-outcome={o.kind} className="text-[11px] text-zinc-500 dark:text-zinc-400">
                       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span>
-                          <span className="text-zinc-400">{o.label} · </span>
+                          <span className="text-zinc-500 dark:text-zinc-400">{o.label} · </span>
                           <Link href={o.href} className="underline-offset-2 hover:underline">{o.title}</Link>
-                          {o.detail && <span className="text-zinc-400"> · {o.detail}</span>}
+                          {o.detail && <span className="text-zinc-500 dark:text-zinc-400"> · {o.detail}</span>}
                         </span>
                         {/*
                           §5. Two words, not ten field buttons. Edit opens the
@@ -142,14 +142,14 @@ export default function RecentCaptures({ exclude }: {
                         {correctable && (
                           <button type="button" data-recent-edit={o.id}
                             onClick={() => setEditing(editing === key ? null : key)}
-                            className="text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
+                            className="text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
                             {editing === key ? "Close" : "Edit"}
                           </button>
                         )}
                         {correctable?.createdByCapture && (
                           <button type="button" data-recent-undo={o.id}
                             onClick={() => { setEditing(null); undoOne(r.id, o.kind, o.id, o.title); }}
-                            className="text-zinc-400 underline underline-offset-2 hover:text-rose-500">
+                            className="text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-rose-500">
                             Undo
                           </button>
                         )}

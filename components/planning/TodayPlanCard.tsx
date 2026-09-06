@@ -29,17 +29,17 @@ export default function TodayPlanCard() {
     <section aria-label="Plan" className="rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
       <header className="mb-2 flex items-center justify-between">
         <h2 className="text-sm font-semibold">Plan</h2>
-        <span className="text-[11px] text-zinc-400">{plan.items.length} in today&apos;s plan</span>
+        <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{plan.items.length} in today&apos;s plan</span>
       </header>
       <div className="flex flex-col gap-2 text-sm">
-        {focus && <p className="text-zinc-600 dark:text-zinc-300">Focusing on <Link href="/focus" className="font-medium text-sky-600 hover:underline dark:text-sky-400">{focus.title}</Link></p>}
+        {focus && <p className="text-zinc-600 dark:text-zinc-300">Focusing on <Link href="/focus" className="font-medium text-sky-700 hover:underline dark:text-sky-400">{focus.title}</Link></p>}
         {inProgress && <p className="truncate text-zinc-600 dark:text-zinc-300">In progress · <Link href={`/actions/${inProgress.id}`} className="hover:underline">{inProgress.title}</Link></p>}
         {plan.items.slice(0, 3).map((item) => { const r = entityRef(ctx, item.ref.kind, item.ref.id); return <p key={`${item.ref.kind}:${item.ref.id}`} className="truncate text-zinc-700 dark:text-zinc-200">· <Link href={r.href} className="hover:underline">{r.title}</Link></p>; })}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {!focus && <Link href="/focus" className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Start focus</Link>}
         <Link href="/plan" className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Open planning board</Link>
-        {inboxCount > 0 && <Link href="/plan/inbox" className="text-[11px] text-zinc-500 hover:underline">{inboxCount} to plan</Link>}
+        {inboxCount > 0 && <Link href="/plan/inbox" className="text-[11px] text-zinc-500 dark:text-zinc-400 hover:underline">{inboxCount} to plan</Link>}
       </div>
     </section>
   );

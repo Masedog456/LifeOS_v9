@@ -91,7 +91,7 @@ export default function TodayPage() {
   const pinned = mounted ? getPinned(state) : [];
 
   if (!mounted) {
-    return <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Loading your day…</p></main>;
+    return <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500 dark:text-zinc-400">Loading your day…</p></main>;
   }
 
   const showOnboardingInvite = !isOnboardingDone();
@@ -112,12 +112,12 @@ export default function TodayPage() {
       <header className="mb-7">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
             <h1 className="mt-0.5 text-[1.75rem] font-semibold leading-tight tracking-tight">{greeting()}.</h1>
           </div>
           <button type="button" onClick={openQuickCapture} className="shrink-0 rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900">＋ Quick capture</button>
         </div>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+        <p className="mt-2 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
           {/* LIFEOS-083 §3. Three lines of instructions, every day, above the
               day itself. The product should orient, not explain itself — the
               ⌘K hint is worth keeping and the rest was chrome. */}
@@ -178,7 +178,7 @@ export default function TodayPage() {
               parts of the day stay one calm click away, so Today opens quiet. */}
           {hasSecondary && (
           <details className="lo-details flex flex-col gap-4">
-            <summary className="flex items-center gap-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+            <summary className="flex items-center gap-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
               <span aria-hidden className="lo-caret text-[9px]">▸</span> More from your notebook
             </summary>
             <div className="mt-2 flex flex-col gap-4">
@@ -208,7 +208,7 @@ export default function TodayPage() {
           <Card title="Continue thinking" href="/memory" linkLabel="Living Memory →" show={view.continueThinking.length > 0}>
             {view.continueThinking.map((c) => (
               <Link key={c.id} href={c.href} className="block py-0.5 text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">
-                {snip(c.title, 54)} <span className="text-xs text-zinc-400">· {c.reason}</span>
+                {snip(c.title, 54)} <span className="text-xs text-zinc-500 dark:text-zinc-400">· {c.reason}</span>
               </Link>
             ))}
           </Card>
@@ -221,16 +221,16 @@ export default function TodayPage() {
           <Card title="Continue" href="/dialogue" linkLabel="Explore an idea →" show={view.openDialogues.length > 0}>
             {view.openDialogues.slice(0, 3).map((d) => (
               <Link key={d.id} href={`/dialogue/${d.id}`} className="block py-0.5 text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">
-                {snip(d.title, 56)} <span className="text-xs text-zinc-400">· {d.status} · {ago(d.updatedAt)}</span>
+                {snip(d.title, 56)} <span className="text-xs text-zinc-500 dark:text-zinc-400">· {d.status} · {ago(d.updatedAt)}</span>
               </Link>
             ))}
-            {view.openTensions.length > 0 && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{view.openTensions.length} unresolved tension{view.openTensions.length === 1 ? "" : "s"} across your explorations.</p>}
+            {view.openTensions.length > 0 && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">{view.openTensions.length} unresolved tension{view.openTensions.length === 1 ? "" : "s"} across your explorations.</p>}
           </Card>
 
           <Card title="Active research" href="/research" linkLabel="Research →" show={view.activeResearch.length > 0}>
             {view.activeResearch.slice(0, 3).map((r) => (
               <Link key={r.id} href={`/research/${r.id}`} className="block py-0.5 text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">
-                {snip(r.title, 56)} <span className="text-xs text-zinc-400">· {ago(r.updatedAt)}</span>
+                {snip(r.title, 56)} <span className="text-xs text-zinc-500 dark:text-zinc-400">· {ago(r.updatedAt)}</span>
               </Link>
             ))}
           </Card>
@@ -238,7 +238,7 @@ export default function TodayPage() {
           <Card title="Open decisions" href="/decisions" linkLabel="Decisions →" show={view.openDecisions.length > 0}>
             {view.openDecisions.slice(0, 3).map((d) => (
               <Link key={d.id} href={`/decisions/${d.id}`} className="block py-0.5 text-sm text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-200">
-                {snip(d.title, 56)} <span className="text-xs text-zinc-400">· {d.status}</span>
+                {snip(d.title, 56)} <span className="text-xs text-zinc-500 dark:text-zinc-400">· {d.status}</span>
               </Link>
             ))}
           </Card>
@@ -246,19 +246,19 @@ export default function TodayPage() {
           {/* Review + practice */}
           <Card title="Due for review" href="/review" linkLabel="Reviews →" show={view.staleBeliefs.length > 0}>
             <p className="text-sm text-zinc-700 dark:text-zinc-200">{view.staleBeliefs.length} belief{view.staleBeliefs.length === 1 ? "" : "s"} unexamined for 90+ days.</p>
-            {view.staleBeliefs.slice(0, 2).map((b) => <p key={b.id} className="mt-1 text-xs text-zinc-500">• {snip(b.text, 64)}</p>)}
+            {view.staleBeliefs.slice(0, 2).map((b) => <p key={b.id} className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">• {snip(b.text, 64)}</p>)}
           </Card>
 
           <Card title="Practice" href="/formation" linkLabel="Reflect →" show={view.duePractices.length > 0}>
             {view.duePractices.slice(0, 3).map((p) => (
-              <p key={p.id} className="py-0.5 text-sm text-zinc-700 dark:text-zinc-200">{snip(p.userWording?.trim() || p.title, 56)} <span className="text-xs text-zinc-400">· {p.cadence}</span></p>
+              <p key={p.id} className="py-0.5 text-sm text-zinc-700 dark:text-zinc-200">{snip(p.userWording?.trim() || p.title, 56)} <span className="text-xs text-zinc-500 dark:text-zinc-400">· {p.cadence}</span></p>
             ))}
           </Card>
 
           {/* What changed */}
           <Card title="Recent captures" href="/" linkLabel="Capture →" show={view.recentCaptures.length > 0}>
             {view.recentCaptures.map((c) => (
-              <p key={c.id} className="py-0.5 text-sm text-zinc-700 dark:text-zinc-200">{snip(c.text, 64)} <span className="text-xs text-zinc-400">· {ago(c.createdAt)}</span></p>
+              <p key={c.id} className="py-0.5 text-sm text-zinc-700 dark:text-zinc-200">{snip(c.text, 64)} <span className="text-xs text-zinc-500 dark:text-zinc-400">· {ago(c.createdAt)}</span></p>
             ))}
           </Card>
 
@@ -282,7 +282,7 @@ export default function TodayPage() {
           <Card title="Recently completed" href="/health" linkLabel="System Health →" show={view.completed.length > 0}>
             {view.completed.map((c, i) => (
               <Link key={i} href={c.href} className="block py-0.5 text-sm text-zinc-600 underline-offset-4 hover:underline dark:text-zinc-300">
-                ✓ {c.label} <span className="text-xs text-zinc-400">· {ago(c.at)}</span>
+                ✓ {c.label} <span className="text-xs text-zinc-500 dark:text-zinc-400">· {ago(c.at)}</span>
               </Link>
             ))}
           </Card>
@@ -316,8 +316,8 @@ function Card({ title, href, linkLabel, show, children }: { title: string; href:
   return (
     <section data-card className="lo-card rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>
-        <Link href={href} className="text-[11px] text-zinc-400 underline-offset-4 hover:text-zinc-600 hover:underline dark:hover:text-zinc-300">{linkLabel}</Link>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
+        <Link href={href} className="text-[11px] text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:text-zinc-600 hover:underline dark:hover:text-zinc-300">{linkLabel}</Link>
       </div>
       {children}
     </section>

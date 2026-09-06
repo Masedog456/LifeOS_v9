@@ -47,10 +47,10 @@ const STATUS_LABEL: Record<MemoryAnswerStatus, string> = {
 };
 
 const STATUS_TONE: Record<MemoryAnswerStatus, string> = {
-  ANSWERED: "text-zinc-500",
+  ANSWERED: "text-zinc-500 dark:text-zinc-400",
   PARTIALLY_ANSWERED: "text-amber-600 dark:text-amber-500",
-  NO_RECORDED_EVIDENCE: "text-zinc-400",
-  NEEDS_CHOICE: "text-zinc-500",
+  NO_RECORDED_EVIDENCE: "text-zinc-500 dark:text-zinc-400",
+  NEEDS_CHOICE: "text-zinc-500 dark:text-zinc-400",
 };
 
 export default function AskMemory() {
@@ -102,7 +102,7 @@ export default function AskMemory() {
     <section data-memory-ask className="flex flex-col gap-3">
       <div>
         <h2 className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Ask your memory</h2>
-        <p className="mt-0.5 text-[11px] text-zinc-400">
+        <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
           Answered only from what you recorded. Nothing you ask here is saved.
         </p>
       </div>
@@ -117,7 +117,7 @@ export default function AskMemory() {
           onChange={(e) => setDraft(e.target.value)}
           placeholder="What did I finish last week?"
           aria-label="Ask a question about what you recorded"
-          className="min-w-0 flex-1 rounded-full border border-black/[.12] bg-transparent px-4 py-2 text-sm outline-none placeholder:text-zinc-400 focus:border-black/[.25] dark:border-white/[.15] dark:focus:border-white/[.30]"
+          className="min-w-0 flex-1 rounded-full border border-black/[.12] bg-transparent px-4 py-2 text-sm outline-none placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:border-black/[.25] dark:border-white/[.15] dark:focus:border-white/[.30]"
         />
         <button
           type="submit"
@@ -136,7 +136,7 @@ export default function AskMemory() {
               key={q}
               type="button"
               onClick={() => submit(q)}
-              className="rounded-full border border-black/[.10] px-2.5 py-1 text-[11px] text-zinc-500 hover:bg-black/[.04] dark:border-white/[.12] dark:hover:bg-white/[.06]"
+              className="rounded-full border border-black/[.10] px-2.5 py-1 text-[11px] text-zinc-500 dark:text-zinc-400 hover:bg-black/[.04] dark:border-white/[.12] dark:hover:bg-white/[.06]"
             >
               {q}
             </button>
@@ -175,11 +175,11 @@ export default function AskMemory() {
                     ) : (
                       <span className="min-w-0 flex-1 text-sm text-zinc-800 dark:text-zinc-100">{item.text}</span>
                     )}
-                    {item.when && <span className="shrink-0 text-[11px] text-zinc-400">{item.when}</span>}
+                    {item.when && <span className="shrink-0 text-[11px] text-zinc-500 dark:text-zinc-400">{item.when}</span>}
                   </div>
                   {/* §6. The attribution is part of the answer, not decoration —
                       it is what separates "you said" from "a model wrote". */}
-                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                  <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                     <span data-memory-attribution>{item.attribution}</span>
                     {item.detail ? ` · ${item.detail}` : ""}
                   </p>
@@ -208,10 +208,10 @@ export default function AskMemory() {
                     className="min-w-0 flex-1 rounded-xl border border-black/[.10] px-3 py-2 text-left text-sm hover:bg-black/[.04] dark:border-white/[.12] dark:hover:bg-white/[.06]"
                   >
                     <span className="text-zinc-800 dark:text-zinc-100">{c.title}</span>
-                    <span className="ml-2 text-[11px] text-zinc-400">{c.kindLabel}</span>
+                    <span className="ml-2 text-[11px] text-zinc-500 dark:text-zinc-400">{c.kindLabel}</span>
                   </button>
                   {c.href && (
-                    <Link href={c.href} className="shrink-0 text-[11px] text-zinc-500 underline underline-offset-2">
+                    <Link href={c.href} className="shrink-0 text-[11px] text-zinc-500 dark:text-zinc-400 underline underline-offset-2">
                       Open
                     </Link>
                   )}
@@ -221,7 +221,7 @@ export default function AskMemory() {
           )}
 
           {answer.limitation && (
-            <p data-memory-limitation className="mt-3 border-t border-black/[.05] pt-2 text-[11px] leading-relaxed text-zinc-400 dark:border-white/[.06]">
+            <p data-memory-limitation className="mt-3 border-t border-black/[.05] pt-2 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400 dark:border-white/[.06]">
               {answer.limitation}
             </p>
           )}

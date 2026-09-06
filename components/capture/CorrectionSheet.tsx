@@ -27,7 +27,7 @@
  * interpretation wrong.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   getSnapshot, updateAction, setActionDueDate, setActionDueTime,
@@ -64,6 +64,27 @@ export default function CorrectionSheet({
   onClose: () => void;
 }) {
   const state = useStore();
+  /**
+   * LIFEOS-099 §14. A stable id so the toggle can point at this panel with
+   * `aria-controls`, and a ref so Escape can be heard from anywhere inside it.
+   * Derived from the record, not generated, so it survives a re-render.
+   */
+  const sheetId = `correction-${outcome.id}`;
+  const sheetRef = useRef<HTMLElement | null>(null);
+  /**
+   * Focus enters the panel once, on open.
+   *
+   * Not a focus trap — this is an inline disclosure a person can tab past, and
+   * trapping them in it would be a worse bug than the one being fixed. It is
+   * the ordinary courtesy of putting the caret where the person just asked to
+   * work, and it is what makes Escape reachable without a mouse.
+   */
+  useEffect(() => {
+    const el = sheetRef.current;
+    if (!el) return;
+    const first = el.querySelector<HTMLElement>("input, textarea, select, button");
+    first?.focus();
+  }, []);
   const [draft, setDraft] = useState<Record<string, string>>(
     () => Object.fromEntries(outcome.fields.map((f) => [f.field, f.value ?? ""])),
   );
@@ -169,19 +190,45 @@ export default function CorrectionSheet({
   }
 
   return (
-    <div data-correction-sheet={outcome.id}
+    /**
+     * LIFEOS-099 §14. A named region, not a dialog.
+     *
+     * The audit first measured this against a modal's contract — focus trapped
+     * inside, focus moved in on open — and reported two failures that were the
+     * wrong question. This is an inline disclosure: it renders in the flow under
+     * the toggle that opened it, there is no overlay, and the toggle itself
+     * relabels to "Close". Trapping focus in a panel a person can simply tab
+     * past would be worse than leaving it alone, and §14's own "reuse existing
+     * primitives, do not build a custom focus manager" points the same way.
+     *
+     * What was genuinely missing is what a disclosure owes a screen reader: a
+     * name, an id its toggle can point at, and a way out by keyboard.
+     */
+    <section
+      data-correction-sheet={outcome.id}
+      id={sheetId}
+      aria-labelledby={`${sheetId}-heading`}
+      ref={sheetRef}
+      onKeyDown={(e) => {
+        // §14. Escape closes and returns focus to the control that opened it.
+        // `onClose` alone would leave focus on a removed node, which drops the
+        // keyboard user at the top of the document.
+        if (e.key !== "Escape") return;
+        e.stopPropagation();
+        onClose();
+      }}
       className="mt-2 rounded-2xl border border-black/[.10] bg-white/60 p-3 dark:border-white/[.14] dark:bg-white/[.04]">
-      <h3 className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{CORRECTION_HEADING}</h3>
+      <h3 id={`${sheetId}-heading`} className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{CORRECTION_HEADING}</h3>
 
       {/* §4. The sentence, above the record, never editable. */}
-      <p className="mt-1 text-[11px] text-zinc-500" data-correction-source>
-        <span className="text-zinc-400">{SOURCE_LEAD}: </span>&ldquo;{source}&rdquo;
+      <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400" data-correction-source>
+        <span className="text-zinc-500 dark:text-zinc-400">{SOURCE_LEAD}: </span>&ldquo;{source}&rdquo;
       </p>
 
       <div className="mt-2.5 flex flex-col gap-2">
         {has("title") && (
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{shown("title")!.label}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{shown("title")!.label}</span>
             <input value={draft.title ?? ""} onChange={(e) => set("title", e.target.value)}
               data-correction-field="title" aria-label="Title" className={input} />
           </label>
@@ -189,7 +236,7 @@ export default function CorrectionSheet({
 
         {has("waitingOn") && (
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Waiting on</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Waiting on</span>
             <input value={draft.waitingOn ?? ""} onChange={(e) => set("waitingOn", e.target.value)}
               data-correction-field="waitingOn" aria-label="Waiting on" className={input} />
           </label>
@@ -198,14 +245,14 @@ export default function CorrectionSheet({
         <div className="flex flex-wrap gap-2">
           {has("dueDate") && (
             <label className="flex min-w-[9rem] flex-1 flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{shown("dueDate")!.label}</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{shown("dueDate")!.label}</span>
               <input type="date" value={draft.dueDate ?? ""} onChange={(e) => set("dueDate", e.target.value)}
                 data-correction-field="dueDate" aria-label="Date" className={input} />
             </label>
           )}
           {has("dueTime") && (
             <label className="flex min-w-[7rem] flex-1 flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Time</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Time</span>
               <input type="time" value={draft.dueTime ?? ""} onChange={(e) => set("dueTime", e.target.value)}
                 data-correction-field="dueTime" aria-label="Time" className={input} />
             </label>
@@ -220,7 +267,7 @@ export default function CorrectionSheet({
         <div className="flex flex-wrap gap-2">
           {has("project") && (
             <label className="flex min-w-[11rem] flex-1 flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Project</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Project</span>
               <select value={draft.project ?? ""} onChange={(e) => set("project", e.target.value)}
                 data-correction-field="project" aria-label="Project" className={input}>
                 <option value="">No Project</option>
@@ -230,7 +277,7 @@ export default function CorrectionSheet({
           )}
           {has("goal") && (
             <label className="flex min-w-[11rem] flex-1 flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Goal</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Goal</span>
               <select value={draft.goal ?? ""} onChange={(e) => set("goal", e.target.value)}
                 data-correction-field="goal" aria-label="Goal" className={input}>
                 <option value="">No Goal</option>
@@ -254,13 +301,13 @@ export default function CorrectionSheet({
         // louder than the controls, on a sheet whose job is the controls. They
         // are one click away and still say the whole thing when opened.
         <details className="mt-2.5">
-          <summary className="cursor-pointer list-none text-[11px] text-zinc-400 underline underline-offset-2">
+          <summary className="cursor-pointer list-none text-[11px] text-zinc-500 dark:text-zinc-400 underline underline-offset-2">
             What can&rsquo;t be fixed here
           </summary>
           <ul className="mt-1 flex flex-col gap-1">
             {outcome.unsupported.map((u) => (
-              <li key={u.id} data-correction-unsupported={u.id} className="text-[11px] text-zinc-400">
-                <span className="text-zinc-500">{u.label}:</span> {u.reason}
+              <li key={u.id} data-correction-unsupported={u.id} className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <span className="text-zinc-500 dark:text-zinc-400">{u.label}:</span> {u.reason}
               </li>
             ))}
           </ul>
@@ -274,11 +321,11 @@ export default function CorrectionSheet({
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button type="button" data-correction-save onClick={save} className={primary}>Save</button>
         <button type="button" data-correction-cancel onClick={onClose} className={btn}>Cancel</button>
-        <Link href={hrefFor(outcome)} className="text-[11px] text-zinc-400 underline underline-offset-2">
+        <Link href={hrefFor(outcome)} className="text-[11px] text-zinc-500 dark:text-zinc-400 underline underline-offset-2">
           Open the record →
         </Link>
       </div>
-    </div>
+    </section>
   );
 }
 
