@@ -428,15 +428,56 @@ export function runGoalContextSelfTests(): SelfTestReport {
     const keys = c.movement.map((m) => `${m.kind}:${m.entity.id}`);
     ok("88.66 §34 Recently holds one row per record and kind",
       new Set(keys).size === keys.length, keys.join());
-    // a16 was deferred TWICE and then completed, so it owns no live row and
-    // really does reach Recently with two same-kind events. Without the dedupe
-    // it is two identical "Deferred Chase the surveyor" rows.
-    ok("88.66a the fixture really does produce a repeated kind for one record",
+    /**
+     * LIFEOS-098 §3. Recently is labelled "Moved forward", and it filtered by
+     * OWNERSHIP rather than by kind — so a16's deferrals, and in the browser run
+     * a cancellation, appeared under it. The old `CHANGE_WORD` table had no word
+     * for `cancelled` and printed "Changed", which is how it survived review;
+     * the count two lines below already filtered on `completed`, so the list and
+     * the count on one page disagreed about the same window.
+     */
+    ok("88.66a the engine really does record the deferrals this used to show",
       buildExecutiveChanges(s, resolveRange("last_7_days", { today: TODAY }))
         .filter((x) => x.entity.id === "a16" && x.kind === "deferred").length === 2);
-    ok("88.66b …and Recently collapses them to one",
-      c.movement.filter((m) => m.entity.id === "a16" && m.kind === "deferred").length === 1,
-      c.movement.filter((m) => m.entity.id === "a16").map((m) => m.kind).join());
+    ok("88.66b §16 …and a deferral is not 'moved forward', so none reach Recently",
+      !c.movement.some((m) => m.kind === "deferred"),
+      c.movement.map((m) => `${m.kind}:${m.entity.id}`).join());
+    ok("88.66c §16 …nor is a cancellation",
+      !c.movement.some((m) => m.kind === "cancelled"), c.movement.map((m) => m.kind).join());
+    ok("88.66d §16 …and every row that IS there means work finished",
+      c.movement.every((m) => m.kind === "completed" || m.kind === "recurring_completed"),
+      c.movement.map((m) => m.kind).join());
+    /**
+     * The dedupe still has to work, and after the filter above `movement` can no
+     * longer exercise it — a real consequence worth stating rather than a
+     * fixture to contort around. `completed` cannot repeat for one record (the
+     * timeline derives it from `completedAt`), and a recurring commitment, which
+     * genuinely can be kept twice in a window, is by definition still live and so
+     * owns a row §34 keeps out of Recently. `direction` runs through the same
+     * `dedupe`, and a goal really can record two horizon changes in one window.
+     */
+    {
+      const twice = {
+        ...s,
+        goals: (s.goals ?? []).map((g) => (g.id !== "g1" ? g : {
+          ...g,
+          // Both inside the seven-day window — the fixture's own `h2` is thirty
+          // days back, so one added entry would not have produced a repeat.
+          history: [...(g.history ?? []),
+            { id: "h2b", at: A(-4, 9), kind: "horizon", fromHorizon: "medium", toHorizon: "long" },
+            { id: "h2c", at: A(-2, 9), kind: "horizon", fromHorizon: "long", toHorizon: "medium" }],
+        })),
+      } as StoreState;
+      ok("88.66e the fixture really does produce a repeated kind for one record",
+        buildExecutiveChanges(twice, resolveRange("last_7_days", { today: TODAY }))
+          .filter((x) => x.entity.id === "g1" && x.kind === "goal_horizon_changed").length === 2,
+        buildExecutiveChanges(twice, resolveRange("last_7_days", { today: TODAY }))
+          .filter((x) => x.entity.id === "g1").map((x) => x.kind).join());
+      const dup = ctx("g1", twice);
+      ok("88.66f §34 …and the page collapses them to one row",
+        dup.direction.filter((d) => d.kind === "goal_horizon_changed").length === 1,
+        dup.direction.map((d) => d.kind).join());
+    }
     ok("88.67 §18 …and is capped", c.movement.length <= MAX_RECENT, String(c.movement.length));
 
     // §29. The empty case is scoped to what was actually checked.

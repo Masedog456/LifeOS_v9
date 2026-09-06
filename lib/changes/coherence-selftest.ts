@@ -104,6 +104,16 @@ function fixture(): StoreState {
     act({ id: "a-recur", title: "Water the plants", dueDate: T,
       recurrence: { frequency: "weekly", interval: 1, weekdays: [3] } }),
     act({ id: "a-goal", title: "Draft the personal statement", goalId: "g1", dueDate: "2026-09-11" }),
+    /**
+     * Due on the last day of LAST week, which is the only shape that can tell
+     * `relative: true` from `relative: false` in a past-range review.
+     *
+     * Found by mutation: flipping `buildRangeReview` to pass `relative: true`
+     * unconditionally changed nothing, because no record in the fixture was due
+     * on a past range's end day — so the §4 rule that a past review must not say
+     * "today" was asserted over a set that could never contain the word.
+     */
+    act({ id: "a-lastweek", title: "Return the library book", projectId: "p1", dueDate: "2026-09-06" }),
     act({ id: "a-done", title: "Book the venue", projectId: "p1", status: "completed",
       completedAt: D(T, 11),
       history: [hist("created", D("2026-09-01")),
@@ -391,7 +401,14 @@ export function runOutcomeCoherenceSelfTests() {
       detailIn(thisWeek, "a-today"), dueLabel(find("a-today"), T));
     eq("98.44 §4 …while a review of a PAST range states the date instead",
       detailIn(lastWeek, "a-today"), "Due Wed, Sep 9");
-    ok("98.45 §4 …because 'today' would be false there, not merely different",
+    /**
+     * The discriminating case. `a-lastweek` is due on the last day of the range
+     * being reviewed, so a relative phrase there would read "Due today" inside a
+     * review of a week that ended three days ago — false, not merely different.
+     */
+    eq("98.45 §4 …including work due on that range's own last day",
+      detailIn(lastWeek, "a-lastweek"), "Due Sun, Sep 6");
+    ok("98.45b §4 …because 'today' would be false there, not merely different",
       !/today|tomorrow/i.test(JSON.stringify(lastWeek.stillOpen.map((o) => o.detail))),
       JSON.stringify(lastWeek.stillOpen.map((o) => o.detail)));
     eq("98.46 §3 and a passed deadline is past tense in both",
