@@ -31,11 +31,11 @@ export default function TodayInsightsCard() {
   return (
     <section data-today-insights className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
       <div className="mb-1.5 flex items-center justify-between">
-        <h2 className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Today so far</h2>
-        <Link href="/insights" className="text-[11px] text-sky-600 hover:underline dark:text-sky-400">Open Insights →</Link>
+        <h2 className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Today so far</h2>
+        <Link href="/insights" className="text-[11px] text-sky-700 hover:underline dark:text-sky-400">Open Insights →</Link>
       </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm sm:grid-cols-4">
-        {items.map(([label, v]) => <div key={label}><dt className="text-[11px] text-zinc-400">{label}</dt><dd className="font-medium tabular-nums">{v}</dd></div>)}
+        {items.map(([label, v]) => <div key={label}><dt className="text-[11px] text-zinc-500 dark:text-zinc-400">{label}</dt><dd className="font-medium tabular-nums">{v}</dd></div>)}
       </dl>
     </section>
   );

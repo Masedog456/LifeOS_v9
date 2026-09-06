@@ -51,11 +51,11 @@ export default function ActionDependencies({ action }: { action: NextAction }) {
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Needs before starting</p>
         {blockers.length === 0 ? <p className="text-zinc-500">This action is ready to begin — nothing needs to happen first.</p> : (
           <>
-            {pending.length === 0 && <p className="mb-1 text-emerald-600 dark:text-emerald-400">All prerequisites are done — this action is ready to begin.</p>}
+            {pending.length === 0 && <p className="mb-1 text-emerald-700 dark:text-emerald-400">All prerequisites are done — this action is ready to begin.</p>}
             <ul className="flex flex-col gap-1">
               {blockers.map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-2">
-                  <Link href={`/actions/${b.id}`} className={`truncate ${b.status === "completed" ? "text-zinc-400 line-through" : "text-sky-600 dark:text-sky-400"}`}>{b.title} <span className="text-[10px] text-zinc-400">· {STATUS_LABEL[b.status]}</span></Link>
+                  <Link href={`/actions/${b.id}`} className={`truncate ${b.status === "completed" ? "text-zinc-400 line-through" : "text-sky-700 dark:text-sky-400"}`}>{b.title} <span className="text-[10px] text-zinc-400">· {STATUS_LABEL[b.status]}</span></Link>
                   <button type="button" onClick={() => { removeActionDependency(b.id, action.id); toast({ kind: "info", message: "Prerequisite removed" }); }} aria-label={`Remove prerequisite ${b.title}`} className="shrink-0 text-zinc-400 hover:text-rose-500">✕</button>
                 </li>
               ))}
@@ -66,7 +66,7 @@ export default function ActionDependencies({ action }: { action: NextAction }) {
       {blocked.length > 0 && (
         <div>
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">This action unlocks</p>
-          <ul className="flex flex-col gap-1">{blocked.map((b) => <li key={b.id}><Link href={`/actions/${b.id}`} className="truncate text-sky-600 dark:text-sky-400">{b.title}</Link></li>)}</ul>
+          <ul className="flex flex-col gap-1">{blocked.map((b) => <li key={b.id}><Link href={`/actions/${b.id}`} className="truncate text-sky-700 dark:text-sky-400">{b.title}</Link></li>)}</ul>
         </div>
       )}
       {!picking ? (

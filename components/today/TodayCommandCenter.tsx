@@ -26,6 +26,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { ROW_META } from "@/lib/design/tokens";
 import { completeOccurrence, useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildTodayView, waitingDays, COVERAGE_NOTE, EMPTY_PROMPT } from "@/lib/today/view";
@@ -56,7 +57,7 @@ function Section({ title, show, children, id }: { title: string; show: boolean; 
   return (
     <section data-today-section={id ?? title.toLowerCase().replace(/\s+/g, "-")}
       className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>
+      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
       {children}
     </section>
   );
@@ -64,7 +65,7 @@ function Section({ title, show, children, id }: { title: string; show: boolean; 
 
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
-const metaClass = "shrink-0 text-[11px] text-zinc-500";
+const metaClass = ROW_META;
 
 /**
  * Neutral past-tense wording for a recent change (§19, §11).
@@ -139,7 +140,7 @@ export default function TodayCommandCenter() {
     return (
       <div data-today-empty className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm dark:border-white/[.12]">
         <p className="text-zinc-700 dark:text-zinc-200">{EMPTY_PROMPT}</p>
-        <p className="mt-1 text-xs text-zinc-500">
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           Errands, appointments, things you&apos;re waiting on — say it however it comes out.
         </p>
         <Link href="/" data-capture-link
@@ -170,7 +171,7 @@ export default function TodayCommandCenter() {
         {daily.fixedToday.length > 0 && (
           <ul data-orientation-fixed className="mt-2 flex flex-col gap-0.5">
             {daily.fixedToday.map((f) => (
-              <li key={`${f.kind}:${f.id}`} className="text-[11px] text-zinc-500">
+              <li key={`${f.kind}:${f.id}`} className="text-[11px] text-zinc-500 dark:text-zinc-400">
                 {/* An Event is on the calendar; a timed action is a commitment
                     the user made for a time. Neither is claimed as attended. */}
                 <span className="tabular-nums">{f.time ? formatLocalTime(f.time) : f.detail ?? "All day"}</span>
@@ -182,13 +183,13 @@ export default function TodayCommandCenter() {
         {/* §3. Flexible work is named as flexible. Listing it under the clock
             would imply Conqify had put it in a slot, which it never did. */}
         {daily.flexibleToday.length > 0 && (
-          <p data-orientation-flexible className="mt-2 text-[11px] text-zinc-500">
+          <p data-orientation-flexible className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
             Yours to place: {daily.flexibleToday.map((f) => f.action.title).join(" · ")}
           </p>
         )}
         <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <Link href="/today/review" data-review-today-link
-            className="text-[11px] text-zinc-500 underline-offset-4 hover:underline">
+            className="text-[11px] text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:underline">
             {REVIEW_TODAY_LABEL} →
           </Link>
           {/*
@@ -199,7 +200,7 @@ export default function TodayCommandCenter() {
           */}
           {decisionTotal > 0 && (
             <Link href="/today/decisions" data-decision-count-link
-              className="text-[11px] text-zinc-500 underline-offset-4 hover:underline">
+              className="text-[11px] text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:underline">
               {DECISION_HEADING} →
             </Link>
           )}
@@ -211,7 +212,7 @@ export default function TodayCommandCenter() {
         <section data-today-now className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
           {view.nowEvent ? (
             <p className="text-sm text-zinc-800 dark:text-zinc-100">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Now: </span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Now: </span>
               {view.nowEvent.event.title}
               {view.nowEvent.startTime && (
                 <span className={metaClass}> · {formatLocalTime(view.nowEvent.startTime)}
@@ -220,7 +221,7 @@ export default function TodayCommandCenter() {
             </p>
           ) : view.nextEvent && (
             <p data-next-event className="text-sm text-zinc-800 dark:text-zinc-100">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Next: </span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Next: </span>
               {view.nextEvent.event.title}
               {view.nextEvent.startTime && <span className={metaClass}> · {formatLocalTime(view.nextEvent.startTime)}</span>}
             </p>
@@ -238,13 +239,13 @@ export default function TodayCommandCenter() {
             {/* §19: the explanation is mandatory. No explanation, no recommendation. */}
             <ul data-suggested-why className="mt-1 space-y-0.5">
               {s.recommendation.reasons.map((r) => (
-                <li key={r.code} className="text-[11px] text-zinc-500">· {r.text}</li>
+                <li key={r.code} className="text-[11px] text-zinc-500 dark:text-zinc-400">· {r.text}</li>
               ))}
             </ul>
             {/* §19. What it beat, in one sentence — present only when a
                 runner-up existed and something real separated them. */}
             {s.recommendation.counterfactual && (
-              <p data-suggested-counterfactual className="mt-1 text-[11px] italic text-zinc-400">
+              <p data-suggested-counterfactual className="mt-1 text-[11px] italic text-zinc-500 dark:text-zinc-400">
                 {s.recommendation.counterfactual}
               </p>
             )}
@@ -266,7 +267,7 @@ export default function TodayCommandCenter() {
             />
           </div>
         ) : (
-          <p data-no-suggestion className="text-[11px] text-zinc-500">{s.note}</p>
+          <p data-no-suggestion className="text-[11px] text-zinc-500 dark:text-zinc-400">{s.note}</p>
         )}
       </Section>
 
@@ -281,7 +282,7 @@ export default function TodayCommandCenter() {
                 <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
                   {o.event.title}
                   {o.event.recurrence && (
-                    <span className="ml-1.5 text-[11px] text-zinc-400">{describeRule(o.event.recurrence)}</span>
+                    <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{describeRule(o.event.recurrence)}</span>
                   )}
                 </span>
                 <span className={metaClass}>
@@ -320,7 +321,7 @@ export default function TodayCommandCenter() {
               <li key={r.action.id} data-today-recurring className="flex items-center justify-between gap-3 py-1">
                 <Link href={`/actions/${r.action.id}`} className={linkClass}>
                   {r.action.title}
-                  <span className="ml-1.5 text-[11px] text-zinc-400">
+                  <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                     {/* LIFEOS-063 R-2. "Every day at 8:00 AM" is the whole point
                         of a timed standing responsibility; the schedule alone
                         does not tell you when today's instance is. */}
@@ -361,7 +362,7 @@ export default function TodayCommandCenter() {
               {/* §15. Other true facts about the SAME commitment — attached, never
                   a second row. */}
               {a.secondaryReasons.length > 0 && (
-                <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-400">
+                <p data-signal-secondary className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                   {a.secondaryReasons.map((r) => r.text).join(" ")}
                 </p>
               )}
@@ -369,7 +370,7 @@ export default function TodayCommandCenter() {
                   item's own words, and only as context. It never reorders
                   anything — `buildAttentionShortlist` asserts that separately. */}
               {a.ruleContext.length > 0 && (
-                <p data-rule-context className="mt-0.5 text-[11px] text-zinc-400">
+                <p data-rule-context className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                   Fits your rule: “{a.ruleContext[0]}”
                 </p>
               )}
@@ -453,7 +454,7 @@ export default function TodayCommandCenter() {
                 {p.project.title}
               </Link>
               {/* Facts only. No health score, no percentage, no "at risk". */}
-              <p className="text-[11px] text-zinc-500">
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                 {/* §11. One wording for this fact, shared with the signal layer
                     and with Memory — "executable" is the load-bearing word,
                     because a project whose only actions are blocked or waiting
@@ -508,7 +509,7 @@ export default function TodayCommandCenter() {
           to try. On a busy day with nothing scheduled ahead it renders nothing
           at all rather than reaching for something reassuring to say. */}
       {command.canWait && (
-        <p data-can-wait className="text-[11px] text-zinc-500">{command.canWait}</p>
+        <p data-can-wait className="text-[11px] text-zinc-500 dark:text-zinc-400">{command.canWait}</p>
       )}
 
       {/* ---- UPCOMING ---- */}
@@ -517,7 +518,7 @@ export default function TodayCommandCenter() {
           {view.upcoming.map((u) => (
             <li key={`${u.kind}:${u.id}:${u.date}`} data-upcoming className={rowClass}>
               <span className="min-w-0 flex-1 truncate text-sm text-zinc-700 dark:text-zinc-200">
-                {u.title}{u.schedule && <span className="ml-1.5 text-[11px] text-zinc-400">{u.schedule}</span>}
+                {u.title}{u.schedule && <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{u.schedule}</span>}
               </span>
               <span className={metaClass}>
                 {formatDayKey(u.date)}{u.time ? ` · ${formatLocalTime(u.time)}` : ""}
@@ -528,7 +529,7 @@ export default function TodayCommandCenter() {
       </Section>
 
       {/* §28: Today reflects what was RECORDED. No data is not no life activity. */}
-      <p data-coverage className="px-1 text-[11px] text-zinc-400">
+      <p data-coverage className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400">
         {COVERAGE_NOTE}{" "}
         {/* LIFEOS-064 §19. One link, and nothing else — Today stays present
             tense. Dropping the week's history onto this page would undo the

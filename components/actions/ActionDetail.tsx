@@ -77,7 +77,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
   const dirty = !!action && (titleDraft.trim() !== action.title || descDraft !== action.description || notesDraft !== action.notes);
   useUnsavedGuard(`action-${actionId}`, dirty);
 
-  if (!action) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Action not found. <Link href="/actions" className="underline">Back to the queue</Link></p></main>;
+  if (!action) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500 dark:text-zinc-400">Action not found. <Link href="/actions" className="underline">Back to the queue</Link></p></main>;
 
   const saveEdits = () => { if (dirty) { updateAction(action.id, { title: titleDraft.trim(), description: descDraft, notes: notesDraft }); toast({ kind: "success", message: "Saved" }); } };
   const links = action.linkedEntityRefs ?? [];
@@ -92,7 +92,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
   const blockedByPrereq = blockers.some((b) => b.status !== "completed" && b.status !== "cancelled");
   const statusText = userFacingStatus(action, blockedByPrereq);
   const tone = statusTone(action, blockedByPrereq);
-  const toneClass = tone === "ready" ? "text-emerald-600 dark:text-emerald-400" : tone === "active" ? "text-sky-600 dark:text-sky-400" : tone === "waiting" ? "text-amber-600 dark:text-amber-400" : "text-zinc-400";
+  const toneClass = tone === "ready" ? "text-emerald-700 dark:text-emerald-400" : tone === "active" ? "text-sky-700 dark:text-sky-400" : tone === "waiting" ? "text-amber-700 dark:text-amber-400" : "text-zinc-500 dark:text-zinc-400";
   const impact = dependencyImpact(action.id, state.actionDependencies ?? [], new Map(state.nextActions.map((a) => [a.id, a])));
 
   const ctxRow = (kind: string, id?: string) => id ? (() => { const r = entityRef(ctx, kind, id); return <Link key={`${kind}:${id}`} href={r.href} className="rounded-full bg-black/[.05] px-2 py-0.5 text-[11px] text-sky-700 hover:bg-black/[.08] dark:bg-white/[.08] dark:text-sky-300">{entityKindLabel(kind)}: {r.title}</Link>; })() : null;
@@ -103,7 +103,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
         <header className="mb-3 flex items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Action</h1>
-            <p className="mt-0.5 text-xs text-zinc-500">{new Date(action.createdAt).toLocaleString()} · <span data-action-status={action.status} className={`font-medium ${toneClass}`}>{statusText}</span></p>
+            <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{new Date(action.createdAt).toLocaleString()} · <span data-action-status={action.status} className={`font-medium ${toneClass}`}>{statusText}</span></p>
           </div>
           <Link href="/actions" className="shrink-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs hover:bg-black/[.04] dark:border-white/[.15] dark:hover:bg-white/[.06]">← Queue</Link>
         </header>
@@ -121,22 +121,22 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
 
         {/* Primary lifecycle actions. */}
         <section className="mb-4 flex flex-wrap items-center gap-2">
-          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: false }); toast({ kind: "success", message: "Started" }); }} className="rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Start</button>}
-          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: true }); toast({ kind: "success", message: "Started with a session" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Start + session</button>}
-          {action.status === "in_progress" && <button type="button" onClick={() => { pauseAction(action.id); toast({ kind: "info", message: "Paused" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Pause</button>}
-          {action.status !== "completed" && action.status !== "cancelled" && <button type="button" onClick={() => setCompleteOpen((v) => !v)} className="rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">Complete</button>}
+          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: false }); toast({ kind: "success", message: "Started" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Start</button>}
+          {(action.status === "open" || action.status === "waiting" || action.status === "deferred") && <button type="button" onClick={() => { startAction(action.id, { startSession: true }); toast({ kind: "success", message: "Started with a session" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Start + session</button>}
+          {action.status === "in_progress" && <button type="button" onClick={() => { pauseAction(action.id); toast({ kind: "info", message: "Paused" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Pause</button>}
+          {action.status !== "completed" && action.status !== "cancelled" && <button type="button" onClick={() => setCompleteOpen((v) => !v)} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-emerald-500/40 px-3 py-1.5 text-xs text-emerald-700 dark:text-emerald-400">Complete</button>}
 
-          {action.status !== "completed" && action.status !== "cancelled" && action.status !== "waiting" && <button type="button" onClick={() => setWaitOpen((v) => !v)} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Wait on…</button>}
-          {(action.status === "completed" || action.status === "cancelled") && <button type="button" onClick={() => { reopenAction(action.id); toast({ kind: "success", message: "Reopened" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Reopen</button>}
-          {(action.status === "completed" || action.status === "cancelled" || action.status === "deferred") && <button type="button" onClick={() => { restoreAction(action.id); toast({ kind: "success", message: "Restored" }); }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Restore</button>}
-          <button type="button" onClick={() => { const id = duplicateAction(action.id); if (id) { toast({ kind: "success", message: "Duplicated" }); router.push(`/actions/${id}`); } }} className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Duplicate</button>
-          {action.status !== "cancelled" && <button type="button" onClick={() => { cancelAction(action.id); toast({ kind: "info", message: "Cancelled (reversible)" }); }} className="rounded-full border border-rose-500/40 px-3 py-1.5 text-xs text-rose-600 dark:text-rose-400">Cancel</button>}
+          {action.status !== "completed" && action.status !== "cancelled" && action.status !== "waiting" && <button type="button" onClick={() => setWaitOpen((v) => !v)} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Wait on…</button>}
+          {(action.status === "completed" || action.status === "cancelled") && <button type="button" onClick={() => { reopenAction(action.id); toast({ kind: "success", message: "Reopened" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Reopen</button>}
+          {(action.status === "completed" || action.status === "cancelled" || action.status === "deferred") && <button type="button" onClick={() => { restoreAction(action.id); toast({ kind: "success", message: "Restored" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Restore</button>}
+          <button type="button" onClick={() => { const id = duplicateAction(action.id); if (id) { toast({ kind: "success", message: "Duplicated" }); router.push(`/actions/${id}`); } }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Duplicate</button>
+          {action.status !== "cancelled" && <button type="button" onClick={() => { cancelAction(action.id); toast({ kind: "info", message: "Cancelled (reversible)" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-rose-500/40 px-3 py-1.5 text-xs text-rose-700 dark:text-rose-400">Cancel</button>}
         </section>
 
         {/* Complete evidence. */}
         {completeOpen && action.status !== "completed" && (
           <section className="mb-4 rounded-2xl border border-emerald-500/30 p-4 dark:border-emerald-500/20">
-            <p className="mb-1 text-xs text-zinc-500">Completion is manual and won&apos;t complete the milestone, project, or any other action.</p>
+            <p className="mb-1 text-xs text-zinc-500 dark:text-zinc-400">Completion is manual and won&apos;t complete the milestone, project, or any other action.</p>
             <textarea value={completeNote} onChange={(e) => setCompleteNote(e.target.value)} rows={2} placeholder="Completion note (optional)" aria-label="Completion note" className="w-full resize-y rounded-lg border border-black/10 bg-transparent px-2 py-1.5 text-sm dark:border-white/12" />
             <button type="button" onClick={() => { completeAction(action.id, { note: completeNote }); setCompleteOpen(false); setCompleteNote(""); toast({ kind: "success", message: "Completed" }); }} className="mt-2 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white">Mark complete</button>
           </section>
@@ -146,19 +146,19 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
             to set — a deadline you cannot clear is one users stop setting. */}
         <section className="mb-4 rounded-2xl border border-black/[.08] p-4 dark:border-white/[.10]">
           <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="action-due" className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Due</label>
+            <label htmlFor="action-due" className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Due</label>
             <input id="action-due" type="date" value={dueDraft} onChange={(e) => setDueDraft(e.target.value)}
               className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" />
             <button type="button" disabled={dueDraft === (action.dueDate ?? "")}
               onClick={() => { setActionDueDate(action.id, dueDraft || undefined); toast({ kind: "success", message: dueDraft ? "Due date set" : "Due date removed" }); }}
-              className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Save</button>
+              className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900">Save</button>
             {action.dueDate && (
               <button type="button" onClick={() => { setDueDraft(""); setActionDueDate(action.id, undefined); toast({ kind: "info", message: "Due date removed" }); }}
-                className="rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Clear</button>
+                className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Clear</button>
             )}
-            {action.dueDate && <span className="text-xs text-zinc-500">{dueLabel(action)}</span>}
+            {action.dueDate && <span className="text-xs text-zinc-500 dark:text-zinc-400">{dueLabel(action)}</span>}
           </div>
-          <p className="mt-1 text-[11px] text-zinc-500">A day, not a time. Nothing is scheduled and you won&apos;t be notified — it shows up on Today.</p>
+          <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">A day, not a time. Nothing is scheduled and you won&apos;t be notified — it shows up on Today.</p>
           {/*
             §15, §41. Replan below refuses to move a single occurrence and says
             why. This field can still change the date — it is the series anchor
@@ -166,7 +166,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
             the screen giving two different answers to the same question.
           */}
           {readRule(action.recurrence) && (
-            <p data-due-recurrence-note className="mt-1 text-[11px] text-zinc-500">
+            <p data-due-recurrence-note className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
               This repeats: changing the date here moves the whole repeat, not just today.
             </p>
           )}
@@ -185,7 +185,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
           */}
         {action.status !== "completed" && action.status !== "cancelled" && (
           <section data-action-replan className="mb-4 rounded-2xl border border-black/[.08] p-3 dark:border-white/[.10]">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Replan</p>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Replan</p>
             <ResolutionControls
               title={action.title}
               /*
@@ -210,7 +210,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
               <input list="waiting-suggest" value={waitOn} onChange={(e) => setWaitOn(e.target.value)} placeholder="Waiting on…" aria-label="Waiting on" className="min-w-40 flex-1 rounded-lg border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/12" />
               <datalist id="waiting-suggest">{WAITING_SUGGESTIONS.map((w) => <option key={w} value={w} />)}</datalist>
               <input type="date" value={waitDate} onChange={(e) => setWaitDate(e.target.value)} aria-label="Follow-up date" className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" />
-              <button type="button" onClick={() => { markActionWaiting(action.id, waitOn, waitDate || undefined); setWaitOpen(false); setWaitOn(""); setWaitDate(""); toast({ kind: "info", message: "Marked waiting" }); }} className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Mark waiting</button>
+              <button type="button" onClick={() => { markActionWaiting(action.id, waitOn, waitDate || undefined); setWaitOpen(false); setWaitOn(""); setWaitDate(""); toast({ kind: "info", message: "Marked waiting" }); }} className="inline-flex min-h-[44px] items-center sm:min-h-0 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900">Mark waiting</button>
             </div>
           </section>
         )}
@@ -224,7 +224,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
         <section aria-label={`${panel} panel`} className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
           {panel === "links" && (
             <div className="flex flex-col gap-2">
-              <p className="text-xs text-zinc-500">Connect this action to existing records.</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Connect this action to existing records.</p>
               {links.length > 0 && <p className="flex flex-wrap gap-1">{links.map((r) => { const ref = entityRef(ctx, r.kind, r.id); return <button key={`${r.kind}:${r.id}`} type="button" onClick={() => unlinkActionRef(action.id, r)} className="rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">{entityKindLabel(r.kind)}: {ref.title} ✕</button>; })}</p>}
               <EntityPicker onPick={(r) => { linkActionRef(action.id, r); toast({ kind: "success", message: "Linked" }); }} placeholder="Link a workspace / goal / project / document / entity…" />
             </div>
@@ -235,17 +235,17 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
 
         {/* Notes + delete. */}
         <section className="mt-4 rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Notes</label>
+          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Notes</label>
           <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} onBlur={saveEdits} rows={2} aria-label="Notes" className="w-full resize-y rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none dark:border-white/12" />
           <div className="mt-3">
-            {!confirmDelete ? <button type="button" data-delete-action onClick={() => setConfirmDelete(true)} className="text-[11px] text-zinc-400 hover:text-rose-500">Delete permanently…</button>
+            {!confirmDelete ? <button type="button" data-delete-action onClick={() => setConfirmDelete(true)} className="text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-rose-500">Delete permanently…</button>
               : <span className="flex items-center gap-2 text-xs">
                 {/* LIFEOS-061 §6: a recurring action's completion history is derived
                     solely from it and is deleted WITH it. The copy says exactly
                     that, in those words, before the button — vague wording here
                     would make the deletion a surprise. STOPPING recurrence is the
                     other door, and it keeps everything. */}
-                <span className="text-rose-600 dark:text-rose-400">
+                <span className="text-rose-700 dark:text-rose-400">
                   {historyCount > 0
                     ? `Delete this recurring action and its ${historyCount} recorded completion${historyCount === 1 ? "" : "s"}? This cannot be undone.`
                     : `Delete? ${impact.removedEdges > 0 ? `Removes ${impact.removedEdges} dependency edge(s); ${impact.unblocks.length} action(s) become eligible.` : "This cannot be undone (cancel is reversible; delete is not)."}`}
@@ -255,12 +255,12 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
                   toast({ kind: "info", message: "Deleted" });
                   router.push("/actions");
                 }} className="rounded-full bg-rose-600 px-3 py-1 font-medium text-white">Yes, delete</button>
-                <button type="button" onClick={() => setConfirmDelete(false)} className="text-zinc-400">No</button>
+                <button type="button" onClick={() => setConfirmDelete(false)} className="text-zinc-500 dark:text-zinc-400">No</button>
               </span>}
             {action.recurrence && !confirmDelete && (
               <button type="button" data-stop-recurrence
                 onClick={() => { stopActionRecurrence(action.id, todayKey()); toast({ kind: "info", message: "Recurrence stopped. Your completion history is kept." }); }}
-                className="text-[11px] text-zinc-500 underline underline-offset-2">
+                className="text-[11px] text-zinc-500 dark:text-zinc-400 underline underline-offset-2">
                 Stop repeating (keeps history)
               </button>
             )}
@@ -271,7 +271,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
       {/* Context sidebar. */}
       <aside className="flex flex-col gap-4 text-xs">
         <Panel title="Attributes">
-          <div className="flex flex-col gap-1 text-zinc-500">
+          <div className="flex flex-col gap-1 text-zinc-500 dark:text-zinc-400">
             <span>Size: {SIZE_LABEL[action.estimatedSize]}</span>
             <span>Energy: {ENERGY_LABEL[action.energy]}</span>
             {action.context && <span>Context: {action.context}</span>}
@@ -285,12 +285,12 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
           </Panel>
         )}
         <Panel title="Tags">
-          <div className="flex flex-wrap gap-1">{action.tags.map((t) => <button key={t} type="button" onClick={() => removeActionTag(action.id, t)} className="rounded-full bg-black/[.06] px-1.5 py-0.5 text-[10px] text-zinc-500 dark:bg-white/[.08]">{t} ✕</button>)}</div>
+          <div className="flex flex-wrap gap-1">{action.tags.map((t) => <button key={t} type="button" onClick={() => removeActionTag(action.id, t)} className="rounded-full bg-black/[.06] px-1.5 py-0.5 text-[10px] text-zinc-500 dark:text-zinc-400 dark:bg-white/[.08]">{t} ✕</button>)}</div>
           <div className="mt-1.5"><input value={tag} onChange={(e) => setTag(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && tag.trim()) { addActionTag(action.id, tag.trim()); setTag(""); } }} placeholder="Add tag…" aria-label="Add tag" className="w-full rounded-md border border-black/10 bg-transparent px-2 py-1 text-xs dark:border-white/12" /></div>
         </Panel>
-        {sources.length > 0 && <Panel title="Source">{sources.map((r) => { const ref = entityRef(ctx, r.kind, r.id); return <p key={`${r.kind}:${r.id}`} className="truncate"><Link href={ref.href} className="text-sky-600 dark:text-sky-400">{entityKindLabel(r.kind)}: {ref.title}</Link></p>; })}</Panel>}
-        {sessions.length > 0 && <Panel title="Sessions"><p className="text-zinc-500">{sessions.length} session{sessions.length === 1 ? "" : "s"} · {contrib.capturesWhileActing} capture(s) while acting</p></Panel>}
-        {backlinks.length > 0 && <Panel title="Backlinks">{backlinks.flatMap((g) => g.items).slice(0, 8).map((r) => <p key={`${r.kind}:${r.id}`} className="truncate"><Link href={r.href} className="text-sky-600 dark:text-sky-400">{r.title}</Link></p>)}</Panel>}
+        {sources.length > 0 && <Panel title="Source">{sources.map((r) => { const ref = entityRef(ctx, r.kind, r.id); return <p key={`${r.kind}:${r.id}`} className="truncate"><Link href={ref.href} className="text-sky-700 dark:text-sky-400">{entityKindLabel(r.kind)}: {ref.title}</Link></p>; })}</Panel>}
+        {sessions.length > 0 && <Panel title="Sessions"><p className="text-zinc-500 dark:text-zinc-400">{sessions.length} session{sessions.length === 1 ? "" : "s"} · {contrib.capturesWhileActing} capture(s) while acting</p></Panel>}
+        {backlinks.length > 0 && <Panel title="Backlinks">{backlinks.flatMap((g) => g.items).slice(0, 8).map((r) => <p key={`${r.kind}:${r.id}`} className="truncate"><Link href={r.href} className="text-sky-700 dark:text-sky-400">{r.title}</Link></p>)}</Panel>}
       </aside>
     </main>
   );
@@ -299,7 +299,7 @@ export default function ActionDetail({ actionId }: { actionId: string }) {
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-2xl border border-black/[.06] p-3 dark:border-white/[.08]">
-      <h2 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>
+      <h2 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
       <div className="flex flex-col gap-0.5">{children}</div>
     </section>
   );

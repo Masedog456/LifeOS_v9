@@ -29,6 +29,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { CONTROL_PILL, CONTROL_PILL_PRIMARY } from "@/lib/design/tokens";
 import { useStore } from "@/lib/mvpStore";
 import { storeReplanOps } from "@/components/planning/replanOps";
 import { todayKey } from "@/lib/reviews/dates";
@@ -40,9 +41,9 @@ import {
 } from "@/lib/planning/replan";
 
 const chip =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL;
 const chipOn =
-  "rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white dark:bg-zinc-100 dark:text-zinc-900";
+  CONTROL_PILL_PRIMARY;
 
 export default function ReplanPreview({
   ids, onDone, onCancel,

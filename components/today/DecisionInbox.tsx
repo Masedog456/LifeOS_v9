@@ -37,6 +37,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { CONTROL_PILL } from "@/lib/design/tokens";
 import { useStore, getSnapshot } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { todayKey } from "@/lib/reviews/dates";
@@ -53,7 +54,7 @@ import { storeReplanOps } from "@/components/planning/replanOps";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 
 const btn =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL;
 
 /**
  * The row's controls, taken from the engines rather than built here.
@@ -120,7 +121,16 @@ export default function DecisionInbox({ limit = MAX_DECISIONS }: { limit?: numbe
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-8" data-decision-inbox>
+    /**
+     * LIFEOS-099 §34. `main`, because this page had no landmark at all.
+     *
+     * `/today` has one and this route did not, so a screen-reader user could
+     * jump straight to the content of Today and not of the inbox Today links
+     * them to. It is the page's only content wrapper, so the element that was
+     * already here becomes the landmark rather than a new one being nested
+     * inside it.
+     */
+    <main className="mx-auto w-full max-w-2xl px-4 py-8" data-decision-inbox>
       <header className="mb-4">
         <h1 className="text-lg font-semibold tracking-tight">{DECISION_HEADING}</h1>
         <p className="mt-1 text-[12px] text-zinc-500 dark:text-zinc-400">
@@ -210,6 +220,6 @@ export default function DecisionInbox({ limit = MAX_DECISIONS }: { limit?: numbe
           {inbox.total - inbox.items.length} more waiting on a decision.
         </p>
       )}
-    </div>
+    </main>
   );
 }

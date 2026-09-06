@@ -32,6 +32,7 @@ import {
   completeAction, completeOccurrence, deferAction, setActionDueDate,
   setNextFollowUpDate, stopWaiting, createAction, reopenAction, uncompleteOccurrence,
 } from "@/lib/mvpStore";
+import { CONTROL_PILL_DISABLABLE, CONTROL_PILL_PRIMARY } from "@/lib/design/tokens";
 import { todayKey } from "@/lib/reviews/dates";
 import { toast } from "@/lib/ux/feedback";
 import type { ResolutionAction, ResolutionChoice } from "@/lib/commitment/resolve";
@@ -59,9 +60,9 @@ const storeOps: ResolutionOps = {
 };
 
 const btn =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] disabled:opacity-40 dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL_DISABLABLE;
 const primaryBtn =
-  "rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900";
+  CONTROL_PILL_PRIMARY;
 
 export default function ResolutionControls({
   title, actions,

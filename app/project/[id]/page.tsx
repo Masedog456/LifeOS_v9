@@ -69,9 +69,9 @@ function ProjectDashboard({ id }: { id: string }) {
     [state, project, ix, today],
   );
 
-  if (!mounted) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Opening project…</p></main>;
+  if (!mounted) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500 dark:text-zinc-400">Opening project…</p></main>;
   if (!project || !dash) {
-    return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500">This project doesn’t exist.</p><Link href="/projects" className="mt-2 inline-block text-sm underline">← All projects</Link></main>;
+    return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500 dark:text-zinc-400">This project doesn’t exist.</p><Link href="/projects" className="mt-2 inline-block text-sm underline">← All projects</Link></main>;
   }
 
   const relatedKeys = new Set([...project.relatedEntities, ...project.relatedDocuments].map((r) => `${r.kind}:${r.id}`));
@@ -89,18 +89,18 @@ function ProjectDashboard({ id }: { id: string }) {
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
-      <div className="mb-2"><Link href="/projects" className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">← Projects</Link></div>
+      <div className="mb-2"><Link href="/projects" className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">← Projects</Link></div>
       <header className="mb-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-tight">{project.title}</h1>
-            {project.description && <p className="mt-1 max-w-xl text-sm text-zinc-500">{project.description}</p>}
-            <p className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-400">
+            {project.description && <p className="mt-1 max-w-xl text-sm text-zinc-500 dark:text-zinc-400">{project.description}</p>}
+            <p className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-zinc-500 dark:text-zinc-400">
               {dash.goal && <Link href={goalHref(dash.goal.id)} className="hover:underline">◎ {dash.goal.title}</Link>}
               {dash.workspace && <Link href={workspaceHref(dash.workspace.id)} className="hover:underline">◲ {dash.workspace.title}</Link>}
             </p>
           </div>
-          <div className="text-right text-xs text-zinc-400"><SyncStatus /></div>
+          <div className="text-right text-xs text-zinc-500 dark:text-zinc-400"><SyncStatus /></div>
         </div>
         <div className="mt-3 flex items-center gap-3">
           <div className="flex-1"><ProgressBar percent={dash.progress} label="Project progress" /></div>
@@ -141,11 +141,11 @@ function ProjectDashboard({ id }: { id: string }) {
       <div className="mt-6 grid gap-6 sm:grid-cols-2">
         <Panel title="Milestones">
           <ul className="space-y-1.5">
-            {project.milestones.length === 0 && <li className="text-xs text-zinc-400">No milestones yet.</li>}
+            {project.milestones.length === 0 && <li className="text-xs text-zinc-500 dark:text-zinc-400">No milestones yet.</li>}
             {sortedMilestones(project).map((m) => (
               <li key={m.id} className="flex items-start gap-2 text-sm">
                 <input type="checkbox" checked={m.status === "done"} onChange={() => onToggleMilestone(m.id, m.title, m.status === "done")} aria-label={`Milestone: ${m.title}`} className="mt-1" />
-                <span className={m.status === "done" ? "flex-1 text-zinc-400 line-through" : "flex-1"}>{m.title}{m.targetDate && <span className="ml-1 text-[10px] text-zinc-400">· {m.targetDate}</span>}</span>
+                <span className={m.status === "done" ? "flex-1 text-zinc-500 dark:text-zinc-400 line-through" : "flex-1"}>{m.title}{m.targetDate && <span className="ml-1 text-[10px] text-zinc-500 dark:text-zinc-400">· {m.targetDate}</span>}</span>
                 <button type="button" onClick={() => removeMilestone(project.id, m.id)} aria-label="Remove milestone" className="text-xs text-zinc-300 hover:text-red-500">✕</button>
               </li>
             ))}
@@ -157,17 +157,17 @@ function ProjectDashboard({ id }: { id: string }) {
           </form>
         </Panel>
 
-        <Panel title="Related work" action={<button type="button" onClick={() => setShowRel((v) => !v)} className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">{showRel ? "Done" : "＋ Add"}</button>}>
+        <Panel title="Related work" action={<button type="button" onClick={() => setShowRel((v) => !v)} className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">{showRel ? "Done" : "＋ Add"}</button>}>
           {showRel && (
             <div className="mb-2">
               <input value={relQuery} onChange={(e) => setRelQuery(e.target.value)} placeholder="Search work to relate…" aria-label="Add related work"
                 className="w-full rounded-lg border border-black/10 px-2.5 py-1 text-xs outline-none focus:border-zinc-500 dark:border-white/12 dark:bg-black/20" />
               {relQuery.trim() && (
                 <ul className="mt-1 max-h-48 divide-y divide-black/[.06] overflow-auto rounded-lg border border-black/10 dark:divide-white/[.06] dark:border-white/12">
-                  {relResults.length === 0 ? <li className="px-2.5 py-1.5 text-xs text-zinc-400">No matches.</li> :
+                  {relResults.length === 0 ? <li className="px-2.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">No matches.</li> :
                     relResults.map((r) => (
                       <li key={`${r.entry.kind}:${r.entry.id}`} className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs">
-                        <span className="truncate">{r.entry.title} <span className="text-zinc-400">· {ENTITY_LABEL[r.entry.kind] ?? r.entry.kind}</span></span>
+                        <span className="truncate">{r.entry.title} <span className="text-zinc-500 dark:text-zinc-400">· {ENTITY_LABEL[r.entry.kind] ?? r.entry.kind}</span></span>
                         <button type="button" aria-label={`Relate ${r.entry.title}`} onClick={() => addProjectRelated(project.id, r.entry.kind, r.entry.id)} className="shrink-0 rounded-full border border-black/10 px-2 py-0.5 hover:bg-black/[.04] dark:border-white/12 dark:hover:bg-white/[.06]">Add</button>
                       </li>
                     ))}
@@ -191,7 +191,7 @@ function ProjectDashboard({ id }: { id: string }) {
           {dash.reading.length === 0 ? <Empty>No documents related.</Empty> : (
             <ul className="space-y-1.5">{dash.reading.map((d) => (
               <li key={d.ref.id} className="text-sm">
-                <div className="flex items-center justify-between gap-2"><EntityLink kind="document" id={d.ref.id} className="truncate text-left hover:underline">{d.ref.title}</EntityLink><span className="shrink-0 text-[10px] text-zinc-400">{d.percent}%</span></div>
+                <div className="flex items-center justify-between gap-2"><EntityLink kind="document" id={d.ref.id} className="truncate text-left hover:underline">{d.ref.title}</EntityLink><span className="shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{d.percent}%</span></div>
                 <div className="mt-1"><ProgressBar percent={d.percent} /></div>
               </li>))}</ul>
           )}
@@ -201,7 +201,7 @@ function ProjectDashboard({ id }: { id: string }) {
       </div>
 
       <section className="mt-6">
-        <label htmlFor="project-notes" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-400">Notes</label>
+        <label htmlFor="project-notes" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Notes</label>
         <textarea id="project-notes" value={project.notes} onChange={(e) => updateProject(project.id, { notes: e.target.value })} rows={3} placeholder="Working notes for this project…"
           className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-white/12 dark:bg-black/20" />
       </section>
@@ -211,7 +211,7 @@ function ProjectDashboard({ id }: { id: string }) {
       <SessionTimeline groups={dash.sessions} />
 
       <div className="mt-8 border-t border-black/[.06] pt-4 dark:border-white/[.08]">
-        <button type="button" onClick={() => requestConfirm({ impact: buildImpact(state, "project", project.id), onConfirm: () => { deleteProject(project.id); toast({ kind: "success", message: "Project deleted" }); router.push("/projects"); } })} className="text-xs text-zinc-400 hover:text-red-500">Delete project</button>
+        <button type="button" onClick={() => requestConfirm({ impact: buildImpact(state, "project", project.id), onConfirm: () => { deleteProject(project.id); toast({ kind: "success", message: "Project deleted" }); router.push("/projects"); } })} className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-red-500">Delete project</button>
       </div>
     </main>
   );
@@ -222,7 +222,7 @@ function EntityRows({ entities, empty }: { entities: Entity[]; empty: string }) 
   return <ul className="space-y-1">{entities.map((e) => (
     <li key={`${e.ref.kind}:${e.ref.id}`} className="flex items-center justify-between gap-2 text-sm">
       <EntityLink kind={e.ref.kind} id={e.ref.id} className="truncate text-left hover:underline">{e.ref.title}</EntityLink>
-      <span className="shrink-0 text-[10px] text-zinc-400">{ENTITY_LABEL[e.ref.kind] ?? e.ref.kind}</span>
+      <span className="shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{ENTITY_LABEL[e.ref.kind] ?? e.ref.kind}</span>
     </li>))}</ul>;
 }
 
@@ -238,7 +238,7 @@ function SessionTimeline({ groups }: { groups: import("@/lib/workspaces/sessions
         <div className="space-y-4">
           {BUCKETS.map((b) => groups[b.key].length > 0 && (
             <div key={b.key}>
-              <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{b.label}</h3>
+              <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{b.label}</h3>
               <ul className="space-y-1.5">
                 {groups[b.key].map((s) => {
                   const o = sessionOutputs(s);
@@ -246,9 +246,9 @@ function SessionTimeline({ groups }: { groups: import("@/lib/workspaces/sessions
                     <li key={s.id} className="rounded-lg border border-black/[.06] px-3 py-2 text-sm dark:border-white/[.08]">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">{SESSION_TYPE_ICON[s.type]} {SESSION_TYPE_LABEL[s.type]}{s.goal ? ` — ${s.goal}` : ""}</span>
-                        <span className="shrink-0 text-xs text-zinc-400">{formatDuration(sessionDuration(s))}{!s.endedAt ? " · active" : ""}</span>
+                        <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">{formatDuration(sessionDuration(s))}{!s.endedAt ? " · active" : ""}</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-zinc-500">{o.entitiesOpened} opened · {o.documentsRead} read · {o.capturesCreated} captured · {o.decisionsMade} decisions</p>
+                      <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{o.entitiesOpened} opened · {o.documentsRead} read · {o.capturesCreated} captured · {o.decisionsMade} decisions</p>
                     </li>
                   );
                 })}

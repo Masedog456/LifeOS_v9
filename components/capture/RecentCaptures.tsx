@@ -29,7 +29,7 @@
  * history event. This is a read (§34, §38).
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   useStore, getSnapshot, deleteAction, deleteNote, deleteEvent,
@@ -60,6 +60,8 @@ export default function RecentCaptures({ exclude }: {
 
   /** Which outcome's correction sheet is open, as `captureId:kind:id`. */
   const [editing, setEditing] = useState<string | null>(null);
+  /** §14. The opener per outcome, so focus can return to it on close. */
+  const editRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   /**
    * LIFEOS-097 §19, §20. Undo one record, and only if this capture made it.
@@ -97,7 +99,7 @@ export default function RecentCaptures({ exclude }: {
 
   return (
     <section data-recent-captures aria-label="Recent captures">
-      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Recently</h2>
+      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Recently</h2>
       <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
         {rows.map((r) => (
           <li key={r.id} data-recent-capture={r.id} className="py-2">
@@ -109,7 +111,7 @@ export default function RecentCaptures({ exclude }: {
             {r.unfiled ? (
               // Said plainly rather than dressed as a status. It is not a
               // failure and it is not a queue item to feel behind on.
-              <p className="mt-0.5 text-[11px] text-zinc-400">
+              <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                 Not filed yet ·{" "}
                 <Link href="/process" className="underline underline-offset-2">Open the inbox</Link>
               </p>
@@ -118,7 +120,7 @@ export default function RecentCaptures({ exclude }: {
                  `convertCapture`'s targets are domains Home does not render.
                  It says the one thing it can verify and offers no link it
                  cannot honour. */
-              <p className="mt-0.5 text-[11px] text-zinc-400">Filed</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">Filed</p>
             ) : (
               <ul className="mt-0.5 flex flex-col gap-1">
                 {r.outcomes.map((o) => {
@@ -126,12 +128,12 @@ export default function RecentCaptures({ exclude }: {
                   const correctable = correctableOutcome(state, { kind: o.kind, id: o.id } as Parameters<typeof correctableOutcome>[1],
                     { createdByCapture: createdBy(state, { kind: o.kind, id: o.id } as Parameters<typeof createdBy>[1], r.id) });
                   return (
-                    <li key={`${o.kind}:${o.id}`} data-recent-outcome={o.kind} className="text-[11px] text-zinc-500">
+                    <li key={`${o.kind}:${o.id}`} data-recent-outcome={o.kind} className="text-[11px] text-zinc-500 dark:text-zinc-400">
                       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span>
-                          <span className="text-zinc-400">{o.label} · </span>
+                          <span className="text-zinc-500 dark:text-zinc-400">{o.label} · </span>
                           <Link href={o.href} className="underline-offset-2 hover:underline">{o.title}</Link>
-                          {o.detail && <span className="text-zinc-400"> · {o.detail}</span>}
+                          {o.detail && <span className="text-zinc-500 dark:text-zinc-400"> · {o.detail}</span>}
                         </span>
                         {/*
                           §5. Two words, not ten field buttons. Edit opens the
@@ -139,24 +141,52 @@ export default function RecentCaptures({ exclude }: {
                           actually created, so a matched record shows no control
                           that could remove it.
                         */}
+                        {/*
+                          LIFEOS-099 §14, §15, §22. The SECOND Edit control.
+
+                          The composer's success panel has one of these and it
+                          was fixed first; this one opens the same correction
+                          sheet from the recent list, and measuring found it
+                          still at 19x17 with no disclosure semantics. Half a
+                          surface fixed is the kind of thing only a measurement
+                          catches, so both now carry the same contract.
+                        */}
                         {correctable && (
                           <button type="button" data-recent-edit={o.id}
+                            aria-expanded={editing === key}
+                            aria-controls={editing === key ? `correction-${o.id}` : undefined}
+                            aria-label={`${editing === key ? "Close" : "Edit"} ${o.title}`}
+                            ref={(el) => { if (editing === key) editRefs.current[key] = el; }}
                             onClick={() => setEditing(editing === key ? null : key)}
-                            className="text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center sm:min-h-0 sm:min-w-0 text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
                             {editing === key ? "Close" : "Edit"}
                           </button>
                         )}
+                        {/*
+                          §22, §30. "Undo" five times in a list is the ambiguous
+                          label §22 names, and the rose tint arrives only on
+                          hover — so the word, not the colour, has to carry that
+                          this removes something.
+                        */}
                         {correctable?.createdByCapture && (
                           <button type="button" data-recent-undo={o.id}
+                            aria-label={`Undo ${o.title}`}
                             onClick={() => { setEditing(null); undoOne(r.id, o.kind, o.id, o.title); }}
-                            className="text-zinc-400 underline underline-offset-2 hover:text-rose-500">
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center sm:min-h-0 sm:min-w-0 text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-rose-500">
                             Undo
                           </button>
                         )}
                       </span>
                       {editing === key && correctable && (
                         <CorrectionSheet source={r.text} outcome={correctable}
-                          onClose={() => setEditing(null)} />
+                          onClose={() => {
+                            // §14. Focus returns to the toggle, which relabels
+                            // to "Edit"; without it a keyboard user is dropped
+                            // at the top of the document.
+                            const opener = editRefs.current[key];
+                            setEditing(null);
+                            requestAnimationFrame(() => opener?.focus());
+                          }} />
                       )}
                     </li>
                   );

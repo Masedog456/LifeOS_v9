@@ -26,7 +26,7 @@
  * were wrong, that button still saves what the person typed.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -217,6 +217,8 @@ export default function CaptureComposer({ onFinished }: {
   const [kept, setKept] = useState(false);
   /** LIFEOS-097 §5. Which just-saved record has its correction sheet open. */
   const [correcting, setCorrecting] = useState<string | null>(null);
+  /** §14. The opener for each outcome, so focus can go back to it on close. */
+  const editRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const projectTitles = useMemo(
     () => buildEscalationContext("", state).projectTitles,
@@ -618,7 +620,7 @@ export default function CaptureComposer({ onFinished }: {
         placeholder={HOME_PLACEHOLDER}
         rows={3}
         disabled={busy || !!rows || !!edits}
-        className="w-full resize-none rounded-2xl border border-black/[.08] bg-transparent p-5 text-lg leading-relaxed outline-none transition-colors placeholder:text-zinc-400 focus:border-black/[.20] disabled:opacity-60 dark:border-white/[.10] dark:focus:border-white/[.25]"
+        className="w-full resize-none rounded-2xl border border-black/[.08] bg-transparent p-5 text-lg leading-relaxed outline-none transition-colors placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:border-black/[.20] disabled:opacity-60 dark:border-white/[.10] dark:focus:border-white/[.25]"
       />
 
       {!rows && !edits && (
@@ -627,7 +629,7 @@ export default function CaptureComposer({ onFinished }: {
             className="rounded-full bg-zinc-900 px-6 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-30 dark:bg-zinc-100 dark:text-zinc-900">
             {busy ? "Reading…" : "Capture"}
           </button>
-          <span className="text-xs text-zinc-400">⌘↵</span>
+          <span className="text-xs text-zinc-500 dark:text-zinc-400">⌘↵</span>
         </div>
       )}
 
@@ -658,7 +660,7 @@ export default function CaptureComposer({ onFinished }: {
             context: live.flatMap((r) => r.context),
             hasPendingEdit: false,
           }) && (
-            <p data-capture-asking className="mt-0.5 text-[11px] text-zinc-500">
+            <p data-capture-asking className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
               {askingBecause({
                 candidates: live.map((r) => r.candidate),
                 context: live.flatMap((r) => r.context),
@@ -686,7 +688,7 @@ export default function CaptureComposer({ onFinished }: {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{kindHeading(r.candidate)}</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{kindHeading(r.candidate)}</span>
                       {r.candidate.producedBy === "ai" && (
                         <span className="rounded-full bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">AI suggested</span>
                       )}
@@ -697,10 +699,10 @@ export default function CaptureComposer({ onFinished }: {
 
                     {r.candidate.kind === "protocol" ? (
                       <div className="mt-1.5 flex flex-col gap-1.5">
-                        <label className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">When / if</label>
+                        <label className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">When / if</label>
                         <input value={r.trigger} onChange={(e) => patch(i, { trigger: e.target.value })} aria-label="Protocol trigger"
                           className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/12" />
-                        <label className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Then</label>
+                        <label className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Then</label>
                         <input value={r.response} onChange={(e) => patch(i, { response: e.target.value })} aria-label="Protocol response"
                           className="rounded-lg border border-black/10 bg-transparent px-2 py-1 text-sm dark:border-white/12" />
                       </div>
@@ -710,7 +712,7 @@ export default function CaptureComposer({ onFinished }: {
                     )}
 
                     {/* Extracted fields, stated plainly. */}
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
                       {r.candidate.fields.dueDate && !dateNotKept(r.candidate) && (
                         <span data-due>
                           {/* An event happens ON a day; a task is due BY one. */}
@@ -742,7 +744,7 @@ export default function CaptureComposer({ onFinished }: {
                         what did NOT happen, and hiding it because the routing
                         was certain is exactly backwards (§8). */}
                     {r.candidate.disclosure && (
-                      <p data-capture-disclosure className="mt-1.5 text-[11px] text-zinc-500">
+                      <p data-capture-disclosure className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                         {r.candidate.disclosure}
                       </p>
                     )}
@@ -783,14 +785,14 @@ export default function CaptureComposer({ onFinished }: {
                           className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] font-medium text-zinc-700 dark:border-white/[.15] dark:text-zinc-200">
                           {HANDOFF_ACTION_LABEL} →
                         </button>
-                        <span className="ml-2 text-[11px] text-zinc-400">You decide there — nothing is saved yet.</span>
+                        <span className="ml-2 text-[11px] text-zinc-500 dark:text-zinc-400">You decide there — nothing is saved yet.</span>
                       </div>
                     )}
 
                     {/* Change my mind about the kind, without retyping (§17). */}
                     {r.candidate.alternates.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <span className="text-zinc-400">Or:</span>
+                        <span className="text-zinc-500 dark:text-zinc-400">Or:</span>
                         {r.candidate.alternates.map((k) => (
                           <button key={k} type="button"
                             // LIFEOS-080. Was a hand-written ternary that gave
@@ -808,7 +810,7 @@ export default function CaptureComposer({ onFinished }: {
                   </div>
 
                   <button type="button" onClick={() => patch(i, { removed: true })} aria-label={`Remove: ${r.title}`}
-                    className="shrink-0 rounded-full border border-black/[.12] px-2 py-0.5 text-[11px] text-zinc-500 dark:border-white/[.15]">Remove</button>
+                    className="shrink-0 rounded-full border border-black/[.12] px-2 py-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 dark:border-white/[.15]">Remove</button>
                 </div>
               </li>
             ))}
@@ -824,18 +826,18 @@ export default function CaptureComposer({ onFinished }: {
               className="rounded-full border border-black/[.12] px-4 py-2 text-sm dark:border-white/[.15]">
               Keep the whole thing as a note
             </button>
-            <button type="button" onClick={reset} className="text-xs text-zinc-500 underline underline-offset-2">Start over</button>
+            <button type="button" onClick={reset} className="text-xs text-zinc-500 dark:text-zinc-400 underline underline-offset-2">Start over</button>
           </div>
 
           {/* Belief analysis is still here — as a deliberate choice, not a default (§15). */}
-          <p className="mt-4 text-[11px] text-zinc-400">
+          <p className="mt-4 text-[11px] text-zinc-500 dark:text-zinc-400">
             Thinking something through rather than getting it done?{" "}
             <button type="button" onClick={() => void lookForBeliefs()} disabled={busy}
               className="underline underline-offset-2 disabled:opacity-50">Look for beliefs in this instead →</button>
           </p>
 
           {asked && (
-            <p className="mt-2 text-[11px] text-zinc-400">
+            <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
               Part of this didn&apos;t match any rule, so Conqify asked AI for help with it.
             </p>
           )}
@@ -851,7 +853,18 @@ export default function CaptureComposer({ onFinished }: {
         replaces it.
       */}
       {finished && (
-        <div data-capture-finished className="mt-4 rounded-2xl border border-black/[.06] bg-black/[.02] p-4 dark:border-white/[.08] dark:bg-white/[.03]">
+        /**
+         * LIFEOS-099 §35. The result is announced, not only shown.
+         *
+         * Measured: the finished panel rendered and was inside no live region,
+         * so a screen-reader user pressed Capture and heard nothing at all —
+         * the one moment in the product where silence is indistinguishable
+         * from failure. `polite` rather than `assertive`, and scoped to this
+         * panel rather than to the store, because §35 asks for the capture
+         * outcome to be announced and explicitly not for every update to be.
+         */
+        <div data-capture-finished role="status" aria-live="polite"
+          className="mt-4 rounded-2xl border border-black/[.06] bg-black/[.02] p-4 dark:border-white/[.08] dark:bg-white/[.03]">
           <ul className="flex flex-col gap-2">
             {finished.outcomes.map((o) => {
               const key = `${o.kind}:${o.id}`;
@@ -866,26 +879,59 @@ export default function CaptureComposer({ onFinished }: {
                 { createdByCapture: createdBy(state, { kind: o.kind, id: o.id } as Parameters<typeof createdBy>[1], finished.captureId) });
               return (
                 <li key={key} data-capture-saved={o.kind}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                     {SAVED_LEAD} {o.label}
                   </p>
                   <Link href={o.href} className="text-sm text-zinc-900 underline-offset-4 hover:underline dark:text-zinc-100">
                     {o.title}
                   </Link>
-                  {o.detail && <p className="text-[11px] text-zinc-500">{o.detail}</p>}
+                  {o.detail && <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{o.detail}</p>}
                   {correctable && (
                     // `block` and a margin: as an inline button it rendered
                     // hard against the title link — "Transcript from MariaClose"
                     // — which the visual review caught on the success panel.
+                    /**
+                     * LIFEOS-099 §14, §15, §22.
+                     *
+                     * `aria-expanded` / `aria-controls`: this is a disclosure
+                     * toggle and it now says so. Without them a screen-reader
+                     * user pressed "Edit", heard the label change to "Close",
+                     * and was told nothing about the panel that had appeared.
+                     *
+                     * The accessible name carries the record, because a success
+                     * panel can list several outcomes and "Edit" five times over
+                     * is §22's ambiguous-label case exactly.
+                     *
+                     * `min-h-[44px] min-w-[44px]` with `inline-flex`: measured at 19x17px,
+                     * the smallest target in the primary loop and on the surface
+                     * a person touches most. It grows in the flow rather than by
+                     * negative margin — §15 forbids buying the number with
+                     * invisible overlap that creates accidental taps. The
+                     * control sits alone on its line inside the outcome column,
+                     * so widening it to 44px reaches into empty space and
+                     * collides with no neighbour (§16).
+                     */
                     <button type="button" data-capture-edit={o.id}
+                      aria-expanded={correcting === key}
+                      aria-controls={correcting === key ? `correction-${o.id}` : undefined}
+                      aria-label={`${correcting === key ? "Close" : "Edit"} ${o.title}`}
+                      ref={(el) => { if (correcting === key) editRefs.current[key] = el; }}
                       onClick={() => setCorrecting(correcting === key ? null : key)}
-                      className="mt-1 block text-[11px] text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
+                      className="mt-1 inline-flex min-h-[44px] min-w-[44px] items-center text-[11px] text-zinc-500 dark:text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
                       {correcting === key ? "Close" : "Edit"}
                     </button>
                   )}
                   {correcting === key && correctable && (
                     <CorrectionSheet source={rawOf(finished.captureId)} outcome={correctable}
-                      onClose={() => setCorrecting(null)} />
+                      onClose={() => {
+                        // §14. Focus returns to the control that opened the
+                        // panel. Closing without this drops a keyboard user at
+                        // the top of the document, because the node they were
+                        // standing on has just been removed.
+                        const opener = editRefs.current[key];
+                        setCorrecting(null);
+                        requestAnimationFrame(() => opener?.focus());
+                      }} />
                   )}
                 </li>
               );
@@ -934,7 +980,7 @@ export default function CaptureComposer({ onFinished }: {
 
       {/* §29. Saved, and not organized. Both halves, because only both are true. */}
       {kept && (
-        <p data-capture-kept className="mt-4 text-sm text-zinc-500">
+        <p data-capture-kept className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
           {KEPT_UNORGANISED}{" "}
           <Link href="/process" className="underline underline-offset-2">Open the inbox →</Link>
         </p>

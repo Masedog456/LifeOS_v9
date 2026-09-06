@@ -26,7 +26,7 @@ export function ProgressBar({ percent, label }: { percent: number; label?: strin
  */
 export function ProgressOrNot({ percent, label, none = "Not measured yet — no milestones or completed projects." }:
   { percent: number | null; label?: string; none?: string }) {
-  if (percent === null) return <p className="text-xs text-zinc-400" data-progress="none">{none}</p>;
+  if (percent === null) return <p className="text-xs text-zinc-500 dark:text-zinc-400" data-progress="none">{none}</p>;
   return <ProgressBar percent={percent} label={label} />;
 }
 
@@ -38,7 +38,7 @@ export function Panel({ title, children, action }: { title: string; children: Re
   return (
     <section className="rounded-xl border border-black/10 p-4 dark:border-white/12">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{title}</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{title}</h2>
         {action}
       </div>
       {children}
@@ -47,5 +47,5 @@ export function Panel({ title, children, action }: { title: string; children: Re
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs text-zinc-400">{children}</p>;
+  return <p className="text-xs text-zinc-500 dark:text-zinc-400">{children}</p>;
 }

@@ -76,6 +76,118 @@ export type TypeRole = keyof typeof TYPE_SCALE;
  */
 export const MIN_TEXT_REM = 0.6875;
 
+// ------------------------------------------------- text roles as classes ---
+
+/**
+ * The three text tiers of the primary loop, as Tailwind classes (LIFEOS-099).
+ *
+ * ## Why classes and not just the scale above
+ *
+ * `TYPE_SCALE` describes the sizes. It says nothing about COLOUR, and colour is
+ * where this product's readability actually failed: the audit measured no zinc
+ * shade that passes WCAG AA in both themes on our grounds.
+ *
+ *   shade        light           dark
+ *   zinc-300     1.43  fail      13.32 pass
+ *   zinc-400     2.54  fail       7.51 pass
+ *   zinc-500     4.67  pass       4.08 fail
+ *   zinc-600     7.46  pass       2.55 fail
+ *   zinc-700    10.09  pass       1.89 fail
+ *
+ * So a single token cannot be correct, and the obvious fix is a trap: moving
+ * metadata from `zinc-400` to `zinc-600` takes light from 2.54 to 7.46 and dark
+ * from 7.51 to 2.55. Every tier below is therefore a PAIR, and each half was
+ * measured on the real page ground rather than chosen by eye.
+ *
+ * The product already knew this. `linkClass` beside the failing declarations
+ * pairs `text-zinc-800 dark:text-zinc-100` and passes in both modes; the
+ * metadata constant next to it did not, and had drifted into two values across
+ * five files.
+ *
+ * ## Why they live here
+ *
+ * `metaClass` was declared five times — twice as `text-zinc-500`, three times as
+ * `text-zinc-400` — which is the same duplication LIFEOS-098 removed one layer
+ * up, in words instead of styles. This is a small shared constant, not a
+ * typography system (§41, §42): three strings, no component, no variants API.
+ */
+
+/** PRIMARY — a record's own title or question. 14.4:1 light, 15.9:1 dark. */
+export const PRIMARY_TEXT = "text-zinc-800 dark:text-zinc-100";
+
+/** SECONDARY — state, section labels, a fact about the record. 7.46 / 13.32. */
+export const SECONDARY_TEXT = "text-zinc-600 dark:text-zinc-300";
+
+/**
+ * TERTIARY — dates, provenance, explanatory detail. 4.67 light, 7.51 dark.
+ *
+ * The lightest pair that clears AA in both directions. Anything fainter fails
+ * one mode or the other, which is why the tier stops here rather than
+ * continuing the scale.
+ */
+export const TERTIARY_TEXT = "text-zinc-500 dark:text-zinc-400";
+
+/**
+ * The metadata chip at the end of a commitment row.
+ *
+ * `text-xs` (12px), not the `text-[11px]` the five copies used: `TYPE_SCALE`
+ * above already reserves 0.6875rem for uppercase eyebrow labels and puts
+ * ordinary metadata at 0.8125rem, so the components had drifted from this
+ * file's own scale as well as from each other.
+ *
+ * `min-w-0` rather than `shrink-0`, and that is a bug fix rather than a
+ * preference. With `shrink-0` a metadata span holding a long name refuses to
+ * shrink: the audit measured "Waiting on Dr. Maria Consuelo Fernández-Villanueva"
+ * rendering 372px wide inside a 390px viewport, overrunning it by 27px and
+ * dragging the fixed command bar out with it. Allowing the chip to shrink lets
+ * a long fact wrap onto a second line, which costs a row some height and loses
+ * nothing — §19 forbids truncating the only copy of a waiting person.
+ */
+export const ROW_META = `min-w-0 text-right text-xs ${TERTIARY_TEXT}`;
+
+/**
+ * The commitment-row control pill (LIFEOS-099 §15, §16, §41).
+ *
+ * ## What it is
+ *
+ * "Complete", "Not today", "Reschedule", a decision option, a carry-forward
+ * choice. It is the control a person actually presses to move work, and it
+ * appeared as the same 158-character class literal in fifteen files — the same
+ * duplication `metaClass` had, one control-type over.
+ *
+ * ## The mobile minimum, and why it is only a mobile minimum
+ *
+ * Measured at roughly 25px tall from `py-1` on 11px text. §15 asks for 44px as
+ * "the practical mobile target", and on a phone a 25px pill in a wrapping row of
+ * three is genuinely hard to hit.
+ *
+ * It is NOT 44px everywhere. Applying that at every width would add ~19px to
+ * every control row on Today, the project page, the goal page and the evening
+ * close — an airy redesign, which §43 forbids in as many words. `sm:min-h-0`
+ * releases it above 640px, so a phone gets a real target and a desktop keeps the
+ * density it already had.
+ *
+ * `inline-flex items-center` centres the label inside the taller box rather than
+ * leaving it sitting at the top of an empty pill. The controls live in a
+ * `flex-wrap gap-1.5` row, so growing them vertically separates neighbours
+ * rather than overlapping them — §15's "no invisible overlap that creates
+ * accidental taps".
+ */
+export const CONTROL_PILL =
+  "inline-flex min-h-[44px] items-center sm:min-h-0 "
+  + "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 "
+  + "hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+
+/** The same pill for a control that can be disabled. */
+export const CONTROL_PILL_DISABLABLE = CONTROL_PILL.replace(
+  "hover:bg-black/[.04]", "hover:bg-black/[.04] disabled:opacity-40");
+
+/** The affirmative variant — one per row at most (LIFEOS-071's `primaryBtn`). */
+export const CONTROL_PILL_PRIMARY =
+  "inline-flex min-h-[44px] items-center sm:min-h-0 "
+  + "rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white "
+  + "disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900";
+
 /** Every token group must be present — a self-test asserts this. */
 export const TOKEN_GROUPS = ["SPACE", "RADII", "BORDERS", "CONTROL_HEIGHT", "DURATION", "EASING", "FOCUS_RING", "CONTENT_WIDTH", "PANEL_WIDTH", "BREAKPOINTS", "ICON_SIZE", "TYPE_SCALE"] as const;
 

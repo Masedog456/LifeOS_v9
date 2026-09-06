@@ -24,6 +24,7 @@
  */
 
 import { useState } from "react";
+import { CONTROL_PILL, CONTROL_PILL_PRIMARY } from "@/lib/design/tokens";
 import { addReflection } from "@/lib/mvpStore";
 import { toast } from "@/lib/ux/feedback";
 import { formatDayKey, type DayKey } from "@/lib/reviews/dates";
@@ -34,9 +35,9 @@ import {
 } from "@/lib/reviews/meaning";
 
 const chip =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL;
 const chipOn =
-  "rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white dark:bg-zinc-100 dark:text-zinc-900";
+  CONTROL_PILL_PRIMARY;
 
 export default function MeaningCapture({
   reviewedDay, cards, more, otherWords, canWrite,
@@ -85,7 +86,7 @@ export default function MeaningCapture({
           {cards.map((card) => (
             <li key={card.reflection.id} data-meaning-card={card.kind ?? "other"}
               className="flex flex-col gap-0.5">
-              <p className="text-[11px] text-zinc-400">{card.prompt}</p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{card.prompt}</p>
               <p data-review-words className="text-sm text-zinc-700 dark:text-zinc-200">
                 “{card.reflection.response}”
               </p>
@@ -93,7 +94,7 @@ export default function MeaningCapture({
                   about, and the honest move is to say so rather than to hide
                   one behind the other. */}
               {writtenLaterNote(card, (d) => formatDayKey(d)) && (
-                <p data-meaning-written-later className="text-[11px] text-zinc-400">
+                <p data-meaning-written-later className="text-[11px] text-zinc-500 dark:text-zinc-400">
                   {writtenLaterNote(card, (d) => formatDayKey(d))}
                 </p>
               )}
@@ -111,7 +112,7 @@ export default function MeaningCapture({
         </ul>
       )}
       {more > 0 && (
-        <p data-meaning-more-count className="text-[11px] text-zinc-400">
+        <p data-meaning-more-count className="text-[11px] text-zinc-500 dark:text-zinc-400">
           {more} more {more === 1 ? "answer" : "answers"} from this day.
         </p>
       )}
@@ -134,7 +135,7 @@ export default function MeaningCapture({
             ))}
             {!showMore && (
               <button type="button" data-meaning-more onClick={() => setShowMore(true)}
-                className="text-[11px] text-zinc-400 underline-offset-4 hover:underline">
+                className="text-[11px] text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:underline">
                 {MEANING_MORE}
               </button>
             )}
@@ -142,9 +143,9 @@ export default function MeaningCapture({
 
           {open ? (
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="meaning-response" className="text-[11px] text-zinc-500">
+              <label htmlFor="meaning-response" className="text-[11px] text-zinc-500 dark:text-zinc-400">
                 {prompts.find((p) => p.kind === open)?.text}{" "}
-                <span className="text-zinc-400">{MEANING_EMPTY}</span>
+                <span className="text-zinc-500 dark:text-zinc-400">{MEANING_EMPTY}</span>
               </label>
               <div className="flex items-start gap-2">
                 <textarea
@@ -173,7 +174,7 @@ export default function MeaningCapture({
           ) : (
             // §4, §29. No prompt open is the resting state, and the copy says
             // nothing about what has or has not been written.
-            <p data-meaning-rest className="text-[11px] text-zinc-400">{MEANING_EMPTY}</p>
+            <p data-meaning-rest className="text-[11px] text-zinc-500 dark:text-zinc-400">{MEANING_EMPTY}</p>
           )}
         </div>
       )}

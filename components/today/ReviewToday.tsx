@@ -36,6 +36,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { CONTROL_PILL, ROW_META } from "@/lib/design/tokens";
 import { useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import {
@@ -56,10 +57,10 @@ import MeaningCapture from "@/components/today/MeaningCapture";
 import { meaningPageForDay } from "@/lib/reviews/meaning";
 import { buildDecisionInbox, decisionCountLine } from "@/lib/guidance/decisions";
 
-const metaClass = "shrink-0 text-[11px] text-zinc-500";
+const metaClass = ROW_META;
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
 const chip =
-  "rounded-full border border-black/[.12] px-2.5 py-1 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  CONTROL_PILL;
 
 function Block({ title, show, children, id }: {
   title: string; show: boolean; children: React.ReactNode; id: string;
@@ -67,7 +68,7 @@ function Block({ title, show, children, id }: {
   if (!show) return null;
   return (
     <section data-review-section={id} className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>
+      <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
       {children}
     </section>
   );
@@ -184,7 +185,9 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
   const hasTomorrow = c.tomorrowScheduled.length > 0 || c.carryForward.length > 0;
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8">
+    // §34. `main`, because the evening close had no landmark either — a
+    // screen-reader user could jump to Today's content but not to this page's.
+    <main className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-8">
       <header>
         {/* "Review" — a thing you can do, not a state the day is in (§22). */}
         {/* §37. `Review {heading.toLowerCase()}` printed "Review friday, sep 4":
@@ -197,7 +200,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
             Sep 4" above "Fri, Sep 4" was the same date twice, one line apart.
             The subtitle earns its place only when the heading says "today". */}
         {c.isToday && (
-          <p data-review-date className="mt-0.5 text-[11px] text-zinc-500">{formatDayKey(c.date)}</p>
+          <p data-review-date className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{formatDayKey(c.date)}</p>
         )}
 
         {/* §23. Counts. Never an evaluation, and absent when there is nothing
@@ -278,7 +281,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
               {/* §10. Inline, factual, and only once the count supports it —
                   never a warning wall. */}
               {d.repeated && (
-                <p data-review-repeated className="text-[11px] text-zinc-500">{deferralLine(d)}</p>
+                <p data-review-repeated className="text-[11px] text-zinc-500 dark:text-zinc-400">{deferralLine(d)}</p>
               )}
             </li>
           ))}
@@ -352,7 +355,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
           ))}
         </ul>
         {c.waitingMore > 0 && (
-          <p data-review-waiting-more className="mt-1 text-[11px] text-zinc-500">
+          <p data-review-waiting-more className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
             {c.waitingMore} more {c.waitingMore === 1 ? "wait is" : "waits are"} open.{" "}
             <Link href="/actions" className="underline-offset-4 hover:underline">See all</Link>
           </p>
@@ -368,7 +371,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
           naming them under Thursday would date them wrongly.
         */}
         {c.isToday && decisionCount && (
-          <p className="mt-2 text-[11px] text-zinc-500" data-review-decisions>
+          <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400" data-review-decisions>
             <Link href="/today/decisions" className="underline-offset-4 hover:underline">
               {decisionCount} →
             </Link>
@@ -446,12 +449,12 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
                 </li>
               ))}
             </ul>
-            <p data-review-carry-note className="mt-1.5 text-[11px] text-zinc-500">{CARRY_FORWARD_NOTE}</p>
+            <p data-review-carry-note className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{CARRY_FORWARD_NOTE}</p>
           </>
         )}
       </Block>
 
-      <footer className="flex flex-col gap-2 text-[11px] text-zinc-500">
+      <footer className="flex flex-col gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
         {/* §24. A day surface says what it covers in a day's words. The old
             line said "not a complete record of your week" on this page. */}
         <p data-review-coverage>
@@ -466,6 +469,6 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
           <Link href="/daily/history" data-review-history className="underline-offset-4 hover:underline">Past reviews →</Link>
         </p>
       </footer>
-    </div>
+    </main>
   );
 }

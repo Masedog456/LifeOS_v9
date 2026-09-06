@@ -90,14 +90,14 @@ function ConfirmDialogInner({ req }: { req: ConfirmRequest }) {
           <p><span className="font-medium text-zinc-900 dark:text-zinc-100">“{impact.name}”</span> ({impact.typeLabel})</p>
           {impact.children.length > 0 && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">This also affects</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">This also affects</p>
               <ul className="mt-1 list-inside list-disc">
                 {impact.children.map((c) => <li key={c.label}>{c.count} {c.label}{c.count === 1 ? "" : "s"}</li>)}
               </ul>
             </div>
           )}
           {impact.linkedNote && <p className="rounded-lg bg-black/[.04] px-3 py-2 text-[13px] dark:bg-white/[.06]">{impact.linkedNote}</p>}
-          <p className="text-[13px] text-zinc-500">{impact.undoable ? "This can be undone." : "This cannot be undone."}</p>
+          <p className="text-[13px] text-zinc-500 dark:text-zinc-400">{impact.undoable ? "This can be undone." : "This cannot be undone."}</p>
           {high && (
             <label className="flex items-center gap-2 text-[13px]">
               <input type="checkbox" checked={acknowledged} onChange={(e) => setAcknowledged(e.target.checked)} aria-label="I understand this cannot be undone" />

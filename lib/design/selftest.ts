@@ -7,7 +7,9 @@
  * responsive breakpoint behavior, and principle traceability.
  */
 
-import { SPACE, RADII, TYPE_SCALE, TOKEN_GROUPS, MIN_TEXT_REM, tokensToCssVars, BREAKPOINTS, CONTROL_HEIGHT, DURATION } from "@/lib/design/tokens";
+import { SPACE, RADII, TYPE_SCALE, TOKEN_GROUPS, MIN_TEXT_REM, tokensToCssVars, BREAKPOINTS, CONTROL_HEIGHT, DURATION,
+  PRIMARY_TEXT, SECONDARY_TEXT, TERTIARY_TEXT, ROW_META, MIN_TOUCH_TARGET,
+  CONTROL_PILL, CONTROL_PILL_PRIMARY, CONTROL_PILL_DISABLABLE } from "@/lib/design/tokens";
 import { COLORS, STATUS_ROLES, contrastRatio, meetsAA, colorCssVars } from "@/lib/design/color";
 import { PRINCIPLES, validatePrinciples } from "@/lib/design/principles";
 import { TERMS, term, findDeprecated, validateTerminology } from "@/lib/design/terminology";
@@ -95,6 +97,80 @@ export function runDesignSelfTests(): SelfTestReport {
   ok("10.2 covers all required surfaces", REQUIRED_SURFACES.every((s) => ROUTE_INVENTORY.some((r) => r.surface === s)), String(ROUTE_INVENTORY.length));
   ok("10.3 today is the onboarding-dependent primary entry", ROUTE_INVENTORY.find((r) => r.route === "/today")?.onboardingDependency === true);
   ok("10.4 insights notes forbid perf coding", (ROUTE_INVENTORY.find((r) => r.route === "/insights")?.notes ?? []).some((n) => /performance/i.test(n)));
+
+  // ---- 9. Accessibility text tiers and controls (LIFEOS-099) ----
+  //
+  // Structural, and deliberately browser-free: these are the guarantees a
+  // stylesheet edit could silently undo, and the browser suite that would catch
+  // it costs a production build. The RGB values below are what the running
+  // product actually renders, read off `getComputedStyle` during the §3 audit —
+  // so the ratios computed here are the measured ones, not a second opinion.
+  {
+    const GROUND = { light: "#fcfbf9", dark: "#0b0b0a" };
+    const ZINC: Record<string, string> = {
+      "100": "#f4f4f5", "300": "#d4d4d8", "400": "#9f9fa9",
+      "500": "#71717b", "600": "#52525c", "700": "#3f3f47", "800": "#27272a",
+    };
+    /** "text-zinc-500 dark:text-zinc-400" -> { light: "500", dark: "400" } */
+    const shades = (cls: string) => ({
+      light: (cls.match(/(?:^|\s)text-zinc-(\d{3})/) || [])[1],
+      dark: (cls.match(/dark:text-zinc-(\d{3})/) || [])[1],
+    });
+    const TIERS: [string, string][] = [
+      ["PRIMARY_TEXT", PRIMARY_TEXT],
+      ["SECONDARY_TEXT", SECONDARY_TEXT],
+      ["TERTIARY_TEXT", TERTIARY_TEXT],
+    ];
+
+    // A. Every tier is a PAIR. The whole finding of LIFEOS-099 is that no single
+    // zinc shade clears AA in both themes, so a tier missing its dark half is
+    // not a style preference — it is a guaranteed failure in one mode.
+    for (const [name, cls] of TIERS) {
+      const s = shades(cls);
+      ok(`9.1 ${name} names both a light and a dark shade`, !!s.light && !!s.dark, cls);
+    }
+
+    // B. …and both halves clear AA on the ground they are actually painted on.
+    for (const [name, cls] of TIERS) {
+      const s = shades(cls);
+      const l = s.light ? contrastRatio(ZINC[s.light], GROUND.light) : 0;
+      const d = s.dark ? contrastRatio(ZINC[s.dark], GROUND.dark) : 0;
+      ok(`9.2 ${name} clears AA in both themes`,
+        l >= 4.5 && d >= 4.5, `light ${l.toFixed(2)} · dark ${d.toFixed(2)}`);
+    }
+
+    // C. The tiers stay DISTINCT. §8's failure mode is solving contrast by
+    // making everything equally loud, which every other assertion here would
+    // pass while the product got worse.
+    const lights = TIERS.map(([, c]) => shades(c).light);
+    ok("9.3 the three tiers are three different shades",
+      new Set(lights).size === 3, lights.join(","));
+    ok("9.4 …and they descend from primary to tertiary",
+      Number(lights[0]) > Number(lights[1]) && Number(lights[1]) > Number(lights[2]),
+      lights.join(" > "));
+
+    // D. The row metadata does not carry `shrink-0`. It measured 372px wide
+    // inside a 390px viewport on the evening close, overran it by 27px, and
+    // dragged the fixed command bar out with it.
+    ok("9.5 ROW_META cannot refuse to shrink", !/\bshrink-0\b/.test(ROW_META), ROW_META);
+    ok("9.6 ROW_META is at least 12px, per this file's own metadata role",
+      /\btext-xs\b/.test(ROW_META) && !/text-\[11px\]/.test(ROW_META), ROW_META);
+
+    // E. The control pill keeps a practical mobile target and releases it above
+    // the small breakpoint, so desktop density is not traded for it (§43).
+    for (const [name, cls] of [["CONTROL_PILL", CONTROL_PILL],
+      ["CONTROL_PILL_PRIMARY", CONTROL_PILL_PRIMARY]] as [string, string][]) {
+      ok(`9.7 ${name} meets the touch target on a phone`,
+        cls.includes(`min-h-[${MIN_TOUCH_TARGET}px]`), cls.slice(0, 60));
+      ok(`9.8 ${name} releases it on a wider screen`,
+        /\bsm:min-h-0\b/.test(cls), cls.slice(0, 60));
+    }
+    ok("9.9 the disablable pill is the same pill",
+      CONTROL_PILL_DISABLABLE.includes("disabled:opacity-40")
+      && CONTROL_PILL_DISABLABLE.includes(`min-h-[${MIN_TOUCH_TARGET}px]`),
+      CONTROL_PILL_DISABLABLE.slice(0, 60));
+  }
+
 
   const passed = results.filter((r) => r.pass).length;
   return { pass: passed === results.length, total: results.length, passed, failed: results.length - passed, ms: Date.now() - t0, results };

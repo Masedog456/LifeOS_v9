@@ -33,6 +33,7 @@
  */
 
 import Link from "next/link";
+import { ROW_META } from "@/lib/design/tokens";
 import { formatDayKey } from "@/lib/reviews/dates";
 import type { TodayIndexes } from "@/lib/today/indexes";
 import type { DayKey } from "@/lib/reviews/dates";
@@ -47,7 +48,7 @@ import {
 } from "@/lib/execution/context";
 
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
-const metaClass = "shrink-0 text-[11px] text-zinc-400";
+const metaClass = ROW_META;
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
 
 /** A recorded transition, stated as the transition (§13, §14). */
@@ -57,8 +58,8 @@ function Section({ title, id, show, note, children }: {
   if (!show) return null;
   return (
     <section data-project-section={id} aria-labelledby={`proj-h-${id}`} className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-      <h2 id={`proj-h-${id}`} className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{title}</h2>
-      {note && <p className="mt-0.5 text-[11px] text-zinc-400">{note}</p>}
+      <h2 id={`proj-h-${id}`} className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{title}</h2>
+      {note && <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{note}</p>}
       <div className="mt-2">{children}</div>
     </section>
   );
@@ -69,7 +70,7 @@ function Block({ label, show, children }: { label: string; show: boolean; childr
   if (!show) return null;
   return (
     <div data-project-block={label.toLowerCase().replace(/[^a-z]+/g, "-")} className="mt-3 first:mt-0">
-      <p className="text-[11px] font-medium text-zinc-500">{label}</p>
+      <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{label}</p>
       <div className="mt-0.5">{children}</div>
     </div>
   );
@@ -79,7 +80,7 @@ function Block({ label, show, children }: { label: string; show: boolean; childr
 function RowNotes({ row }: { row: ProjectRow }) {
   const parts = [row.attention, row.deferral].filter(Boolean);
   if (parts.length === 0) return null;
-  return <p data-project-rownote className="mt-0.5 text-[11px] text-zinc-400">{parts.join(" ")}</p>;
+  return <p data-project-rownote className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{parts.join(" ")}</p>;
 }
 
 export default function ProjectWorkingState({
@@ -102,18 +103,18 @@ export default function ProjectWorkingState({
       >
         {ctx.next ? (
           <div data-project-next className="rounded-xl border border-black/[.06] p-3 dark:border-white/[.08]">
-            <p className="text-[11px] font-medium text-zinc-500">Suggested next</p>
+            <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Suggested next</p>
             <Link href={`/actions/${ctx.next.action.id}`} className="mt-0.5 block text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100">
               {ctx.next.action.title}
             </Link>
             {/* §8. The recommender's own reasons, verbatim. This page adds no
                 ranking of its own and no reason of its own. */}
-            <p className="mt-0.5 text-[11px] text-zinc-400">{ctx.next.reasons.map((r) => r.text).join(" · ")}</p>
+            <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{ctx.next.reasons.map((r) => r.text).join(" · ")}</p>
             {controls(ctx.next.action.id, ctx.next.action.title)}
           </div>
         ) : (
           // §30. Calm, and it never calls a project stalled.
-          <p data-project-nonext className="text-sm text-zinc-500">
+          <p data-project-nonext className="text-sm text-zinc-500 dark:text-zinc-400">
             {ctx.empty ? NO_OPEN_ACTIONS : ctx.nextNote}
           </p>
         )}
@@ -153,7 +154,7 @@ export default function ProjectWorkingState({
                   <Link href={`/actions/${r.action.id}`} className={linkClass}>{r.action.title}</Link>
                 </div>
                 {r.blockedBy && (
-                  <p className="mt-0.5 text-[11px] text-zinc-400">
+                  <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                     Blocked by{" "}
                     <Link href={`/actions/${r.blockedBy.id}`} className="underline underline-offset-2">
                       “{r.blockedBy.title}”
@@ -177,7 +178,7 @@ export default function ProjectWorkingState({
                     {followUpPhrase(r.followUpDate, today) ?? "Waiting"}
                   </span>
                 </div>
-                <p className="mt-0.5 text-[11px] text-zinc-400">
+                <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                   Waiting on {r.waitingOn ?? "someone"}{r.since ? ` since ${formatDayKey(r.since)}` : ""}.
                 </p>
                 <RowNotes row={r} />
@@ -198,7 +199,7 @@ export default function ProjectWorkingState({
         {ctx.recent.length === 0 ? (
           // §29. Scoped exactly to recorded linked completions — never "no
           // progress", which claims something the records do not say.
-          <p data-project-norecent className="text-sm text-zinc-500">{NOTHING_COMPLETED(ctx.range.label)}</p>
+          <p data-project-norecent className="text-sm text-zinc-500 dark:text-zinc-400">{NOTHING_COMPLETED(ctx.range.label)}</p>
         ) : (
           <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
             {ctx.recent.map((c) => (
@@ -213,7 +214,7 @@ export default function ProjectWorkingState({
         )}
         {/* §27. Projects carry no lifecycle history, and the page says so
             rather than dating a status change from `updatedAt`. */}
-        <p data-project-history-limit className="mt-2 text-[11px] text-zinc-400">{HISTORY_LIMITATION}</p>
+        <p data-project-history-limit className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">{HISTORY_LIMITATION}</p>
       </Section>
 
       {/* ---- 4. CONTEXT (§25) -------------------------------------------- */}
@@ -225,7 +226,7 @@ export default function ProjectWorkingState({
               {ctx.goal.title}
             </Link>
           ) : (
-            <p data-project-nogoal className="text-sm text-zinc-500">{NO_GOAL_LINKED}</p>
+            <p data-project-nogoal className="text-sm text-zinc-500 dark:text-zinc-400">{NO_GOAL_LINKED}</p>
           )}
         </Block>
 
@@ -241,7 +242,7 @@ export default function ProjectWorkingState({
                   </span>
                 </div>
                 {p.longerForms.length > 0 && (
-                  <p data-project-person-ambiguous className="mt-0.5 text-[11px] text-zinc-400">
+                  <p data-project-person-ambiguous className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                     Conqify also has “{p.longerForms[0]}”. It cannot tell whether that is the same {p.name}.
                   </p>
                 )}
@@ -255,7 +256,7 @@ export default function ProjectWorkingState({
         <Block label="From your Personal Code" show={ctx.rules.length > 0}>
           <ul className="flex flex-col gap-1">
             {ctx.rules.map((r) => (
-              <li key={r} data-project-rule className="text-[11px] text-zinc-500">“{r}”</li>
+              <li key={r} data-project-rule className="text-[11px] text-zinc-500 dark:text-zinc-400">“{r}”</li>
             ))}
           </ul>
         </Block>

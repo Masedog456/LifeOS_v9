@@ -81,9 +81,9 @@ function GoalDashboard({ id }: { id: string }) {
   const ix = useMemo(() => buildTodayIndexes(state, today), [state, today]);
   const command = useMemo(() => buildGoalContext(state, id, ix, today), [state, id, ix, today]);
 
-  if (!mounted) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-400">Opening goal…</p></main>;
+  if (!mounted) return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500 dark:text-zinc-400">Opening goal…</p></main>;
   if (!goal || !dash || !command) {
-    return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500">This goal doesn’t exist.</p><Link href="/goals" className="mt-2 inline-block text-sm underline">← All goals</Link></main>;
+    return <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10"><p className="text-sm text-zinc-500 dark:text-zinc-400">This goal doesn’t exist.</p><Link href="/goals" className="mt-2 inline-block text-sm underline">← All goals</Link></main>;
   }
 
   const linkedKeys = new Set(goal.linkedKnowledge.map((r) => `${r.kind}:${r.id}`));
@@ -94,14 +94,14 @@ function GoalDashboard({ id }: { id: string }) {
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
-      <div className="mb-2"><Link href="/goals" className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">← Goals</Link></div>
+      <div className="mb-2"><Link href="/goals" className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">← Goals</Link></div>
       <header className="mb-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-tight">{goal.title}</h1>
-            {goal.description && <p className="mt-1 max-w-xl text-sm text-zinc-500">{goal.description}</p>}
+            {goal.description && <p className="mt-1 max-w-xl text-sm text-zinc-500 dark:text-zinc-400">{goal.description}</p>}
           </div>
-          <div className="text-right text-xs text-zinc-400"><SyncStatus /></div>
+          <div className="text-right text-xs text-zinc-500 dark:text-zinc-400"><SyncStatus /></div>
         </div>
         {/* A bar only when a number actually exists — a manual override, or a
             roll-up every project of which is measurable. "Not measured yet" was
@@ -145,7 +145,7 @@ function GoalDashboard({ id }: { id: string }) {
           {/* Counts only, and each only when its denominator is real —
               "0/0 projects" and "0/0 milestones" measure nothing. */}
           {dash.overview.projectCounts.total > 0 && (
-            <span className="text-zinc-400">
+            <span className="text-zinc-500 dark:text-zinc-400">
               {dash.overview.projectCounts.completed}/{dash.overview.projectCounts.total} projects
               {dash.overview.milestones.total > 0 && ` · ${dash.overview.milestones.done}/${dash.overview.milestones.total} milestones`}
             </span>
@@ -166,24 +166,24 @@ function GoalDashboard({ id }: { id: string }) {
               {dash.nextMilestones.map((m) => (
                 <li key={m.ref.id} className="flex items-center justify-between gap-2">
                   <Link href={m.project.href} className="truncate hover:underline">◻ {m.ref.title}</Link>
-                  {m.targetDate && <span className="shrink-0 text-[10px] text-zinc-400">{m.targetDate}</span>}
+                  {m.targetDate && <span className="shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{m.targetDate}</span>}
                 </li>
               ))}
             </ul>
           )}
         </Panel>
 
-        <Panel title="Linked knowledge" action={<button type="button" onClick={() => setShowLink((v) => !v)} className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">{showLink ? "Done" : "＋ Link"}</button>}>
+        <Panel title="Linked knowledge" action={<button type="button" onClick={() => setShowLink((v) => !v)} className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">{showLink ? "Done" : "＋ Link"}</button>}>
           {showLink && (
             <div className="mb-2">
               <input value={linkQuery} onChange={(e) => setLinkQuery(e.target.value)} placeholder="Search knowledge to link…" aria-label="Link knowledge"
                 className="w-full rounded-lg border border-black/10 px-2.5 py-1 text-xs outline-none focus:border-zinc-500 dark:border-white/12 dark:bg-black/20" />
               {linkQuery.trim() && (
                 <ul className="mt-1 max-h-48 divide-y divide-black/[.06] overflow-auto rounded-lg border border-black/10 dark:divide-white/[.06] dark:border-white/12">
-                  {linkResults.length === 0 ? <li className="px-2.5 py-1.5 text-xs text-zinc-400">No matches.</li> :
+                  {linkResults.length === 0 ? <li className="px-2.5 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">No matches.</li> :
                     linkResults.map((r) => (
                       <li key={`${r.entry.kind}:${r.entry.id}`} className="flex items-center justify-between gap-2 px-2.5 py-1 text-xs">
-                        <span className="truncate">{r.entry.title} <span className="text-zinc-400">· {ENTITY_LABEL[r.entry.kind] ?? r.entry.kind}</span></span>
+                        <span className="truncate">{r.entry.title} <span className="text-zinc-500 dark:text-zinc-400">· {ENTITY_LABEL[r.entry.kind] ?? r.entry.kind}</span></span>
                         <button type="button" aria-label={`Link ${r.entry.title}`} onClick={() => linkGoalKnowledge(goal.id, r.entry.kind, r.entry.id)} className="shrink-0 rounded-full border border-black/10 px-2 py-0.5 hover:bg-black/[.04] dark:border-white/12 dark:hover:bg-white/[.06]">Link</button>
                       </li>
                     ))}
@@ -210,7 +210,7 @@ function GoalDashboard({ id }: { id: string }) {
       </div>
 
       <section className="mt-6">
-        <label htmlFor="goal-notes" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-400">Notes</label>
+        <label htmlFor="goal-notes" className="mb-1 block text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Notes</label>
         <textarea id="goal-notes" value={goal.notes} onChange={(e) => updateGoal(goal.id, { notes: e.target.value })} rows={3} placeholder="Working notes for this goal…"
           className="w-full rounded-lg border border-black/10 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-white/12 dark:bg-black/20" />
       </section>
@@ -218,7 +218,7 @@ function GoalDashboard({ id }: { id: string }) {
       <SessionTimeline groups={dash.sessions} />
 
       <div className="mt-8 border-t border-black/[.06] pt-4 dark:border-white/[.08]">
-        <button type="button" onClick={() => requestConfirm({ impact: buildImpact(state, "goal", goal.id), onConfirm: () => { deleteGoal(goal.id); toast({ kind: "success", message: "Goal deleted" }); router.push("/goals"); } })} className="text-xs text-zinc-400 hover:text-red-500">Delete goal</button>
+        <button type="button" onClick={() => requestConfirm({ impact: buildImpact(state, "goal", goal.id), onConfirm: () => { deleteGoal(goal.id); toast({ kind: "success", message: "Goal deleted" }); router.push("/goals"); } })} className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-red-500">Delete goal</button>
       </div>
     </main>
   );
@@ -257,9 +257,9 @@ function RecordReplacement({ goalId }: { goalId: string }) {
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs" data-goal-lifecycle={goal.status}>
-      <span className="text-zinc-400">{GOAL_LIFECYCLE_LABEL[goal.status]}</span>
+      <span className="text-zinc-500 dark:text-zinc-400">{GOAL_LIFECYCLE_LABEL[goal.status]}</span>
       {goal.status !== "replaced" && (
-        <button type="button" onClick={() => setReplacing((v) => !v)} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
+        <button type="button" onClick={() => setReplacing((v) => !v)} className="text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">
           {replacing ? "Cancel" : "Replaced by\u2026"}
         </button>
       )}
@@ -283,7 +283,7 @@ function EntityRows({ entities, empty }: { entities: Entity[]; empty: string }) 
   return <ul className="space-y-1">{entities.map((e) => (
     <li key={`${e.ref.kind}:${e.ref.id}`} className="flex items-center justify-between gap-2 text-sm">
       <EntityLink kind={e.ref.kind} id={e.ref.id} className="truncate text-left hover:underline">{e.ref.title}</EntityLink>
-      <span className="shrink-0 text-[10px] text-zinc-400">{ENTITY_LABEL[e.ref.kind] ?? e.ref.kind}</span>
+      <span className="shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{ENTITY_LABEL[e.ref.kind] ?? e.ref.kind}</span>
     </li>))}</ul>;
 }
 function RefRows({ refs, empty }: { refs: { kind: string; id: string; title: string }[]; empty: string }) {
@@ -291,14 +291,14 @@ function RefRows({ refs, empty }: { refs: { kind: string; id: string; title: str
   return <ul className="space-y-1">{refs.map((r) => (
     <li key={`${r.kind}:${r.id}`} className="flex items-center justify-between gap-2 text-sm">
       <EntityLink kind={r.kind} id={r.id} className="truncate text-left hover:underline">{r.title}</EntityLink>
-      <span className="shrink-0 text-[10px] text-zinc-400">{ENTITY_LABEL[r.kind] ?? r.kind}</span>
+      <span className="shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{ENTITY_LABEL[r.kind] ?? r.kind}</span>
     </li>))}</ul>;
 }
 function ReadingList({ items }: { items: { ref: { kind: string; id: string; title: string }; percent: number }[] }) {
   if (items.length === 0) return <Empty>No documents linked.</Empty>;
   return <ul className="space-y-1.5">{items.map((d) => (
     <li key={d.ref.id} className="text-sm">
-      <div className="flex items-center justify-between gap-2"><EntityLink kind="document" id={d.ref.id} className="truncate text-left hover:underline">{d.ref.title}</EntityLink><span className="shrink-0 text-[10px] text-zinc-400">{d.percent}%</span></div>
+      <div className="flex items-center justify-between gap-2"><EntityLink kind="document" id={d.ref.id} className="truncate text-left hover:underline">{d.ref.title}</EntityLink><span className="shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{d.percent}%</span></div>
       <div className="mt-1"><ProgressBar percent={d.percent} /></div>
     </li>))}</ul>;
 }
@@ -315,7 +315,7 @@ function SessionTimeline({ groups }: { groups: import("@/lib/workspaces/sessions
         <div className="space-y-4">
           {BUCKETS.map((b) => groups[b.key].length > 0 && (
             <div key={b.key}>
-              <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{b.label}</h3>
+              <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{b.label}</h3>
               <ul className="space-y-1.5">
                 {groups[b.key].map((s) => {
                   const o = sessionOutputs(s);
@@ -323,9 +323,9 @@ function SessionTimeline({ groups }: { groups: import("@/lib/workspaces/sessions
                     <li key={s.id} className="rounded-lg border border-black/[.06] px-3 py-2 text-sm dark:border-white/[.08]">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">{SESSION_TYPE_ICON[s.type]} {SESSION_TYPE_LABEL[s.type]}{s.goal ? ` — ${s.goal}` : ""}</span>
-                        <span className="shrink-0 text-xs text-zinc-400">{formatDuration(sessionDuration(s))}{!s.endedAt ? " · active" : ""}</span>
+                        <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">{formatDuration(sessionDuration(s))}{!s.endedAt ? " · active" : ""}</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-zinc-500">{o.entitiesOpened} opened · {o.documentsRead} read · {o.capturesCreated} captured · {o.decisionsMade} decisions</p>
+                      <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{o.entitiesOpened} opened · {o.documentsRead} read · {o.capturesCreated} captured · {o.decisionsMade} decisions</p>
                     </li>
                   );
                 })}

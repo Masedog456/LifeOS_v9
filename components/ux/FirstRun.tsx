@@ -28,16 +28,28 @@ export default function FirstRun() {
   return (
     <section aria-label="Getting started" className="mb-6 rounded-xl border border-black/10 p-4 dark:border-white/12">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold tracking-tight">Getting started <span className="ml-1 text-xs font-normal text-zinc-400">{done}/{total}</span></h2>
-        <button type="button" onClick={() => { writePrefs({ firstRun: { ...readPrefs().firstRun, dismissed: true } }); location.reload(); }} className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">Skip</button>
+        <h2 className="text-sm font-semibold tracking-tight">Getting started <span className="ml-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">{done}/{total}</span></h2>
+        <button type="button" onClick={() => { writePrefs({ firstRun: { ...readPrefs().firstRun, dismissed: true } }); location.reload(); }} className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200">Skip</button>
       </div>
       <ul className="space-y-1.5">
         {steps.map((s) => (
           <li key={s.id} className="flex items-start gap-2 text-sm">
-            <span aria-hidden className={s.done ? "text-emerald-500" : "text-zinc-300 dark:text-zinc-600"}>{s.done ? "✓" : "○"}</span>
+            {/*
+              LIFEOS-099 §11, §32. The marker was measured at 1.43 unchecked and
+              2.39 checked — "do not fade success states into near-invisibility",
+              on the glyph that IS the success state.
+
+              The glyph stays `aria-hidden` because it is a shape, and the state
+              it carries is given to assistive tech as a word instead. Sighted
+              users already had ✓ / ○ plus the strikethrough, so this is not a
+              colour-only case for them; for a screen reader it was carried by
+              nothing at all, since `line-through` is not announced.
+            */}
+            <span aria-hidden className={s.done ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400"}>{s.done ? "✓" : "○"}</span>
+            <span className="sr-only">{s.done ? "Done: " : "Not started: "}</span>
             <span className="min-w-0 flex-1">
-              {s.done ? <span className="text-zinc-400 line-through">{s.label}</span> : <Link href={s.href} className="hover:underline">{s.label}</Link>}
-              {!s.done && <span className="block text-[11px] text-zinc-400">{s.hint}</span>}
+              {s.done ? <span className="text-zinc-500 dark:text-zinc-400 line-through">{s.label}</span> : <Link href={s.href} className="hover:underline">{s.label}</Link>}
+              {!s.done && <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">{s.hint}</span>}
             </span>
           </li>
         ))}

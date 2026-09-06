@@ -178,7 +178,7 @@ export default function SyncStatus() {
         aria-label={`Sync status: ${label}. ${meaning}`}
         onClick={() => setOpen((v) => !v)}
         className={[
-          "flex items-center gap-1.5 rounded-full text-xs text-zinc-400",
+          "flex items-center gap-1.5 rounded-full text-xs text-zinc-500 dark:text-zinc-400",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500",
           // A 44×44 tap target on a phone (§2 / E-1), collapsing to the compact
           // inline chip once there is room for it.
@@ -219,14 +219,14 @@ export default function SyncStatus() {
             <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden />
             <span data-sync-panel-label>{label}</span>
           </p>
-          <p className="mt-1.5 text-xs leading-relaxed text-zinc-500" data-sync-panel-meaning>{meaning}</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400" data-sync-panel-meaning>{meaning}</p>
 
           {/* Only shown when it is genuinely known — never derived from now(). */}
           {lastSync && !h.localError && (
-            <p className="mt-2 text-[11px] text-zinc-400" data-sync-last>Last synced {lastSync}</p>
+            <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400" data-sync-last>Last synced {lastSync}</p>
           )}
           {unsynced && !h.localError && h.state !== "incomplete" && (
-            <p className="mt-1 text-[11px] text-zinc-400" data-sync-pending>Some changes haven’t reached the cloud yet.</p>
+            <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400" data-sync-pending>Some changes haven’t reached the cloud yet.</p>
           )}
 
           {updating && (
@@ -250,7 +250,7 @@ export default function SyncStatus() {
                 ))}
               </ul>
               {conflicts.length > 5 && (
-                <p className="mt-1 text-[10px] text-zinc-500">and {conflicts.length - 5} more</p>
+                <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">and {conflicts.length - 5} more</p>
               )}
             </div>
           )}
