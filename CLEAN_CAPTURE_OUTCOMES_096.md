@@ -3,7 +3,7 @@
 **North star:** when Conqify saves something, the result should read like a clean
 human record, not a copy of the sentence that created it.
 
-## STATUS: AUDIT COMPLETE — IMPLEMENTATION IN PROGRESS
+## STATUS: COMPLETE
 
 | | |
 |---|---|
@@ -149,3 +149,225 @@ because the brief predicted them and earlier sprints had already fixed them.
    (§27).
 
 No new classifier, no phrase dictionary, no LLM, **no migration**.
+
+---
+
+# 2. What shipped
+
+## 2.1 The title rules (§39, §40)
+
+`lib/capture/titles.ts` — pure, deterministic, no store and no clock. **Every
+rule returns the original when it is not certain**, which is the part that
+matters more than the rules: a title is the name a person sees for a commitment
+for months, and a wrong one is worse than a long one.
+
+Two tiers, because recomposition and formatting are different operations:
+
+| Tier | Members | What it may do |
+|---|---|---|
+| `RECOMPOSABLE` | `waiting` | build a title out of `waitingFor` + `waitingOn` |
+| `TIDYABLE` | `action` `waiting` `event` `goal` `project` | leading capital, trailing punctuation |
+
+Deliberately absent from both:
+
+* **`note`, `reflection`** — §12, §13. The prose *is* the record, and
+  `commitCapture` writes `body \|\| title` regardless.
+* **`protocol`** — no title at all. A trigger and a response, and §20's
+  dependency lives in them.
+* **`standard`** — §16. Normative wording is not this sprint's to touch, even
+  in ways that look harmless.
+
+### Waiting (§8, §9, §10)
+
+```
+waitingFor "transcript"        + waitingOn "Maria"     → Transcript from Maria
+waitingFor "recommendation letter" + waitingOn "Maria" → Recommendation letter from Maria
+waitingFor "review of the book"    + waitingOn "Ana"   → Review of the book from Ana
+waitingFor "send the lease"                            → declines, verb-headed
+waitingFor absent                                      → "Waiting on Marcus", unchanged
+```
+
+**"from", never "owed by"** (§10). "Maria owes me the recommendation letter" is
+the user's framing of a relationship; the record's job is to name the thing,
+not to restate a claim about what somebody owes.
+
+The verb test asks `classify.ts`'s own `ACTION_VERBS` through a new
+`startsWithActionVerb` export rather than keeping a second list — two lists
+drift, and only one of them is the one the classifier trusts.
+
+### Tidying (§24)
+
+Leading capital only. Explicitly **not** title case, and explicitly not applied
+when the first word is cased deliberately: `iPhone charger from Sam`, never
+`IPhone`.
+
+## 2.2 Outcome coverage (§30, §32, §33)
+
+**Seventeen of seventeen** ref kinds are named, from one table rather than nine
+more branches. Nine of them used to render as **"Filed"**.
+
+```
+concept · decision · research_project · dialogue · principle
+framework · practice · workspace · constitution_element
+```
+
+§31's invariant survives: the table reads the **store**, so a ref the store
+never wrote is claimed by none of them, and a record with no name of its own
+still renders as "Filed" rather than a word this layer invented.
+
+## 2.3 Search (§27)
+
+An Action's search haystack now includes its **source capture's text**. Shorter
+titles are a smaller haystack, and searching the phrase you actually typed had
+to keep finding the record it produced.
+
+```
+record title   Transcript from Maria
+search         "transcript from maria"   → found
+search         "waiting on maria"        → found, through the source
+```
+
+## 2.4 No migration
+
+Head stays at **0047**. Nothing was added to the schema; `sourceCaptureId`,
+`waitingOn` and `waitingFor` all already existed.
+
+---
+
+# 3. What the testing found
+
+## 3.1 Mutation (§42) — twelve, six escapes, four fixture gaps and two facts
+
+Six reddened immediately. The other six were the useful half.
+
+**M1, M2** added notes and reflections to the cleanable set and removed the kind
+guard entirely — and nothing reddened, because every note in the fixture was
+already capitalised and unpunctuated, so the tidy path would have left it alone
+anyway. **Three assertions could not tell a guard from a coincidence.**
+`"the clinic launch is blocked by the lease."` has a lower-case title the tidy
+path *would* change, and the note kind is what stops it.
+
+**M9** replaced the empty-title guard with a literal `"Saved"` and nothing
+reddened, because no fixture had a nameless record. A concept with a blank name
+now proves §33.
+
+**M10** deleted one `OUTCOME_LABEL` entry and nothing reddened — the table still
+produced the title, so the row read *"Record · Choose graduate program"* and
+every assertion was happy. All seventeen labels are now asserted by name.
+
+**M4** removed the infinitive clause from the waiting guard and nothing
+reddened. Measured across nine phrasings: the interpreter strips a leading "to"
+or "for" every time, so `waitingFor` never arrives with one. **Dead logic reads
+like a protection the code does not have**, so it is gone rather than pinned.
+
+**M8** stays green and is reported as a **semantic no-op**, not dressed up.
+Faking the record makes `entry.name` return `undefined`, which the empty-title
+guard on the next line already rejects — verified by applying the mutation and
+diffing the output, which is identical. 96.20c proves the observable contract;
+`if (!rec) continue` is subsumed, not independently proven, and deleting good
+code to raise a mutation score would make the file worse.
+
+## 3.2 Two earlier suites caught things this sprint changed
+
+**LIFEOS-080** produced *"get healthier"* beside *"Book a physical"* from one
+sentence, because goals were excluded from tidying on §14/§15 grounds.
+Re-reading those: they forbid strengthening what the interpreter **claims**
+about an aspiration; they do not require the claim it already made to read like
+a fragment. Goals joined `TIDYABLE`.
+
+Two 080 assertions were about the user's **wording**, and string equality was
+only ever a proxy for it. They now assert the property directly — the goal is
+the user's sentence and not a paraphrase like "Build an emergency fund" — and a
+new **1.8b** pins that the sentence itself is stored exactly as typed, which is
+the invariant §3 actually cares about.
+
+**LIFEOS-095**'s two assertions about *where* the person was named were
+rewritten to ask what 095 was actually asking: the row says it saved a wait,
+and the row says who. Neither was deleted.
+
+## 3.3 Visual review (§43)
+
+Screenshots at desktop and mobile across waiting / event / action / reflection
+/ rule / dense-recent / no-recent.
+
+**The person, three times.** *"SAVED AS WAITING / Transcript from Maria /
+Waiting on Maria"* — the label, the title and the detail all carrying the same
+relationship, with Maria named twice. The title has to name the person (it must
+stand alone in Search and Memory), so the **detail** is the half that goes, and
+only when the title already names them. A wait whose title does not say who
+still says who.
+
+Nothing else: no over-short titles, no AI-sounding names, the raw capture is
+visible on every recent row above the record it became.
+
+## 3.4 Performance (§44)
+
+| Records | interpret | cleanTitles | describeCreated | recentCaptures | buildSearchEntries |
+|---|---|---|---|---|---|
+| 100 | 0.45 ms | **0.01 ms** | 0.01 ms | 0.55 ms | 1.33 ms |
+| 1,000 | 0.05 ms | **0.01 ms** | 0.00 ms | 0.10 ms | 4.67 ms |
+| 5,000 | 0.20 ms | **0.01 ms** | 0.00 ms | 0.10 ms | 20.67 ms |
+
+Title cleanup is a function of one candidate and costs nothing measurable. The
+§27 search change adds one `Map` build over captures inside a pass that already
+walks every domain — 20.67 ms at 5,000 records, and no new whole-store pass.
+
+## 3.5 Known gaps
+
+* **"Remind me to call the dentist Friday" is still a note.** Making it an
+  Action titled "Call the dentist" is a **classification** change, which §15
+  and §50 exclude. The date is parsed either way.
+* **"I'm waiting for the landlord to send the lease" keeps its sentence.**
+  `waitingFor` parses as a verb phrase and §8 forbids fabricating a noun.
+* **Existing records are not renamed.** The rule applies at creation. A store
+  full of sentence-titled waits keeps them, and nothing migrates them —
+  which is the correct consequence of §37 rather than an oversight.
+* **A capture filed into a domain with no name of its own** still renders as
+  "Filed" (§33).
+
+---
+
+# 4. The product claims (§48)
+
+1. **Raw captures unchanged and recoverable.** — *96.3, browser 3, 080 1.8b*
+2. **Clean titles describe the record.** — *96.1, browser 1*
+3. **Waiting titles materially clearer where evidence exists.** — *96.1, 96.4*
+4. **Parsed temporal language leaves titles without losing the fact.** — *96.10, browser 10–12*
+5. **Negation, blockers and dependencies never stripped.** — *96.11, 96.12, 96.13, browser 14–17b*
+6. **Reflection and normative prose not rewritten.** — *96.11b, 96.6c*
+7. **Completion matching still works.** — *96.14, 96.15, browser 18–19*
+8. **Search retains raw-language recall.** — *96.18, 96.18b, browser 8–9*
+9. **Home names stored outcomes whenever store truth permits.** — *96.20, 96.20b, browser 20–22*
+10. **Immediate and recent descriptions agree.** — *browser 6, 24*
+11. **No LLM rewriting, no new interpretation engine.** — one pure function over fields `interpret` already produced
+12. **No migration.** — head 0047
+
+---
+
+# 5. Files
+
+```
+lib/capture/titles.ts              the rules (new)
+lib/capture/titles-selftest.ts     60 assertions (new)
+scripts/smoke-096-clean-outcomes.cjs  36 browser assertions (new)
+
+lib/capture/classify.ts            startsWithActionVerb exported
+components/capture/CaptureComposer.tsx  applied in rowsFrom, one call site
+lib/capture/home.ts                nine outcome readers; the person named once
+lib/command/records.ts             §27 source-capture recall
+lib/capture/home-selftest.ts       095's two assertions, asked properly
+scripts/smoke-080-capture-intelligence.cjs  080's wording assertions, and 1.8b
+```
+
+## Gates
+
+```
+deterministic     6010/6010 across 60 suites   (096: 60 new)
+browser (096)     36/36
+browser (prior)   080 111/111 · 085 54/54 · 086 53/53 · 089 66/66 · 090 69/69
+                  091 87/87 · 092 59/59 · 093 57/57 · 094 47/47 · 095 67/67
+route smoke       25/25       release audit 17/17
+export verify     14/14       route audit PASS   secret scan PASS
+tsc clean · eslint 0 errors (2 pre-existing warnings) · build PASS
+migration head    0047, unchanged
+```
