@@ -72,6 +72,19 @@ export const OUTCOME_LABEL: Record<string, string> = {
   // `/process` can convert a capture to a belief, and a capture filed that way
   // is filed. Leaving it out made those rows read "Not filed yet".
   belief: "Belief",
+  // LIFEOS-096 §30. The nine `convertCapture` can produce that LIFEOS-095 had
+  // no reader for — measured, not guessed: eight of seventeen ref kinds were
+  // named and nine rendered as "Filed", every one of them with an obvious
+  // title field sitting in the store.
+  concept: "Concept",
+  decision: "Decision",
+  research_project: "Research",
+  dialogue: "Dialogue",
+  principle: "Principle",
+  framework: "Framework",
+  practice: "Practice",
+  workspace: "Workspace",
+  constitution_element: "Rule",
 };
 
 /**
@@ -235,6 +248,15 @@ function hrefFor(kind: string, id: string): string {
     case "event": return `/calendar?event=${id}`;
     case "protocol": return `/protocols`;
     case "belief": return `/beliefs`;
+    case "concept": return `/world/concept/${id}`;
+    case "decision": return `/decisions/${id}`;
+    case "research_project": return `/research/${id}`;
+    case "dialogue": return `/dialogue/${id}`;
+    case "principle": return `/world`;
+    case "framework": return `/world`;
+    case "practice": return `/protocols`;
+    case "workspace": return `/workspaces`;
+    case "constitution_element": return `/constitution`;
     case "project": return `/project/${id}`;
     case "goal": return `/goal/${id}`;
     default: return "/memory";
@@ -318,6 +340,37 @@ export function describeCreated(state: StoreState, refs: readonly RefLite[]): Ca
       const b = (state.beliefs ?? []).find((x) => x.id === ref.id);
       if (!b) continue;
       out.push({ kind: ref.kind, id: ref.id, title: b.text, label, href: hrefFor(ref.kind, ref.id) });
+      continue;
+    }
+    /**
+     * §32. One table for every remaining domain, rather than nine more branches.
+     *
+     * Each entry names the collection and the field that collection calls its
+     * title — read from the STORE, so a ref pointing at nothing still produces
+     * nothing (§31). "Honest thinness beats fake specificity" is §33, and this
+     * table is how a domain earns its name rather than being given one.
+     */
+    const TABLE: Record<string, { rows: readonly { id: string }[]; name: (r: never) => string }> = {
+      concept: { rows: state.concepts ?? [], name: (r: never) => (r as { name: string }).name },
+      decision: { rows: state.decisions ?? [], name: (r: never) => (r as { title: string }).title },
+      research_project: { rows: state.researchProjects ?? [], name: (r: never) => (r as { title: string }).title },
+      dialogue: { rows: state.dialogueSessions ?? [], name: (r: never) => (r as { title: string }).title },
+      principle: { rows: state.principles ?? [], name: (r: never) => (r as { statement: string }).statement },
+      framework: { rows: state.frameworks ?? [], name: (r: never) => (r as { name: string }).name },
+      practice: { rows: state.practices ?? [], name: (r: never) => (r as { title: string }).title },
+      workspace: { rows: state.workspaces ?? [], name: (r: never) => (r as { name: string }).name },
+      constitution_element: {
+        rows: state.constitutionElements ?? [],
+        name: (r: never) => (r as { statement: string }).statement,
+      },
+    };
+    const entry = TABLE[ref.kind];
+    if (entry) {
+      const rec = entry.rows.find((x) => x.id === ref.id);
+      if (!rec) continue;
+      const title = (entry.name(rec as never) ?? "").trim();
+      if (!title) continue;
+      out.push({ kind: ref.kind, id: ref.id, title, label, href: hrefFor(ref.kind, ref.id) });
       continue;
     }
     if (ref.kind === "formation") {

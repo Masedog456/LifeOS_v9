@@ -253,6 +253,21 @@ const startsWithAny = (lower: string, list: string[]) =>
   list.find((v) => lower === v || lower.startsWith(v + " "));
 
 /**
+ * Does this phrase open with a verb this module treats as DOING something?
+ *
+ * Exported for LIFEOS-096 §8, which needs to tell "transcript" from "send the
+ * lease" before recomposing a waiting title — and must ask THIS list rather
+ * than keep a second one, because two lists drift and only one of them is the
+ * one the classifier trusts. Same `NOUN_PHRASE_RE` gate, so "review of the
+ * book" is a noun here exactly as it is above.
+ */
+export function startsWithActionVerb(phrase: string): boolean {
+  const lower = phrase.trim().toLowerCase();
+  if (!lower) return false;
+  return !!startsWithAny(lower, ACTION_VERBS) && !NOUN_PHRASE_RE.test(lower);
+}
+
+/**
  * Detect a capture that appears to hold several intents.
  *
  * Conservative on purpose: a false positive here sends the user to the split
