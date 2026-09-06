@@ -279,7 +279,18 @@ export function describeCreated(state: StoreState, refs: readonly RefLite[]): Ca
       const a = (state.nextActions ?? []).find((x) => x.id === ref.id);
       if (!a) continue;
       const bits: string[] = [];
-      if (a.waitingOn) bits.push(`Waiting on ${a.waitingOn}`);
+      /**
+       * LIFEOS-096 §9, §43. The person once, not twice.
+       *
+       * The visual review found "SAVED AS WAITING / Transcript from Maria /
+       * Waiting on Maria" — the name said three times between the label and
+       * the detail. The title has to name the person, because it has to stand
+       * alone in Search and Memory; the detail is the half that can go, and
+       * the "Waiting" label already carries the relationship.
+       */
+      if (a.waitingOn && !new RegExp(`\\b${a.waitingOn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(a.title)) {
+        bits.push(`Waiting on ${a.waitingOn}`);
+      }
       if (a.dueDate) bits.push(formatDayKey(a.dueDate));
       if (a.dueTime) bits.push(formatLocalTime(a.dueTime));
       /**

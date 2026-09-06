@@ -224,6 +224,26 @@ export function runCleanTitleSelfTests() {
       JSON.stringify(readChanges("I got the transcript from Maria", s, T).changes));
   }
 
+  // ---- §9, §43. The person is named once ---------------------------------
+  {
+    const s2 = world();
+    s2.nextActions = [
+      { id: "a-clean", title: "Transcript from Maria", description: "", status: "waiting",
+        waitingOn: "Maria", notes: "", linkedEntityRefs: [], tags: [], estimatedSize: "unspecified",
+        energy: "unspecified", order: 1, history: [], createdAt: D(T), updatedAt: D(T) },
+      { id: "a-plain", title: "Waiting on Marcus", description: "", status: "waiting",
+        waitingOn: "Sam", notes: "", linkedEntityRefs: [], tags: [], estimatedSize: "unspecified",
+        energy: "unspecified", order: 1, history: [], createdAt: D(T), updatedAt: D(T) },
+    ] as StoreState["nextActions"];
+    const clean = describeCreated(s2, [{ kind: "action", id: "a-clean" }])[0];
+    ok("96.16c §9 a title that already names the person does not say it again",
+      clean?.label === "Waiting" && !clean?.detail,
+      `${clean?.label} · ${clean?.title} · ${clean?.detail ?? "(no detail)"}`);
+    const plain = describeCreated(s2, [{ kind: "action", id: "a-plain" }])[0];
+    ok("96.16d §9 …and a title that does not name them still says who",
+      plain?.detail === "Waiting on Sam", String(plain?.detail));
+  }
+
   // ---- §26. Duplicate detection, both directions -------------------------
   {
     // 095 blocks an auto-finish when 089 says a record like this may already

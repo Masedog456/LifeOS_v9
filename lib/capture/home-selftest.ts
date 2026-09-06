@@ -200,9 +200,15 @@ export function runCaptureHomeSelfTests() {
       made[0]?.label === "Action", made.map((m) => m.label).join(","));
     ok("95.16 §10 …and one fact about it",
       /Sep 6/.test(made[0]?.detail ?? ""), String(made[0]?.detail));
+    // LIFEOS-096 §9 moved WHERE the person is named, not whether. This row's
+    // title is now "Transcript from Maria", so repeating "Waiting on Maria" in
+    // the detail said the name twice. The guarantee 095 wanted — the row says
+    // who — is asserted where it actually lives rather than at one address.
     ok("95.17 §16 a wait is called a wait, not an action",
-      made[1]?.label === "Waiting" && /Maria/.test(made[1]?.detail ?? ""),
-      `${made[1]?.label} · ${made[1]?.detail}`);
+      made[1]?.label === "Waiting", String(made[1]?.label));
+    ok("95.17b §16 …and the row still says who, in the title or the detail",
+      /Maria/.test(`${made[1]?.title} ${made[1]?.detail ?? ""}`),
+      `${made[1]?.title} · ${made[1]?.detail ?? "(no detail)"}`);
     ok("95.18 §16 a note is a note", made[2]?.label === "Note", String(made[2]?.label));
     ok("95.19 §17 every outcome can be opened",
       made.every((m) => m.href.length > 1), made.map((m) => m.href).join(" "));
