@@ -212,27 +212,33 @@ export default function CorrectionSheet({
           )}
         </div>
 
-        {/* §10, §11. Pick from what exists, or none. Never inferred, never created. */}
-        {has("project") && (
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Project</span>
-            <select value={draft.project ?? ""} onChange={(e) => set("project", e.target.value)}
-              data-correction-field="project" aria-label="Project" className={input}>
-              <option value="">No Project</option>
-              {projects.map((p) => <option key={p.id} value={p.title}>{p.title}</option>)}
-            </select>
-          </label>
-        )}
-        {has("goal") && (
-          <label className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Goal</span>
-            <select value={draft.goal ?? ""} onChange={(e) => set("goal", e.target.value)}
-              data-correction-field="goal" aria-label="Goal" className={input}>
-              <option value="">No Goal</option>
-              {goals.map((g) => <option key={g.id} value={g.title}>{g.title}</option>)}
-            </select>
-          </label>
-        )}
+        {/*
+          §10, §11, §44. Pick from what exists, or none. Never inferred, never
+          created — and side by side, because five stacked full-width fields on
+          a 1280px page is the settings form §44 says not to build.
+        */}
+        <div className="flex flex-wrap gap-2">
+          {has("project") && (
+            <label className="flex min-w-[11rem] flex-1 flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Project</span>
+              <select value={draft.project ?? ""} onChange={(e) => set("project", e.target.value)}
+                data-correction-field="project" aria-label="Project" className={input}>
+                <option value="">No Project</option>
+                {projects.map((p) => <option key={p.id} value={p.title}>{p.title}</option>)}
+              </select>
+            </label>
+          )}
+          {has("goal") && (
+            <label className="flex min-w-[11rem] flex-1 flex-col gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Goal</span>
+              <select value={draft.goal ?? ""} onChange={(e) => set("goal", e.target.value)}
+                data-correction-field="goal" aria-label="Goal" className={input}>
+                <option value="">No Goal</option>
+                {goals.map((g) => <option key={g.id} value={g.title}>{g.title}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
       </div>
 
       {/*
@@ -243,13 +249,22 @@ export default function CorrectionSheet({
         conclude the option is hidden somewhere they have not looked.
       */}
       {outcome.unsupported.length > 0 && (
-        <ul className="mt-2.5 flex flex-col gap-1">
-          {outcome.unsupported.map((u) => (
-            <li key={u.id} data-correction-unsupported={u.id} className="text-[11px] text-zinc-400">
-              <span className="text-zinc-500">{u.label}:</span> {u.reason}
-            </li>
-          ))}
-        </ul>
+        // Behind a disclosure. The reasons are two dense grey paragraphs and
+        // the visual review found them taking as much room as three fields —
+        // louder than the controls, on a sheet whose job is the controls. They
+        // are one click away and still say the whole thing when opened.
+        <details className="mt-2.5">
+          <summary className="cursor-pointer list-none text-[11px] text-zinc-400 underline underline-offset-2">
+            What can&rsquo;t be fixed here
+          </summary>
+          <ul className="mt-1 flex flex-col gap-1">
+            {outcome.unsupported.map((u) => (
+              <li key={u.id} data-correction-unsupported={u.id} className="text-[11px] text-zinc-400">
+                <span className="text-zinc-500">{u.label}:</span> {u.reason}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       {conflict && (

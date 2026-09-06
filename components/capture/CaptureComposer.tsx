@@ -874,9 +874,12 @@ export default function CaptureComposer({ onFinished }: {
                   </Link>
                   {o.detail && <p className="text-[11px] text-zinc-500">{o.detail}</p>}
                   {correctable && (
+                    // `block` and a margin: as an inline button it rendered
+                    // hard against the title link — "Transcript from MariaClose"
+                    // — which the visual review caught on the success panel.
                     <button type="button" data-capture-edit={o.id}
                       onClick={() => setCorrecting(correcting === key ? null : key)}
-                      className="mt-0.5 text-[11px] text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
+                      className="mt-1 block text-[11px] text-zinc-400 underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-200">
                       {correcting === key ? "Close" : "Edit"}
                     </button>
                   )}

@@ -203,7 +203,15 @@ const setField = async (page, name, value) => {
     await say(page, "I'm waiting on Maria for the transcript");
     await openEdit(page);
     const sh = await sheet(page);
-    ok("21 §17 an impossible conversion is named with its cost, not hidden",
+    // The reasons sit behind a labelled disclosure — the visual review found
+    // two dense grey paragraphs louder than the controls. So the assertion
+    // checks BOTH halves: that the way in is named on the sheet, and that the
+    // reason is really there behind it.
+    const summary = await page.evaluate(() =>
+      document.querySelector("[data-correction-sheet] summary")?.textContent?.trim() ?? "");
+    ok("21 §17 the sheet says there are things it cannot fix",
+      /can.?t be fixed here/i.test(summary), summary);
+    ok("21b §17 …and an impossible conversion is named with its cost",
       sh.unsupported.some((u) => /kind of record/i.test(u) && /history and links/i.test(u)),
       sh.unsupported.join(" | "));
     ok("22 §13 …and so is the waiting object, which is not a stored field",
