@@ -92,9 +92,20 @@ const shownTitles = (page) => page.evaluate(() =>
     ok("1.2 …labelled in product words", /Possible goal|Goal/.test(t1));
     ok("1.3 §6 …and says it will not be created for you",
       /won't create a goal unless you say so/i.test(t1), (t1.match(/.{0,60}unless you say so.{0,10}/) ?? [""])[0]);
-    ok("1.4 …titled from the user's own words",
-      JSON.stringify(await shownTitles(page)) === JSON.stringify([["goal", "save six months of expenses"]]),
-      JSON.stringify(await shownTitles(page)));
+    // LIFEOS-096 §24 capitalises the leading letter of a derived title. What
+    // this assertion guards is that the goal is the USER'S wording and not a
+    // paraphrase — "Build an emergency fund" is the failure it exists to catch
+    // — so it now asserts that property directly rather than by string
+    // equality, which was only ever a proxy for it. The user's exact sentence
+    // is untouched in the capture itself (§3), asserted at 1.9 below.
+    {
+      const shown = await shownTitles(page);
+      const title = String(shown[0]?.[1] ?? "");
+      ok("1.4 …titled from the user's own words",
+        shown.length === 1 && shown[0][0] === "goal"
+        && title.toLowerCase() === "save six months of expenses",
+        JSON.stringify(shown));
+    }
     const pre1 = await store(page, (s) => (s.goals || []).length);
     ok("1.5 §6 nothing exists before confirmation", pre1 === 0, `goals=${pre1}`);
     const box1 = await page.evaluate(() => {
@@ -109,7 +120,10 @@ const shownTitles = (page) => page.evaluate(() =>
     await page.waitForTimeout(700);
     const g1 = await store(page, (s) => (s.goals || []).map((g) => g.title));
     ok("1.7 confirming creates exactly one goal", g1.length === 1, JSON.stringify(g1));
-    ok("1.8 …with the user's wording", g1[0] === "save six months of expenses", JSON.stringify(g1));
+    ok("1.8 …with the user's wording", (g1[0] ?? "").toLowerCase() === "save six months of expenses", JSON.stringify(g1));
+    ok("1.8b §096.3 …and the sentence itself is still stored exactly as typed",
+      await store(page, (s) => (s.captures || []).some((c) => /^My goal is to save six months of expenses$/i.test(c.text))),
+      JSON.stringify(await store(page, (s) => (s.captures || []).map((c) => c.text))));
     ok("1.9 §078 …and NO invented horizon", await store(page, (s) => (s.goals || [])[0]?.horizon === undefined));
 
     /* ============================================================
@@ -187,11 +201,16 @@ const shownTitles = (page) => page.evaluate(() =>
     const t4 = await body(page);
     // Read off the inputs, not the page text — the raw sentence is echoed by
     // the textarea and would satisfy a text match on its own.
+    // LIFEOS-096 §24 capitalises what framing-stripping leaves behind, so the
+    // goal and the action now read as records rather than fragments. What this
+    // assertion is about — that each title holds ONLY its own clause and none
+    // of its neighbours' — is unchanged, and the rule's normative wording is
+    // deliberately still untouched (§16).
     ok("4.3 …and each is titled with only its own half",
       JSON.stringify(await shownTitles(page)) === JSON.stringify([
-        ["goal", "get healthier"],
+        ["goal", "Get healthier"],
         ["standard", "I should stop eating late"],
-        ["action", "book a physical"],
+        ["action", "Book a physical"],
       ]), JSON.stringify(await shownTitles(page)));
     const ticked4 = await page.evaluate(() =>
       Array.from(document.querySelectorAll("[data-candidate]")).map((li) => {

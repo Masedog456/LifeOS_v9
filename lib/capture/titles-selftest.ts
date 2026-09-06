@@ -224,6 +224,31 @@ export function runCleanTitleSelfTests() {
       JSON.stringify(readChanges("I got the transcript from Maria", s, T).changes));
   }
 
+  // ---- §24. One sentence, one casing convention --------------------------
+  {
+    /**
+     * Found by LIFEOS-080's browser suite. "I want to get healthier so I should
+     * stop eating late, and I need to book a physical" produces a goal, a rule
+     * and an action — and with goals excluded from tidying, the list read
+     * "get healthier" beside "Book a physical". §14 and §15 forbid
+     * strengthening what the interpreter CLAIMS about an aspiration; they do
+     * not require the claim it already made to read like a fragment.
+     */
+    const cands = interpret(
+      "I want to get healthier so I should stop eating late, and I need to book a physical",
+      world(), T,
+    ).candidates ?? [];
+    const named = cleanTitles(cands).map((r, i) => [cands[i].kind, r.title]);
+    ok("96.6b §24 a goal is capitalised like everything beside it",
+      named.some(([k, t]) => k === "goal" && t === "Get healthier"), JSON.stringify(named));
+    ok("96.6c §16 …but a rule's normative wording is not touched at all",
+      cleanTitles(cands)[1]?.changed === false
+      && named.some(([k, t]) => k === "standard" && t === "I should stop eating late"),
+      JSON.stringify(named));
+    ok("96.6d §24 …and no title in the set is left lower case",
+      named.every(([, t]) => !/^[a-z]/.test(String(t))), JSON.stringify(named));
+  }
+
   // ---- §9, §43. The person is named once ---------------------------------
   {
     const s2 = world();

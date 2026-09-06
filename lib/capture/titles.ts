@@ -118,16 +118,35 @@ function waitingTitle(c: Candidate): TitleResult | null {
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * The kinds whose titles may be touched at all.
+ * Kinds whose title may be RECOMPOSED from other fields.
  *
- * Notes and reflections are absent on purpose: §12 and §13, and the fact that
- * `commitCapture`'s note branch writes `body || title`, so a cleaned note title
- * would never reach the store anyway. Protocols are absent because they have no
- * title — they have a trigger and a response, and the dependency lives there
- * (§20). Projects and goals are absent because §14 and §15 forbid strengthening
- * what the interpreter claims about an aspiration.
+ * Only waiting, and only because it is the one kind that parses out both the
+ * thing and the person and then titles the record with the sentence anyway.
+ * Recomposition is the strong operation here and it has exactly one member.
  */
-const CLEANABLE = new Set(["action", "waiting", "event"]);
+const RECOMPOSABLE = new Set(["waiting"]);
+
+/**
+ * Kinds whose title may be TIDIED — capitalised and de-punctuated (§24).
+ *
+ * A wider set, because tidying changes no meaning. Goals and projects are in
+ * it: the interpreter titles a goal "get healthier", and §14 and §15 forbid
+ * strengthening what it CLAIMS about an aspiration, not making the claim it
+ * already made read like a record. The 080 browser suite is what surfaced this
+ * — one sentence produced "get healthier" beside "Book a physical", and a list
+ * where two records made by one sentence are cased on different principles is
+ * worse than either convention.
+ *
+ * Deliberately absent:
+ *
+ *   note, reflection   §12, §13 — the prose IS the record, and
+ *                      `commitCapture` writes `body || title` regardless
+ *   protocol           no title at all; a trigger and a response, and §20's
+ *                      dependency lives in them
+ *   standard           §16 — normative wording is not this sprint's to touch,
+ *                      even in ways that look harmless
+ */
+const TIDYABLE = new Set(["action", "waiting", "event", "goal", "project"]);
 
 /**
  * The one entry point (§39).
@@ -139,11 +158,11 @@ const CLEANABLE = new Set(["action", "waiting", "event"]);
  */
 export function cleanCandidateTitle(c: Candidate): TitleResult {
   const original = c.fields.title ?? "";
-  if (!CLEANABLE.has(c.kind)) {
+  if (!TIDYABLE.has(c.kind)) {
     return { title: original, changed: false, reason: `${c.kind} titles are left alone` };
   }
 
-  if (c.kind === "waiting") {
+  if (RECOMPOSABLE.has(c.kind)) {
     const composed = waitingTitle(c);
     if (composed) return composed;
     // No object, or the object is a clause. "Waiting on Marcus" stays as it is
