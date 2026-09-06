@@ -40,10 +40,18 @@ import {
   type CorrectableField, type CorrectableOutcome,
 } from "@/lib/capture/corrections";
 
+/*
+ * §34, §46. Save and Cancel are sized for a thumb.
+ *
+ * The first version used the row-control padding from elsewhere in the product
+ * and measured 57×29 on a phone — fine for a chip you tap with a mouse, under
+ * the 44px a finger needs. Padding alone got it to 38, which is why the height
+ * is stated rather than implied. These two are the ones a correction ends on.
+ */
 const btn =
-  "rounded-full border border-black/[.12] px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
+  "min-h-[44px] rounded-full border border-black/[.12] px-4 text-[12px] text-zinc-600 hover:bg-black/[.04] dark:border-white/[.15] dark:text-zinc-300 dark:hover:bg-white/[.06]";
 const primary =
-  "rounded-full bg-zinc-900 px-4 py-1.5 text-[11px] font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900";
+  "min-h-[44px] rounded-full bg-zinc-900 px-5 text-[12px] font-medium text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900";
 const input =
   "w-full rounded-lg border border-black/10 bg-transparent px-2.5 py-1.5 text-[13px] outline-none focus:border-black/30 dark:border-white/12 dark:focus:border-white/30";
 
