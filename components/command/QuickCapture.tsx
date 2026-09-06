@@ -46,6 +46,25 @@
  *   no persistence         §26. `CommandCenter` owns the open/closed state as
  *                          ordinary React state and it dies with the overlay.
  *
+ * ## Two things this deliberately does not implement (§53)
+ *
+ * It opened with a focus effect and an Escape handler. Mutation testing removed
+ * each in turn and the suite stayed green from all eight routes, which was not a
+ * test gap: both were dead.
+ *
+ *   focus    `CaptureComposer`'s textarea carries `autoFocus`, so React focuses
+ *            it when the sheet mounts. The effect re-focused an already-focused
+ *            node.
+ *   Escape   `CommandCenter` listens on `window` and closes whatever overlay is
+ *            open, and `CorrectionSheet` calls `stopPropagation` so a nested
+ *            Escape never reaches this level at all. Measured, with the
+ *            correction sheet open inside the dialog: the first Escape closes
+ *            only the correction sheet and returns focus to its Edit control,
+ *            the second closes the dialog. The handler's own comment had that
+ *            relationship backwards.
+ *
+ * Both are gone. Owning `onClose` and nothing else is what makes this a frame.
+ *
  * ## Dialog, and correctly so (§33)
  *
  * This has a backdrop, blocks the page beneath it, and closes on click-out — so
@@ -55,7 +74,7 @@
  * follow behaviour; the behaviour here says dialog.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import CaptureComposer from "@/components/capture/CaptureComposer";
 
 /**
@@ -70,23 +89,8 @@ import CaptureComposer from "@/components/capture/CaptureComposer";
 const LEGACY_DRAFT_KEY = "lifeos.quickcapture.draft.v1";
 
 export default function QuickCapture({ onClose }: { onClose: () => void }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     try { localStorage.removeItem(LEGACY_DRAFT_KEY); } catch { /* private mode */ }
-  }, []);
-
-  /**
-   * §29, §30. Focus the capture input on open.
-   *
-   * `CommandCenter` already restores focus to the opener on close — it captures
-   * `document.activeElement` before opening any overlay — so only the entry half
-   * belongs here. The composer's own textarea carries `id="capture"`, which is
-   * the same input Home focuses, so this cannot drift from it.
-   */
-  useEffect(() => {
-    const el = panelRef.current?.querySelector<HTMLElement>("#capture");
-    el?.focus();
   }, []);
 
   return (
@@ -98,15 +102,6 @@ export default function QuickCapture({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="quick-capture-heading"
-        ref={panelRef}
-        onKeyDown={(e) => {
-          // §28. Escape closes. Stopped here so it does not also reach a control
-          // inside the composer that treats Escape as its own cancel.
-          if (e.key !== "Escape") return;
-          e.preventDefault();
-          e.stopPropagation();
-          onClose();
-        }}
         className="max-h-[80vh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-black/[.08] bg-white shadow-2xl dark:border-white/[.12] dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between border-b border-black/[.06] px-4 py-3 dark:border-white/[.08]">

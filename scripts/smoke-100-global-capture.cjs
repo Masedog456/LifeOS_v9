@@ -395,7 +395,6 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
   {
     await seed(page);
     await visit(page, "/actions");
-    const before = await store(page);
     await openSheet(page);
     await captureInSheet(page, SENTENCE);
     await page.evaluate(`(() => { const d = ${FIND}; const b = d && d.querySelector("[data-capture-edit]"); if (b) b.click(); })()`);
@@ -410,16 +409,53 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
         inSheet: !!(id && d.querySelector("#" + CSS.escape(id))),
       };
     })()`);
-    ok("16 §22 the 097 correction sheet opens inside the overlay, as a disclosure",
-      corr.expanded === "true" && corr.inSheet, JSON.stringify(corr));
+    /**
+     * §28. And Escape unwinds it one layer at a time.
+     *
+     * Mutation testing put this here. Removing QuickCapture's own Escape
+     * handler changed nothing — `CommandCenter` listens on `window` and
+     * `CorrectionSheet` calls `stopPropagation`, so the nesting is produced by
+     * two files this sprint did not touch and nothing was pinning it.
+     */
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(450);
+    const layer1 = await page.evaluate(`(() => {
+      const d = ${FIND};
+      return {
+        dialog: !!d,
+        sheet: !!(d && d.querySelector("[data-correction-sheet]")),
+        focus: document.activeElement && document.activeElement.getAttribute("aria-label"),
+      };
+    })()`);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(450);
+    const layer2 = await page.evaluate(`!${FIND}`);
 
+    ok("16 §22, §28 the 097 correction sheet opens inside the overlay, and Escape unwinds one layer at a time",
+      corr.expanded === "true" && corr.inSheet &&
+      layer1.dialog && !layer1.sheet && /^Edit /.test(layer1.focus || "") && layer2,
+      JSON.stringify({ ...corr, layer1, closedOn2nd: layer2 }));
+
+  }
+
+  // 17. §23. Undo, on a capture of its own — 16 left one committed and a shared
+  //     `before` snapshot would credit this assertion with reversing it too.
+  {
+    await seed(page);
+    await visit(page, "/actions");
+    const before = await store(page);
+    await openSheet(page);
+
+    await captureInSheet(page, "Order the banner on Thursday");
+    const committed = delta(before, await store(page));
     const undoable = await page.evaluate(`(() => { const d = ${FIND}; const b = d && d.querySelector("[data-capture-undo]"); if (!b) return false; b.click(); return true; })()`);
     await page.waitForTimeout(900);
     const undone = delta(before, await store(page));
     ok("17 §23 Undo belongs to the composer and reverses the whole capture",
-      undoable && undone.actions.length === 0 &&
+      committed.actions.length === 1 && undoable && undone.actions.length === 0 &&
       undone.captures.every((c) => c.processingStatus !== "processed"),
-      JSON.stringify({ actions: undone.actions.length, captures: undone.captures.map((c) => c.processingStatus) }));
+      JSON.stringify({ committed: committed.actions.length, after: undone.actions.length,
+        captures: undone.captures.map((c) => c.processingStatus) }));
   }
 
   // 18. §25, §9. A doorway, not a mini Home page.
@@ -456,6 +492,15 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
   //     the dialog's own order ran h2 → h1. 099's assertion 20 pins both and
   //     never opens this overlay, which is why it is pinned here instead.
   {
+    /**
+     * Home's own heading is asserted here too, because the `headline` prop is
+     * this sprint's new surface and its DEFAULT is the half nothing else pins.
+     * Flipping the default to false was a mutant the suite let through: the
+     * sheet stayed correct while Home silently lost its `<h1>`.
+     */
+    await visit(page, "/");
+    const homeH1 = await page.evaluate(() => document.querySelectorAll("h1").length);
+
     await visit(page, "/project/p1");
     const closed = await page.evaluate(() => document.querySelectorAll("h1").length);
     await openSheet(page);
@@ -476,7 +521,8 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
     })()`);
     ok("19 §32, §33 one h1 and no heading jump with the sheet open; dialog named; field still labelled",
       closed === 1 && open.h1 === 1 && !open.jump && open.named &&
-      open.fieldLabel === "What's happening?", JSON.stringify({ closed, ...open }));
+      open.fieldLabel === "What's happening?" && homeH1 === 1,
+      JSON.stringify({ closed, ...open, homeH1 }));
     await page.keyboard.press("Escape");
   }
 
