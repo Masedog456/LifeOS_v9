@@ -120,9 +120,15 @@ const failures = (page) => page.evaluate(() => {
       const A = window.__a11y;
       const out = [];
       for (const row of document.querySelectorAll("[data-project-section] li")) {
-        const title = row.querySelector("a, span.truncate");
-        const meta = row.querySelector("[class*='text-right']");
-        if (!title || !meta) continue;
+        // The row is `flex justify-between`: title first, metadata chip last.
+        // Found by POSITION, not by class — selecting on `text-right` tied this
+        // to the shape of the fix, so against a revert it reported "no rows"
+        // instead of measuring the drift it exists to measure.
+        const flex = row.querySelector("div") || row;
+        const kids = [...flex.children].filter((e) => (e.textContent || "").trim());
+        if (kids.length < 2) continue;
+        const title = kids[0], meta = kids[kids.length - 1];
+        if (title === meta) continue;
         const t = A.contrastOf(title), m = A.contrastOf(meta);
         if (t.disabled || m.disabled) continue;
         out.push({
