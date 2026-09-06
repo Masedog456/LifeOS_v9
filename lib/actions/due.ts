@@ -85,14 +85,70 @@ export const DUE_BUCKET_LABEL: Record<DueBucket, string> = {
   none: "",
 };
 
-/** A short, human due label for one action ("Due today", "Was due Mon, Aug 10"). */
-export function dueLabel(a: NextAction, today: DayKey = todayKey()): string {
+/**
+ * A short, human due label for one action ("Due today", "Was due Mon, Aug 10").
+ *
+ * ## `relative` (LIFEOS-098 §4, §17)
+ *
+ * "Today" and "tomorrow" only mean anything when the reference day IS today. A
+ * review of LAST week is evaluated against the last day of THAT week, and
+ * saying "Due today" about it would be a plain falsehood rather than a
+ * different-but-fine phrasing — so a surface reading a past range passes
+ * `relative: false` and gets the date instead.
+ *
+ * That is the §4 difference, named once here rather than becoming a reason for
+ * each surface to keep writing its own phrase. Before this option existed, the
+ * weekly and evening surfaces wrote `` `Due ${formatDayKey(...)}` `` inline for
+ * exactly this reason, and the evening close consequently said "Due Wed, Sep 9"
+ * on the evening of Wednesday the 9th, beside a Today page saying "Due today".
+ */
+export function dueLabel(
+  a: NextAction,
+  today: DayKey = todayKey(),
+  opts: { relative?: boolean } = {},
+): string {
   const due = dueKeyOf(a);
   if (!due) return "";
   const bucket = dueBucket(a, today);
-  if (bucket === "today" || bucket === "tomorrow") return DUE_BUCKET_LABEL[bucket];
+  const relative = opts.relative ?? true;
+  if (relative && (bucket === "today" || bucket === "tomorrow")) return DUE_BUCKET_LABEL[bucket];
   if (bucket === "overdue") return `Was due ${formatDayKey(due)}`;
   return `Due ${formatDayKey(due)}`;
+}
+
+/**
+ * The same short phrase for a FOLLOW-UP date (LIFEOS-098 §13, §43).
+ *
+ * A follow-up date is not a due date and this product has always kept the two
+ * fields apart — but until now it did not keep the WORDS apart in one place.
+ * The audit found the fact written three times: `"Follow up today"` on a
+ * Project, the same again on a Goal, and `"Follow up today."` in the memory
+ * answer, each re-deriving "is it today?" for itself. Home did not show it at
+ * all, so a wait whose follow-up had arrived looked like an ordinary wait.
+ *
+ * The grammar deliberately mirrors `dueLabel` above, because a person reading
+ * both on one screen should be able to tell they are two different facts by the
+ * NOUN and not by the sentence shape.
+ *
+ * One correction travels with the move. The two component copies said "Follow
+ * up today" whenever the date had merely *arrived* — including when it passed a
+ * week ago — while `buildCommitmentSignals` said "Follow-up date was Fri, Sep 4."
+ * about the same record. Those are two claims about one date, and §3 says the
+ * facts have to agree, so a past follow-up now states its own date here too.
+ *
+ * Returns `undefined` when there is no follow-up date, so a caller renders
+ * nothing rather than an empty chip (§32).
+ */
+export function followUpPhrase(
+  followUpDate: string | undefined,
+  today: DayKey = todayKey(),
+): string | undefined {
+  if (!followUpDate) return undefined;
+  const delta = dayDiff(followUpDate, today);
+  if (delta === 0) return "Follow up today";
+  if (delta < 0) return `Follow up was ${formatDayKey(followUpDate)}`;
+  if (delta === 1) return "Follow up tomorrow";
+  return `Follow up ${formatDayKey(followUpDate)}`;
 }
 
 /** Live actions that are overdue, soonest-first. */

@@ -55,7 +55,7 @@ import { buildIndex, searchFlat } from "@/lib/command/search";
 import { resolveRecord } from "@/lib/command/records";
 import type { SearchEntry } from "@/lib/command/types";
 import { buildProjectContext } from "@/lib/execution/context";
-import { isLive } from "@/lib/actions/due";
+import { isLive, followUpPhrase } from "@/lib/actions/due";
 import {
   buildPersonContext, namesPerson, longerForms,
   PERSON_HEADINGS, NOTHING_OPEN, MENTION_NOTE, IDENTITY_LIMITATION, AMBIGUOUS_NAME,
@@ -1057,7 +1057,7 @@ function answerPerson(
     // §34. Real temporal facts only, and a future follow-up is not a due one.
     detail: [
       `Waiting on ${x.waitingOn}${x.since ? ` since ${fmt(x.since as DayKey)}` : ""}.`,
-      x.followUpDate ? (x.followUpDue ? "Follow up today." : `Follow up ${fmt(x.followUpDate as DayKey)}.`) : "",
+      followUpPhrase(x.followUpDate, today) ? `${followUpPhrase(x.followUpDate, today)}.` : "",
     ].filter(Boolean).join(" "),
     ref: { kind: "action", id: x.action.id },
     href: `/actions/${x.action.id}`,

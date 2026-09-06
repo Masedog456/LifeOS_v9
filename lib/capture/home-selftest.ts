@@ -191,15 +191,21 @@ export function runCaptureHomeSelfTests() {
     w.notes = [{ id: "n1", title: "", body: "Teaching isn't what I want", createdAt: D(T, 11),
       updatedAt: D(T, 11), tags: [], linkedEntityRefs: [] }] as StoreState["notes"];
 
+    // LIFEOS-098 §16: `today` passed explicitly. Without it `describeCreated`
+    // falls back to the wall clock, and once the date phrase became RELATIVE
+    // this assertion's answer depended on the day the suite ran.
     const made = describeCreated(w, [
       { kind: "action", id: "a1" }, { kind: "action", id: "a2" }, { kind: "note", id: "n1" },
-    ]);
+    ], T);
     ok("95.14 §10 the finished state names the record, not a count",
       made[0]?.title === "Email Marcus about the lease", made.map((m) => m.title).join(" | "));
     ok("95.15 §10 …and the product word for what it became",
       made[0]?.label === "Action", made.map((m) => m.label).join(","));
-    ok("95.16 §10 …and one fact about it",
-      /Sep 6/.test(made[0]?.detail ?? ""), String(made[0]?.detail));
+    // LIFEOS-098 §3. The fact, in the phrase every other surface uses. This
+    // used to read "Sun, Sep 6" here and "Due tomorrow" on Today, about one
+    // record — accurate twice, and the product's answer only once.
+    ok("95.16 §10 …and one fact about it, in the shared due phrase",
+      !!made[0]?.detail?.startsWith("Due tomorrow"), String(made[0]?.detail));
     // LIFEOS-096 §9 moved WHERE the person is named, not whether. This row's
     // title is now "Transcript from Maria", so repeating "Waiting on Maria" in
     // the detail said the name twice. The guarantee 095 wanted — the row says

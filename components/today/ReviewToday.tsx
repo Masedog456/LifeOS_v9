@@ -40,11 +40,11 @@ import { useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import {
   buildEveningClose, deferralLine, movementLine, eveningHeading, previousDay,
-  EVENING_CHANGE_LABEL,
   QUIET_DAY, CARRY_FORWARD_NOTE,
   TOMORROW_SCHEDULED_HEADING, CARRY_FORWARD_HEADING,
   type CarryCandidate,
 } from "@/lib/today/evening";
+import { changeWord } from "@/lib/changes/vocabulary";
 import { resolutionsForAction } from "@/lib/commitment/resolve";
 import { planReplan, applyReplan } from "@/lib/planning/replan";
 import { storeReplanOps } from "@/components/planning/replanOps";
@@ -273,7 +273,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
             <li key={`def:${d.change.entity.id}`} data-review-deferred className="py-1">
               <div className={rowClass}>
                 <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{d.change.title}</span>
-                <span className={metaClass}>Deferred</span>
+                <span className={metaClass}>{changeWord("deferred")}</span>
               </div>
               {/* §10. Inline, factual, and only once the count supports it —
                   never a warning wall. */}
@@ -285,7 +285,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
           {c.rescheduled.map((e) => (
             <li key={`res:${e.entity.id}`} data-review-rescheduled className={rowClass}>
               <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
-              <span className={metaClass}>Date changed{e.detail ? ` · ${e.detail}` : ""}</span>
+              <span className={metaClass}>{changeWord("rescheduled")}{e.detail ? ` · ${e.detail}` : ""}</span>
             </li>
           ))}
           {/* §8. Direction, and never called progress. The arrow appears only
@@ -294,7 +294,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
             <li key={`dir:${e.id}`} data-review-direction={e.kind} className={rowClass}>
               <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
               <span className={metaClass}>
-                {EVENING_CHANGE_LABEL[e.kind] ?? e.kind}
+                {changeWord(e.kind)}
                 {e.from && e.to ? ` · ${e.from} → ${e.to}` : ""}
               </span>
             </li>
@@ -303,7 +303,7 @@ export default function ReviewToday({ initialDate }: { initialDate?: string } = 
             <li key={`chg:${e.id}`} data-review-changed={e.kind} className={rowClass}>
               <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{e.title}</span>
               <span className={metaClass}>
-                {EVENING_CHANGE_LABEL[e.kind] ?? e.kind}{e.detail ? ` · ${e.detail}` : ""}
+                {changeWord(e.kind)}{e.detail ? ` · ${e.detail}` : ""}
               </span>
             </li>
           ))}
