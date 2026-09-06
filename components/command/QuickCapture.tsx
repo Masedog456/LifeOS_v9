@@ -130,8 +130,17 @@ export default function QuickCapture({ onClose }: { onClose: () => void }) {
             §10. The same component Home renders. `onFinished` is Home's own
             coordination with its recent-captures list (095 §18) and there is no
             list here, so it is deliberately not passed.
+
+            §9, §32. `headline={false}` is the one thing the sheet asks the
+            composer to do differently, and it was measured, not guessed: with
+            the composer's own `<h1>` rendering here the document carried TWO
+            level-1 headings while the sheet was open, and the dialog's own
+            heading order ran h2 then h1. LIFEOS-099 pins both of those and
+            never opened this overlay. The field's `<label>` is a separate node
+            and still says "What's happening?", so nothing is lost but 32px of
+            a second title on a doorway that already has one.
           */}
-          <CaptureComposer />
+          <CaptureComposer headline={false} />
         </div>
       </div>
     </div>
