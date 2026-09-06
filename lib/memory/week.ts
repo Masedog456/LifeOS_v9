@@ -47,7 +47,7 @@ import { occurrencesBetween, readRule, describeRule } from "@/lib/time/recurrenc
 import { classifyOrigin } from "@/lib/provenance/classify";
 import { reflectionDayKey, hasReviewedDay } from "@/lib/reviews/meaning";
 import { isMachineProduced, type OriginType } from "@/lib/provenance";
-import { isLive, overdueActions, dueTodayActions, upcomingActions, sortByDue } from "@/lib/actions/due";
+import { isLive, overdueActions, dueTodayActions, upcomingActions, sortByDue, dueLabel } from "@/lib/actions/due";
 import { isDeferredAhead } from "@/lib/actions/defer";
 
 /** Stated on every review surface. No claim of exhaustive life memory (§23). */
@@ -765,8 +765,22 @@ export function buildRangeReview(
     openSeen.add(action.id);
     stillOpen.push({ action, reason, detail });
   };
+  /**
+   * LIFEOS-098 §3, §4. One due phrase, evaluated against the range's last day.
+   *
+   * These three lines each wrote their own, and the "due today" one printed the
+   * absolute date — so the evening close, which composes this builder for a
+   * single day, said "Due Wed, Sep 9." in Still open while Today, the shortlist
+   * and the project page all said "Due today" about the same records.
+   *
+   * `relative` is off unless the range actually ends today: "today" and
+   * "tomorrow" are true words about a day closure and false ones about a review
+   * of last week, and that is the §4 difference this surface really has.
+   */
+  const openDue = (a: NextAction) =>
+    `${dueLabel(a, range.endKey, { relative: range.endKey === today })}`;
   for (const a of sortByDue(overdueActions(nonRecurring, range.endKey), range.endKey)) {
-    pushOpen(a, "overdue", `Was due ${formatDayKey(a.dueDate!)}`);
+    pushOpen(a, "overdue", openDue(a));
   }
   // Due ON the last day of the range and not finished.
   //
@@ -776,10 +790,10 @@ export function buildRangeReview(
   // entirely. For a week that was a quiet omission; for a DAY closure it removed
   // the single most relevant row (LIFEOS-073 §19, found by the §29 retest).
   for (const a of dueTodayActions(nonRecurring, range.endKey)) {
-    pushOpen(a, "due_today", `Due ${formatDayKey(a.dueDate!)}`);
+    pushOpen(a, "due_today", openDue(a));
   }
   for (const a of upcomingActions(nonRecurring, range.endKey, DUE_SOON_DAYS)) {
-    pushOpen(a, "due_soon", `Due ${formatDayKey(a.dueDate!)}`);
+    pushOpen(a, "due_soon", openDue(a));
   }
   for (const w of waiting) {
     pushOpen(w.action, "waiting", w.waitingOn ? `Waiting on ${w.waitingOn}` : "Waiting");

@@ -167,42 +167,17 @@ export interface EveningClose {
 // ------------------------------------------------------------- constants ---
 
 /**
- * Neutral past-tense wording for an `ExecutiveChangeKind` (§8, §22).
+ * The evening close's change words used to live here as `EVENING_CHANGE_LABEL`.
  *
- * LIFEOS-073's `CHANGE_LABEL` is keyed by AUTOBIOGRAPHICAL kinds
- * (`action_cancelled`), and 081's changes carry `ExecutiveChangeKind`
- * (`cancelled`). Reusing the first for the second silently fell through to the
- * raw key, and the browser run printed "Apply to the fifth school cancelled" —
- * a database enum shown to a person. Two vocabularies, one lookup.
+ * LIFEOS-091 wrote it because LIFEOS-073's `CHANGE_LABEL` is keyed by
+ * AUTOBIOGRAPHICAL kinds (`action_cancelled`) while 081's changes carry
+ * `ExecutiveChangeKind` (`cancelled`); reusing the first for the second fell
+ * through to the raw key and the browser run printed "Apply to the fifth school
+ * cancelled" — a database enum shown to a person. That distinction still holds.
+ * What LIFEOS-098 §43 removed is the second LITERAL: both key spaces now reach
+ * one table, through `changeWord` and `timelineChangeWord` in
+ * `lib/changes/vocabulary.ts`. Surfaces call that directly.
  */
-export const EVENING_CHANGE_LABEL: Record<string, string> = {
-  created: "Added",
-  completed: "Completed",
-  recurring_completed: "Done for the day",
-  cancelled: "Cancelled",
-  deferred: "Deferred",
-  returned: "Came back from a deferral",
-  restored: "Restored",
-  rescheduled: "Date changed",
-  due_cleared: "Date removed",
-  planned: "Planned",
-  prerequisite_removed: "Prerequisite removed",
-  waiting_started: "Started waiting",
-  waiting_ended: "Stopped waiting",
-  goal_created: "Goal added",
-  goal_status_changed: "Goal status changed",
-  goal_horizon_changed: "Goal horizon changed",
-  goal_target_changed: "Goal target date changed",
-  goal_replaced: "Goal replaced",
-  rule_adopted: "Standard adopted",
-  rule_revised: "Standard revised",
-  rule_retired: "Standard retired",
-  reflection_added: "Reflection added",
-  note_added: "Note added",
-  capture_added: "Captured",
-  decision_recorded: "Decision recorded",
-  event_scheduled: "Scheduled",
-};
 
 /** §11, §41. Waits shown in full before the rest are counted instead. */
 export const MAX_WAITING = 3;

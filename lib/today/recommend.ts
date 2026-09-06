@@ -47,7 +47,7 @@ import { blockedBy } from "@/lib/actions/dependencies";
 import { readRule } from "@/lib/time/recurrence";
 import { occurrenceFor } from "@/lib/mvpStore";
 import { commitmentFactsFor } from "@/lib/commitment/signals";
-import { minutesOf, type LocalTime } from "@/lib/time/localtime";
+import { minutesOf, formatLocalTime, type LocalTime } from "@/lib/time/localtime";
 import type { TodayIndexes } from "@/lib/today/indexes";
 import { ancestryExplanation } from "@/lib/execution/alignment";
 
@@ -283,7 +283,13 @@ function score(a: NextAction, ix: TodayIndexes, today: DayKey): CandidateFacts {
       a.dueTime
         ? {
           code: "due_at_time",
-          text: dueTimeAhead ? `Due today at ${a.dueTime}` : `Was due at ${a.dueTime} today`,
+          // §16, §43. `formatLocalTime` is the one place a stored `LocalTime`
+          // becomes prose. These three interpolations printed the stored value
+          // itself, so Suggested Next said "14:00" about the same action Home
+          // described as "2 PM".
+          text: dueTimeAhead
+            ? `Due today at ${formatLocalTime(a.dueTime)}`
+            : `Was due at ${formatLocalTime(a.dueTime)} today`,
         }
         : { code: "due_today", text: "Due today" },
     );
@@ -500,7 +506,9 @@ function counterfactualFor(best: CandidateFacts, next: CandidateFacts, today: Da
   const other = next.action.title;
   if (best.dueTimeAhead && !next.dueTimeAhead) {
     return next.overdueDays > 0
-      ? `It's due at ${best.action.dueTime} today, and that time hasn't passed yet — ${other} is already overdue.`
+      // `dueTimeAhead` is only ever true when `dueTime` is set (see above), so
+      // the assertion states an invariant rather than assuming one.
+      ? `It's due at ${formatLocalTime(best.action.dueTime!)} today, and that time hasn't passed yet — ${other} is already overdue.`
       : `It has a time today that hasn't passed yet; ${other} doesn't.`;
   }
   if (best.overdueDays !== next.overdueDays && best.overdueDays > 0) {

@@ -35,7 +35,8 @@ import type { Capture, RecordRefLite as RefLite, StoreState } from "@/types/mvp"
 import { dateNotKept, type Candidate } from "@/lib/capture/interpret";
 import { preselected } from "@/lib/capture/authority";
 import type { CaptureContextSuggestion } from "@/lib/capture/context";
-import { formatDayKey } from "@/lib/reviews/dates";
+import { formatDayKey, todayKey, type DayKey } from "@/lib/reviews/dates";
+import { dueLabel, followUpPhrase } from "@/lib/actions/due";
 import { formatLocalTime } from "@/lib/time/localtime";
 
 // ------------------------------------------------------------------ copy ---
@@ -271,7 +272,11 @@ function hrefFor(kind: string, id: string): string {
  * claiming a record that `commitCapture` declined to create — which is exactly
  * how "Saved 1 thing" could be printed for zero things.
  */
-export function describeCreated(state: StoreState, refs: readonly RefLite[]): CaptureOutcome[] {
+export function describeCreated(
+  state: StoreState,
+  refs: readonly RefLite[],
+  today: DayKey = todayKey(),
+): CaptureOutcome[] {
   const out: CaptureOutcome[] = [];
   for (const ref of refs) {
     const label = OUTCOME_LABEL[ref.kind] ?? "Record";
@@ -291,8 +296,31 @@ export function describeCreated(state: StoreState, refs: readonly RefLite[]): Ca
       if (a.waitingOn && !new RegExp(`\\b${a.waitingOn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(a.title)) {
         bits.push(`Waiting on ${a.waitingOn}`);
       }
-      if (a.dueDate) bits.push(formatDayKey(a.dueDate));
+      /**
+       * LIFEOS-098 §3, §16. The DUE phrase, not a second opinion about the date.
+       *
+       * This line used to call `formatDayKey` itself, so a capture saved on the
+       * day it was due read "Sun, Sep 6" on Home while every signal surface —
+       * Today, the shortlist, the project page, the evening close — said
+       * "Due today" about the same record. Both were accurate; only one of them
+       * was the product's answer. `dueLabel` is that answer.
+       *
+       * It returns "" for a completed or cancelled action, which is the same
+       * rule `dueKeyOf` applies everywhere else: finished work has no due date.
+       */
+      const due = dueLabel(a, today);
+      if (due) bits.push(due);
       if (a.dueTime) bits.push(formatLocalTime(a.dueTime));
+      /**
+       * §13. A follow-up date is not a due date, and Home showed neither.
+       *
+       * The audit measured a wait whose follow-up had arrived: Today said
+       * "Follow-up date is today", Home showed only the project. The record
+       * carried the fact and one surface dropped it — which is the same defect
+       * as describing it differently, arrived at by omission.
+       */
+      const followUp = followUpPhrase(a.followUpDate, today);
+      if (followUp) bits.push(followUp);
       /**
        * §9. A link that was written is a link the person can see.
        *
@@ -426,7 +454,11 @@ export interface RecentCapture {
  * §18: ONE row per captured moment. A capture that produced three records is
  * one row with three outcomes, not four cards.
  */
-export function recentCaptures(state: StoreState, limit = MAX_RECENT_CAPTURES): RecentCapture[] {
+export function recentCaptures(
+  state: StoreState,
+  limit = MAX_RECENT_CAPTURES,
+  today: DayKey = todayKey(),
+): RecentCapture[] {
   return (state.captures ?? [])
     .filter((c: Capture) => !c.archivedAt && !c.discardedAt)
     .slice()
@@ -438,7 +470,7 @@ export function recentCaptures(state: StoreState, limit = MAX_RECENT_CAPTURES): 
         id: c.id,
         text: c.workingText?.trim() || c.text,
         at: c.createdAt,
-        outcomes: describeCreated(state, refs),
+        outcomes: describeCreated(state, refs, today),
         unfiled: (c.processingStatus ?? "inbox") === "inbox" && refs.length === 0,
       };
     });

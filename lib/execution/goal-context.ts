@@ -69,7 +69,7 @@ import { todayKey } from "@/lib/reviews/dates";
 import { resolveRange, type ResolvedRange } from "@/lib/insights/range";
 import { buildCommitmentSignals } from "@/lib/commitment/signals";
 import { buildAttentionShortlist } from "@/lib/guidance/attention";
-import { buildExecutiveChanges, repeatedlyPostponed, postponedLine } from "@/lib/memory/changes";
+import { buildExecutiveChanges, repeatedlyPostponed, postponedLine, MOVED_FORWARD_KINDS } from "@/lib/memory/changes";
 import { recommendNextAction } from "@/lib/today/recommend";
 import { longerForms, personHint } from "@/lib/people/context";
 import { nameCandidates } from "@/lib/execution/context";
@@ -401,7 +401,25 @@ export function buildGoalContext(
     || (c.entity.kind === "project" && projectIds.has(c.entity.id));
 
   const direction = dedupe(changes.filter((c) => c.entity.kind === "goal" && c.entity.id === goal.id));
-  const movement = dedupe(changes.filter((c) => isMovement(c) && !owned.has(c.entity.id)));
+  /**
+   * §16. Completed linked work — and, until LIFEOS-098, whatever else happened
+   * to a linked record.
+   *
+   * `isMovement` filters by OWNERSHIP, not by kind, so a cancellation landed
+   * under a block labelled "Moved forward". The old `CHANGE_WORD` table had no
+   * entry for `cancelled` and printed "Changed", which is how it went unnoticed;
+   * giving the fact its real word made the browser run read "Order the banner ·
+   * Cancelled" under Moved forward.
+   *
+   * The count two lines down already filtered on `completed`, so the list and
+   * the count on one page disagreed about the same window. `MOVED_FORWARD_KINDS`
+   * is LIFEOS-081's own answer to this ("kinds that mean work finished, never
+   * mixed with the ones that don't") and is used rather than re-derived.
+   */
+  const movement = dedupe(changes.filter(
+    (c) => isMovement(c) && !owned.has(c.entity.id)
+      && (MOVED_FORWARD_KINDS as readonly string[]).includes(c.kind),
+  ));
 
   // §16. The COUNT is over the whole window, not over the capped display list —
   // a five-row cap must never become "5 things completed".

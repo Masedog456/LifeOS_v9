@@ -57,6 +57,7 @@ import {
   buildRangeReview, COVERAGE_NOTE, COMPLETION_KINDS,
   type AutobiographicalEvent, type OpenLine, type RangeReview, type WaitingLine,
 } from "@/lib/memory/week";
+import { timelineChangeWord } from "@/lib/changes/vocabulary";
 import { buildCommitmentSignals, type CommitmentSignal } from "@/lib/commitment/signals";
 import { recommendNextAction, type RecommendResult } from "@/lib/today/recommend";
 import type { TodayIndexes } from "@/lib/today/indexes";
@@ -160,22 +161,18 @@ export const CHANGE_KINDS: readonly AutobiographicalEvent["kind"][] = [
   "prerequisite_removed",
 ];
 
-/** Neutral, past-tense wording for a change line. Never a verdict (§13, §19). */
-export const CHANGE_LABEL: Record<string, string> = {
-  completed_action: "Completed",
-  recurring_completion: "Done for the day",
-  action_created: "Added",
-  action_cancelled: "Cancelled",
-  action_deferred: "Deferred",
-  action_returned: "Came back from a deferral",
-  action_restored: "Restored",
-  action_rescheduled: "Date changed",
-  action_due_cleared: "Date removed",
-  action_planned: "Planned",
-  waiting_started: "Started waiting",
-  waiting_stopped: "Stopped waiting",
-  prerequisite_removed: "Prerequisite removed",
-};
+/**
+ * Neutral, past-tense wording for a change line. Never a verdict (§13, §19).
+ *
+ * LIFEOS-098 §43: the words are no longer written here. They come from the one
+ * change vocabulary, reached through the same timeline map `buildExecutiveChanges`
+ * uses, so this surface and the evening close cannot describe one recorded fact
+ * with two different words. The strings are identical to the ones this constant
+ * held — that was the point of picking these as canonical.
+ */
+export const CHANGE_LABEL: Record<string, string> = Object.fromEntries(
+  CHANGE_KINDS.map((k) => [k, timelineChangeWord(k)]),
+);
 
 /**
  * The limitation that must travel with any "what changed" claim (§11).

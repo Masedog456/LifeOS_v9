@@ -63,6 +63,7 @@ import { formatDayKey, todayKey } from "@/lib/reviews/dates";
 import { formatLocalTime } from "@/lib/time/localtime";
 import { nowLocalTime } from "@/lib/time/events";
 import { buildTodayIndexes } from "@/lib/today/indexes";
+import { changeWord } from "@/lib/changes/vocabulary";
 import { resolutionsForAction } from "@/lib/commitment/resolve";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import {
@@ -159,16 +160,6 @@ function DayGroups({ groups, render }: {
 }
 
 /** A recorded transition, stated as the transition and nothing more (§8, §19). */
-const CHANGE_WORD: Record<string, string> = {
-  goal_status_changed: "Status changed",
-  goal_horizon_changed: "Horizon changed",
-  goal_target_changed: "Target date changed",
-  goal_replaced: "Replaced",
-  rule_adopted: "Adopted",
-  rule_revised: "Revised",
-  rule_retired: "Retired",
-};
-
 export default function WeekInReview() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const state = useStore();
@@ -345,7 +336,7 @@ export default function WeekInReview() {
                             ? `${g.completedThisWeek} linked item${g.completedThisWeek === 1 ? "" : "s"} completed`
                             : null,
                           ...g.directionChanges.map((c) =>
-                            c.from && c.to ? `${c.from} → ${c.to}` : CHANGE_WORD[c.kind] ?? "Changed"),
+                            c.from && c.to ? `${c.from} → ${c.to}` : changeWord(c.kind, "goal")),
                         ].filter(Boolean).join(" · ")}
                       </p>
                     </li>
@@ -363,7 +354,7 @@ export default function WeekInReview() {
                   {review.changedDirection.filter((c) => c.entity.kind !== "goal").map((c) => (
                     <li key={c.id} data-week-change={c.kind} className={rowClass}>
                       <span className="min-w-0 flex-1 text-sm text-zinc-800 dark:text-zinc-100">{c.title}</span>
-                      <span className={metaClass}>{CHANGE_WORD[c.kind] ?? "Changed"}</span>
+                      <span className={metaClass}>{changeWord(c.kind, "rule")}</span>
                     </li>
                   ))}
                 </ul>

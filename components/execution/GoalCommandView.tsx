@@ -35,6 +35,8 @@ import { formatDayKey } from "@/lib/reviews/dates";
 import type { TodayIndexes } from "@/lib/today/indexes";
 import type { DayKey } from "@/lib/reviews/dates";
 import type { StoreState } from "@/types/mvp";
+import { dueLabel, followUpPhrase } from "@/lib/actions/due";
+import { changeWord } from "@/lib/changes/vocabulary";
 import { resolutionsForAction } from "@/lib/commitment/resolve";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { GOAL_HORIZON_GUIDANCE } from "@/lib/execution/horizons";
@@ -49,15 +51,6 @@ const metaClass = "shrink-0 text-[11px] text-zinc-400";
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
 
 /** A recorded transition, stated as the transition (§16, §17). */
-const CHANGE_WORD: Record<string, string> = {
-  completed: "Completed", recurring_completed: "Kept", deferred: "Deferred",
-  rescheduled: "Date moved", returned: "Came back", waiting_started: "Started waiting",
-  waiting_ended: "Stopped waiting", added: "Added",
-  goal_created: "Created", goal_status_changed: "Status changed",
-  goal_horizon_changed: "Horizon changed", goal_target_changed: "Target date changed",
-  goal_replaced: "Replaced",
-};
-
 function Section({ title, id, show, note, children }: {
   title: string; id: string; show: boolean; note?: string; children: React.ReactNode;
 }) {
@@ -227,7 +220,13 @@ export default function GoalCommandView({
               <li key={r.id} data-goal-support className="py-1">
                 <div className={rowClass}>
                   <Link href={`/actions/${r.action.id}`} className={linkClass}>{r.action.title}</Link>
-                  <span className={metaClass}>{r.dueDate ? `Due ${formatDayKey(r.dueDate)}` : ""}</span>
+                  {/* LIFEOS-098 §3. `dueLabel`, not a second opinion about the
+                      same date. This row built its own phrase and had no past
+                      tense, so an action Today and the shortlist described as
+                      "Was due Fri, Sep 4" read here as "Due Fri, Sep 4" — the
+                      one drift in this sprint that was not just a different
+                      word for a fact but a different CLAIM about it. */}
+                  <span className={metaClass}>{dueLabel(r.action, today)}</span>
                 </div>
                 <div className="mt-0.5"><Via row={r} /></div>
                 <RowNotes row={r} />
@@ -272,11 +271,7 @@ export default function GoalCommandView({
                 <div className={rowClass}>
                   <Link href={`/actions/${r.action.id}`} className={linkClass}>{r.action.title}</Link>
                   <span className={metaClass} data-followup={r.followUpDue ? "due" : r.followUpDate ? "future" : "none"}>
-                    {r.followUpDue
-                      ? "Follow up today"
-                      : r.followUpDate
-                        ? `Follow up ${formatDayKey(r.followUpDate)}`
-                        : "Waiting"}
+                    {followUpPhrase(r.followUpDate, today) ?? "Waiting"}
                   </span>
                 </div>
                 <p className="mt-0.5 text-[11px] text-zinc-400">
@@ -303,7 +298,7 @@ export default function GoalCommandView({
               {ctx.movement.map((c) => (
                 <li key={c.id} data-goal-movement={c.kind} className={rowClass}>
                   <Link href={c.entity.kind === "project" ? projectHref(c.entity.id) : `/actions/${c.entity.id}`} className={linkClass}>{c.title}</Link>
-                  <span className={metaClass}>{CHANGE_WORD[c.kind] ?? "Changed"} · {formatDayKey(c.day)}</span>
+                  <span className={metaClass}>{changeWord(c.kind)} · {formatDayKey(c.day)}</span>
                 </li>
               ))}
             </ul>
@@ -317,7 +312,7 @@ export default function GoalCommandView({
             {ctx.direction.map((c) => (
               <li key={c.id} data-goal-direction={c.kind} className={rowClass}>
                 <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
-                  {CHANGE_WORD[c.kind] ?? "Changed"}{c.from && c.to ? ` · ${c.from} → ${c.to}` : ""}
+                  {changeWord(c.kind, "goal")}{c.from && c.to ? ` · ${c.from} → ${c.to}` : ""}
                 </span>
                 <span className={metaClass}>{formatDayKey(c.day)}</span>
               </li>

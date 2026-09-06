@@ -53,7 +53,8 @@ import { readRule } from "@/lib/time/recurrence";
 import { goalHistory } from "@/lib/execution/lifecycle";
 import { goalLinkedActions, goalLinkedProjects } from "@/lib/execution/alignment";
 import { GOAL_HORIZON_LABEL } from "@/lib/execution/horizons";
-import { buildAutobiographicalTimeline, type AutobiographicalEvent } from "@/lib/memory/week";
+import { buildAutobiographicalTimeline } from "@/lib/memory/week";
+import { CHANGE_KIND_FOR_TIMELINE } from "@/lib/changes/vocabulary";
 
 // ------------------------------------------------------------------ kinds --
 
@@ -140,35 +141,13 @@ export interface ExecutiveChange {
 /**
  * The autobiographical kinds, mapped onto this vocabulary.
  *
- * A rename, and a deliberate one: `waiting_stopped` becomes `waiting_ended`
- * because §12 asks for the historical EPISODE to be nameable separately from
- * the current waiting STATE, and two words that differ by one suffix are how
- * those get confused.
- *
- * Kinds absent from this map are absent from the answer — that is the whole
- * mechanism, and it is why adding a kind to the timeline cannot silently start
- * making claims here.
+ * LIFEOS-098 moved the map itself into `lib/changes/vocabulary.ts`, beside the
+ * words it feeds, so that a surface holding a timeline event and a surface
+ * holding an executive change reach one string through one table. The mechanism
+ * is unchanged: kinds absent from the map are absent from the answer, so adding
+ * a kind to the timeline still cannot silently start making claims here.
  */
-const FROM_TIMELINE: Partial<Record<AutobiographicalEvent["kind"], ExecutiveChangeKind>> = {
-  completed_action: "completed",
-  recurring_completion: "recurring_completed",
-  action_created: "created",
-  action_cancelled: "cancelled",
-  action_deferred: "deferred",
-  action_returned: "returned",
-  action_restored: "restored",
-  action_rescheduled: "rescheduled",
-  action_due_cleared: "due_cleared",
-  action_planned: "planned",
-  prerequisite_removed: "prerequisite_removed",
-  waiting_started: "waiting_started",
-  waiting_stopped: "waiting_ended",
-  note_created: "note_added",
-  reflection_captured: "reflection_added",
-  capture_created: "capture_added",
-  decision_recorded: "decision_recorded",
-  event_scheduled: "event_scheduled",
-};
+const FROM_TIMELINE = CHANGE_KIND_FOR_TIMELINE;
 
 // --------------------------------------------------------- goal changes ----
 

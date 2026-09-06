@@ -37,6 +37,8 @@ import { formatDayKey } from "@/lib/reviews/dates";
 import type { TodayIndexes } from "@/lib/today/indexes";
 import type { DayKey } from "@/lib/reviews/dates";
 import type { StoreState } from "@/types/mvp";
+import { dueLabel, followUpPhrase } from "@/lib/actions/due";
+import { changeWord } from "@/lib/changes/vocabulary";
 import { resolutionsForAction } from "@/lib/commitment/resolve";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import {
@@ -49,12 +51,6 @@ const metaClass = "shrink-0 text-[11px] text-zinc-400";
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
 
 /** A recorded transition, stated as the transition (§13, §14). */
-const CHANGE_WORD: Record<string, string> = {
-  completed: "Completed", recurring_completed: "Kept", deferred: "Deferred",
-  rescheduled: "Date moved", returned: "Came back", waiting_started: "Started waiting",
-  waiting_ended: "Stopped waiting", added: "Added",
-};
-
 function Section({ title, id, show, note, children }: {
   title: string; id: string; show: boolean; note?: string; children: React.ReactNode;
 }) {
@@ -129,7 +125,13 @@ export default function ProjectWorkingState({
               <li key={r.id} data-project-open className="py-1">
                 <div className={rowClass}>
                   <Link href={`/actions/${r.action.id}`} className={linkClass}>{r.action.title}</Link>
-                  <span className={metaClass}>{r.dueDate ? `Due ${formatDayKey(r.dueDate)}` : ""}</span>
+                  {/* LIFEOS-098 §3. `dueLabel`, not a second opinion about the
+                      same date. This row built its own phrase and had no past
+                      tense, so an action Today and the shortlist described as
+                      "Was due Fri, Sep 4" read here as "Due Fri, Sep 4" — the
+                      one drift in this sprint that was not just a different
+                      word for a fact but a different CLAIM about it. */}
+                  <span className={metaClass}>{dueLabel(r.action, today)}</span>
                 </div>
                 <RowNotes row={r} />
               </li>
@@ -172,11 +174,7 @@ export default function ProjectWorkingState({
                 <div className={rowClass}>
                   <Link href={`/actions/${r.action.id}`} className={linkClass}>{r.action.title}</Link>
                   <span className={metaClass} data-followup={r.followUpDue ? "due" : r.followUpDate ? "future" : "none"}>
-                    {r.followUpDue
-                      ? "Follow up today"
-                      : r.followUpDate
-                        ? `Follow up ${formatDayKey(r.followUpDate)}`
-                        : "Waiting"}
+                    {followUpPhrase(r.followUpDate, today) ?? "Waiting"}
                   </span>
                 </div>
                 <p className="mt-0.5 text-[11px] text-zinc-400">
@@ -207,7 +205,7 @@ export default function ProjectWorkingState({
               <li key={c.id} data-project-recent={c.kind} className={rowClass}>
                 <Link href={`/actions/${c.entity.id}`} className={linkClass}>{c.title}</Link>
                 <span className={metaClass}>
-                  {CHANGE_WORD[c.kind] ?? "Changed"} · {formatDayKey(c.day)}
+                  {changeWord(c.kind)} · {formatDayKey(c.day)}
                 </span>
               </li>
             ))}

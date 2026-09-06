@@ -163,7 +163,19 @@ export function buildSearchEntries(state: StoreState): SearchEntry[] {
   for (const ev of state.events ?? []) {
     add("event", ev.id, ev.title, {
       body: `${ev.title} ${ev.notes ?? ""}`,
-      status: ev.date, updatedAt: ev.updatedAt, href: eventHref(ev.date),
+      /**
+       * LIFEOS-098 §28. The date is an alias, not a status.
+       *
+       * It used to be written into `status`, which is the field a `status:`
+       * filter compares and which travels out on every `SearchResult`. A date
+       * can never equal a status word, so the filter was unaffected and nothing
+       * rendered it — the audit reports this as LATENT, not as visible drift.
+       * It is still a category error, and one this file already knows how to
+       * avoid: `daily_review` two blocks down puts its date in `aliases` and its
+       * real status in `status`. An Event has no status, so it gets none (§32).
+       */
+      aliases: [ev.date],
+      updatedAt: ev.updatedAt, href: eventHref(ev.date),
     });
   }
   for (const k of state.knowledgeProjects) add("knowledge_project", k.id, k.title, { body: k.title, status: k.status, updatedAt: k.updatedAt, href: `/author/${k.id}` });
@@ -295,7 +307,7 @@ export function resolveRecord(state: StoreState, kind: string, id: string): { ti
     case "inquiry": { const i = state.inquiries.find((x) => x.id === id); return i && { title: snip(i.question, 60), href: `/inquiry/${i.id}`, status: i.status }; }
     case "formation": { const f = state.formationSessions.find((x) => x.id === id); return f && { title: f.title || snip(f.prompt, 60), href: `/formation/${f.id}`, status: f.status }; }
     case "reflection": { const r = (state.reflections ?? []).find((x) => x.id === id); return r && { title: snip(r.response || r.prompt, 60), href: "/formation/timeline" }; }
-    case "event": { const e = (state.events ?? []).find((x) => x.id === id); return e && { title: e.title, href: eventHref(e.date), status: e.date }; }
+    case "event": { const e = (state.events ?? []).find((x) => x.id === id); return e && { title: e.title, href: eventHref(e.date) }; }
     case "knowledge_project": { const k = state.knowledgeProjects.find((x) => x.id === id); return k && { title: k.title, href: `/author/${k.id}`, status: k.status }; }
     case "source": { const s = state.sources.find((x) => x.id === id); return s && { title: s.title, href: `/library/${s.id}`, status: s.status }; }
     case "document": { const d = state.documents.find((x) => x.id === id); return d && { title: d.title, href: `/document/${d.id}`, status: d.status }; }

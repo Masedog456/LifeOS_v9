@@ -206,10 +206,15 @@ export async function runGuidanceSelfTests(): Promise<SelfTestReport> {
     // ---- passed due-time wording
     const late = rec([act({ id: "tm5", title: "Class", dueDate: T, dueTime: "14:00" })], { now: "20:00" });
     ok("2.17 a passed due-time is described as passed",
-      /Was due at 14:00 today/.test(texts(late)), texts(late));
+      /Was due at 2 PM today/.test(texts(late)), texts(late));
     ok("2.18 …and never as coming up", !/coming up|upcoming/i.test(texts(late)));
     const early = rec([act({ id: "tm6", title: "Class", dueDate: T, dueTime: "14:00" })], { now: "09:00" });
-    ok("2.19 …while an unpassed one reads as due today", /Due today at 14:00/.test(texts(early)), texts(early));
+    ok("2.19 …while an unpassed one reads as due today", /Due today at 2 PM/.test(texts(early)), texts(early));
+    // LIFEOS-098 §16, §43. The stored value is `14:00`; the sentence is not.
+    // Suggested Next printed the raw `LocalTime` while Home said "2 PM" about
+    // the same action — one clock reading, two ways of saying it.
+    ok("2.19b …and never as the stored 24-hour value", !/14:00/.test(texts(early) + texts(late)),
+      texts(early) + " | " + texts(late));
 
     // ---- planned-today stickiness
     const planToday = rec([act({ id: "p1", title: "PlannedToday" }), act({ id: "p2", title: "Unplanned" })],

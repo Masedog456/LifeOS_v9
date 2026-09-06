@@ -37,6 +37,7 @@ import { describeRule } from "@/lib/time/recurrence";
 import {
   signalsForSection, PROJECT_NO_NEXT_ACTION, type CommitmentSignal,
 } from "@/lib/commitment/signals";
+import { changeWord } from "@/lib/changes/vocabulary";
 import { resolutionsFor, resolutionsForAction } from "@/lib/commitment/resolve";
 import { buildDailyCommandView, SINCE_YESTERDAY_HEADING } from "@/lib/today/command";
 import { buildDecisionInbox, DECISION_HEADING } from "@/lib/guidance/decisions";
@@ -71,19 +72,6 @@ const metaClass = "shrink-0 text-[11px] text-zinc-500";
  * A transition that records both ends prints them instead ("Near → Medium"),
  * which says more than any label could. This covers the rest.
  */
-const CHANGE_WORD: Record<string, string> = {
-  completed: "Completed",
-  recurring_completed: "Done for the day",
-  waiting_ended: "Stopped waiting",
-  goal_status_changed: "Goal status changed",
-  goal_horizon_changed: "Horizon changed",
-  goal_target_changed: "Target date changed",
-  goal_replaced: "Goal replaced",
-  rule_adopted: "Rule adopted",
-  rule_revised: "Rule revised",
-  rule_retired: "Rule retired",
-};
-
 export default function TodayCommandCenter() {
   const state = useStore();
   const today = todayKey();
@@ -411,7 +399,7 @@ export default function TodayCommandCenter() {
             <li key={c.id} data-since-yesterday={c.kind} className={rowClass}>
               <span className="text-sm text-zinc-700 dark:text-zinc-200">{c.title}</span>
               <span className={metaClass}>
-                {c.from && c.to ? `${c.from} → ${c.to}` : CHANGE_WORD[c.kind] ?? "Changed"}
+                {c.from && c.to ? `${c.from} → ${c.to}` : changeWord(c.kind)}
               </span>
             </li>
           ))}
