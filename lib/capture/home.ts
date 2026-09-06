@@ -133,6 +133,18 @@ export function canFinishWithoutAsking(input: FinishInput): boolean {
   if (input.candidates.some((c) => c.unresolved.length > 0)) return false;
   if (input.candidates.some((c) => dateNotKept(c))) return false;
   if (input.context.some((s) => s.ambiguousAlternatives.length > 0)) return false;
+  /**
+   * You may already have this.
+   *
+   * Found by running LIFEOS-089's own browser suite against this sprint. Its
+   * assertion 46 — "the open wait it may duplicate is surfaced" — went red,
+   * because "I'm waiting on Maria for the transcript" is a high-confidence wait
+   * with no ambiguity, so §31 finished it and wrote a SECOND wait on Maria
+   * beside the one already open. 089 §18 exists to stop exactly that, and a
+   * front door that silently duplicates a commitment is worse than one that
+   * asks twice. Any existing-record suggestion, at any strength, asks.
+   */
+  if (input.context.some((s) => s.contextType === "action")) return false;
   return true;
 }
 
@@ -149,6 +161,7 @@ export function askingBecause(input: FinishInput): string | null {
   if (input.hasPendingEdit) return "This changes something you already have.";
   if (input.candidates.length === 0) return null;
   if (input.context.some((s) => s.ambiguousAlternatives.length > 0)) return "More than one thing matches.";
+  if (input.context.some((s) => s.contextType === "action")) return "You may already have this.";
   if (input.candidates.some((c) => c.unresolved.length > 0)) return "Part of this couldn't be stored.";
   if (input.candidates.some((c) => dateNotKept(c))) return "A date here wouldn't be kept.";
   const needs = input.candidates.find((c) => !preselected(c.authority));
@@ -156,6 +169,49 @@ export function askingBecause(input: FinishInput): string | null {
   // needs you" is true of every branch here and therefore informative in none.
   if (needs) return `A ${CONFIRM_WORD[needs.kind] ?? "record"} is yours to confirm.`;
   return "This one needs you.";
+}
+
+// -------------------------------------------------------- the context offer --
+
+export interface ContextOffer {
+  label: string;
+  projectId?: string;
+  goalId?: string;
+  /** True when this suggestion was already applied at commit time. */
+  accepted: boolean;
+}
+
+/**
+ * The context 089 offered for one candidate, and whether it was taken (§9, §12).
+ *
+ * Found by running the 089 browser suite against this sprint. A capture that
+ * finishes by itself never renders the context panel — so a `possible`-tier
+ * suggestion, which arrives switched OFF by design, was silently declined and
+ * the person never learned it had been offered. The record written was still
+ * correct; the OFFER was what went missing.
+ *
+ * So the finished state carries it instead: one chip, one tap, using the
+ * `updateAction` setter that already exists. Ambiguous suggestions are absent
+ * because `canFinishWithoutAsking` never lets that capture reach here — a
+ * genuine choice is asked, not offered as an afterthought.
+ */
+export function contextOffers(
+  rows: readonly CaptureContextSuggestion[],
+  choice: { projectId?: string; goalId?: string },
+): ContextOffer[] {
+  const out: ContextOffer[] = [];
+  for (const r of rows) {
+    if (r.strength === "ambiguous") continue;
+    if (r.contextType !== "project" && r.contextType !== "goal") continue;
+    out.push({
+      label: r.label,
+      ...(r.contextType === "project" ? { projectId: r.contextId } : { goalId: r.contextId }),
+      accepted: r.contextType === "project"
+        ? choice.projectId === r.contextId
+        : choice.goalId === r.contextId,
+    });
+  }
+  return out;
 }
 
 // ----------------------------------------------------------- the outcomes ---
@@ -204,6 +260,19 @@ export function describeCreated(state: StoreState, refs: readonly RefLite[]): Ca
       if (a.waitingOn) bits.push(`Waiting on ${a.waitingOn}`);
       if (a.dueDate) bits.push(formatDayKey(a.dueDate));
       if (a.dueTime) bits.push(formatLocalTime(a.dueTime));
+      /**
+       * §9. A link that was written is a link the person can see.
+       *
+       * An `exact` context match arrives accepted, so an auto-finished capture
+       * can write a projectId nobody was shown. Naming it here is the whole
+       * difference between "Conqify filed this" and "Conqify filed this
+       * somewhere". Read from the record, so it says where the link ACTUALLY
+       * points rather than where the suggestion pointed.
+       */
+      const pr = a.projectId ? (state.projects ?? []).find((x) => x.id === a.projectId) : undefined;
+      const gl = a.goalId ? (state.goals ?? []).find((x) => x.id === a.goalId) : undefined;
+      if (pr) bits.push(pr.title);
+      else if (gl) bits.push(gl.title);
       out.push({
         kind: ref.kind, id: ref.id, title: a.title,
         // A wait is its own word on this surface, because "Action" would hide

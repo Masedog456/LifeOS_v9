@@ -39,6 +39,9 @@ import {
   // LIFEOS-095 §31. The undo behind an auto-finished capture. Every one of
   // these already exists; nothing new was written to make undo possible.
   deleteAction, deleteNote, unlinkCaptureRef, restoreCapture, getSnapshot,
+  // LIFEOS-095 §9. The existing setter behind the finished state's context
+  // offer. Nothing new was written to make that chip work.
+  updateAction,
 } from "@/lib/mvpStore";
 import type { StoreState } from "@/types/mvp";
 import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/lib/capture/interpret";
@@ -59,9 +62,9 @@ import { applyTemporalEdit, type EditOps } from "@/lib/capture/apply-edit";
 import ChangeConfirm from "@/components/capture/ChangeConfirm";
 import CaptureContext, { defaultChoice, type ContextChoice } from "@/components/capture/CaptureContext";
 import {
-  canFinishWithoutAsking, askingBecause, describeCreated,
+  canFinishWithoutAsking, askingBecause, describeCreated, contextOffers,
   HOME_PROMPT, HOME_PLACEHOLDER, SAVED_LEAD, KEPT_UNORGANISED,
-  type CaptureOutcome,
+  type CaptureOutcome, type ContextOffer,
 } from "@/lib/capture/home";
 import {
   buildCaptureContextIndex, suggestContext, contextFields, contextKnowledgeGoal,
@@ -188,7 +191,12 @@ export default function CaptureComposer({ onFinished }: {
    * Presentation only — it is rebuilt from the store at commit time and thrown
    * away on the next submit. Nothing about it is persisted (§34).
    */
-  const [finished, setFinished] = useState<{ captureId: string; outcomes: CaptureOutcome[] } | null>(null);
+  const [finished, setFinished] = useState<{
+    captureId: string;
+    outcomes: CaptureOutcome[];
+    /** §9. Context 089 offered that nobody has said yes to yet, by action id. */
+    offers: { actionId: string; offer: ContextOffer }[];
+  } | null>(null);
   /** §29. Set when interpretation failed but the words were kept anyway. */
   const [kept, setKept] = useState(false);
 
@@ -469,7 +477,8 @@ export default function CaptureComposer({ onFinished }: {
    * the next thing you want to say is the next thing you should be able to say.
    */
   function finishNow(rawText: string, built: Row[]) {
-    const { captureId, created } = commitRows(rawText, pairsFrom(built));
+    const pairs = pairsFrom(built);
+    const { captureId, created } = commitRows(rawText, pairs);
     if (created.length === 0) {
       // Nothing was written, so nothing may be claimed. The words are safe —
       // `commitCapture` saves the raw capture before it attempts anything.
@@ -477,7 +486,23 @@ export default function CaptureComposer({ onFinished }: {
       setText("");
       return;
     }
-    setFinished({ captureId, outcomes: describeCreated(getSnapshot(), created) });
+    /**
+     * §9. The context that was offered and not taken.
+     *
+     * Paired by position and checked by ref kind, for the same reason
+     * `commitRows` pairs its Goal links that way: `commitCapture` skips a
+     * candidate it cannot build, so a bare index would attach one row's offer
+     * to another row's record.
+     */
+    const offers: { actionId: string; offer: ContextOffer }[] = [];
+    for (let i = 0; i < pairs.length; i++) {
+      const ref = created[i];
+      if (!ref || ref.kind !== "action") continue;
+      for (const offer of contextOffers(pairs[i].row.context, pairs[i].row.choice)) {
+        if (!offer.accepted) offers.push({ actionId: ref.id, offer });
+      }
+    }
+    setFinished({ captureId, outcomes: describeCreated(getSnapshot(), created), offers });
     onFinished?.(captureId);
     setText("");
     setRows(null);
@@ -809,6 +834,40 @@ export default function CaptureComposer({ onFinished }: {
               </li>
             ))}
           </ul>
+          {/*
+            §9, §12. The offer that would otherwise have been lost.
+
+            089 suggests context at three tiers, and the `possible` tier arrives
+            switched OFF — correctly, the evidence is weaker. In the review
+            panel the person sees the offer and decides. A capture that finishes
+            by itself never renders that panel, so without this the suggestion
+            was declined on their behalf and silently. One chip, one tap.
+          */}
+          {finished.offers.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {finished.offers.map(({ actionId, offer }) => (
+                <button
+                  key={`${actionId}:${offer.label}`}
+                  type="button"
+                  data-capture-offer={offer.label}
+                  onClick={() => {
+                    updateAction(actionId, offer.projectId
+                      ? { projectId: offer.projectId }
+                      : { goalId: offer.goalId });
+                    setFinished((f) => f && {
+                      ...f,
+                      outcomes: describeCreated(getSnapshot(), f.outcomes.map((o) => ({ kind: o.kind, id: o.id }))),
+                      offers: f.offers.filter((x) => !(x.actionId === actionId && x.offer.label === offer.label)),
+                    });
+                  }}
+                  className="rounded-full border border-black/[.12] px-3 py-1 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300"
+                >
+                  Add to {offer.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <button type="button" data-capture-undo onClick={undoFinished}
             className="mt-3 rounded-full border border-black/[.12] px-3 py-1 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
             Undo

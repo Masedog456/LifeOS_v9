@@ -258,6 +258,55 @@ const shape = (page) => page.evaluate(() => ({
       s4.nextActions.length === 2, String(s4.nextActions.length));
   }
 
+  // ---- 25d. The offer that would otherwise be lost -----------------------
+  //
+  // Found by running 089's suite against this sprint. A capture that finishes
+  // by itself never renders the context panel, so a `possible`-tier suggestion
+  // — which arrives switched OFF by design — was declined on the person's
+  // behalf and silently. It rides on the finished state instead.
+  {
+    await seed(page, RETURNING());
+    await home(page);
+    // A `possible`-tier match: a shared distinctive word, not the whole title.
+    // 089 arrives with these switched OFF, so the offer is the whole point.
+    await say(page, "Book a school open day");
+    const offer = await page.evaluate(() =>
+      [...document.querySelectorAll("[data-capture-offer]")].map((b) => b.getAttribute("data-capture-offer")));
+    ok("25d §9 an unaccepted context suggestion survives an auto-finish",
+      offer.length > 0, JSON.stringify(offer));
+    const pre = await store(page);
+    ok("25e §32 …and nothing was linked before it was accepted",
+      pre.nextActions.every((a) => !a.goalId && !a.projectId),
+      pre.nextActions.map((a) => `${a.goalId ?? "-"}/${a.projectId ?? "-"}`).join(","));
+    await page.click(`[data-capture-offer="${offer[0]}"]`);
+    await page.waitForTimeout(800);
+    const post = await store(page);
+    ok("25f §9 …and accepting it writes the link",
+      post.nextActions.some((a) => a.goalId || a.projectId),
+      post.nextActions.map((a) => `${a.title}/${a.goalId ?? "-"}/${a.projectId ?? "-"}`).join(" | "));
+    const saidSo = await page.evaluate(() =>
+      document.querySelector("[data-capture-saved]")?.innerText.replace(/\s+/g, " ") ?? "");
+    ok("25g §9 …and the finished state then says where it went",
+      new RegExp(offer[0]).test(saidSo), saidSo);
+  }
+  {
+    // The other half. An `exact` match — the record's whole title is in what
+    // you wrote — arrives accepted, so an auto-finish WRITES it. That is only
+    // acceptable because the finished state names where it went; a link nobody
+    // was shown is a link nobody can correct.
+    await seed(page, RETURNING());
+    await home(page);
+    await say(page, "Draft the essay for the graduate school application");
+    const st2 = await store(page);
+    const linked = st2.nextActions.find((a) => a.goalId || a.projectId);
+    const saidSo = await page.evaluate(() =>
+      document.querySelector("[data-capture-saved]")?.innerText.replace(/\s+/g, " ") ?? "");
+    ok("25h §9 an exact context match is written on an auto-finish",
+      !!linked, st2.nextActions.map((a) => `${a.title}/${a.goalId ?? "-"}/${a.projectId ?? "-"}`).join(" | "));
+    ok("25i §9 …and the finished state says so, so it can be corrected",
+      /Graduate school|Graduate applications/.test(saidSo), saidSo);
+  }
+
   // ---- 26. Context suggestions stay compact ------------------------------
   {
     const w = RETURNING();

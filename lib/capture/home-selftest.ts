@@ -100,6 +100,32 @@ export function runCaptureHomeSelfTests() {
       inp.candidates.map((c) => `${c.kind}/${c.authority}`).join(","));
   }
 
+  // ---- §18 of 089. You may already have this -----------------------------
+  {
+    // The regression LIFEOS-089's own browser suite caught. This capture is a
+    // high-confidence wait with no ambiguity anywhere, so §31 finished it — and
+    // wrote a second wait on Maria beside the one already open. A front door
+    // that silently duplicates a commitment is worse than one that asks twice.
+    const w = world();
+    w.nextActions = [{ id: "a-maria", title: "Ask Maria for the transcript", description: "",
+      status: "waiting", waitingOn: "Maria", waitingSince: D("2026-09-01"), notes: "",
+      linkedEntityRefs: [], tags: [], estimatedSize: "unspecified", energy: "unspecified",
+      order: 1, history: [], createdAt: D("2026-09-01"), updatedAt: D("2026-09-01") }] as StoreState["nextActions"];
+    const inp = read(w, "I'm waiting on Maria for the transcript.");
+    ok("95.7b §18 a capture that may duplicate an open record asks",
+      !canFinishWithoutAsking(inp), String(askingBecause(inp)));
+    ok("95.7c §18 …and says that is why",
+      /already have/i.test(askingBecause(inp) ?? ""), String(askingBecause(inp)));
+    ok("95.7d §18 …on a capture that is otherwise entirely auto-safe",
+      inp.candidates.every((c) => preselected(c.authority) && c.unresolved.length === 0)
+      && inp.context.every((c) => c.ambiguousAlternatives.length === 0),
+      inp.context.map((c) => `${c.contextType}/${c.strength}`).join(","));
+    // Without that open wait, the identical sentence finishes.
+    ok("95.7e §18 …and the same sentence finishes when there is nothing to duplicate",
+      canFinishWithoutAsking(read(world(), "I'm waiting on Maria for the transcript.")),
+      String(askingBecause(read(world(), "I'm waiting on Maria for the transcript."))));
+  }
+
   // ---- §19 of 060. Something unstorable is said, never compressed away ----
   //
   // Both fixtures here were found by mutation. The first version of this block
