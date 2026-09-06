@@ -264,7 +264,15 @@ const failures = (page) => page.evaluate(() => {
      */
     ok("16 §18 no scoped surface scrolls sideways on a phone", over.length === 0, over.join(","));
 
-    await visit(page, "/project/p1", 1500);
+    /**
+     * The evening close, because that is where the overflow actually was.
+     *
+     * The first version of this assertion measured the project page, where the
+     * same long name already wrapped — so it passed with the whole sprint
+     * reverted and guarded nothing. Verified by reverting; see §4.2 of the
+     * report.
+     */
+    await visit(page, "/today/review", 1500);
     const wrapped = await page.evaluate(([person]) => {
       const el = [...document.querySelectorAll("span,p")].find((e) =>
         !e.children.length && (e.textContent || "").includes(person));
@@ -274,7 +282,7 @@ const failures = (page) => page.evaluate(() => {
     }, [LONG_PERSON]);
     /** §19. The waiting person is not truncated away — it wraps. */
     ok("17 §18, §19 a long person's name wraps instead of overrunning",
-      wrapped.found && wrapped.right <= wrapped.vw + 1, JSON.stringify(wrapped));
+      wrapped.found && wrapped.right <= wrapped.vw + 1 && wrapped.lines >= 2, JSON.stringify(wrapped));
 
     await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#capture", { timeout: 20000 });
