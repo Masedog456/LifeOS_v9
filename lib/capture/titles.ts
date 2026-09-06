@@ -28,6 +28,8 @@
 
 import type { Candidate } from "@/lib/capture/interpret";
 import { startsWithActionVerb } from "@/lib/capture/classify";
+import { extractTemporal, stripResolvedTemporal } from "@/lib/capture/dates";
+import type { DayKey } from "@/lib/reviews/dates";
 
 export interface TitleResult {
   title: string;
@@ -96,9 +98,9 @@ function leadingCapital(s: string): string {
  * record's job is to name the thing being waited for — not to restate a claim
  * about what somebody owes.
  */
-function waitingTitle(c: Candidate): TitleResult | null {
+function waitingTitle(c: Candidate, today?: DayKey): TitleResult | null {
   const who = (c.fields.waitingOn ?? "").trim();
-  const what = (c.fields.waitingFor ?? "").trim();
+  const what = resolvedDateRemoved((c.fields.waitingFor ?? "").trim(), today);
   if (!what) return null;
   if (!isThing(what)) return null;
   const thing = leadingCapital(trimPunctuation(what));
@@ -116,6 +118,30 @@ function waitingTitle(c: Candidate): TitleResult | null {
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * A date the record already holds does not belong in its name (§22 of 096).
+ *
+ * LIFEOS-097's audit found this: "I'm waiting on Maria for the transcript
+ * Friday" parses `waitingFor` as "transcript Friday" and `dueDate` as the
+ * resolved day — and 096 composed "Transcript Friday from Maria", putting a
+ * word into the title that a field already held. 096's own fixtures never
+ * combined a wait with a date, so nothing caught it.
+ *
+ * `extractTemporal` and `stripResolvedTemporal` are the interpreter's own, and
+ * asking them keeps one date parser rather than two. Only RESOLVED phrases are
+ * removed — "sometime next quarter" stays, because the words are still the only
+ * place that intent lives.
+ *
+ * Without a `today` there is nothing to resolve against, so the phrase is
+ * returned untouched: this layer never guesses at a date.
+ */
+function resolvedDateRemoved(waitingFor: string, today?: DayKey): string {
+  if (!waitingFor || !today) return waitingFor;
+  const found = extractTemporal(waitingFor, today);
+  if (!found.findings.some((f) => f.dueDate)) return waitingFor;
+  return stripResolvedTemporal(waitingFor, found).trim() || waitingFor;
+}
 
 /**
  * Kinds whose title may be RECOMPOSED from other fields.
@@ -156,14 +182,14 @@ const TIDYABLE = new Set(["action", "waiting", "event", "goal", "project"]);
  * the audit found the interpreter already produces a clean title for every
  * Event and for every Action whose sentence opened with framing.
  */
-export function cleanCandidateTitle(c: Candidate): TitleResult {
+export function cleanCandidateTitle(c: Candidate, today?: DayKey): TitleResult {
   const original = c.fields.title ?? "";
   if (!TIDYABLE.has(c.kind)) {
     return { title: original, changed: false, reason: `${c.kind} titles are left alone` };
   }
 
   if (RECOMPOSABLE.has(c.kind)) {
-    const composed = waitingTitle(c);
+    const composed = waitingTitle(c, today);
     if (composed) return composed;
     // No object, or the object is a clause. "Waiting on Marcus" stays as it is
     // — §8 says so in as many words.
@@ -181,6 +207,6 @@ export function cleanCandidateTitle(c: Candidate): TitleResult {
  * others — the failure mode that produces a list where two records made by one
  * sentence are named on different principles.
  */
-export function cleanTitles(candidates: readonly Candidate[]): TitleResult[] {
-  return candidates.map((c) => cleanCandidateTitle(c));
+export function cleanTitles(candidates: readonly Candidate[], today?: DayKey): TitleResult[] {
+  return candidates.map((c) => cleanCandidateTitle(c, today));
 }
