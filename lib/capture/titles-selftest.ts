@@ -145,6 +145,30 @@ export function runCleanTitleSelfTests() {
       `${c?.kind}: "${clean?.title}"`);
   }
   {
+    /**
+     * The CLEANABLE guard, asserted where it can actually fail.
+     *
+     * Mutations M1 and M2 added note and reflection to the cleanable set, and
+     * removed the guard entirely, and nothing reddened — because every note in
+     * the fixture above was already capitalised and unpunctuated, so the tidy
+     * path would have left it alone anyway. Three assertions cannot tell a
+     * guard from a coincidence.
+     *
+     * This capture's title starts lower case, so the tidy path WOULD change it.
+     * The note kind is what stops that. (The composer also feeds `body` rather
+     * than the cleaned title for note-shaped kinds, so the store is protected
+     * twice — this pins the function's own contract, which is what a future
+     * caller would rely on.)
+     */
+    const { c, clean } = read("the clinic launch is blocked by the lease.");
+    ok("96.11b §12 a note whose title WOULD tidy is still left alone",
+      c?.kind === "note" && clean?.changed === false
+      && clean?.title === "the clinic launch is blocked by the lease",
+      `${c?.kind}: "${clean?.title}" (${clean?.reason})`);
+    ok("96.11c §12 …and the reason names the kind, not a tidiness judgement",
+      /note/.test(clean?.reason ?? ""), String(clean?.reason));
+  }
+  {
     // The specific inversions §18 names, asserted as inversions rather than as
     // "unchanged" — a rule that broke these would produce these exact strings.
     const bad = [
@@ -295,6 +319,38 @@ export function runCleanTitleSelfTests() {
     const unnamed = KINDS.filter((k) => describeCreated(s, [{ kind: k, id: "x" }]).length === 0);
     ok("96.20 §30 every domain a capture can become is named, not “Filed”",
       unnamed.length === 0, unnamed.join(", "));
+    {
+      // Mutation M10 deleted one OUTCOME_LABEL entry and nothing reddened: the
+      // table still produced the record's title, so the row read "Record ·
+      // Choose graduate program" instead of "Decision · …" and every assertion
+      // was happy. The LABEL is half of what §35's copy says, so it is asserted.
+      const want: Record<string, string> = {
+        action: "Action", note: "Note", event: "Event", protocol: "Protocol",
+        project: "Project", goal: "Goal", belief: "Belief", formation: "Reflection",
+        concept: "Concept", decision: "Decision", research_project: "Research",
+        dialogue: "Dialogue", principle: "Principle", framework: "Framework",
+        practice: "Practice", workspace: "Workspace", constitution_element: "Rule",
+      };
+      const wrong = KINDS.filter((k) => describeCreated(s, [{ kind: k, id: "x" }])[0]?.label !== want[k]);
+      ok("96.20b §35 …under the right product word for its own domain",
+        wrong.length === 0,
+        wrong.map((k) => `${k}: ${describeCreated(s, [{ kind: k, id: "x" }])[0]?.label}`).join(", "));
+    }
+    {
+      /**
+       * A record the store holds but has not named.
+       *
+       * Mutation M9 replaced the empty-title guard with a literal "Saved" and
+       * nothing reddened, because no fixture had a nameless record. §33 is
+       * explicit — honest thinness beats fake specificity — so a concept with
+       * no name renders as "Filed", not as a word this layer made up.
+       */
+      const blank = { ...s, concepts: [{ id: "x", name: "  ", definition: "d", status: "active",
+        createdAt: D(T), updatedAt: D(T) }] } as unknown as StoreState;
+      ok("96.20c §33 a record with no name of its own is never given one",
+        describeCreated(blank, [{ kind: "concept", id: "x" }]).length === 0,
+        JSON.stringify(describeCreated(blank, [{ kind: "concept", id: "x" }])));
+    }
     ok("96.21 §33 …and each says the record's own words",
       describeCreated(s, [{ kind: "decision", id: "x" }])[0]?.title === "Choose graduate program"
       && describeCreated(s, [{ kind: "constitution_element", id: "x" }])[0]?.title === "Pause before replying when angry",

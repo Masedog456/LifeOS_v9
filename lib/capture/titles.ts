@@ -47,14 +47,17 @@ export interface TitleResult {
  * The verb list is `classify.ts`'s own `ACTION_VERBS`, reached through
  * `startsWithActionVerb` rather than copied — a second list would drift from
  * the first, and the first is the one the classifier trusts.
+ *
+ * There was a second clause here rejecting an infinitive ("to send the lease",
+ * "for them to reply"). Mutation M4 removed it and nothing reddened, so it was
+ * measured across nine phrasings: the interpreter strips the leading "to" and
+ * "for" every time, and `waitingFor` never arrives with one. Dead logic reads
+ * like a protection the code does not have, so it is gone rather than pinned.
  */
 function isThing(waitingFor: string): boolean {
   const t = waitingFor.trim();
   if (!t) return false;
-  if (startsWithActionVerb(t)) return false;
-  // "to send the lease", "for them to reply" — an infinitive is a clause.
-  if (/^(?:to|for|so)\s+/i.test(t)) return false;
-  return true;
+  return !startsWithActionVerb(t);
 }
 
 /** Trailing sentence punctuation has no place in a record's name (§24). */
