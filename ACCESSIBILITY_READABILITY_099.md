@@ -297,27 +297,9 @@ measured and came back clean. Reporting that is the point.
 
 ---
 
-# 5. Known gaps — recorded, not fixed (§57)
+# 5. What was built
 
-* **Navigation-bar chevrons** render at 9 px (`text-[9px] text-zinc-400`, 2.22).
-  The nav is a shared chrome component outside §2's list; it is named here so
-  the next pass can take it deliberately.
-* **`text-sky-600` links at 3.89** and **`text-emerald-600` at 3.53** are below
-  AA. They are a different decision from the neutral metadata scale — a brand
-  accent question — and changing accent hues is closer to §42's forbidden
-  rebrand than to this sprint's job.
-* **Truncated titles without a `title` attribute.** Long action titles are
-  clipped on Today, project and goal rows. Each clipped title is a link to the
-  record, so §19's "a way to inspect it" is satisfied by navigation; adding
-  tooltips everywhere would be a change of pattern, not a defect fix.
-* The full repository was not swept. §2 scopes this to the primary loop, and
-  §57 forbids widening.
-
----
-
-# 6. What was built
-
-## 6.1 One paired text scale (§9, §10, §41)
+## 5.1 One paired text scale (§9, §10, §41)
 
 Three constants in `lib/design/tokens.ts` — the module that already owned
 `MIN_TOUCH_TARGET` and `FOCUS_RING`, so nothing new was invented to hold them.
@@ -345,7 +327,7 @@ the colour:
   written one down.
 * **`min-w-0`, not `shrink-0`** — the overflow fix, below.
 
-## 6.2 The `shrink-0` overflow (§18)
+## 5.2 The `shrink-0` overflow (§18)
 
 ```
 before   /today/review at 390px:  scrollWidth 417, clientWidth 390   → 27px
@@ -357,7 +339,7 @@ now wraps to two lines and stays inside the viewport, measured at `right=349`
 of 390. §19 forbids truncating the only copy of a waiting person, so wrapping —
 which costs a row some height and loses nothing — was the correct trade.
 
-## 6.3 Accents (§9)
+## 5.3 Accents (§9)
 
 Moved `600 → 700` **only where a `dark:` partner already existed in the same
 class string**, so light gained and dark was untouched:
@@ -371,7 +353,7 @@ class string**, so light gained and dark was untouched:
 Eighteen occurrences. No new hue, no new scale — §42's rebrand is not what this
 is.
 
-## 6.4 Structure
+## 5.4 Structure
 
 | § | change |
 |---|---|
@@ -381,12 +363,15 @@ is.
 | §14 | the correction sheet is a labelled `<section>`; focus enters it once on open; Escape closes it and returns focus to the opener |
 | §14, §22 | its toggle carries `aria-expanded` / `aria-controls` and names its record, because a success panel can list several outcomes and five identical "Edit"s is §22's case by name |
 | §15 | that toggle is 44×44, grown in the flow rather than bought with negative margin |
+| §14, §15, §22 | `RecentCaptures` renders a **second** Edit/Undo pair opening the same sheet, which the first fix missed entirely — both now carry the same contract, and the assertion measures all of them |
+| §15, §41 | `CONTROL_PILL` replaces the pill literal in the five scoped files (it appears in fifteen; the other ten are outside §2). `min-h-[44px] sm:min-h-0` — a real target on a phone, desktop density untouched |
+| §15 | ActionDetail's twelve action-row buttons get the same mobile minimum WITHOUT being merged into the pill: different padding, per-action border colours, same target problem (§4 says consolidate only what is genuinely the same) |
 
 ---
 
-# 7. Proof
+# 6. Proof
 
-## 7.1 Contrast, before and after
+## 6.1 Contrast, before and after
 
 Enabled text nodes below their AA threshold, per surface. Disabled controls are
 excluded and covered by §33 separately.
@@ -414,7 +399,7 @@ The token table, which is the whole change in one view:
 | accents | `text-{hue}-600 dark:…-400` | `text-{hue}-700 dark:…-400` | 3.53–4.38 → **5.19–5.83** | unchanged |
 | placeholder | `placeholder:text-zinc-400` | `+ dark:placeholder:text-zinc-500` | 2.54 → **4.67** | unchanged |
 
-## 7.2 Hierarchy did not flatten (§8)
+## 6.2 Hierarchy did not flatten (§8)
 
 The risk this fix creates is the one §8 names: solving contrast by making
 everything equally loud. Measured on the project page, the distinct foreground
@@ -429,24 +414,37 @@ ratios are
 revert while 6 and 7 do not: the page always had tiers, and what changed is that
 the bottom one became legible.
 
-## 7.3 Browser suite — 21 assertions, 16 red under a revert
+## 6.3 Browser suite — 22 assertions, 17 red under a revert
 
 `scripts/smoke-099-accessibility.cjs`, run against the production build in
 light, dark and 390 px.
 
-The five that stay green under a revert are labelled in the file as regression
-guards and are not presented as fixes: two measure that hierarchy survived, and
-three pin reds that were **clean before this sprint** — 200 % zoom, accessible
-names and heading order — precisely because a sweep across 200 class strings is
-the kind of change that could break one.
+The five that stay green under a full revert are labelled in the file and are
+not presented as fixes:
 
-One assertion was mislabelled and is worth recording. Assertion 17 claimed to
-guard the `shrink-0` fix but measured the project page, where the same long name
-already wrapped; it passed with the entire sprint reverted. It now measures the
-evening close, where the 27 px overflow actually was, and requires two lines
-rather than merely fitting.
+| # | why it stays green |
+|---|---|
+| 6 | a fixture guard — it finds 9 rows in both versions, which is its job: without it, 7 and 8 could pass by measuring nothing |
+| 7 | pre-sprint metadata WAS quieter than its title. It was quiet to the point of illegibility, which is 8's business, not 7's |
+| 19 | the mobile keyboard does not hide the capture submit — LIFEOS-095's fix, still holding |
+| 20 | 200 % zoom, accessible names and heading order were clean before this sprint |
+| 21 | no page errors |
 
-## 7.4 Screen-reader semantics (§34)
+Two of those needed correcting before they were honest, and both corrections
+came from running the suite against a revert rather than from reading it:
+
+* **Assertion 17** claimed to guard the `shrink-0` fix but measured the project
+  page, where the long name already wrapped. It passed with the entire sprint
+  reverted. It now measures the evening close, where the 27 px overflow was, and
+  requires two lines rather than merely fitting.
+* **Assertion 6** selected the metadata chip by `text-right` — a class the fix
+  introduced — so against a revert it found no rows and 7–8 reported "nothing
+  measured" instead of measuring. It now finds the chip by position in the row.
+
+The separation this produces is the point: **7 catches flattening** (mutant M4),
+**8 catches faintness** (the revert). Neither stands in for the other.
+
+## 6.4 Screen-reader semantics (§34)
 
 | check | before | after |
 |---|---|---|
@@ -457,7 +455,7 @@ rather than merely fitting.
 | capture result inside a live region | no | **yes**, polite |
 | disclosure toggle state exposed | no | **yes**, `aria-expanded` + `aria-controls` |
 
-## 7.5 Keyboard and mobile
+## 6.5 Keyboard and mobile
 
 | check | result |
 |---|---|
@@ -467,9 +465,12 @@ rather than merely fitting.
 | horizontal scroll at 390 px, all 8 surfaces | **0 px** (evening close was 27 px) |
 | horizontal scroll at 200 % zoom, all surfaces | 0 px |
 | capture submit reachable with a 300 px keyboard | yes — bottom 424 px, visible to 544 px |
-| Edit tap target | 19×17 → **44×44** |
+| Edit tap target (both controls) | 19×17 → **44×44** |
+| scoped pill controls at 390 px | ~25 px → **44 px**; decisions and evening report 0 buttons under 44 |
+| the same controls at 1280 px | **25–32 px, unchanged** — `sm:min-h-0` keeps desktop density |
+| command-bar clearance at 390 px, all 8 surfaces | **0 controls underneath**; LIFEOS-095's fix survives the height change |
 
-## 7.6 Performance (§44, §53)
+## 6.6 Performance (§44, §53)
 
 Every change is a class string, a landmark element, two ARIA attributes, one
 `useEffect` that runs once per sheet open, and one `requestAnimationFrame` on
@@ -482,18 +483,115 @@ regression" for a change of this shape.
 
 ---
 
-# 8. Mutation testing (§50)
+# 7. Mutation testing (§50)
 
-MUTATION_TABLE_PLACEHOLDER
+Fifteen mutants. **Fifteen caught** — but two only after the sprint fixed a
+problem the mutant exposed, which is the part worth reading.
+
+| # | mutant | verdict |
+|---|---|---|
+| M1 | restore the low-contrast metadata token | CAUGHT (3, 8) |
+| M2 | restore `shrink-0` on the row metadata | CAUGHT (16, 17) |
+| M3 | fix light by breaking dark — the trap §10 names | CAUGHT (4, 5) |
+| M4 | flatten the metadata tier to the primary colour | **ESCAPED**, then CAUGHT (7) |
+| M5 | shrink the Edit tap target below 44 | CAUGHT (18) |
+| M6 | remove the control's accessible name | CAUGHT (9) |
+| M7 | remove `aria-expanded` / `aria-controls` | CAUGHT (9, 11) |
+| M8 | remove focus entry into the sheet | CAUGHT (10, 12) |
+| M9 | remove focus return to the opener | CAUGHT (12) |
+| M10 | remove Escape-to-close | CAUGHT (12) |
+| M11 | remove the sheet's accessible name | CAUGHT (11) |
+| M12 | remove the `main` landmark | **INVALID**, then CAUGHT (5, 13) |
+| M13 | stop announcing the capture result | CAUGHT (14) |
+| M14 | remove the textual state, leaving colour alone | CAUGHT (15) |
+| M15 | fade the success marker back to near-invisible | CAUGHT (3, 4, 5, 15) |
+
+## 7.1 M4 — a BAD ASSERTION, fixed as one
+
+M4 flattens `TERTIARY_TEXT` to the primary colour: metadata becomes exactly as
+loud as the title beside it. That is §8's named failure mode, the one this
+sprint's own fix could plausibly cause, and the assertions written to guard it
+did not notice.
+
+They checked the page's overall RANGE — how many distinct ratios exist, and how
+far apart the extremes are. Flattening the quiet tier does not narrow that
+range; it **removes the quiet end**, leaving a page still varied, still wide,
+still above AA everywhere, while every commitment row shouts its due date.
+
+The fix was to the assertion, not to the product. Assertions 6–8 now compare the
+two halves of the SAME ROW — the record's title against the metadata chip beside
+it — which is the hierarchy a person actually reads:
+
+```
+before the fix   title 14.40   meta 4.67   →  difference 9.73   ok
+under M4         title 14.40   meta 14.40  →  difference 0      caught
+```
+
+## 7.2 M12 — an INVALID mutant, rebuilt
+
+M12 swapped `<main>` back to `<div>` on the decision inbox — but only the
+opening tag, so the JSX no longer closed and nothing compiled. A mutant that
+does not build tests nothing, and scoring it as "caught" would have been a lie
+in the sprint's favour.
+
+Re-run as one atomic edit changing both tags, it is caught by assertions 13 and
+5. (5 goes red as a side effect: with no `main`, the contrast sweep falls back
+to `document.body` and picks up nav chrome. 13 is the targeted one.)
+
+## 7.3 What no mutant did
+
+No production code was changed to improve the score. M4's escape was a weak
+assertion and M12's invalidity was a badly-built mutant; both were fixed where
+the fault actually was.
+
+
+---
+
+---
+
+# 8. Visual review (§12, §51)
+
+Thirty screenshots: eight surfaces plus the correction sheet and the search
+palette, in desktop light, desktop dark and 390 px.
+
+**What was checked, and what was found.**
+
+| looked for | result |
+|---|---|
+| text too loud | no — metadata is quieter than its title on every row measured (14.40 vs 4.67) |
+| hierarchy flattened | no — seven distinct ratios survive on the project page |
+| dark-mode mismatch | no — the evening close, project and goal read cleanly in both |
+| oversized controls | no on desktop: pills measure 25–32 px, exactly as before, because `sm:min-h-0` releases the mobile minimum |
+| cramped controls | fixed on mobile: 44 px on the scoped pills, Edit, Undo and the action row |
+| wrapping defects | the long person's name wraps to two lines and stays in the viewport |
+| giant focus treatment | unchanged — the 2 px global ring was never touched |
+| metadata still too faint | no — 0 nodes below AA on all eight surfaces, both themes |
+| accent colours failing contrast | fixed where a dark partner existed (5.19–5.83 light) |
+
+**One artifact, not a defect.** The mobile full-page screenshots show the fixed
+command bar painted over mid-page content. That is how `fullPage` composites a
+`position: fixed` element, not an overlap. Measured directly, scrolled to the
+bottom of all eight surfaces at 390 px:
+
+```
+home … week    bar top 783px · 0 controls underneath
+```
+
+LIFEOS-095's `pb-16 sm:pb-0` clearance still holds after the control heights
+changed, which was a real regression risk worth checking rather than assuming.
+
+**One cosmetic note, unfixed.** On the project page at 1280 px the header's
+"Saved locally" pill wraps to two lines. It predates this sprint, is chrome
+rather than content, and is recorded in §10 rather than swept.
 
 ---
 
 # 9. The twelve claims (§56)
 
 1. **Known low-contrast metadata is fixed on the scoped surfaces.** 209 light /
-   96 dark / 205 mobile failures → **0**, measured on rendered elements. *(§7.1)*
+   96 dark / 205 mobile failures → **0**, measured on rendered elements. *(§5.1)*
 2. **Light and dark both remain readable.** No single shade could do it; every
-   tier is a measured pair, and the sweep asserts both themes. *(§6.1, browser 5)*
+   tier is a measured pair, and the sweep asserts both themes. *(§5.1, browser 5)*
 3. **Primary mobile controls meet the tap-target size.** The smallest control in
    the loop went 19×17 → 44×44, grown in the flow. *(browser 18)*
 4. **Keyboard focus is visible.** Zero of ~180 tab stops lack an indicator; the
@@ -511,11 +609,11 @@ MUTATION_TABLE_PLACEHOLDER
 9. **The mobile keyboard does not block core actions.** Asserted as a regression
    guard; LIFEOS-095's fix still holds. *(browser 19)*
 10. **Hierarchy stayed calm rather than becoming uniformly loud.** Seven distinct
-    tiers survive, the loudest at 17.72 and the quietest at 4.67. *(§7.2)*
+    tiers survive, the loudest at 17.72 and the quietest at 4.67. *(§6.2)*
 11. **No redesign and no new design system.** Three constants added to the
     tokens file that already held `MIN_TOUCH_TARGET`; fonts, sizes above 12 px,
     spacing and layout untouched. The chosen pair was already in use in
-    `DecisionInbox`. *(§6.1)*
+    `DecisionInbox`. *(§5.1)*
 12. **No migration.** No schema, no stored preference, no persisted
     accessibility state. Repository migration head **0047**, unchanged.
 
@@ -546,19 +644,19 @@ MUTATION_TABLE_PLACEHOLDER
 
 | gate | result |
 |---|---|
-| `scripts/smoke-099-accessibility.cjs` | **21/21** (16 red against a revert) |
-| Mutation (§50) | MUTATION_SUMMARY_PLACEHOLDER |
-| Full deterministic suite | **6135/6135** across 62 suites |
-| 094 decision inbox | GATE_094 |
-| 095 capture home | GATE_095 |
-| 097 capture corrections | GATE_097 |
-| 098 outcome coherence | GATE_098 |
-| `npm run release:audit` | GATE_RELEASE |
-| `npm run release:routes` | GATE_ROUTES |
-| `npm run release:export` | GATE_EXPORT |
-| `npm run audit:security` | GATE_SECURITY |
-| `tsc --noEmit` | GATE_TSC |
-| `eslint lib components app` | GATE_LINT |
+| `scripts/smoke-099-accessibility.cjs` | **22/22** (17 red against a revert) |
+| Mutation (§50) | **15/15 caught** (M4 after fixing a bad assertion, M12 after rebuilding an invalid mutant) |
+| Full deterministic suite | **6150/6150** across 62 suites (design 78/78) |
+| 094 decision inbox | 47/47 |
+| 095 capture home | 67/67 |
+| 097 capture corrections | 41/41 |
+| 098 outcome coherence | 34/34 |
+| `npm run release:audit` | PASS 17/17 |
+| `npm run release:routes` | PASS 25/25 |
+| `npm run release:export` | PASS 14/14 |
+| `npm run audit:security` | PASS |
+| `tsc --noEmit` | clean |
+| `eslint lib components app` | 0 errors (2 pre-existing warnings, untouched files) |
 | `next build` | clean |
 
 ## Files
