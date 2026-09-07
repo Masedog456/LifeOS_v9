@@ -106,13 +106,30 @@ const quotes = (page) => page.evaluate(() => {
   return out;
 });
 
-/** Words no user should ever be shown (§6, §7, §11, §35). */
+/**
+ * Words no user should ever be shown (§6, §7, §11, §35).
+ *
+ * Compared case-INSENSITIVELY, and that is not tidiness. A mutant that printed
+ * the authority enum in the outcome lead walked straight through the first
+ * version of this sweep: the lead is CSS-uppercased and `innerText` returns
+ * rendered text, so the panel said "AUTO_WITH_UNDO" and a lowercase
+ * `includes()` found nothing. The one place internals would most likely leak is
+ * the one place the product shouts.
+ */
 const FORBIDDEN = [
   "auto_with_undo", "auto_safe", "never_auto", "suggest_confirm", "unambiguous",
   "candidateMatches", "targetQuery", "authorityFor", "suggestContext", "classifyOne",
-  "confidence:", "parser", "regex", "candidate ", "chain of thought",
-  "%", "0.8", "0.9",
+  "confidence:", "parser", "regex", "chain of thought",
 ];
+
+/**
+ * §7. A confidence-SHAPED number, rather than a bare "%".
+ *
+ * The first version listed "%" and would have fired on any legitimate percentage
+ * the product might ever show. This matches what §7 actually forbids: a bare
+ * score attached to an interpretation.
+ */
+const FAKE_CONFIDENCE = /\b\d{1,3}\s?%|\b0\.\d{2}\b|\bhigh confidence\b/i;
 
 (async () => {
   const browser = await chromium.launch({ executablePath: EXEC, args: ["--no-sandbox"] });
@@ -351,7 +368,10 @@ const FORBIDDEN = [
       "I should never reply when I'm angry", "Finished the recommendation request",
       "Book the venue for the clinic", "Email Marcus tomorrow and remember the lease expires Friday"]) {
       const r = await home(page, text);
-      for (const w of FORBIDDEN) if (r.panel.includes(w)) leaked.push(`${JSON.stringify(text)} → ${w}`);
+      const hay = r.panel.toLowerCase();
+      for (const w of FORBIDDEN) if (hay.includes(w.toLowerCase())) leaked.push(`${JSON.stringify(text)} → ${w}`);
+      const num = r.panel.match(FAKE_CONFIDENCE);
+      if (num) leaked.push(`${JSON.stringify(text)} → confidence-shaped number ${JSON.stringify(num[0])}`);
     }
     // Folded into 20's detail rather than added as a 21st, so §43's count holds.
     if (leaked.length) {
