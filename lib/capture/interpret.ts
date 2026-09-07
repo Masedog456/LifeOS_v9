@@ -365,7 +365,27 @@ function primaryCandidate(segment: Segment, index: number, state: StoreState, to
   //     That was the right answer when recurrence was unrepresentable; it is the
   //     wrong one now, because a standing responsibility with a schedule is
   //     exactly what a recurring action is for.
-  if (rule && !eventShaped) {
+  /**
+   * LIFEOS-101 Fix A. A standing commitment needs a standing stance.
+   *
+   * This branch had no stance test, and the corpus measured what that cost:
+   *
+   *   "When I was applying to college I called Maria every week"
+   *     → Action · weekly · auto_with_undo · "When I was applying to college I called Maria"
+   *
+   * A finished chapter of someone's life, written back to them as a weekly
+   * obligation — and auto-writable, so it lands before they can decline it.
+   *
+   * Every other consequential branch in this file already asks: `detectStandard`
+   * and `detectAspiration` both refuse a non-asserted sentence internally. This
+   * one skipped the question because it is reached through the SCHEDULE rather
+   * than through a commitment detector, and a recurrence phrase is just as
+   * present in a memory as in a plan.
+   *
+   * Past-stance sentences fall through to the classifier below and become
+   * ordinary notes, keeping the recurrence phrase in their own words.
+   */
+  if (rule && !eventShaped && detectStance(text).stance === "asserted") {
     const cleaned = [recFinding?.phrase, timeFinding?.phrase]
       .filter((p): p is string => !!p)
       .reduce((acc, p) => acc.replace(p, ""), titleOf(text))

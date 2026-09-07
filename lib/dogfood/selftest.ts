@@ -107,7 +107,36 @@ export async function runDogfoodSelfTests(): Promise<SelfTestReport> {
   eq("3.1 a completion statement does not close anything", kinds("I finished deployment")[0], "note");
   eq("3.2 a missed intention has no representation", kinds("I didn't work out")[0], "note");
   eq("3.3 a reschedule request has no representation", kinds("Move the workout forward")[0], "note");
-  eq("3.4 a reminder request has no representation", kinds("Remind me to email my professor tomorrow")[0], "note");
+  /**
+   * 3.4 was `"…has no representation" → "note"` and LIFEOS-101 closed half of
+   * what it recorded. This is a limitation REGISTER, not a correctness
+   * invariant — the whole of section 3 exists to pin what the loop cannot do —
+   * so when a limitation goes, the register says so rather than the change
+   * being made to fit the old entry.
+   *
+   * What changed: the OBLIGATION inside a reminder is now an Action. That was
+   * LIFEOS-063's FR-8, whose complaint was as much about the errand vanishing
+   * as about the reminder — "the genuine obligation inside it never became an
+   * action".
+   *
+   * What did NOT change: Conqify has no notification. It can hold "email my
+   * professor tomorrow" as a dated commitment; it cannot ring at a time and
+   * tell you. §14 of the 063 report remains open and 3.1-3.3 remain true as
+   * written.
+   *
+   * That half is deliberately NOT asserted here. A first draft added
+   * `!candidates.some(c => c.kind === "reminder")` and tsc rejected it:
+   * `"reminder"` is not in `CandidateKind` at all, so the comparison has no
+   * overlap. The type system already makes a reminder candidate unconstructable,
+   * which is a stronger guarantee than a runtime check — and a runtime check
+   * that can only ever pass is a decoration, not a proof.
+   */
+  eq("3.4 the obligation inside a reminder IS now an Action (LIFEOS-101)",
+    kinds("Remind me to email my professor tomorrow")[0], "action");
+  eq("3.4b …carrying its date, with the framing out of the title",
+    `${first("Remind me to email my professor tomorrow").fields.title} @ ${first("Remind me to email my professor tomorrow").fields.dueDate}`,
+    "email my professor @ 2026-03-03");
+
   ok("3.5 an ordinary wait IS represented", kinds("Marcus still hasn't sent the document").includes("waiting"));
 
   // ==================================================== 4. the §19 acceptance

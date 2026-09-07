@@ -70,6 +70,29 @@ const SPLIT_VERBS = [
 const INTENT_PREFIXES = [
   "i need to", "i have to", "i want to", "i ought to", "i should",
   "need to", "have to", "want to",
+  /**
+   * LIFEOS-101 Fix D. The openers Fix C taught `classify.ts` to read, taught
+   * here too — otherwise recognising them would have LOST captures rather than
+   * gained them (§24).
+   *
+   * Measured before the fix, one sentence, one candidate:
+   *
+   *   "Email Marcus tomorrow and remember the lease expires Friday"
+   *     → ONE Action titled "Email Marcus and remember the lease expires"
+   *
+   * The second intent did not merely go unrecognised; it was welded into the
+   * first one's title. `hasOwnIntent` merges back any fragment it cannot place,
+   * and "remember the lease expires Friday" had no entry anywhere, so the cut
+   * was undone and the note became part of an errand's name.
+   *
+   * Safe to add here for the reason stated at the top of this file: this list
+   * only decides where to CUT, and a cut that lands on a non-action still
+   * produces a note. `hasOwnIntent` remains the merge-back guard, so "buy milk
+   * and bread" is still one action.
+   */
+  "remind me to", "remember to", "remember that", "remember the",
+  "don't let me forget", "dont let me forget", "make sure i",
+  "i've got to", "ive got to", "i gotta",
   "i've been", "i have been", "i'm still", "i am still", "i keep", "i'm not sure",
   "i am not sure", "i'm unsure", "i am unsure", "i've realized", "i have realized",
   "i'm noticing", "i am noticing", "looking back", "i wonder", "i'm wondering",
