@@ -81,6 +81,24 @@ const QUESTIONED: RegExp[] = [
  */
 const PAST: RegExp[] = [
   /\b(?:i|we|he|she|they)\s+used\s+to\b/,
+  /**
+   * LIFEOS-101 Fix A. A past TIME FRAME makes everything under it a report.
+   *
+   * The corpus measured the cost of not having this:
+   *
+   *   "When I was applying to college I called Maria every week"
+   *     → Action · weekly recurrence · auto_with_undo
+   *
+   * A story about a finished chapter of someone's life became a standing
+   * commitment they would be reminded of every week. `used to` was already here
+   * and this is the same sentence with a different frame around it, so it
+   * belongs on the same list rather than in a guard somewhere downstream.
+   *
+   * Requires the past copula plus a subject, so it reads as a frame and not as
+   * a bare "when" — "When I finish the draft I'll send it" has no `was/were`
+   * and is not touched.
+   */
+  /\b(?:when|while|back\s+when)\s+(?:i|we|he|she|they)\s+(?:was|were)\b/,
   /\bi\s+wanted\s+to\b/,
   /\bi\s+(?:always\s+)?used\s+to\b/,
   /\bi\s+would\s+always\b/,
@@ -90,6 +108,67 @@ const PAST: RegExp[] = [
   /\bi\s+stopped\s+(?:trying|wanting)\b/,
   /\bfor\s+years\s+i\b/,
 ];
+
+/**
+ * Irregular past-tense verbs. LIFEOS-101 Fix B.
+ *
+ * Moved here from `classify.ts`, which kept it privately to keep narrative out
+ * of un-delimited conditionals ("When I saw him I told him the truth"). That is
+ * the same question this module exists to answer, and the codebase has already
+ * paid once for two copies of a judgment — LIFEOS-079's first draft carried a
+ * second list of connectives that disagreed with `extractConditional`.
+ *
+ * So there is now one list, it lives with the other tense tests, and
+ * `classify.ts` imports `opensWithPastVerb` rather than re-deriving it.
+ */
+const IRREGULAR_PAST = new Set([
+  "was", "were", "had", "did", "went", "saw", "told", "said", "got", "came",
+  "took", "made", "felt", "knew", "thought", "left", "found", "gave", "heard",
+  "met", "ran", "wrote", "bought", "caught", "brought", "sent", "spent", "kept",
+  "slept", "woke", "broke", "chose", "forgot", "lost", "paid", "sat", "stood",
+  "won", "wore", "drove", "ate", "drank", "began", "held", "let", "quit",
+]);
+
+/**
+ * Does a clause open with a past-tense verb?
+ *
+ * A guard, not a tense analyser. The `-ed` test requires a consonant before the
+ * suffix because "I need", "I feed" and "I speed" are present tense and every
+ * one of them ends in those letters.
+ *
+ * Exported for `classify.ts`, which used to own this test privately.
+ */
+export function opensWithPastVerb(clause: string): boolean {
+  const first = (clause ?? "").trim().replace(/^i\s+/i, "").split(/\s+/)[0]?.toLowerCase() ?? "";
+  if (/[^aeiou]ed$|ied$/.test(first)) return true;
+  return IRREGULAR_PAST.has(first);
+}
+
+/**
+ * LIFEOS-101 Fix B — `never` before a past-tense verb is a REPORT, not a rule.
+ *
+ * `lib/code/normative.ts` treats a bare `\bnever\b` as a normative marker,
+ * which is right for the habitual ("I never say no", "never lie to look
+ * better") and wrong for the past. The corpus caught three:
+ *
+ *   "Never got around to emailing Marcus"   → Personal Code rule
+ *   "I never needed to call the dentist"    → Personal Code rule
+ *   "I never sent Marcus the lease"         → Personal Code rule
+ *
+ * Every one is a fact about something that did not happen — §11's
+ * autobiographical truth — filed as a standing commitment the person holds.
+ *
+ * Fixed HERE rather than by trimming the marker list, because the marker is not
+ * what is wrong: "never" really is normative language. What is wrong is the
+ * STANCE, and `detectStandard` already refuses any sentence this module does
+ * not call asserted. One change, and both the rule path and the goal path get
+ * it, which is why the stance question lives in one module at all.
+ */
+function neverWithPastVerb(t: string): string | null {
+  const m = /\b(?:i\s+)?never\s+(\w+)/.exec(t);
+  if (!m) return null;
+  return opensWithPastVerb(m[1]) ? m[0].trim() : null;
+}
 
 /**
  * The sentence DECLINES the commitment.
@@ -128,7 +207,7 @@ export function detectStance(text: string): StanceFinding {
 
   const q = FIRST_MATCH(t, QUESTIONED);
   if (q) return { stance: "questioned", phrase: q };
-  const p = FIRST_MATCH(t, PAST);
+  const p = FIRST_MATCH(t, PAST) ?? neverWithPastVerb(t);
   if (p) return { stance: "past", phrase: p };
   const n = FIRST_MATCH(t, NEGATED);
   if (n) return { stance: "negated", phrase: n };

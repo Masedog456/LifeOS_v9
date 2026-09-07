@@ -31,6 +31,9 @@
  */
 
 import type { CaptureType, ClassificationConfidence } from "@/types/mvp";
+// LIFEOS-101. The tense test this module used to keep privately now lives with
+// the other tense tests, so "is this past?" has one answer for every caller.
+import { opensWithPastVerb } from "@/lib/capture/stance";
 
 export type { CaptureType, ClassificationConfidence };
 
@@ -118,6 +121,22 @@ const PROJECT_VERBS = [
   "set up", "renovate", "remodel", "redesign", "develop", "start a", "write a book",
 ];
 
+/**
+ * Verbs that open a WAY OF BEING rather than a thing to do.
+ *
+ * "I should be more patient" is a disposition and belongs to Personal Code;
+ * "I should call the dentist" is an errand. Giving the first one a checkbox is
+ * the LIFEOS-059 defect, and the distinction is the same one the normative
+ * detector makes from the other side.
+ *
+ * LIFEOS-101 lifted this out of the `i should` rule so the reminder rule can
+ * use it too — "Remind me to be kinder to myself" was becoming an auto-writable
+ * Action titled "be kinder to myself" the moment Fix C taught the parser to
+ * read "remind me to". One list, two rules, no drift.
+ */
+const DISPOSITION = "be\\b|stay\\b|remain\\b|keep\\b|stop\\b|start\\b|treat\\b|hold\\b|protect\\b|always\\b|never\\b|make sure\\b";
+const DISPOSITION_RE = new RegExp(`^(?:${DISPOSITION})`, "i");
+
 /** Explicitly reflective openers. Everything else declarative stays a Note. */
 const REFLECTION_MARKERS = [
   "i've realized", "i have realized", "i've realised", "i have realised",
@@ -202,7 +221,7 @@ export function extractConditional(text: string): { trigger: string; response: s
     // A NARRATIVE is not a protocol. "When I saw him I told him the truth"
     // reports a day; a protocol describes what one does whenever the trigger
     // recurs. Past tense in either half means the sentence is the former.
-    if (cond && resp && !isPastClause(cond) && !isPastClause(resp)) {
+    if (cond && resp && !opensWithPastVerb(cond) && !opensWithPastVerb(resp)) {
       return { trigger: cond, response: resp, leading: true, explicit: false };
     }
   }
@@ -215,29 +234,6 @@ export function extractConditional(text: string): { trigger: string; response: s
   }
   return null;
 }
-
-/**
- * Does a first-person clause open with a past-tense verb?
- *
- * A guard, not a tense analyser: it exists only to keep narrative out of the
- * un-delimited conditional above, so a miss costs a protocol suggestion and a
- * false positive would cost a wrong record. The `-ed` test requires a consonant
- * before the suffix, because "I need", "I feed" and "I speed" are present tense
- * and every one of them ends in the letters.
- */
-function isPastClause(clause: string): boolean {
-  const first = clause.replace(/^i\s+/i, "").split(/\s+/)[0]?.toLowerCase() ?? "";
-  if (/[^aeiou]ed$|ied$/.test(first)) return true;
-  return IRREGULAR_PAST.has(first);
-}
-
-const IRREGULAR_PAST = new Set([
-  "was", "were", "had", "did", "went", "saw", "told", "said", "got", "came",
-  "took", "made", "felt", "knew", "thought", "left", "found", "gave", "heard",
-  "met", "ran", "wrote", "bought", "caught", "brought", "sent", "spent", "kept",
-  "slept", "woke", "broke", "chose", "forgot", "lost", "paid", "sat", "stood",
-  "won", "wore", "drove", "ate", "drank", "began", "held", "let", "quit",
-]);
 
 /** Detect "waiting for/on X" and extract what is being waited on. */
 export function extractWaiting(text: string): string | null {
@@ -336,6 +332,34 @@ export function classifyOne(text: string): CaptureClassification {
   if (needTo) {
     return { suggestedType: "action", confidence: "high", reason: "Describes something you need to do.", extracted: { title: tidy(needTo[1]) } };
   }
+  /**
+   * LIFEOS-101 Fix C — "I've got to" and "I gotta" are "I have to" out loud.
+   *
+   * Measured as Notes before this: "I've got to call the dentist" and "I gotta
+   * email Marcus tomorrow" are two of the most ordinary ways anyone states an
+   * errand, and the parser required the written register.
+   *
+   * ## Two things this does NOT do, both deliberate
+   *
+   * The contraction is REQUIRED. Bare "I got to" is past tense far more often
+   * than it is obligation — "I got to meet him yesterday", "I got to see the
+   * clinic finally" — and both of those are Notes today and stay Notes.
+   *
+   * The remainder must open with an action verb, which the rule above does not
+   * require. That asymmetry is on purpose and the audit is why: "I have to
+   * admit that was hard" ALREADY becomes an auto-writable Action titled "admit
+   * that was hard", which is a pre-existing false positive of that rule
+   * (reported as a known gap, out of scope here). A new opener inheriting a bug
+   * discovered while adding it would be a choice, so this one is gated and
+   * "I've got to admit that was hard" stays a Note.
+   */
+  const gotTo = /^i(?:'ve|\s+have)\s+got\s+to\s+(.+)$|^i\s+gotta\s+(.+)$/i.exec(raw);
+  if (gotTo) {
+    const rest = tidy(gotTo[1] ?? gotTo[2] ?? "");
+    if (startsWithActionVerb(rest)) {
+      return { suggestedType: "action", confidence: "high", reason: "Describes something you need to do.", extracted: { title: rest } };
+    }
+  }
   // LIFEOS-080. "I should talk to Dana about it" was a Note, because `should`
   // was missing here — while `decompose` has cut on "i should" all along, so the
   // clause was already being split out and then had nowhere to go.
@@ -344,7 +368,7 @@ export function classifyOne(text: string): CaptureClassification {
   // side: a DISPOSITION ("I should be more patient") is a way of acting and
   // belongs to Personal Code; a plain verb is a thing to do. Written as one
   // negative lookahead so the two lists can be read against each other.
-  const shouldDo = /^i\s+should\s+(?!be\b|stay\b|remain\b|keep\b|stop\b|start\b|treat\b|hold\b|protect\b|always\b|never\b|make sure\b)(.+)$/i.exec(raw);
+  const shouldDo = new RegExp(`^i\\s+should\\s+(?!${DISPOSITION})(.+)$`, "i").exec(raw);
   if (shouldDo) {
     return { suggestedType: "action", confidence: "likely", reason: "Describes something you mean to do.", extracted: { title: tidy(shouldDo[1]) } };
   }
@@ -353,15 +377,49 @@ export function classifyOne(text: string): CaptureClassification {
   // word alone decides nothing: "Remember Mom's birthday" has no `to`, does not
   // match here, and stays whatever the occasion rules make of it. That split is
   // the entire point — a birthday given a checkbox is the LIFEOS-059 defect.
-  const rememberTo = /^(?:i\s+(?:need|have|want|ought)\s+to\s+)?remember\s+to\s+(.+)$/i.exec(raw);
+  /**
+   * LIFEOS-101 Fix C — the other ways people ask to be reminded.
+   *
+   * "Remember to X" was already here. The corpus found three more that are the
+   * same request in different words, all landing as Notes:
+   *
+   *   "Remind me to call the dentist Friday"
+   *   "Don't let me forget to submit the application"
+   *   "Make sure I send Maria the form"
+   *
+   * ## Why this extends the existing rule instead of adding one
+   *
+   * §27. The errand is X, not the framing — and this rule already knows how to
+   * say so, already refuses a conditional remainder, and already hands the
+   * stripped phrase to the same title path. A parallel rule would have to
+   * re-derive all three and would drift from them.
+   *
+   * ## The distinction the whole thing turns on (§5)
+   *
+   *   REMIND ME TO + action   → an errand
+   *   REMIND ME THAT + fact   → a note
+   *
+   * `to` is required in every alternative, so "Remind me that my passport
+   * expires in March" and "Don't let me forget that the lease expires Friday"
+   * never reach here. And every alternative is `^`-anchored, so "DON'T remind
+   * me to call the dentist" does not match either — the negation guard is the
+   * anchor rather than a list of things not to match.
+   *
+   * "Make sure I" needs its pronoun: "Make sure Maria sends the form" is
+   * someone else's action and §8 says not to read every sentence about another
+   * person as a commitment, so it stays a Note.
+   */
+  const rememberTo = /^(?:i\s+(?:need|have|want|ought)\s+to\s+)?remember\s+to\s+(.+)$|^remind\s+me\s+to\s+(.+)$|^don'?t\s+let\s+me\s+forget\s+to\s+(.+)$|^make\s+sure\s+i\s+(.+)$/i.exec(raw);
   if (rememberTo) {
-    const rest = tidy(rememberTo[1]);
+    const rest = tidy(rememberTo[1] ?? rememberTo[2] ?? rememberTo[3] ?? rememberTo[4] ?? "");
     // "Remember to give him space when he gets overwhelmed" is a PROTOCOL
     // wearing a memory word — a response to a situation, not an errand with an
     // end. A conditional anywhere in the remainder means the sentence keeps
     // whatever reading the rules below give it, rather than gaining a checkbox
     // it can never satisfy.
-    if (!extractConditional(rest)) {
+    // A disposition is not an errand, whichever framing asked to be reminded of
+    // it. Same list the `i should` rule uses, one test earlier.
+    if (rest && !extractConditional(rest) && !DISPOSITION_RE.test(rest)) {
       return {
         suggestedType: "action",
         confidence: "high",

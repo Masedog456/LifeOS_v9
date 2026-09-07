@@ -123,6 +123,20 @@ export function detectWaiting(text: string): WaitingFinding | null {
     const m = re.exec(t);
     if (!m) continue;
     const raw = group > 0 ? (m[group] ?? "") : "";
+    /**
+     * LIFEOS-101. Nobody waits on themselves.
+     *
+     * "I never sent Marcus the lease" matches the hasn't/never shape with "I"
+     * as the subject and produced a wait whose `waitingOn` was the user. It
+     * only became reachable once Fix B stopped `\bnever\b` claiming the
+     * sentence for Personal Code first, so the bug was latent rather than new.
+     *
+     * `continue`, not an empty subject: blanking the name would leave an
+     * anonymous wait, which is the same wrong record with less information in
+     * it. Falling through lets the sentence be what it is — a fact about
+     * something the person did not do (§11).
+     */
+    if (/^(?:i|we|me|myself|i'?m|i\s+am)\b/i.test(raw.trim())) continue;
     const object = objectGroup ? tidy(m[objectGroup] ?? "") : "";
     return { waitingOn: subject(raw), waitingFor: object || undefined, reason };
   }
