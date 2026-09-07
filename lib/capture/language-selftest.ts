@@ -231,10 +231,21 @@ export function runCaptureLanguageSelfTests() {
     ok(`101.19 §12 a standing rule with 'never' is unchanged — ${why}`,
       first(text)?.kind === "standard", desc(first(text)));
   }
-  // The tense test itself, since two modules now depend on it.
+  /**
+   * The tense test itself, since two modules now depend on it.
+   *
+   * `typeof` guarded, and not defensively for its own sake: §44 runs this suite
+   * against a full revert of the sprint, and a revert removes the export. Called
+   * bare, the whole suite died with "opensWithPastVerb is not a function" and
+   * took fifty-nine other assertions with it — a crash is not a caught defect,
+   * and a suite that cannot survive the thing it is measuring measures nothing.
+   */
+  const hasTense = typeof opensWithPastVerb === "function";
   ok("101.20 the past-tense test moved, and still answers the same way",
-    ["got", "sent", "needed", "called", "tried"].every((w) => opensWithPastVerb(w))
-    && ["need", "feed", "speed", "say", "check"].every((w) => !opensWithPastVerb(w)));
+    hasTense
+    && ["got", "sent", "needed", "called", "tried"].every((w) => opensWithPastVerb(w))
+    && ["need", "feed", "speed", "say", "check"].every((w) => !opensWithPastVerb(w)),
+    hasTense ? "" : "opensWithPastVerb is not exported");
   ok("101.21 the past time-frame is a past stance",
     detectStance("When I was applying to college I called Maria every week").stance === "past"
     && detectStance("When Marcus replies I will send the lease").stance === "asserted");
