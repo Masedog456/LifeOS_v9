@@ -445,6 +445,28 @@ async function click(page, re, scope = "") {
       !(await all(page, "[data-waiting]")).some((x) => /Quote/.test(x) && /Was due/.test(x)),
       JSON.stringify(await all(page, "[data-waiting]")));
 
+    // 32d §12, §47 — the FIXED group, which `buildTodayOrientation` builds and
+    // 105 §47 did not consolidate. A wait carrying a TIME was rendered as a
+    // timed commitment in BE THERE while sitting on the waiting roster below
+    // it, and the orientation line counted it: "1 timed commitment" for work
+    // whose next move is Priya's.
+    await seed(page);
+    await mutate(page, `const a = s.nextActions.find(x=>x.id==="a-wait-none");
+      a.dueDate = "${day(0)}"; a.dueTime = "14:00";`);
+    ok("32d §12 a wait carrying a time is not a fixed BE THERE commitment",
+      !(await all(page, "[data-today-fixed]")).some((x) => /Quote/.test(x)),
+      JSON.stringify(await all(page, "[data-today-fixed]")));
+    // `domText`, not `body`: the waiting roster sits inside the collapsed
+    // <details data-today-later>, and innerText does not report collapsed text.
+    ok("32e §12 …and it is still reachable on the waiting roster",
+      (await all(page, "[data-waiting]")).some((x) => /Quote/.test(x)),
+      JSON.stringify(await all(page, "[data-waiting]")));
+    // The control, on the same page: an ordinary action with a time is still
+    // fixed, so 32d is a filter rather than an empty group.
+    ok("32f §3 …while the person's own timed work IS on the schedule",
+      (await all(page, "[data-today-fixed]")).some((x) => /medication/i.test(x)),
+      JSON.stringify(await all(page, "[data-today-fixed]")));
+
     // 33 §11 — completing a wait leaves no waiting metadata behind.
     await seed(page);
     // ActionDetail's Complete opens an evidence panel; "Mark complete" commits.
