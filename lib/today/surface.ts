@@ -74,6 +74,19 @@ export interface FixedRow {
   isNext: boolean;
   occurrence?: EventOccurrence;
   action?: NextAction;
+  /**
+   * For a RECURRING timed action: today's occurrence key.
+   *
+   * A timed standing responsibility ("Take the medication, every day at 8") is a
+   * BE THERE row by §21 and a closable occurrence by §23, and it needs to be
+   * both. Splitting fixed from flexible without carrying this cost Today the
+   * only control that closes one occurrence without ending the series — the
+   * 074 reachability suite caught it, and no amount of restructuring justifies
+   * removing a mutation the user had.
+   */
+  occurrenceKey?: DayKey;
+  /** The rule in words, for the row that carries the occurrence control. */
+  schedule?: string;
 }
 
 /** A row in TODAY that a person DOES (§21). */
@@ -190,6 +203,7 @@ export function buildTodayCommand(
   // already listed and the Today section listed again below it: one commitment,
   // three times, in eleven rows. A marker on the row says the same thing once.
   const nextOccurrenceId = view.nextEvent?.event.id;
+  const recurringById = new Map(view.recurringToday.map((r) => [r.action.id, r]));
   const fixed: FixedRow[] = fixedToday
     // §24 again. Only an ACTION can be the suggestion, and a timed action that
     // is already the strongest next move does not also need a schedule row two
@@ -217,6 +231,8 @@ export function buildTodayCommand(
     isNext: f.kind === "event" && !view.nowEvent && f.id === nextOccurrenceId,
     occurrence: f.event,
     action: f.action,
+    occurrenceKey: f.kind === "action" ? recurringById.get(f.id)?.occurrence : undefined,
+    schedule: f.kind === "action" ? recurringById.get(f.id)?.schedule : undefined,
   }));
 
   // ---- DO (§21, §24) -----------------------------------------------------

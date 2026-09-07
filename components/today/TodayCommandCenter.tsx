@@ -82,7 +82,7 @@ function Section({ title, show, children, id }: { title: string; show: boolean; 
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mt-2 first:mt-0">
-      <p data-today-group={label.toLowerCase()} className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">{label}</p>
+      <p data-today-group={label.toLowerCase()} className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</p>
       {children}
     </div>
   );
@@ -272,7 +272,12 @@ export default function TodayCommandCenter() {
               {cmd.fixed.map((f) => (
                 // An Event carries no control. It happens; there is nothing to tick.
                 <li key={`${f.kind}:${f.id}`} data-today-fixed={f.kind}
-                  className={`${rowClass} ${!f.isNow && f.time && f.time < now ? "opacity-55" : ""}`}>
+                  // §61. Dimming is for EVENTS whose time has passed, exactly as
+                  // before. Extending it to timed ACTIONS took "Call the dentist"
+                  // to 3.51:1 and its "2 PM" to 2.11:1 — the 099 contrast probe
+                  // caught it. A row you cannot read is worse than a row you
+                  // cannot tell is behind you, and the action is still yours to do.
+                  className={`${rowClass} ${f.kind === "event" && !f.isNow && f.time && f.time < now ? "opacity-55" : ""}`}>
                   <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
                     {/* §29, §33 of 083: a marker on the row, not a section of
                         its own. The NOW card said "Next: Advisor meeting" for an
@@ -283,10 +288,25 @@ export default function TodayCommandCenter() {
                     {f.detail && <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{f.detail}</span>}
                   </span>
                   <span className={metaClass}>
-                    {/* §22. Canonical formatter, never the stored "14:00". */}
+                    {/* §22. Canonical formatter, never the stored "14:00".
+                        LIFEOS-098 §3: an ACTION is DUE at a time; an Event
+                        simply happens at one. Dropping "Due" from the timed
+                        action broke the one vocabulary Home, Today and the
+                        evening close share about a date. */}
+                    {f.kind === "action" && f.time ? "Due " : ""}
                     {f.time ? formatLocalTime(f.time) : "All day"}
-                    {f.time && f.endTime ? `–${formatLocalTime(f.endTime)}` : ""}
+                    {f.time && f.endTime && f.kind === "event" ? `–${formatLocalTime(f.endTime)}` : ""}
                   </span>
+                  {/* §23. A timed standing responsibility is a BE THERE row AND a
+                      closable occurrence. `completeOccurrence` closes today
+                      without ending the series. */}
+                  {f.occurrenceKey && f.action && (
+                    <button type="button" data-complete-occurrence
+                      onClick={() => { if (completeOccurrence(f.id, f.occurrenceKey!)) toast({ kind: "success", message: "Done for today. It'll come back next time." }); }}
+                      className="shrink-0 rounded-full border border-black/[.12] px-3 py-0.5 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
+                      Mark done
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
