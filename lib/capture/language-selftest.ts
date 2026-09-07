@@ -28,6 +28,7 @@ import { emptyStoreState } from "@/lib/ux/backup";
 import { interpret, type Candidate } from "@/lib/capture/interpret";
 import { detectStance, opensWithPastVerb } from "@/lib/capture/stance";
 import { detectWaiting } from "@/lib/capture/waiting";
+import { classifyOne } from "@/lib/capture/classify";
 
 const T = "2026-09-07";
 const D = (k: string, h = 9) => `${k}T${String(h).padStart(2, "0")}:00:00.000Z`;
@@ -167,8 +168,26 @@ export function runCaptureLanguageSelfTests() {
     const k = first("Remind me to be kinder to myself");
     ok("101.10 §29 a disposition asked for as a reminder is not an errand",
       k?.kind !== "action", desc(k));
-    ok("101.11 …the same list still guards the rule it came from",
-      first("I should be more patient")?.kind !== "action", desc(first("I should be more patient")));
+    /**
+     * 101.11 was named "the same list still guards the rule it came from" and
+     * did not test that. Mutation testing found it: removing the disposition
+     * guard from the `i should` rule changed nothing here, because
+     * `detectStandard` claims "I should be more patient" at interpret step 1b,
+     * before the classifier is reached at all. Through `interpret` the guard is
+     * unreachable.
+     *
+     * It is NOT unreachable for `classifyOne`, which is a public export four
+     * other surfaces call — and this sprint made that list shared, so it is now
+     * load-bearing for the reminder rule too. So one assertion for each level,
+     * each saying which level it is about.
+     */
+    ok("101.11 §17 a disposition reaches Personal Code, not the Next list",
+      first("I should be more patient")?.kind === "standard", desc(first("I should be more patient")));
+    ok("101.11b …and the shared disposition list guards `classifyOne` directly",
+      classifyOne("I should be more patient").suggestedType !== "action"
+      && classifyOne("I should stay off my phone").suggestedType !== "action"
+      && classifyOne("I should call the dentist").suggestedType === "action",
+      `${classifyOne("I should be more patient").suggestedType} / ${classifyOne("I should call the dentist").suggestedType}`);
 
     ok("101.12 §8 nobody waits on themselves",
       detectWaiting("I never sent Marcus the lease") === null
@@ -178,6 +197,33 @@ export function runCaptureLanguageSelfTests() {
       first("Maria still hasn't sent the transcript")?.fields.waitingOn === "Maria",
       desc(first("Maria still hasn't sent the transcript")));
   }
+
+  /**
+   * §34. Rule ORDER, proved rather than assumed.
+   *
+   * Mutation testing found this gap: making the action rules run before
+   * `detectWaiting` changed nothing in 61 assertions or 105 corpus sentences,
+   * because every waiting sentence in both happened to be one the action rules
+   * do not claim. The precedence only shows up on a sentence that is BOTH
+   * action-shaped and waiting-shaped, and there was not one.
+   *
+   * "Chase up the transcript" is that sentence: `chase up` is on the action
+   * verb list AND on the waiting pattern list. Waiting wins, and must, for the
+   * reason the comment at that branch gives — "waiting for Sarah to send"
+   * contains "send".
+   */
+  ok("101.28 §34 waiting still beats the action rules on a sentence both claim",
+    first("Chase up the transcript")?.kind === "waiting",
+    desc(first("Chase up the transcript")));
+  ok("101.29 §34 …and a follow-up naming a person is a wait, not an errand",
+    first("Follow up with Marcus about the invoice")?.kind === "waiting",
+    desc(first("Follow up with Marcus about the invoice")));
+  // The control: an action-shaped sentence the waiting patterns do NOT claim
+  // stays an action, so 101.28 is about precedence and not about waiting
+  // swallowing everything.
+  ok("101.30 §34 …while a sentence only the action rules claim stays an Action",
+    first("Check with Maria about the transcript")?.kind === "action",
+    desc(first("Check with Maria about the transcript")));
 
   // ---- §8 someone else's action is not the user's errand -----------------
   ok("101.14 §8 'Make sure Maria sends the form' is not a self-commitment",
