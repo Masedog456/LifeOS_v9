@@ -12,14 +12,14 @@
  * stopped. So the assertions below divide in three:
  *
  *   1-7    the doorway still opens from everywhere        (regression guard)
- *   8-14   it now opens the ONE system, provably the same (the fix)
- *   15-28  and it did not acquire a page's context on the way in
+ *   8-20   it now opens the ONE system, provably the same (the fix)
+ *   21-28  and it did not acquire a page's context on the way in
  *
  * The third group is the one that matters most and it is easy to get wrong. A
  * test that asserts "capturing from a Project does not set projectId" passes
- * trivially against a product where context never works at all. So 21 exists:
- * the same sheet, from the same Project, with the project NAMED in the sentence,
- * must link. Without it the other five prove nothing.
+ * trivially against a product where context never works at all. So 21 is a
+ * CONTROL and comes first: the same sheet, from the same Project, with the
+ * project NAMED in the sentence, must link. Without it 22-26 prove nothing.
  */
 const { chromium } = require("playwright-core");
 const { world, ROUTES } = require("./fixtures/lifeos-100-world.cjs");
