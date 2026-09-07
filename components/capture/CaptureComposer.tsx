@@ -173,7 +173,7 @@ function rowsFrom(candidates: Candidate[], state: StoreState, today: string): Ro
   });
 }
 
-export default function CaptureComposer({ onFinished }: {
+export default function CaptureComposer({ onFinished, headline = true }: {
   /**
    * The capture that just finished, or null.
    *
@@ -183,6 +183,23 @@ export default function CaptureComposer({ onFinished }: {
    * the row while the panel is up, so one moment stays one thing on screen.
    */
   onFinished?: (captureId: string | null) => void;
+  /**
+   * Whether this instance owns the page heading. LIFEOS-100 §9, §32.
+   *
+   * On Home it does: the `<h1>` IS the page's heading and its only one. Inside
+   * the quick-capture dialog it must not, and the reason was measured rather
+   * than assumed — with the sheet open on `/project/p1` the document had two
+   * `<h1>`s ("Clinic launch" and "What's happening?"), and inside the dialog
+   * the levels ran h2 then h1, backwards. LIFEOS-099's assertion 20 pins
+   * `h1 === 1` and no heading jump; it never opened this overlay, so it could
+   * not have caught what the overlay adds.
+   *
+   * Only the visible heading is suppressed. The `<label>` is a separate node
+   * and stays, so the field keeps the same accessible name in both places, and
+   * the dialog's own `<h2>` names the doorway. The sheet is 32px + margin
+   * shorter for it, which is most of what §9 means by "not a mini Home page".
+   */
+  headline?: boolean;
 } = {}) {
   const state = useStore();
   const router = useRouter();
@@ -606,9 +623,11 @@ export default function CaptureComposer({ onFinished }: {
         the page after §31: "Nothing is created until you confirm it" stopped
         being so the moment an auto-safe capture began finishing itself.
       */}
-      <h1 className="mb-3 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-        {HOME_PROMPT}
-      </h1>
+      {headline && (
+        <h1 className="mb-3 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          {HOME_PROMPT}
+        </h1>
+      )}
 
       <label htmlFor="capture" className="sr-only">{HOME_PROMPT}</label>
       <textarea
