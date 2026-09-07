@@ -398,6 +398,93 @@ async function click(page, re, scope = "") {
       !(await all(page, "[data-suggested-next], [data-today-action]")).some((x) => /Send the invoice/.test(x)));
   }
 
+  /**
+   * ---- 31-34. the reds the first revert run showed this suite could not see.
+   *
+   * §55 is only worth running if it can distinguish. Three of the six reds were
+   * invisible here: the dated-wait bug lives in the COMMIT path (and the suite
+   * seeded `followUpDate` directly, which passes either way), the deadline-claim
+   * bug needs a wait that actually carries a `dueDate`, and the completion bug
+   * is about STORED fields no rendered row shows. Each is now reached.
+   */
+  {
+    // 31 §9 — the commit path, through the real composer.
+    // The composer's own controls, not text: `[data-capture-submit]` commits,
+    // and an auto-classified wait finishes without a confirmation step.
+    await seed(page, F.EMPTY(), "/");
+    const ta = await page.$("#capture, textarea");
+    if (ta) {
+      await ta.fill("Waiting on Sam for the keys by Friday");
+      await page.waitForTimeout(400);
+      const sub = await page.$("[data-capture-submit]");
+      if (sub) await sub.click();
+      await page.waitForTimeout(2200);
+      // If it stopped to ask, take the offered confirmation.
+      const keep = await page.$("[data-capture-keep], [data-capture-confirm]");
+      if (keep) { await keep.click(); await page.waitForTimeout(1600); }
+    }
+    const made = ((await store(page)).nextActions ?? [])[0];
+    ok("31pre §9 the capture committed a wait", made?.status === "waiting", JSON.stringify(made?.status));
+    ok("31 §9 a dated wait carries the date as a FOLLOW-UP, not a deadline",
+      !!made?.followUpDate && !made?.dueDate,
+      JSON.stringify([made?.followUpDate, made?.dueDate]));
+
+    // 32 §12 — a wait that carries a dueDate raises no deadline claim.
+    await seed(page);
+    await mutate(page, `const a = s.nextActions.find(x=>x.id==="a-wait-none");
+      a.dueDate = "${day(0)}";`);
+    ok("32 §12 a wait dated today is not in the work list",
+      !(await all(page, "[data-today-action]")).some((x) => /Quote/.test(x)),
+      JSON.stringify(await all(page, "[data-today-action]")));
+    await mutate(page, `const a = s.nextActions.find(x=>x.id==="a-wait-none");
+      a.dueDate = "${day(-3)}";`);
+    ok("32b §12 …and a wait dated in the past raises no overdue row",
+      !(await all(page, "[data-attention]")).some((x) => /Quote/.test(x)),
+      JSON.stringify(await all(page, "[data-attention]")));
+    ok("32c §58 …so no row reads Was due beside Waiting",
+      !(await all(page, "[data-waiting]")).some((x) => /Quote/.test(x) && /Was due/.test(x)),
+      JSON.stringify(await all(page, "[data-waiting]")));
+
+    // 33 §11 — completing a wait leaves no waiting metadata behind.
+    await seed(page);
+    // ActionDetail's Complete opens an evidence panel; "Mark complete" commits.
+    // The first spin clicked only the opener and reported a product defect that
+    // was not one — a two-step control looks broken to a one-step test.
+    await goto(page, "/actions/a-wait-due");
+    let done = false;
+    if (await page.$("button")) {
+      await click(page, /^Complete$/);
+      done = await click(page, /^Mark complete$/);
+    }
+    await page.waitForTimeout(700);
+    const c = await actOf(page, "a-wait-due");
+    ok("33pre §11 the wait was completed", done && c?.status === "completed",
+      JSON.stringify([done, c?.status]));
+    ok("33 §11 …and its current state no longer claims a wait",
+      !c?.waitingOn && !c?.waitingSince && !c?.followUpDate,
+      JSON.stringify([c?.waitingOn, c?.waitingSince, c?.followUpDate]));
+    ok("33b §46 …while history still records it",
+      (c?.history ?? []).some((h) => h.action === "waiting" && h.detail === "Maria"),
+      JSON.stringify((c?.history ?? []).map((h) => [h.action, h.detail])));
+
+    // 34 §42 — the stopped-wait line names the person.
+    await seed(page);
+    await goto(page, "/actions/a-wait-due");
+    const sw = await page.$("[data-resolution='stop_waiting']");
+    if (sw) {
+      await sw.click(); await page.waitForTimeout(700);
+      const yes = await page.$("[data-resolution-panel='stop_waiting'] button");
+      if (yes) { await yes.click(); await page.waitForTimeout(1100); }
+    }
+    ok("34pre §10 the wait was actually stopped",
+      (await actOf(page, "a-wait-due"))?.status === "open",
+      String((await actOf(page, "a-wait-due"))?.status));
+    await goto(page, "/today/review");
+    const rev = await domText(page);
+    ok("34 §42 the stopped wait names who it was on",
+      /Maria/.test(rev), (rev.match(/.{0,40}[Ss]topped waiting.{0,30}/) ?? [rev.slice(0, 80)])[0]);
+  }
+
   // ---- 30. mobile, and nothing threw --------------------------------------
   {
     VP = "MOBILE";
