@@ -281,6 +281,30 @@ const FAKE_NUMBER = /\b\d{1,3}\s?%|\b0\.\d{2}\b/;
       `had=${had} ft=${gone.ft} finished=${gone.finished}`);
   }
 
+  // ============================================ 18b. §32, §46 dismissal
+  //
+  // Mutation testing put this here. M5 moved the dismissal into localStorage and
+  // nothing reddened — the suite never dismissed anything, so it could not
+  // notice that a declined suggestion was being written down. §32 says
+  // dismissal is ephemeral and §46 says nothing about follow-through is
+  // persisted; neither was asserted.
+  {
+    await home(page, "I'm waiting on Priya for the quote");
+    const keysBefore = await page.evaluate(() => Object.keys(localStorage).sort().join(","));
+    await page.click("[data-follow-through-dismiss]");
+    await page.waitForTimeout(500);
+    const dismissed = await page.evaluate(() => !!document.querySelector("[data-follow-through]"));
+    const keysAfter = await page.evaluate(() => Object.keys(localStorage).sort().join(","));
+
+    // A NEW capture of the same shape must offer it again — a dismissal is
+    // about this panel, not about this kind of record forever.
+    const again = await home(page, "I'm waiting on Dana for the form");
+    ok("18b §32, §46 dismissal hides it here, writes nothing down, and the next capture offers it again",
+      !dismissed && keysBefore === keysAfter && again.followThrough
+      && /Form from Dana/.test(again.ftLabel ?? ""),
+      `hidden=${!dismissed} keys unchanged=${keysBefore === keysAfter} next=${again.followThrough} ${JSON.stringify(again.ftLabel)}`);
+  }
+
   // ============================================ 19. §41 parity
   {
     const SENTENCES = [
