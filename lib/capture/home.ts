@@ -38,6 +38,11 @@ import type { CaptureContextSuggestion } from "@/lib/capture/context";
 import { formatDayKey, todayKey, type DayKey } from "@/lib/reviews/dates";
 import { dueLabel, followUpPhrase } from "@/lib/actions/due";
 import { formatLocalTime } from "@/lib/time/localtime";
+// LIFEOS-102. The canonical recurrence sentence. The SAME formatter the
+// review panel and the action history already use — §24 forbids a second
+// vocabulary for the same fact, and there is no reason to invent one when
+// the record's own history already stores this function's output.
+import { describeRule } from "@/lib/time/recurrence";
 
 // ------------------------------------------------------------------ copy ---
 
@@ -312,6 +317,30 @@ export function describeCreated(
       if (due) bits.push(due);
       if (a.dueTime) bits.push(formatLocalTime(a.dueTime));
       /**
+       * LIFEOS-102 §4, §24, §38. The schedule, which was stored and never shown.
+       *
+       * Measured on the running product, three shapes, all silent:
+       *
+       *   "Run every Monday"                          → "Saved as Action · Run"
+       *   "Pay the rent on the first of every month"  → "… · Pay the rent"
+       *   "Take the dog out every day"                → "… · Take the dog out"
+       *
+       * A standing commitment reported as a one-off. LIFEOS-096 strips the
+       * recurrence phrase out of the title — correctly, the field owns it — and
+       * nothing put the fact back, so the one surface that tells a person what
+       * was just created omitted the half that makes it recur forever.
+       *
+       * `describeRule` rather than a new phrase: the record's own history
+       * already carries this exact string ("Every Monday") from commit time, so
+       * a second wording here would be the product disagreeing with itself
+       * about one rule (§24, and LIFEOS-098's whole argument).
+       *
+       * A recurring EVENT read correctly all along, but only by accident — it
+       * keeps the phrase in its title. That is why this is not symmetrical.
+       */
+      const repeats = a.recurrence ? describeRule(a.recurrence) : "";
+      if (repeats) bits.push(repeats);
+      /**
        * §13. A follow-up date is not a due date, and Home showed neither.
        *
        * The audit measured a wait whose follow-up had arrived: Today said
@@ -355,8 +384,16 @@ export function describeCreated(
       if (!e) continue;
       out.push({
         kind: ref.kind, id: ref.id, title: e.title, label,
-        detail: [e.date && formatDayKey(e.date), e.startTime && formatLocalTime(e.startTime)]
-          .filter(Boolean).join(" · ") || undefined,
+        // The event path reads the same field through the same formatter. Its
+        // title usually still carries the phrase, so this is belt-and-braces
+        // rather than a fix — but a title that DOESN'T carry it would have had
+        // the action path's bug, silently.
+        detail: [
+          e.date && formatDayKey(e.date),
+          e.startTime && formatLocalTime(e.startTime),
+          e.recurrence && !new RegExp(describeRule(e.recurrence).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(e.title ?? "")
+            ? describeRule(e.recurrence) : "",
+        ].filter(Boolean).join(" · ") || undefined,
         href: hrefFor(ref.kind, ref.id),
       });
       continue;

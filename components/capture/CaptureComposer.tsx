@@ -43,7 +43,7 @@ import {
   // offer. Nothing new was written to make that chip work.
   updateAction,
 } from "@/lib/mvpStore";
-import type { StoreState } from "@/types/mvp";
+import type { RecordRefLite as RefLite, StoreState } from "@/types/mvp";
 import { interpret, wholeCaptureAsNote, dateNotKept, type Candidate } from "@/lib/capture/interpret";
 import { toCommitCandidate, isCommittable, type CommitCandidate } from "@/lib/capture/commit";
 import { buildEscalationContext, mergeAiCandidates, validateAiCandidates } from "@/lib/capture/escalation";
@@ -236,6 +236,43 @@ export default function CaptureComposer({ onFinished, headline = true }: {
   const [correcting, setCorrecting] = useState<string | null>(null);
   /** §14. The opener for each outcome, so focus can go back to it on close. */
   const editRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  /**
+   * LIFEOS-102 §28, §38. What the panel SHOWS, re-derived from the live store.
+   *
+   * ## The defect
+   *
+   * `finished.outcomes` is built by `describeCreated` at commit time, which
+   * reads the store — so the first render was always truthful. But it was held
+   * in React state and never recomputed, and a correction writes to the store
+   * without touching it. Measured on the running product, both fields, both
+   * doorways:
+   *
+   *   correct the TITLE   store "Call the orthodontist"   panel "Call the dentist"
+   *   correct the DATE    store dueDate 2026-09-20        panel "Due Fri, Sep 11"
+   *
+   * The panel went on asserting a record that no longer existed. §38 says the
+   * result must describe what actually exists, and it stopped doing so the
+   * moment the person fixed it.
+   *
+   * ## Why re-derive rather than patch the correction path
+   *
+   * A correction is not the only way the store moves under this panel — an undo
+   * elsewhere, a sync, a change made in another tab all do. Patching
+   * `onClose` would have fixed the one route the audit happened to walk and
+   * left the rest. `state` comes from `useStore()`, so deriving here means the
+   * panel re-renders and re-reads whenever the store changes, from any cause.
+   *
+   * A record that has been DELETED drops out of the list, because
+   * `describeCreated` skips refs it cannot find. That is the same rule stated
+   * from the other side: do not say "saved" for something that is not there.
+   */
+  const shownOutcomes = useMemo(
+    () => (finished
+      ? describeCreated(state, finished.outcomes.map((o) => ({ kind: o.kind, id: o.id }) as RefLite), today)
+      : []),
+    [finished, state, today],
+  );
 
   const projectTitles = useMemo(
     () => buildEscalationContext("", state).projectTitles,
@@ -885,7 +922,7 @@ export default function CaptureComposer({ onFinished, headline = true }: {
         <div data-capture-finished role="status" aria-live="polite"
           className="mt-4 rounded-2xl border border-black/[.06] bg-black/[.02] p-4 dark:border-white/[.08] dark:bg-white/[.03]">
           <ul className="flex flex-col gap-2">
-            {finished.outcomes.map((o) => {
+            {shownOutcomes.map((o) => {
               const key = `${o.kind}:${o.id}`;
               /**
                * LIFEOS-097 §5, §21. One Edit per record, not one per capture.
@@ -976,9 +1013,13 @@ export default function CaptureComposer({ onFinished, headline = true }: {
                     updateAction(actionId, offer.projectId
                       ? { projectId: offer.projectId }
                       : { goalId: offer.goalId });
+                    // LIFEOS-102. No `describeCreated` here any more: the panel
+                    // re-derives from the store on every render, so accepting an
+                    // offer shows its result the same way a correction does.
+                    // This used to be the ONE place that recomputed, which is
+                    // why the offer chip looked right and corrections did not.
                     setFinished((f) => f && {
                       ...f,
-                      outcomes: describeCreated(getSnapshot(), f.outcomes.map((o) => ({ kind: o.kind, id: o.id }))),
                       offers: f.offers.filter((x) => !(x.actionId === actionId && x.offer.label === offer.label)),
                     });
                   }}
