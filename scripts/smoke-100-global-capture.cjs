@@ -542,15 +542,25 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
       const ROOT = openSheetFirst
         ? FIND
         : `document.querySelector("[data-capture-results]").closest("section")`;
+      /**
+       * Every text node's RATIO, not just the ones that fail.
+       *
+       * Comparing failure lists was the first version of this and M13 walked
+       * straight through it: reinstating `dark:bg-zinc-900` dropped those three
+       * nodes from 4.08 to 3.67, and since both numbers are under 4.5 they were
+       * on both lists and the difference cancelled. What the sheet must not do
+       * is measure LOWER than Home, whether or not either passes.
+       */
       return page.evaluate(`(() => {
         const A = window.__a11y;
         const root = ${ROOT};
-        if (!root) return ["(state not reached)"];
-        const out = [];
+        if (!root) return null;
+        const out = {};
         for (const { el, text } of A.textLeaves(root)) {
           const c = A.contrastOf(el);
           if (c.disabled) continue;
-          if (c.ratio < A.required(c.px, c.weight)) out.push(text.trim().slice(0, 30));
+          const k = text.trim().slice(0, 30);
+          if (!(k in out) || c.ratio < out[k]) out[k] = Math.round(c.ratio * 100) / 100;
         }
         return out;
       })()`);
@@ -560,9 +570,14 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
     // light-only comparison would have called that clean.
     const extra = [];
     for (const scheme of ["light", "dark"]) {
-      const homeFails = await askFailures(false, scheme);
-      const sheetFails = await askFailures(true, scheme);
-      for (const x of sheetFails) if (!homeFails.includes(x)) extra.push(`${scheme}: ${x}`);
+      const home = await askFailures(false, scheme);
+      const sheet = await askFailures(true, scheme);
+      if (!home || !sheet) { extra.push(`${scheme}: asking state not reached`); continue; }
+      for (const k of Object.keys(sheet)) {
+        if (!(k in home)) continue;                 // nodes only the sheet has
+        // 0.05 of slack for sub-pixel compositing, well under the 0.41 M13 cost.
+        if (sheet[k] < home[k] - 0.05) extra.push(`${scheme}: "${k}" ${sheet[k]} < Home's ${home[k]}`);
+      }
     }
     await page.emulateMedia({ colorScheme: "light" });
 
@@ -583,7 +598,7 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
         fieldLabel: lab ? lab.textContent.trim() : "(field has no label)",
       };
     })()`);
-    ok("19 §32, §56 one h1, no heading jump, dialog named, field labelled, and no contrast failure Home does not also have",
+    ok("19 §32, §56 one h1, no heading jump, dialog named, field labelled, and no node measuring lower than Home",
       closed === 1 && open.h1 === 1 && !open.jump && open.named &&
       open.fieldLabel === "What's happening?" && homeH1 === 1 &&
       extra.length === 0,
