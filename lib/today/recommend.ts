@@ -42,7 +42,7 @@
 import type { NextAction, StoreState } from "@/types/mvp";
 import type { DayKey } from "@/lib/reviews/dates";
 import { isLive, dueLabel, dueKeyOf } from "@/lib/actions/due";
-import { isDeferredAhead } from "@/lib/actions/defer";
+import { isOwnMoveNow } from "@/lib/actions/lifecycle";
 import { blockedBy } from "@/lib/actions/dependencies";
 import { readRule } from "@/lib/time/recurrence";
 import { occurrenceFor } from "@/lib/mvpStore";
@@ -193,9 +193,10 @@ export const RECOMMENDATION_HORIZON_DAYS = 3;
  * `recurringDueToday`.
  */
 function isExecutable(a: NextAction, ix: TodayIndexes, today: DayKey): boolean {
-  if (!isLive(a)) return false;
-  if (a.status === "waiting") return false;
-  if (isDeferredAhead(a, today)) return false;
+  // LIFEOS-105 §47. The first three clauses were this function's own; they are
+  // now `isOwnMoveNow`, shared with the commitment layer and with Today, because
+  // the audit found the other two copies each missing a different clause.
+  if (!isOwnMoveNow(a, today)) return false;
   if (ix.blockedActionIds.has(a.id)) return false;
   if (readRule(a.recurrence)) return recurringDueToday(a, ix, today);
   return true;

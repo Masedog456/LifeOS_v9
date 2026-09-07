@@ -190,6 +190,7 @@ import { emptyStoreState } from "@/lib/ux/backup";
 import { makeAction, inheritFromMilestone, inheritFromProject, inheritFromCapture, type NewActionInput } from "@/lib/actions/action";
 import { makeEvent as makeActionEvent, appendHistory as appendActionHistory, type ActionEventKind } from "@/lib/actions/history";
 import { deferKeyFor as actionDeferKeyFor, returnDueActions, type DeferOption as ActionDeferOption } from "@/lib/actions/defer";
+import { shedStatusFields } from "@/lib/actions/lifecycle";
 import { withNextFollowUp, withoutWaiting } from "@/lib/actions/waiting";
 import { planDependency, pruneDependencies } from "@/lib/actions/dependencies";
 import { makeTemplate, instantiateTemplate, type NewTemplateInput } from "@/lib/actions/templates";
@@ -4268,7 +4269,23 @@ export function commitCapture(
           goalId: c.goalId,
           workspaceId: c.workspaceId,
         });
-        if (c.dueDate) setActionDueDate(actionId, c.dueDate);
+        /**
+         * LIFEOS-105 §9. On a WAIT, the date the person said is a follow-up.
+         *
+         * This line and the `markActionWaiting` call below were both reading
+         * `c.dueDate`, so "Waiting on Sam for the keys by Friday" committed a
+         * record with `dueDate` AND `followUpDate` set to the same day — one
+         * date, two fields, two contradictory meanings. It rendered "Due Fri,
+         * Sep 11" beside "Follow up Fri, Sep 11", raised a `due_soon`
+         * commitment signal about work that cannot be started, and when the day
+         * arrived it appeared in Today's DO list and the waiting roster at once.
+         *
+         * A wait's next move belongs to someone else (§8, §12), so it has no
+         * deadline of its own to carry. The date goes to the follow-up, which is
+         * what a person naming a day on a wait actually means — and which is
+         * where LIFEOS-103's correction path already writes it.
+         */
+        if (c.dueDate && c.kind !== "waiting") setActionDueDate(actionId, c.dueDate);
         // A recurrence makes this a standing SOURCE. It is never "done".
         //
         // Set BEFORE the time, deliberately: `setActionDueTime` needs a day to
@@ -5357,13 +5374,10 @@ function bumpAction(actionId: string, mutate: (a: NextAction) => NextAction): vo
  * wait and means nothing without it. An explicit `patch` still wins.
  */
 function transitionAction(actionId: string, to: ActionStatus, kind: ActionEventKind, patch: Partial<NextAction> = {}): void {
-  bumpAction(actionId, (a) => {
-    const shed: Partial<NextAction> = {
-      ...(a.status === "waiting" && to !== "waiting" ? { waitingOn: undefined, waitingSince: undefined, followUpDate: undefined } : {}),
-      ...(a.status === "deferred" && to !== "deferred" ? { deferredUntil: undefined } : {}),
-    };
-    return appendActionHistory({ ...a, status: to, ...shed, ...patch }, makeActionEvent({ action: kind, at: now(), fromStatus: a.status, toStatus: to }));
-  });
+  bumpAction(actionId, (a) => appendActionHistory(
+    { ...a, status: to, ...shedStatusFields(a.status, to), ...patch },
+    makeActionEvent({ action: kind, at: now(), fromStatus: a.status, toStatus: to }),
+  ));
 }
 
 /**
@@ -5462,7 +5476,21 @@ export function resumeAction(actionId: string): void {
 export function completeAction(actionId: string, evidence: { note?: string; links?: RefLite[] } = {}): void {
   const at = now();
   bumpAction(actionId, (a) => {
-    const next: NextAction = { ...a, status: "completed", completedAt: at };
+    /**
+     * LIFEOS-105 §11. Completion is a door out of `waiting` too.
+     *
+     * `transitionAction` has shed the fields a status leaves behind since
+     * LIFEOS-074 §1, and this writer took a different door: completing a waiting
+     * action left `waitingOn`, `waitingSince` and `followUpDate` set, so the
+     * record's CURRENT state said it was still waiting on Maria with a follow-up
+     * due. Every reader gates on `isLive`, so nothing rendered the
+     * contradiction — which is exactly why it survived, and exactly the D-11
+     * class the transition helper's own comment names.
+     *
+     * §46: the wait is fully preserved in `history[]`, which is where a question
+     * about what happened belongs (§42).
+     */
+    const next: NextAction = { ...a, status: "completed", completedAt: at, ...shedStatusFields(a.status, "completed") };
     if (evidence.note && evidence.note.trim()) next.notes = a.notes ? `${a.notes}\n\n${evidence.note.trim()}` : evidence.note.trim();
     if (evidence.links?.length) next.linkedEntityRefs = uniqueRefs([...(a.linkedEntityRefs ?? []), ...evidence.links]);
     return appendActionHistory(next, makeActionEvent({ action: "completed", at, fromStatus: a.status, toStatus: "completed", detail: evidence.note ? "with note" : undefined }));
@@ -5492,10 +5520,38 @@ export function deferAction(actionId: string, option: ActionDeferOption): void {
  */
 export function setActionDueDate(actionId: string, dueDate?: string): void {
   const key = typeof dueDate === "string" && dueDate.trim() ? dueDate.trim() : undefined;
-  bumpAction(actionId, (a) => appendActionHistory(
-    { ...a, dueDate: key },
-    makeActionEvent({ action: key ? "due_set" : "due_cleared", at: now(), detail: key }),
-  ));
+  bumpAction(actionId, (a) => {
+    /**
+     * LIFEOS-105 §16. Giving deferred work a date brings it back.
+     *
+     * "The status is never changed" was true and was the bug. The audit walked
+     * defer → reschedule and found the record visible NOWHERE: still
+     * `deferred`, still carrying its original `deferredUntil`, now carrying a
+     * new `dueDate` that no surface would read until the OLD deferral date
+     * arrived — by which time the new date could already be past. §16 asks that
+     * rescheduled work "become executable at the new appropriate time" and that
+     * no status keep it hidden forever.
+     *
+     * Defer and reschedule stay distinct (§15). This does not make a due date
+     * into a deferral or a deferral into a date: it says that naming a day for
+     * work you had put aside is you picking it back up, which is the same thing
+     * the user means when they type it. Deferring again re-parks it.
+     *
+     * Clearing a date is deliberately NOT a recovery — removing a deadline is
+     * not a decision to start, and "not today" survives it.
+     */
+    const returning = !!key && a.status === "deferred";
+    const next: NextAction = returning
+      ? { ...a, dueDate: key, status: "open", ...shedStatusFields("deferred", "open") }
+      : { ...a, dueDate: key };
+    const ev = makeActionEvent({
+      action: key ? "due_set" : "due_cleared",
+      at: now(),
+      detail: key,
+      ...(returning ? { fromStatus: "deferred" as const, toStatus: "open" as const } : {}),
+    });
+    return appendActionHistory(next, ev);
+  });
 }
 
 /** Mark an action waiting (Feature 8). Optional follow-up date; no notifications. */
@@ -5569,7 +5625,10 @@ export function stopWaiting(actionId: string): boolean {
 
 /** Cancel an action (Feature 5) — reversible via restore/reopen. */
 export function cancelAction(actionId: string): void {
-  bumpAction(actionId, (a) => appendActionHistory({ ...a, status: "cancelled", cancelledAt: now() }, makeActionEvent({ action: "cancelled", at: now(), fromStatus: a.status, toStatus: "cancelled" })));
+  bumpAction(actionId, (a) => appendActionHistory(
+    { ...a, status: "cancelled", cancelledAt: now(), ...shedStatusFields(a.status, "cancelled") },
+    makeActionEvent({ action: "cancelled", at: now(), fromStatus: a.status, toStatus: "cancelled" }),
+  ));
 }
 
 /** Restore a cancelled/completed action to open (Feature 5). */
