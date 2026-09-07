@@ -547,8 +547,27 @@ export function runTodaySurfaceSelfTests() {
     ok("104.78 §13 …and raises no attention row", !c.attention.some((a) => (a.actionId ?? a.entity.id) === "w-none"));
     ok("104.79 §12 …while the one whose date arrived does", c.attention.some((a) => (a.actionId ?? a.entity.id) === "w-due"));
     ok("104.80 §42 neither is ever executable",
-      !c.openWork.some((a) => a.status === "waiting")
-      && c.suggestedNext.recommendation?.action.status !== "waiting");
+      c.suggestedNext.recommendation?.action.status !== "waiting");
+    /**
+     * …and the same thing on the QUIET path, which is where it can go wrong.
+     *
+     * `openWork` is empty whenever a recommendation exists, so asserting "no
+     * wait is in openWork" against a world that produces one is vacuous — a
+     * mutant that dropped the `status !== "waiting"` filter passed all 81
+     * assertions. This world has two undated open actions, so nothing is
+     * grounded, the quiet list is what renders, and both waits are candidates
+     * for it if the filter is not there.
+     */
+    const q = store({ nextActions: [
+      waiting("q-none", "Quote", "Priya", undefined, at(-21)),
+      waiting("q-due", "Transcript", "Maria", dk(0)),
+      act({ id: "q-a", title: "Draft the statement" }),
+      act({ id: "q-b", title: "Read the guidance" }),
+    ] });
+    const cq2 = surface(q);
+    eq("104.80b §42 the quiet list is what renders here", cq2.suggestedNote, NOTHING_PRESSING);
+    eq("104.80c §42 …and it holds only work that can actually be started",
+      cq2.openWork.map((a) => a.id), ["q-a", "q-b"]);
   }
 
   const passed = results.filter((r) => r.pass).length;

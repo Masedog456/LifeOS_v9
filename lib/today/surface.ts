@@ -310,7 +310,12 @@ export function buildTodayCommand(
     ...view.waiting.map((w) => w.action.id),
   ]);
   const openWork = (state.nextActions ?? [])
-    .filter((a) => isLive(a) && a.status !== "waiting")
+    // No `status !== "waiting"` clause: `shown` already holds every waiting
+    // action, because the roster lists them all. Said as a comment rather than
+    // written as a redundant filter — a §60 mutant that deleted the clause
+    // changed nothing, which is what an equivalent mutant looks like, and a
+    // condition that cannot fail is a condition nobody can test.
+    .filter((a) => isLive(a))
     .filter((a) => !isDeferredAhead(a, today))
     .filter((a) => !ix.blockedActionIds.has(a.id))
     .filter((a) => !shown.has(a.id));
