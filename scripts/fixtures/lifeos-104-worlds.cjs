@@ -165,6 +165,19 @@ const WORLDS = {
     act({ id: "l2", title: "Book the MOT" }),
   ] }),
 
+  /**
+   * L2. The SAME friction, still parked.
+   *
+   * L's deferral comes back today — and hydration acts on that: `returnDueActions`
+   * runs on load, so in a real browser L is an action that RETURNED, described by
+   * the return rather than by the count. The pattern §20 is about only stays
+   * visible while the deferral is still ahead, so this is the world that shows it.
+   */
+  L2: () => ({ ...EMPTY(), nextActions: [
+    deferred("l2a", "Do the tax return", 3, dk(5)),
+    act({ id: "l2b", title: "Book the MOT" }),
+  ] }),
+
   /** M. Multiple Decision Inbox items — goal-no-path, deferral, long wait. §19. */
   M: () => ({ ...EMPTY(),
     goals: [goal({ id: "m-g1", title: "Learn to sail" }), goal({ id: "m-g2", title: "Run a half marathon" })],
