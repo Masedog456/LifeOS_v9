@@ -102,7 +102,26 @@ export default function QuickCapture({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="quick-capture-heading"
-        className="max-h-[80vh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-black/[.08] bg-white shadow-2xl dark:border-white/[.12] dark:bg-zinc-900"
+        /*
+          §32, §56. `bg-background`, not `bg-white dark:bg-zinc-900`.
+
+          The composer's colours are tuned against the app's ground, so putting
+          it on a different surface silently reprices every ratio inside it.
+          Measured on the asking panel, the same three nodes, sheet vs Home:
+
+            light   2.62  vs  2.54   (the sheet slightly better)
+            dark    3.67  vs  4.08   (the sheet measurably WORSE)
+
+          zinc-900 is lighter than the dark ground, so light-grey metadata on it
+          loses 0.41. On `bg-background` the sheet sits on exactly what Home
+          sits on and measures exactly what Home measures — which is the
+          property worth having. "Sometimes better, sometimes worse" is not a
+          guarantee, and §32 asks for 099's work to survive this sprint intact.
+
+          It still reads as a panel: the border, the shadow and the dimmed
+          backdrop do that, not a different fill.
+        */
+        className="max-h-[80vh] w-full max-w-lg overflow-y-auto overflow-x-hidden rounded-2xl border border-black/[.08] bg-background shadow-2xl dark:border-white/[.12]"
       >
         <div className="flex items-center justify-between border-b border-black/[.06] px-4 py-3 dark:border-white/[.08]">
           <h2 id="quick-capture-heading" className="text-sm font-semibold">Quick capture</h2>

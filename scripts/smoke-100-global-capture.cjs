@@ -23,6 +23,7 @@
  */
 const { chromium } = require("playwright-core");
 const { world, ROUTES } = require("./fixtures/lifeos-100-world.cjs");
+const { install } = require("./fixtures/a11y-probe.cjs");
 
 const BASE = process.env.BASE || "http://localhost:3111";
 const KEY = "lifeos.mvp.v1";
@@ -126,6 +127,15 @@ const sheetState = (page) => page.evaluate(`(() => {
     text: d.innerText,
   };
 })()`);
+
+/** Drive either doorway's composer with the same sentence. */
+async function captureInSheet_or_home(page, sentence, inSheet) {
+  if (inSheet) return captureInSheet(page, sentence);
+  await page.fill("#capture", sentence);
+  await page.click("[data-capture-submit]");
+  await page.waitForTimeout(1700);
+  return true;
+}
 
 /** New records of every kind this capture could have produced. */
 function delta(before, after) {
@@ -503,6 +513,60 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
 
     await visit(page, "/project/p1");
     const closed = await page.evaluate(() => document.querySelectorAll("h1").length);
+    /**
+     * §32, §56. And the sheet is no LESS readable than Home.
+     *
+     * Not "the sheet passes AA" — it does not, and neither does Home: the
+     * asking panel has three nodes at 2.54 in light and 4.08 in dark that
+     * LIFEOS-099 never measured, because its sweep visited routes and never
+     * drove Home into that state. That is a real pre-existing gap, recorded in
+     * the report, and it is not this sprint's to fix.
+     *
+     * What IS this sprint's is not making it worse. The composer's colours are
+     * tuned against the app's ground, so the sheet's own surface reprices every
+     * ratio inside it: on `dark:bg-zinc-900` those same nodes measured 3.67
+     * against Home's 4.08. This compares the two sets and fails on anything the
+     * sheet adds.
+     */
+    const askFailures = async (openSheetFirst, scheme) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await seed(page);
+      if (openSheetFirst) {
+        await visit(page, "/today");
+        await openSheet(page);
+      } else {
+        await visit(page, "/");
+      }
+      await captureInSheet_or_home(page, "Waiting on Maria for the transcript", openSheetFirst);
+      await install(page);
+      const ROOT = openSheetFirst
+        ? FIND
+        : `document.querySelector("[data-capture-results]").closest("section")`;
+      return page.evaluate(`(() => {
+        const A = window.__a11y;
+        const root = ${ROOT};
+        if (!root) return ["(state not reached)"];
+        const out = [];
+        for (const { el, text } of A.textLeaves(root)) {
+          const c = A.contrastOf(el);
+          if (c.disabled) continue;
+          if (c.ratio < A.required(c.px, c.weight)) out.push(text.trim().slice(0, 30));
+        }
+        return out;
+      })()`);
+    };
+    // Both themes: the regression was dark-only. On `dark:bg-zinc-900` the
+    // sheet composited those nodes at 3.67 where Home had 4.08, and a
+    // light-only comparison would have called that clean.
+    const extra = [];
+    for (const scheme of ["light", "dark"]) {
+      const homeFails = await askFailures(false, scheme);
+      const sheetFails = await askFailures(true, scheme);
+      for (const x of sheetFails) if (!homeFails.includes(x)) extra.push(`${scheme}: ${x}`);
+    }
+    await page.emulateMedia({ colorScheme: "light" });
+
+    await visit(page, "/project/p1");
     await openSheet(page);
     const open = await page.evaluate(`(() => {
       const lv = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6")].map((h) => +h.tagName[1]);
@@ -519,10 +583,11 @@ const SENTENCE = "Email Marcus about the lease tomorrow";
         fieldLabel: lab ? lab.textContent.trim() : "(field has no label)",
       };
     })()`);
-    ok("19 §32, §33 one h1 and no heading jump with the sheet open; dialog named; field still labelled",
+    ok("19 §32, §56 one h1, no heading jump, dialog named, field labelled, and no contrast failure Home does not also have",
       closed === 1 && open.h1 === 1 && !open.jump && open.named &&
-      open.fieldLabel === "What's happening?" && homeH1 === 1,
-      JSON.stringify({ closed, ...open, homeH1 }));
+      open.fieldLabel === "What's happening?" && homeH1 === 1 &&
+      extra.length === 0,
+      JSON.stringify({ closed, ...open, homeH1, contrastOnlyInSheet: extra }));
     await page.keyboard.press("Escape");
   }
 
