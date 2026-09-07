@@ -14,7 +14,7 @@
  *
  * ## Every save is the record page's own setter
  *
- * `updateAction`, `setActionDueDate`, `setActionDueTime`, `updateNote`,
+ * `updateAction`, `setActionDueDate`, `setNextFollowUpDate`, `setActionDueTime`, `updateNote`,
  * `updateEvent`. No Home-specific mutation exists (§41). That is also what
  * keeps a correction out of the deferral history: `setActionDueDate` writes
  * `due_set`, and `deferAction` — the one that writes `deferred` — is not
@@ -30,7 +30,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  getSnapshot, updateAction, setActionDueDate, setActionDueTime,
+  getSnapshot, updateAction, setActionDueDate, setActionDueTime, setNextFollowUpDate,
   updateNote, updateEvent, useStore,
 } from "@/lib/mvpStore";
 import { toast } from "@/lib/ux/feedback";
@@ -159,10 +159,44 @@ export default function CorrectionSheet({
       if (Object.keys(patch).length > 0) updateAction(outcome.id, patch);
 
       if (has("dueDate") && pick("dueDate") !== was("dueDate")) {
-        // `setActionDueDate`, never `deferAction`. A correction is not a
-        // decision to put something off (§8, §27).
-        setActionDueDate(outcome.id, asDayKey(pick("dueDate")));
-        changed.push("date");
+        /**
+         * LIFEOS-103. On a WAIT the date field is the FOLLOW-UP date.
+         *
+         * `correctableOutcome` builds this field from `a.followUpDate ?? a.dueDate`
+         * for a waiting action — it reads the follow-up. This wrote
+         * `setActionDueDate` regardless, so the control showed one property and
+         * set another. Measured:
+         *
+         *   Date := 2026-09-19 on a wait
+         *     before  { followUpDate: null, dueDate: null }
+         *     after   { followUpDate: null, dueDate: "2026-09-19" }
+         *     panel   "SAVED AS WAITING · Quote from Priya · Due Sat, Sep 19"
+         *
+         * A wait carrying a due date is a commitment the person cannot keep,
+         * because the wait is on somebody else — and the read side already knew
+         * that, which is why it reached for `followUpDate` first.
+         *
+         * `setNextFollowUpDate` (LIFEOS-071 §13) is the existing writer and is
+         * careful in the way this needs: it leaves `waitingSince` alone, so
+         * correcting the date does not restart the clock the waiting signal
+         * rests on.
+         *
+         * `setActionDueDate`, never `deferAction`, on the ordinary branch. A
+         * correction is not a decision to put something off (§8, §27).
+         */
+        // Keyed off the same condition the READ side used. `correctableOutcome`
+        // adds a `waitingOn` field only for a waiting action, and that is the
+        // exact branch where it sourced this date from `followUpDate`. Asking
+        // the fields array rather than re-deriving "is this a wait?" means the
+        // two halves cannot drift apart again.
+        const isWait = outcome.fields.some((f) => f.field === "waitingOn");
+        if (isWait) {
+          setNextFollowUpDate(outcome.id, asDayKey(pick("dueDate")));
+          changed.push("follow-up date");
+        } else {
+          setActionDueDate(outcome.id, asDayKey(pick("dueDate")));
+          changed.push("date");
+        }
       }
       if (has("dueTime") && pick("dueTime") !== was("dueTime")) {
         setActionDueTime(outcome.id, pick("dueTime") || undefined);

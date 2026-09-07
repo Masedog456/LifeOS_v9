@@ -73,6 +73,10 @@ import {
   buildCaptureContextIndex, suggestContext, contextFields, contextKnowledgeGoal,
   type CaptureContextSuggestion,
 } from "@/lib/capture/context";
+import { followThroughFor } from "@/lib/capture/follow-through";
+// LIFEOS-099 tokens, so the suggestion inherits the product's own
+// contrast and touch-target rules rather than inventing a look (§54).
+import { CONTROL_PILL, TERTIARY_TEXT } from "@/lib/design/tokens";
 
 /**
  * The store writers the change path may use (LIFEOS-065 §4).
@@ -236,6 +240,14 @@ export default function CaptureComposer({ onFinished, headline = true }: {
   const [correcting, setCorrecting] = useState<string | null>(null);
   /** §14. The opener for each outcome, so focus can go back to it on close. */
   const editRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  /**
+   * §32. Dismissal, and only for this panel's lifetime.
+   *
+   * Plain component state on purpose: nothing about a declined suggestion is
+   * written down, so the next capture starts clean and the product never
+   * accumulates a record of advice the person did not want.
+   */
+  const [dismissedFollowThrough, setDismissedFollowThrough] = useState(false);
 
   /**
    * LIFEOS-102 §28, §38. What the panel SHOWS, re-derived from the live store.
@@ -272,6 +284,21 @@ export default function CaptureComposer({ onFinished, headline = true }: {
       ? describeCreated(state, finished.outcomes.map((o) => ({ kind: o.kind, id: o.id }) as RefLite), today)
       : []),
     [finished, state, today],
+  );
+
+  /**
+   * LIFEOS-103. The one grounded next move, derived from the same live store.
+   *
+   * Beside `shownOutcomes` and for the same reason: a correction that adds a
+   * follow-up date, or an undo that removes the record, must make this vanish
+   * without either path knowing it exists (§39, §40). Nothing is persisted
+   * (§46) and dismissal is ephemeral (§32) — closing the panel ends it, and the
+   * underlying wait is picked up later by Today and the Decision Inbox anyway
+   * (§33).
+   */
+  const followThrough = useMemo(
+    () => (dismissedFollowThrough ? [] : followThroughFor(state, shownOutcomes)),
+    [state, shownOutcomes, dismissedFollowThrough],
   );
 
   const projectTitles = useMemo(
@@ -1027,6 +1054,51 @@ export default function CaptureComposer({ onFinished, headline = true }: {
                 >
                   Add to {offer.label}
                 </button>
+              ))}
+            </div>
+          )}
+
+          {/*
+            LIFEOS-103 §4, §29. One grounded next move, and secondary to the
+            result above it.
+
+            Placed BELOW the outcomes and ABOVE Undo on purpose: the capture is
+            already finished and reads as finished, and this is an offer rather
+            than a step. §4 — a successful capture must still feel complete.
+
+            §25: no task text is generated. The control opens the correction
+            sheet, which is where the person already sets a follow-up date, so
+            the date is theirs and the path is one the product already has
+            (§23 rule 4). LIFEOS-103 had to repair that path first — it wrote
+            `dueDate` on a wait — because pointing a suggestion at a control
+            that sets the wrong field is worse than not suggesting.
+          */}
+          {followThrough.length > 0 && (
+            <div data-follow-through className="mt-3 border-t border-black/[.06] pt-3 dark:border-white/[.08]">
+              {followThrough.map((f) => (
+                <div key={f.outcomeId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className={`text-[11px] ${TERTIARY_TEXT}`}>
+                    <span data-follow-through-reason>{f.reason}</span>
+                  </p>
+                  <button
+                    type="button"
+                    data-follow-through-do={f.kind}
+                    aria-label={`${f.actionLabel} for ${f.title}`}
+                    onClick={() => setCorrecting(`action:${f.outcomeId}`)}
+                    className={CONTROL_PILL}
+                  >
+                    {f.actionLabel}
+                  </button>
+                  <button
+                    type="button"
+                    data-follow-through-dismiss
+                    aria-label={`Dismiss the suggestion for ${f.title}`}
+                    onClick={() => setDismissedFollowThrough(true)}
+                    className={`inline-flex min-h-[44px] items-center sm:min-h-0 text-[11px] ${TERTIARY_TEXT} underline underline-offset-2`}
+                  >
+                    Dismiss
+                  </button>
+                </div>
               ))}
             </div>
           )}
