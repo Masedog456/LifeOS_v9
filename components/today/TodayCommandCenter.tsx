@@ -176,7 +176,12 @@ export default function TodayCommandCenter() {
           capped shortlist, so three of the audit's worlds promised "1 item
           needing attention" above a page with no attention section at all, and
           the 120-record world said sixteen and rendered three. */}
-      <section data-daily-orientation className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
+      {/* §9. And a card with nothing in it is furniture. On a quiet day the
+          line has no counts to state, and what was left was an empty bordered
+          box holding one small link — the visual review caught it. The link
+          stays (§31 wants review reachable and secondary); the box goes. */}
+      <section data-daily-orientation
+        className={cmd.orientation ? "rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]" : "px-1"}>
         {cmd.orientation && (
           <p data-orientation-line className="mb-3 text-sm text-zinc-800 dark:text-zinc-100">
             {cmd.orientation}
