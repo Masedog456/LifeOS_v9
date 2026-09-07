@@ -198,3 +198,113 @@ Milliseconds per derivation, median of 40 runs (10 at 5,000):
 Growth is linear (10× records → 7.0×; 5× → 5.2×). No pathological whole-store
 pass exists. The constant is the problem, and `daily` is 37 % of it for three
 fields.
+
+---
+
+## 2. What changed
+
+### 2.1 The page shape
+
+Five sections, everywhere. Nothing was deleted; what was competing was collapsed.
+
+```
+orientation line      counts, only when it has something to count
+1  Suggested next     the one strongest move + why  ·  or §33's two silences
+2  Today              BE THERE (events, timed) then DO (dated, recurring)
+3  Needs your decision  count + the one question not already on screen
+4  Needs attention    the actionable residue
+5  ▸ Context and what's coming   Since yesterday · Waiting · Project pulse ·
+                                 Worth returning to · Upcoming   (collapsed)
+   coverage note      one line, one link
+```
+
+| World | before | after |
+| --- | --- | --- |
+| §57 torture | 11 sections, 36 rows | **5 sections**, 31 rows |
+| T (120 actions) | 12 sections, 70 rows | **5 sections**, 65 rows |
+| B (one dated action) | 4 sections, 11 rows, the action named 3× | **2 sections**, 8 rows, named once |
+| A (quiet, two open actions) | the new-user empty panel | Suggested-next section naming both |
+
+The NOW card is gone and became a marker on the row it described. In the
+event-heavy world it had been the third mention of one appointment, after the
+orientation card and the Today list.
+
+### 2.2 One projection
+
+`lib/today/surface.ts` — `buildTodayCommand(state, ix, today, { view, command })`.
+
+It composes; there is no comparator in the file. `recommendNextAction` chose the
+suggestion, `buildTodayView` ordered the schedule and the roster,
+`buildAttentionShortlist` ordered and capped attention, `buildDecisionInbox`
+ordered the questions. This splits, suppresses and counts.
+
+§52 permits it "only if this reduces real drift", and the drift was measured, not
+assumed: five of sixteen non-empty worlds had a summary line disagreeing with the
+section it named.
+
+### 2.3 Recommendation semantics — unchanged
+
+**No ranker was added, changed or removed.** LIFEOS-072's §31E tie refusal is
+asserted as still refusing (104.47), and Memory's "What should I do next?" still
+gives Today's answer. What changed is one sentence, at the surface, under §33.
+
+The audit's red F was real — "No single next action stands out from what Conqify
+has recorded" was being said above twelve dated items — but the fix belonged
+where the sentence is, not where the decision is. The refusal is right: several
+things tied on every ordering fact, and dressing an arbitrary pick as a judgment
+is what §4 and §6 both forbid. So Today now distinguishes the two silences:
+
+- dated work exists, nothing stands out → `"3 things on today, and no single one
+  stands out ahead of the rest."` — arithmetic over the rows rendered below it
+- nothing dated at all → `"Nothing is pressing right now."` plus the open work,
+  in record order, capped at five, with the note saying it is record order
+
+### 2.4 Decision treatment (§19)
+
+Promoted from a link in the orientation card to a section, because §7 puts it in
+the first viewport beside Suggested next and Today. It carries the count and
+**one** question — never the options, never the resolution controls, never the
+queue. Those live at `/today/decisions`.
+
+The preview skips any question already answered on screen. A due follow-up is one
+fact with two names (`follow_up_due` and `WAITING_FOLLOW_UP`); while the queue was
+a bare count that cost nothing, but as a section it put "Follow up with Maria?"
+two rows above "Transcript · Follow-up date is today."
+
+### 2.5 Attention treatment (§47, §48)
+
+Three categories, three homes, decided by what a person can DO about the row:
+
+| | belongs to | why |
+| --- | --- | --- |
+| `overdue`, `follow_up_due`, `recurring_due`, `due_soon`, `repeated_deferral` | **Needs attention** | there is an action to take |
+| `goal_path_missing`, `project_no_next_action` | **Needs your decision** | §17: judgment, not executable work |
+| `returned_today`, `dormant`, `blocked` | **Context** | recorded facts, no deadline of their own |
+
+LIFEOS-070's `COMMITMENT_SECTION` map is untouched, and so is its
+`goal_path_missing` predicate. Today simply stops rendering judgment kinds in the
+section that means "actionable" — which fixes the false positive too, because the
+queue that owns judgment already uses the truthful predicate.
+
+### 2.6 Morning Brief (§27) — KEEP the concept, COLLAPSE the call
+
+Measured, not assumed: there is no Morning Brief route, page or component. 083's
+"Daily Command Center" *is* Today's, `/daily` has redirected to `/today/review`
+since 092, and `buildDailyExecutiveView` had exactly one consumer in the app.
+
+So there is no duplicate command center to remove. What the measurement found was
+waste — three of twelve fields read, 128 ms of a 348 ms derivation at 5,000
+records. `buildTodayOrientation` is those three fields, extracted; the full view
+calls it, so the morning surface and the evening one cannot drift about what
+"fixed" means.
+
+### 2.7 Left alone, deliberately
+
+- **§13 waiting without a follow-up.** 070 and 094 both exclude dateless waits on
+  purpose. The roster already states one truthfully — "Priya · Quote · Since Aug
+  17" — with no controls and no urgency, which is what the record supports.
+  Redefining commitment awareness inside Today is what §13 warns against. A
+  lifecycle sprint can decide whether a 21-day silent wait deserves a question.
+- **§31E** the tie refusal, above.
+- **070's signal semantics**, including `goal_path_missing`'s project-only rule.
+- **§55** no schema, no migration. Head stays 0047.

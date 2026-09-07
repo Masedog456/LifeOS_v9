@@ -404,6 +404,29 @@ const mentions = async (page, title) => {
     await page.waitForTimeout(1100);
   };
 
+  /**
+   * 23-pre. §53 says Today reflows IMMEDIATELY. 23-27 below reload the page,
+   * which proves the projection is derived rather than persisted but says
+   * nothing about a live render — a §60 mutant that froze the projection on
+   * first build and never rebuilt it passed all 66 assertions, because every
+   * reload remounted the component and rebuilt the freeze. This one changes the
+   * store from INSIDE the page, with no navigation, which is the claim.
+   */
+  {
+    await seed(page, "TORTURE");
+    const before = await all(page, '[data-today-fixed="action"]');
+    ok("23pre §53 the control: the recurring occurrence is on today's schedule",
+      before.some((t) => /Take the medication/.test(t)), JSON.stringify(before));
+    const btn = await page.$('[data-today-fixed="action"] [data-complete-occurrence]');
+    if (btn) { await btn.click(); await page.waitForTimeout(900); }
+    const after = await all(page, '[data-today-fixed="action"]');
+    ok("23pre-b §53 completing it reflows Today with no reload",
+      !!btn && !after.some((t) => /Take the medication/.test(t)), JSON.stringify(after));
+    ok("23pre-c §53 …and the orientation line above it changes with the page",
+      !/2 timed commitments/.test(String(await one(page, "[data-orientation-line]"))),
+      String(await one(page, "[data-orientation-line]")));
+  }
+
   {
     await seed(page, "B");
     ok("23 §53 the control: the dated action is suggested",
