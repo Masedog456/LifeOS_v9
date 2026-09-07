@@ -205,69 +205,7 @@ export function buildDailyExecutiveView(
   today: DayKey = todayKey(),
 ): DailyExecutiveView {
   const actions = state.nextActions ?? [];
-  const live = actions.filter((a) => isLive(a) && !isDeferredAhead(a, today));
-
-  // ---- FIXED: things that happen at a time (§3, §7) -----------------------
-  const fixedToday: FixedItem[] = [];
-  for (const o of ix.occurrences) {
-    fixedToday.push({
-      kind: "event", id: o.event.id, title: o.event.title,
-      time: o.allDay ? undefined : o.startTime,
-      detail: o.allDay || !o.startTime ? "All day" : undefined,
-      event: o,
-    });
-  }
-  // An action is fixed ONLY when it carries an explicit time. A bare due date
-  // is a day's worth of latitude, and calling it fixed would be the product
-  // inventing an appointment the user never made.
-  //
-  // A RECURRENCE RULE names the day just as a due date does — the rule
-  // LIFEOS-063 R-2 established and 0043 taught the database. "Take the
-  // medication every day at 8" is a commitment at 08:00, and it was landing in
-  // `flexibleToday` as "yours to place", dropping the time the user had
-  // explicitly given (LIFEOS-074 §3). Whether the day is named by a date or by a
-  // rule, a time on it is a time.
-  for (const a of live) {
-    const t = timeOf(a);
-    if (!t) continue;
-    const namedToday = readRule(a.recurrence)
-      ? occurrenceFor(a, today, ix.completions) === today
-      : dueKeyOf(a) === today;
-    if (!namedToday) continue;
-    fixedToday.push({ kind: "action", id: a.id, title: a.title, time: t, action: a });
-  }
-  fixedToday.sort((x, y) => (x.time ?? "").localeCompare(y.time ?? ""));
-
-  // ---- FLEXIBLE: work the user places (§3) --------------------------------
-  const flexible: FlexibleItem[] = [];
-  const seenFlexible = new Set<string>();
-  const pushFlexible = (a: NextAction, reason: FlexibleItem["reason"], detail: string) => {
-    if (seenFlexible.has(a.id)) return;
-    seenFlexible.add(a.id);
-    flexible.push({ action: a, reason, detail });
-  };
-  for (const a of sortByDue(live.filter((a) => dueKeyOf(a) === today && !timeOf(a) && !readRule(a.recurrence)), today)) {
-    pushFlexible(a, "due_today", "Due today");
-  }
-  for (const a of live) {
-    const rule = readRule(a.recurrence);
-    if (!rule) continue;
-    if (occurrenceFor(a, today, ix.completions) !== today) continue;
-    // …unless it named a time, in which case it is already fixed above and
-    // listing it here would show one commitment twice, in two different senses.
-    if (timeOf(a)) continue;
-    pushFlexible(a, "recurring_today", describeRule(rule));
-  }
-  for (const a of live) {
-    if (!ix.plannedTodayIds.has(a.id)) continue;
-    if (ix.blockedActionIds.has(a.id) || a.status === "waiting") continue;
-    pushFlexible(a, "planned_today", "Planned for today");
-  }
-  for (const a of live) {
-    if (a.status !== "in_progress") continue;
-    pushFlexible(a, "in_progress", "In progress");
-  }
-
+  const { fixedToday, flexibleToday: flexible } = buildTodayOrientation(state, ix, today);
   // ---- ATTENTION and NEXT: the existing engines, unchanged (§2) -----------
   const attention = buildCommitmentSignals(state, ix, { today });
   const nextAction = recommendNextAction(state, ix, today);
@@ -367,20 +305,133 @@ export function buildDailyExecutiveView(
 }
 
 /**
+ * The two lists a morning surface actually reads: what happens at a time, and
+ * what is yours to place (LIFEOS-104 §27).
+ *
+ * Split out of `buildDailyExecutiveView` because the audit measured what Today
+ * was paying for. Today reads three of that view's twelve fields, and at 5,000
+ * records the call cost 128 ms of a 348 ms derivation — the most expensive of
+ * the five builders and the least used, because the other nine fields belong to
+ * `/today/review`. This is the same code, not a second copy: the full view calls
+ * it, so the morning surface and the evening one cannot drift about what "fixed"
+ * means (§51).
+ */
+export function buildTodayOrientation(
+  state: StoreState,
+  ix: TodayIndexes,
+  today: DayKey = todayKey(),
+): { fixedToday: FixedItem[]; flexibleToday: FlexibleItem[] } {
+  const live = (state.nextActions ?? []).filter((a) => isLive(a) && !isDeferredAhead(a, today));
+
+  // ---- FIXED: things that happen at a time (§3, §7) -----------------------
+  const fixedToday: FixedItem[] = [];
+  for (const o of ix.occurrences) {
+    fixedToday.push({
+      kind: "event", id: o.event.id, title: o.event.title,
+      time: o.allDay ? undefined : o.startTime,
+      detail: o.allDay || !o.startTime ? "All day" : undefined,
+      event: o,
+    });
+  }
+  // An action is fixed ONLY when it carries an explicit time. A bare due date
+  // is a day's worth of latitude, and calling it fixed would be the product
+  // inventing an appointment the user never made.
+  //
+  // A RECURRENCE RULE names the day just as a due date does — the rule
+  // LIFEOS-063 R-2 established and 0043 taught the database. "Take the
+  // medication every day at 8" is a commitment at 08:00, and it was landing in
+  // `flexibleToday` as "yours to place", dropping the time the user had
+  // explicitly given (LIFEOS-074 §3). Whether the day is named by a date or by a
+  // rule, a time on it is a time.
+  for (const a of live) {
+    const t = timeOf(a);
+    if (!t) continue;
+    const namedToday = readRule(a.recurrence)
+      ? occurrenceFor(a, today, ix.completions) === today
+      : dueKeyOf(a) === today;
+    if (!namedToday) continue;
+    fixedToday.push({ kind: "action", id: a.id, title: a.title, time: t, action: a });
+  }
+  fixedToday.sort((x, y) => (x.time ?? "").localeCompare(y.time ?? ""));
+
+  // ---- FLEXIBLE: work the user places (§3) --------------------------------
+  const flexible: FlexibleItem[] = [];
+  const seenFlexible = new Set<string>();
+  const pushFlexible = (a: NextAction, reason: FlexibleItem["reason"], detail: string) => {
+    if (seenFlexible.has(a.id)) return;
+    seenFlexible.add(a.id);
+    flexible.push({ action: a, reason, detail });
+  };
+  /**
+   * LIFEOS-104 §14. Blocked work is never "yours to place".
+   *
+   * The audit found the orientation line offering "Yours to place: Install the
+   * reception desk" for an action whose blocker was unfinished — while the
+   * recommender, correctly, was suggesting the blocker. `flexibleToday` had
+   * simply never consulted `blockedActionIds`; the `planned_today` clause below
+   * already did, which is what made the omission look deliberate rather than
+   * missing. Nothing is hidden: a blocked item with a date today still appears
+   * under Today, carrying "Blocked by …" as its reason.
+   */
+  const placeable = live.filter((a) => !ix.blockedActionIds.has(a.id));
+  for (const a of sortByDue(placeable.filter((a) => dueKeyOf(a) === today && !timeOf(a) && !readRule(a.recurrence)), today)) {
+    pushFlexible(a, "due_today", "Due today");
+  }
+  for (const a of placeable) {
+    const rule = readRule(a.recurrence);
+    if (!rule) continue;
+    if (occurrenceFor(a, today, ix.completions) !== today) continue;
+    // …unless it named a time, in which case it is already fixed above and
+    // listing it here would show one commitment twice, in two different senses.
+    if (timeOf(a)) continue;
+    pushFlexible(a, "recurring_today", describeRule(rule));
+  }
+  for (const a of live) {
+    if (!ix.plannedTodayIds.has(a.id)) continue;
+    if (ix.blockedActionIds.has(a.id) || a.status === "waiting") continue;
+    pushFlexible(a, "planned_today", "Planned for today");
+  }
+  for (const a of placeable) {
+    if (a.status !== "in_progress") continue;
+    pushFlexible(a, "in_progress", "In progress");
+  }
+
+  return { fixedToday, flexibleToday: flexible };
+}
+
+/**
  * The compact orientation line (§6).
  *
  * Counts of records, assembled from the clauses that have a non-zero count. A
  * line that lists what did NOT happen is an appraisal wearing a count's
  * clothes, so zero-count clauses are simply absent.
  */
-export function orientationLine(v: DailyExecutiveView, decisions = 0): string {
+export function orientationLine(
+  v: Pick<DailyExecutiveView, "fixedToday" | "flexibleToday" | "attention">,
+  decisions = 0,
+  /**
+   * LIFEOS-104 §51. How many attention rows the page will ACTUALLY render.
+   *
+   * The audit measured this line promising a section that was not there. It
+   * counted `v.attention` — LIFEOS-070's raw signals — while the section beneath
+   * it renders LIFEOS-082's shortlist, which is capped at three and drops
+   * anything already shown as Next or on today's schedule. Worlds D, G and H
+   * said "1 item needing attention" above a page with no attention section at
+   * all; the 120-record world said 16 and rendered 3.
+   *
+   * The number now comes from the caller that owns the rendering. It defaults to
+   * the raw count so `/today/review`, which renders `v.attention` itself, keeps
+   * counting its own list.
+   */
+  attentionCount = v.attention.length,
+): string {
   const parts: string[] = [];
   const events = v.fixedToday.filter((f) => f.kind === "event").length;
   if (events) parts.push(`${events} event${events === 1 ? "" : "s"}`);
   const timed = v.fixedToday.filter((f) => f.kind === "action").length;
   if (timed) parts.push(`${timed} timed commitment${timed === 1 ? "" : "s"}`);
   if (v.flexibleToday.length) parts.push(`${v.flexibleToday.length} to fit in`);
-  if (v.attention.length) parts.push(`${v.attention.length} item${v.attention.length === 1 ? "" : "s"} needing attention`);
+  if (attentionCount) parts.push(`${attentionCount} item${attentionCount === 1 ? "" : "s"} needing attention`);
   /*
    * LIFEOS-094 §27, §18. A separate clause, in different words.
    *

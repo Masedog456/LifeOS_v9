@@ -224,15 +224,20 @@ const WORLD = {
   // C. RECURRENCE UI
   // ==================================================================
   await seed("/today");
-  ok("C1 a recurring action appears on Today", (await all("[data-today-recurring]")).some((t) => /ZZTakeMeds/.test(t)));
-  ok("C2 …showing its schedule AND its time (D-12)", (await all("[data-today-recurring]")).some((t) => /8\s*AM|08:00|8:00/.test(t)), JSON.stringify(await all("[data-today-recurring]")));
+  // LIFEOS-104 §21 split Today into BE THERE and DO. A TIMED recurring action is
+  // a fixed row (it names an hour); an untimed one is a DO row. The capability
+  // is unchanged and the selector covers both placements, so C1-C13 still test
+  // reachability rather than one sprint's markup.
+  const RECUR = '[data-today-fixed="action"], [data-today-action]';
+  ok("C1 a recurring action appears on Today", (await all(RECUR)).some((t) => /ZZTakeMeds/.test(t)));
+  ok("C2 …showing its schedule AND its time (D-12)", (await all(RECUR)).some((t) => /ZZTakeMeds/.test(t) && /8\s*AM|08:00|8:00/.test(t)), JSON.stringify(await all(RECUR)));
   const occBtn = await page.$("[data-complete-occurrence]");
   ok("C3 the occurrence has a completing control", !!occBtn);
   await occBtn.click(); await page.waitForTimeout(1100);
   const s1 = await store();
   ok("C4 one occurrence is recorded", (s1.recurrenceCompletions ?? []).length === 1, JSON.stringify(s1.recurrenceCompletions));
   ok("C5 the SERIES is not completed", s1.nextActions.find((a) => a.id === "a4").status !== "completed");
-  ok("C6 the row leaves Today once done", !(await all("[data-today-recurring]")).some((t) => /ZZTakeMeds/.test(t)));
+  ok("C6 the row leaves Today once done", !(await all(RECUR)).some((t) => /ZZTakeMeds/.test(t)));
 
   // duplicate click on a stale control (re-render a fresh page, click again)
   await goto("/today");
@@ -251,16 +256,22 @@ const WORLD = {
   ok("C11 …and keeps every completion", ((await store()).recurrenceCompletions ?? []).length === 1);
   ok("C12 the stale 'Stop repeating' control is gone", !(await page.$("[data-stop-recurrence]")));
   await goto("/today");
-  ok("C13 no recurring row survives the stop", !(await all("[data-today-recurring]")).some((t) => /ZZTakeMeds/.test(t)));
+  ok("C13 no recurring row survives the stop", !(await all(RECUR)).some((t) => /ZZTakeMeds/.test(t)));
 
   // ==================================================================
   // D. TODAY / REVIEW TODAY  (incl. the §1 fixes)
   // ==================================================================
   await seed("/today");
   ok("D1 the orientation line renders", !!(await txt("[data-orientation-line]")));
-  ok("D2 FIXED lists the timed commitment", (await all("[data-orientation-fixed] li")).some((t) => /ZZDentist/.test(t)));
+  // LIFEOS-104 §21, §24. The fixed list moved OUT of the orientation card and
+  // into Today's BE THERE group, where the schedule it describes actually is —
+  // the orientation card was naming every appointment a second time above the
+  // section that listed them. What "fixed" means is unchanged.
+  ok("D2 FIXED lists the timed commitment", (await all("[data-today-fixed]")).some((t) => /ZZDentist/.test(t)),
+    JSON.stringify(await all("[data-today-fixed]")));
   ok("D3 a timed recurring action is FIXED, not flexible (D-12)",
-    (await all("[data-orientation-fixed] li")).some((t) => /ZZTakeMeds/.test(t)), JSON.stringify(await all("[data-orientation-fixed] li")));
+    (await all('[data-today-fixed="action"]')).some((t) => /ZZTakeMeds/.test(t)),
+    JSON.stringify(await all('[data-today-fixed="action"]')));
   ok("D4 Suggested Next names a real action", /ZZ/.test(await txt("[data-suggested-next]") ?? "") , await txt("[data-suggested-next]"));
   ok("D5 …and says why", ((await all("[data-suggested-why] li")).length > 0));
   ok("D6 Review Today is reachable from Today", !!(await page.$("[data-review-today-link]")));
@@ -270,6 +281,15 @@ const WORLD = {
   // to the Waiting section, NOT to Needs attention. Asserting it in `attention`
   // was a wrong expectation on the first run, and its controls live on the
   // waiting row.
+  // LIFEOS-104 §49 moved the waiting roster into Today's collapsed context
+  // block. Opening it is what a person does, and reachability is what this
+  // suite measures — so the disclosure is opened rather than the assertion
+  // relaxed. `innerText` cannot see a closed `<details>`.
+  const openLater = async () => {
+    await page.evaluate(() => { const d = document.querySelector("[data-today-later]"); if (d) d.open = true; });
+    await page.waitForTimeout(250);
+  };
+  await openLater();
   const beforeWaiting = await all("[data-waiting]");
   ok("D7 the due follow-up surfaces on the Waiting row", beforeWaiting.some((t) => /ZZLeaseFromMarcus/.test(t)), JSON.stringify(beforeWaiting));
   ok("D7b …and says the follow-up is due", beforeWaiting.some((t) => /ZZLeaseFromMarcus/.test(t) && /Follow-up due/i.test(t)), JSON.stringify(beforeWaiting));
@@ -284,6 +304,7 @@ const WORLD = {
   const yes = await page.$("[data-resolution-panel='stop_waiting'] button");
   if (yes) { await yes.click(); await page.waitForTimeout(1100); }
   ok("D10 stopping the wait actually ends it", (await actOf("a3"))?.status !== "waiting", (await actOf("a3"))?.status);
+  await openLater();
   ok("D11 the resolved row leaves the Waiting section",
     !(await all("[data-waiting]")).some((t) => /ZZLeaseFromMarcus/.test(t)), JSON.stringify(await all("[data-waiting]")));
 

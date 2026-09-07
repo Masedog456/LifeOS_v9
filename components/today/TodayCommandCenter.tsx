@@ -1,27 +1,42 @@
 "use client";
 
 /**
- * Today, as a restrained command center (LIFEOS-062 §5, §22, §23).
+ * Today, as a decision surface (LIFEOS-104 §3, §49, §50).
  *
- * ## One index pass, one projection
+ * ## What this page answers, in order
  *
- * `buildTodayIndexes` runs once; `buildTodayView` reads it. Every section below
- * renders from that single object. No card fetches, scans, or derives anything
- * of its own — the audit found `buildActivityIndex` running twice per render
- * before this, which is how a page gets slow without any one card being slow.
+ *   1. What should I do next?      → Suggested next
+ *   2. What else matters today?    → Today (BE THERE, then DO)
+ *   3. What needs my judgment?     → Needs your decision
+ *
+ * …then the actionable residue, then one collapsed block of context. Five
+ * sections. The audit found eleven on the torture world and twelve on a
+ * 120-record store, which is a dashboard: §50 asks for 3–5 and this is what
+ * measuring produced.
+ *
+ * ## One projection, one place that decides
+ *
+ * `buildTodayCommand` decides everything — what is suggested, what is
+ * suppressed, what counts as attention, what the orientation line says, whether
+ * the day is empty. This file renders it. The audit's three worst defects were
+ * all two places deciding one thing: a summary line counting a different list
+ * from the section under it, an empty check that could not see the changes one
+ * layer up, a dedup rule that reached the attention card but not the schedule
+ * row. None of those can recur from here without a comparator appearing in a
+ * file that has none.
  *
  * ## The page recomputes; it never caches
  *
- * Suggested Next is a projection, not a record. Completing it changes the store,
- * `useStore` re-renders, and the recommendation is recomputed from scratch. There
- * is no cached suggestion to go stale and nothing persisted to clean up (§25).
+ * Suggested next is a projection, not a record. Completing it changes the store,
+ * `useStore` re-renders, and the whole surface is rebuilt from current state.
+ * Nothing is persisted and there is no cached ranking to go stale (§53, §54).
  *
  * ## What this page will not say
  *
  * No greeting theater, no motivational quote, no "crush your day", no score, no
- * streak, no percentage. `FORBIDDEN_TODAY_WORDS` is asserted against every string
- * this projection produces. Today describes records; it does not characterise the
- * person reading it.
+ * streak, no percentage. `FORBIDDEN_TODAY_WORDS` is asserted against every
+ * string this projection produces. Today describes records; it does not
+ * characterise the person reading it.
  */
 
 import { useMemo, useState } from "react";
@@ -30,18 +45,18 @@ import { ROW_META } from "@/lib/design/tokens";
 import { completeOccurrence, useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildTodayView, waitingDays, COVERAGE_NOTE, EMPTY_PROMPT } from "@/lib/today/view";
-import { buildDailyExecutiveView, orientationLine, REVIEW_TODAY_LABEL } from "@/lib/today/daily";
+import { REVIEW_TODAY_LABEL } from "@/lib/today/daily";
 import { formatLocalTime } from "@/lib/time/localtime";
 import { formatDayKey, todayKey } from "@/lib/reviews/dates";
 import { nowLocalTime } from "@/lib/time/events";
-import { describeRule } from "@/lib/time/recurrence";
-import {
-  signalsForSection, PROJECT_NO_NEXT_ACTION, type CommitmentSignal,
-} from "@/lib/commitment/signals";
+import { PROJECT_NO_NEXT_ACTION, type CommitmentSignal } from "@/lib/commitment/signals";
 import { changeWord } from "@/lib/changes/vocabulary";
 import { resolutionsFor, resolutionsForAction } from "@/lib/commitment/resolve";
 import { buildDailyCommandView, SINCE_YESTERDAY_HEADING } from "@/lib/today/command";
-import { buildDecisionInbox, DECISION_HEADING } from "@/lib/guidance/decisions";
+import { DECISION_HEADING } from "@/lib/guidance/decisions";
+import {
+  buildTodayCommand, openWorkDetail, NOTHING_PRESSING, OPEN_WORK_NOTE,
+} from "@/lib/today/surface";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { toast } from "@/lib/ux/feedback";
 
@@ -63,62 +78,56 @@ function Section({ title, show, children, id }: { title: string; show: boolean; 
   );
 }
 
+/** A sub-heading inside Today. §21: DO and BE THERE are not the same verb. */
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-2 first:mt-0">
+      <p data-today-group={label.toLowerCase()} className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</p>
+      {children}
+    </div>
+  );
+}
+
 const rowClass = "flex items-baseline justify-between gap-3 py-1";
 const linkClass = "min-w-0 flex-1 truncate text-sm text-zinc-800 hover:underline dark:text-zinc-100";
 const metaClass = ROW_META;
 
-/**
- * Neutral past-tense wording for a recent change (§19, §11).
- *
- * A transition that records both ends prints them instead ("Near → Medium"),
- * which says more than any label could. This covers the rest.
- */
 export default function TodayCommandCenter() {
   const state = useStore();
   const today = todayKey();
   // One clock reading per render, so every section agrees about "now".
   const [now] = useState(() => nowLocalTime());
 
-  // ONE index pass, shared by the projection AND the resolvers below. LIFEOS-071
-  // §27: deriving a row's controls must not scan the store again — the indexes
-  // a button needs are the ones the page already built.
+  // ONE index pass, shared by every projection below. LIFEOS-071 §27: deriving a
+  // row's controls must not scan the store again — the indexes a button needs
+  // are the ones the page already built.
   const ix = useMemo(() => buildTodayIndexes(state, today, now), [state, today, now]);
   const view = useMemo(() => buildTodayView(state, ix), [state, ix]);
-  // The same indexes again — the daily loop composes existing engines and adds
-  // one grouping pass, so orientation costs no extra store scan (§26).
-  const daily = useMemo(() => buildDailyExecutiveView(state, ix, today), [state, ix, today]);
-  /**
-   * LIFEOS-094 §26. The count only — Today does not render the questions.
-   *
-   * `decisionCountLine` returns null at zero, so the link below disappears
-   * rather than showing "· 0". Same indexes again; no extra store scan.
-   */
-  const decisions = useMemo(() => buildDecisionInbox(state, ix, { today }), [state, ix, today]);
-  // The count is stated once, by the orientation line above the link (§27).
-  // Rendering it in both put "4 needing your decision" and "Needs your
-  // decision · 4" three lines apart on the same card — the visual review
-  // caught it, and a count repeated is a count nobody reads.
-  const decisionTotal = decisions.total;
-  // Split once, from the already-deduplicated list. Each section renders its own
-  // slice; no section re-derives what belongs in it.
-  /**
-   * LIFEOS-083 §5, §9, §11. The two capabilities the audit found stranded.
-   *
-   * `buildAttentionShortlist` (082) shipped reachable only through Memory — its
-   * own report said so — and `buildExecutiveChanges` (081) was read by no daily
-   * surface at all. Composed here, over the index this component already built,
-   * so neither costs a second pass (§35).
-   */
   const command = useMemo(
     () => buildDailyCommandView(state, ix, view, today),
     [state, ix, view, today],
   );
-  /** Actions the shortlist above already leads with, controls and all (§41). */
-  const onAttentionList = useMemo(
-    () => new Set(command.attention.map((a) => a.actionId ?? a.entity.id).filter(Boolean) as string[]),
-    [command.attention],
+  /**
+   * The whole surface, decided once (LIFEOS-104 §52).
+   *
+   * `view` and `command` are handed in rather than rebuilt: this component
+   * already has both, and building a second `TodayView` would pay for the index
+   * pass twice on every render (§35).
+   *
+   * `buildDailyExecutiveView` is deliberately NOT called here any more. Today
+   * read three of its twelve fields and paid 128 ms of a 348 ms derivation at
+   * 5,000 records for the other nine, which belong to `/today/review`. The three
+   * come from `buildTodayOrientation` — the same code, extracted, not copied.
+   */
+  const cmd = useMemo(
+    () => buildTodayCommand(state, ix, today, { view, command }),
+    [state, ix, today, view, command],
   );
-  const returns = useMemo(() => signalsForSection(view.signals, "return"), [view.signals]);
+  /** Actions the shortlist already leads with, controls and all (§41). */
+  const onAttentionList = useMemo(
+    () => new Set(cmd.attention.map((a) => a.actionId ?? a.entity.id).filter(Boolean) as string[]),
+    [cmd.attention],
+  );
   // Resolutions for every rendered signal, computed once per store snapshot
   // rather than per button.
   const resolutions = useMemo(() => {
@@ -136,7 +145,7 @@ export default function TodayCommandCenter() {
   const waitingSignal = (actionId: string) =>
     view.signals.find((s) => s.kind === "follow_up_due" && s.recordRef.id === actionId);
 
-  if (view.empty) {
+  if (cmd.empty) {
     return (
       <div data-today-empty className="rounded-2xl border border-dashed border-black/[.10] p-6 text-sm dark:border-white/[.12]">
         <p className="text-zinc-700 dark:text-zinc-200">{EMPTY_PROMPT}</p>
@@ -151,98 +160,56 @@ export default function TodayCommandCenter() {
     );
   }
 
-  const s = view.suggestion;
+  const s = cmd.suggestedNext;
+  const hasLater =
+    cmd.sinceYesterday.length > 0 || cmd.later.waiting.length > 0 || cmd.later.pulse.length > 0 ||
+    cmd.later.returns.length > 0 || !!cmd.later.returnItem || cmd.later.upcoming.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
       {/* ---- ORIENTATION (LIFEOS-073 §2, §4, §6) ----
-          The audit found eleven headings on Today and no way to know the shape
-          of the day without reading all of them. This is the reading path —
-          FIXED, then what needs attention, then what to do next — stated in one
-          line of counts before any section expands.
+          The reading path, in one line of counts, before any section expands.
 
-          It composes; it does not compute. Every number below is a length of a
-          list the sections themselves render, so the summary and the detail can
-          never disagree. */}
-      <section data-daily-orientation className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-        <p data-orientation-line className="text-sm text-zinc-800 dark:text-zinc-100">
-          {orientationLine(daily, decisionTotal)}
-        </p>
-        {daily.fixedToday.length > 0 && (
-          <ul data-orientation-fixed className="mt-2 flex flex-col gap-0.5">
-            {daily.fixedToday.map((f) => (
-              <li key={`${f.kind}:${f.id}`} className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                {/* An Event is on the calendar; a timed action is a commitment
-                    the user made for a time. Neither is claimed as attended. */}
-                <span className="tabular-nums">{f.time ? formatLocalTime(f.time) : f.detail ?? "All day"}</span>
-                {" · "}{f.title}
-              </li>
-            ))}
-          </ul>
-        )}
-        {/* §3. Flexible work is named as flexible. Listing it under the clock
-            would imply Conqify had put it in a slot, which it never did. */}
-        {daily.flexibleToday.length > 0 && (
-          <p data-orientation-flexible className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-            Yours to place: {daily.flexibleToday.map((f) => f.action.title).join(" · ")}
+          It composes; it does not compute. LIFEOS-104 §51: every number is now
+          the length of a list this page actually renders. It used to count
+          LIFEOS-070's raw signals while the section below rendered LIFEOS-082's
+          capped shortlist, so three of the audit's worlds promised "1 item
+          needing attention" above a page with no attention section at all, and
+          the 120-record world said sixteen and rendered three. */}
+      {/* §9. And a card with nothing in it is furniture. On a quiet day the
+          line has no counts to state, and what was left was an empty bordered
+          box holding one small link — the visual review caught it. The link
+          stays (§31 wants review reachable and secondary); the box goes. */}
+      <section data-daily-orientation
+        className={cmd.orientation ? "rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]" : "px-1"}>
+        {cmd.orientation && (
+          <p data-orientation-line className="mb-3 text-sm text-zinc-800 dark:text-zinc-100">
+            {cmd.orientation}
           </p>
         )}
-        <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        {/* §31. Review is a link and never the main call to action. */}
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <Link href="/today/review" data-review-today-link
             className="text-[11px] text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:underline">
             {REVIEW_TODAY_LABEL} →
           </Link>
-          {/*
-            LIFEOS-094 §26. One line, secondary, and absent at zero — an empty
-            queue must not occupy a slot on Today, because a permanent "0" is
-            how a calm surface acquires a thing to keep clearing. The count is
-            all it says; the questions live on their own page.
-          */}
-          {decisionTotal > 0 && (
-            <Link href="/today/decisions" data-decision-count-link
-              className="text-[11px] text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:underline">
-              {DECISION_HEADING} →
-            </Link>
-          )}
         </div>
       </section>
 
-      {/* ---- NOW ---- */}
-      {(view.nowEvent || view.nextEvent) && (
-        <section data-today-now className="rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
-          {view.nowEvent ? (
-            <p className="text-sm text-zinc-800 dark:text-zinc-100">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Now: </span>
-              {view.nowEvent.event.title}
-              {view.nowEvent.startTime && (
-                <span className={metaClass}> · {formatLocalTime(view.nowEvent.startTime)}
-                  {view.nowEvent.endTime ? `–${formatLocalTime(view.nowEvent.endTime)}` : ""}</span>
-              )}
-            </p>
-          ) : view.nextEvent && (
-            <p data-next-event className="text-sm text-zinc-800 dark:text-zinc-100">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Next: </span>
-              {view.nextEvent.event.title}
-              {view.nextEvent.startTime && <span className={metaClass}> · {formatLocalTime(view.nextEvent.startTime)}</span>}
-            </p>
-          )}
-        </section>
-      )}
-
-      {/* ---- SUGGESTED NEXT ---- */}
-      <Section title="Suggested next" id="suggested" show={!!s.recommendation || !!s.note}>
+      {/* ---- 1. SUGGESTED NEXT (§3, §4, §5) ---- */}
+      <Section title="Suggested next" id="suggested" show={!!s.recommendation || !!cmd.suggestedNote}>
         {s.recommendation ? (
           <div data-suggested-next>
             <Link href={`/actions/${s.recommendation.action.id}`} className="text-sm font-medium text-zinc-900 hover:underline dark:text-zinc-100">
               {s.recommendation.action.title}
             </Link>
-            {/* §19: the explanation is mandatory. No explanation, no recommendation. */}
+            {/* §5: the explanation is mandatory. No explanation, no recommendation. */}
             <ul data-suggested-why className="mt-1 space-y-0.5">
               {s.recommendation.reasons.map((r) => (
                 <li key={r.code} className="text-[11px] text-zinc-500 dark:text-zinc-400">· {r.text}</li>
               ))}
             </ul>
-            {/* §19. What it beat, in one sentence — present only when a
+            {/* §35. What it beat, in one sentence — present only when a
                 runner-up existed and something real separated them. */}
             {s.recommendation.counterfactual && (
               <p data-suggested-counterfactual className="mt-1 text-[11px] italic text-zinc-500 dark:text-zinc-400">
@@ -250,110 +217,191 @@ export default function TodayCommandCenter() {
               </p>
             )}
             {/* LIFEOS-083 §23. The attention card this row SUPPRESSED, as an
-                inline reason. "Overdue since yesterday" belongs on the row the
-                user is already reading, not on a duplicate card below it — and
-                the evidence must not vanish just because the card did. */}
-            {command.inlineReasons[s.recommendation.action.id] && (
+                inline reason — the same sentence, on the row the user is
+                already reading. */}
+            {cmd.command.inlineReasons[s.recommendation.action.id] && (
               <p data-inline-reason className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                {command.inlineReasons[s.recommendation.action.id]}
+                {cmd.command.inlineReasons[s.recommendation.action.id]}
               </p>
             )}
-            {/* §20. The SAME resolver every commitment row uses. This card used
-                to carry its own bespoke "Mark done" button — a second mutation
-                path for the same operation, and one that offered no undo. */}
+            {/* §51. The SAME resolver every commitment row uses — including
+                `complete_occurrence` for a recurring action, which is what makes
+                §24's suppression of the duplicate Today row lossless. */}
             <ResolutionControls
               title={s.recommendation.action.title}
               actions={resolutionsForAction(state, s.recommendation.action.id, { today, ix })}
             />
           </div>
         ) : (
-          <p data-no-suggestion className="text-[11px] text-zinc-500 dark:text-zinc-400">{s.note}</p>
-        )}
-      </Section>
-
-      {/* ---- TODAY ---- */}
-      <Section title="Today" show={view.occurrences.length + view.dueToday.length + view.recurringToday.length + view.alsoToday.length > 0}>
-        {view.occurrences.length > 0 && (
-          <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-            {view.occurrences.map((o) => (
-              // An Event carries no control. It happens; there is nothing to tick.
-              <li key={`${o.event.id}:${o.date}`} data-today-event
-                className={`${rowClass} ${!o.allDay && o.startTime && o.startTime < now ? "opacity-55" : ""}`}>
-                <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
-                  {o.event.title}
-                  {o.event.recurrence && (
-                    <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{describeRule(o.event.recurrence)}</span>
-                  )}
-                </span>
-                <span className={metaClass}>
-                  {o.allDay || !o.startTime ? "All day" : formatLocalTime(o.startTime)}
-                  {o.endTime ? `–${formatLocalTime(o.endTime)}` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {(view.dueToday.length > 0 || view.recurringToday.length > 0 || view.alsoToday.length > 0) && (
-          <ul className="mt-1 flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-            {view.dueToday.map((a) => (
-              <li key={a.id} data-today-action className="py-0.5">
-                <div className={rowClass}>
-                  <Link href={`/actions/${a.id}`} className={linkClass}>{a.title}</Link>
-                  <span className={metaClass}>{a.dueTime ? `Due ${formatLocalTime(a.dueTime)}` : "Due today"}</span>
-                </div>
-                {/* §23. The suppressed attention card's reason, inline. */}
-                {command.inlineReasons[a.id] && (
-                  <p data-inline-reason className="text-[11px] text-amber-700 dark:text-amber-400">
-                    {command.inlineReasons[a.id]}
-                  </p>
+          <>
+            {/* §33. No fallback ranker. Two different silences, said in two
+                different sentences: a day with dated work where nothing stands
+                out ahead of the rest, and a day with nothing pressing at all.
+                The audit found one sentence covering both, which read as
+                "there is nothing" on a page listing twelve dated items. */}
+            <p data-no-suggestion className="text-[11px] text-zinc-500 dark:text-zinc-400">{cmd.suggestedNote}</p>
+            {/* §8, §38. Undated open work used to be visible ONLY through the
+                recommendation, so a store with two dateless actions rendered
+                the new-user empty state. Listed in record order — that is not a
+                ranking and the note says so. */}
+            {cmd.openWork.length > 0 && (
+              <div data-open-work className="mt-2">
+                {cmd.suggestedNote === NOTHING_PRESSING && (
+                  <p className="mb-1 text-[11px] text-zinc-500 dark:text-zinc-400">{OPEN_WORK_NOTE}</p>
                 )}
-              </li>
-            ))}
-            {view.alsoToday.map((a) => (
-              <li key={a.id} data-today-also className={rowClass}>
-                <Link href={`/actions/${a.id}`} className={linkClass}>{a.title}</Link>
-                <span className={metaClass}>
-                  {a.status === "in_progress" ? "In progress" : a.dueDate === today ? "Due today" : "Open"}
-                </span>
-              </li>
-            ))}
-            {view.recurringToday.map((r) => (
-              <li key={r.action.id} data-today-recurring className="flex items-center justify-between gap-3 py-1">
-                <Link href={`/actions/${r.action.id}`} className={linkClass}>
-                  {r.action.title}
-                  <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    {/* LIFEOS-063 R-2. "Every day at 8:00 AM" is the whole point
-                        of a timed standing responsibility; the schedule alone
-                        does not tell you when today's instance is. */}
-                    {r.action.dueTime ? `${r.schedule} at ${formatLocalTime(r.action.dueTime)}` : r.schedule}
-                  </span>
-                </Link>
-                <button type="button" data-complete-occurrence
-                  onClick={() => { if (completeOccurrence(r.action.id, r.occurrence)) toast({ kind: "success", message: "Done for today. It'll come back next time." }); }}
-                  className="shrink-0 rounded-full border border-black/[.12] px-3 py-0.5 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
-                  Mark done
-                </button>
-              </li>
-            ))}
-          </ul>
+                <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+                  {cmd.openWork.map((a) => (
+                    <li key={a.id} data-open-work-item className={rowClass}>
+                      <Link href={`/actions/${a.id}`} className={linkClass}>{a.title}</Link>
+                      <span className={metaClass}>{openWorkDetail(a, today)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
         )}
       </Section>
 
-      {/* ---- NEEDS ATTENTION ----
-          LIFEOS-083 §9. Rendered from the 082 SHORTLIST, not from the raw
-          signals — capped at three, and with anything already prominent as Next
-          or on today's schedule suppressed, because three cards for one task is
-          the guilt wall §16 forbids.
+      {/* ---- 2. TODAY (§21, §22, §24) ----
+          BE THERE and DO are different verbs and now say so. They used to render
+          as two unlabelled sibling lists inside one heading, and the event-heavy
+          world put four appointments and one task under a single word.
 
-          Nothing is lost by that suppression: the suppressed item's explanation
-          travels to the row that won, as an inline reason (§23). It is the same
-          sentence, on the row the user is already reading.
+          Nothing here repeats Suggested next (§24): the audit found "Call the
+          dentist" three times in an eleven-row page. */}
+      <Section title="Today" show={cmd.fixed.length + cmd.work.length > 0}>
+        {cmd.fixed.length > 0 && (
+          <Group label="Be there">
+            <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+              {cmd.fixed.map((f) => (
+                // An Event carries no control. It happens; there is nothing to tick.
+                <li key={`${f.kind}:${f.id}`} data-today-fixed={f.kind}
+                  // §61. Dimming is for EVENTS whose time has passed, exactly as
+                  // before. Extending it to timed ACTIONS took "Call the dentist"
+                  // to 3.51:1 and its "2 PM" to 2.11:1 — the 099 contrast probe
+                  // caught it. A row you cannot read is worse than a row you
+                  // cannot tell is behind you, and the action is still yours to do.
+                  className={`${rowClass} ${f.kind === "event" && !f.isNow && f.time && f.time < now ? "opacity-55" : ""}`}>
+                  <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
+                    {/* §29, §33 of 083: a marker on the row, not a section of
+                        its own. The NOW card said "Next: Advisor meeting" for an
+                        event the orientation and this list both already named. */}
+                    {f.isNow && <span data-today-now className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">Now</span>}
+                    {f.isNext && <span data-today-next className="mr-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Next</span>}
+                    {f.title}
+                    {f.detail && <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{f.detail}</span>}
+                  </span>
+                  <span className={metaClass}>
+                    {/* §22. Canonical formatter, never the stored "14:00".
+                        LIFEOS-098 §3: an ACTION is DUE at a time; an Event
+                        simply happens at one. Dropping "Due" from the timed
+                        action broke the one vocabulary Home, Today and the
+                        evening close share about a date. */}
+                    {f.kind === "action" && f.time ? "Due " : ""}
+                    {f.time ? formatLocalTime(f.time) : "All day"}
+                    {f.time && f.endTime && f.kind === "event" ? `–${formatLocalTime(f.endTime)}` : ""}
+                  </span>
+                  {/* §23. A timed standing responsibility is a BE THERE row AND a
+                      closable occurrence. `completeOccurrence` closes today
+                      without ending the series. */}
+                  {f.occurrenceKey && f.action && (
+                    <button type="button" data-complete-occurrence
+                      onClick={() => { if (completeOccurrence(f.id, f.occurrenceKey!)) toast({ kind: "success", message: "Done for today. It'll come back next time." }); }}
+                      className="shrink-0 rounded-full border border-black/[.12] px-3 py-0.5 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
+                      Mark done
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Group>
+        )}
+        {cmd.work.length > 0 && (
+          <Group label="Do">
+            <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+              {cmd.work.map((w) => (
+                <li key={w.action.id} data-today-action data-today-also={w.detail === "Open" || w.detail === "In progress" ? "" : undefined}
+                  className="py-0.5">
+                  <div className={rowClass}>
+                    <Link href={`/actions/${w.action.id}`} className={linkClass}>
+                      {w.action.title}
+                      {w.schedule && <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{w.schedule}</span>}
+                    </Link>
+                    <span className={metaClass}>
+                      {w.dueTime ? `Due ${formatLocalTime(w.dueTime)}` : w.detail}
+                    </span>
+                  </div>
+                  {/* §23. The suppressed attention card's reason, inline. */}
+                  {w.inlineReason && (
+                    <p data-inline-reason className="text-[11px] text-amber-700 dark:text-amber-400">
+                      {w.inlineReason}
+                    </p>
+                  )}
+                  {/* §14. Blocked work keeps its date and loses its readiness.
+                      The inline reason above covers this only when the blocked
+                      signal survives the shortlist's cap of three; the torture
+                      world's did not, and the row read as ordinary work. */}
+                  {!w.inlineReason && w.blockedBy && (
+                    <p data-today-blocked className="text-[11px] text-amber-700 dark:text-amber-400">
+                      Blocked by {w.blockedBy.join(", ")}.
+                    </p>
+                  )}
+                  {/* LIFEOS-063 R-2. A recurring occurrence closes today without
+                      ending the series. */}
+                  {w.occurrence && (
+                    <button type="button" data-complete-occurrence
+                      onClick={() => { if (completeOccurrence(w.action.id, w.occurrence!)) toast({ kind: "success", message: "Done for today. It'll come back next time." }); }}
+                      className="mt-1 rounded-full border border-black/[.12] px-3 py-0.5 text-[11px] text-zinc-600 dark:border-white/[.15] dark:text-zinc-300">
+                      Mark done
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Group>
+        )}
+      </Section>
 
-          The shortlist also reaches facts the signal layer never had — a
-          repeatedly deferred action among them. */}
-      <Section title="Needs attention" id="attention" show={command.attention.length > 0}>
+      {/* ---- 3. NEEDS YOUR DECISION (§3, §7, §17, §19) ----
+          Promoted from a link in the orientation card to a section of its own,
+          because §7 puts it in the first viewport beside Suggested next and
+          Today, and because §19 asks for the top item rather than a bare count.
+
+          It is the count and ONE question. Not the queue, not the options, not
+          the resolution controls — those live at /today/decisions, and
+          duplicating them here is exactly what §19 forbids. */}
+      <Section title={DECISION_HEADING} id="decisions" show={cmd.decisions.total > 0}>
+        <div data-decision-summary>
+          <p className="text-sm text-zinc-800 dark:text-zinc-100">
+            {cmd.decisions.total} {cmd.decisions.total === 1 ? "item" : "items"}
+          </p>
+          {cmd.decisions.top && (
+            <div data-decision-preview className="mt-1">
+              <p className="text-sm text-zinc-700 dark:text-zinc-200">{cmd.decisions.top.question}</p>
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{cmd.decisions.top.reason}</p>
+            </div>
+          )}
+          <Link href="/today/decisions" data-decision-count-link
+            className="mt-2 inline-block text-[11px] text-zinc-500 dark:text-zinc-400 underline-offset-4 hover:underline">
+            {DECISION_HEADING} →
+          </Link>
+        </div>
+      </Section>
+
+      {/* ---- 4. NEEDS ATTENTION (§47, §48) ----
+          The ACTIONABLE residue. Rendered from the 082 shortlist, capped at
+          three, with anything already prominent as Next or on today's schedule
+          suppressed — and now with judgment kinds removed.
+
+          `goal_path_missing` asks only whether a PROJECT links to the goal, so a
+          goal carried by a live action tripped it: the audit's world J flagged
+          both goals here while the Decision Inbox, using the truthful predicate,
+          flagged one. §17 says that is judgment, and the queue that owns
+          judgment already derives it correctly. */}
+      <Section title="Needs attention" id="attention" show={cmd.attention.length > 0}>
         <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {command.attention.map((a) => (
+          {cmd.attention.map((a) => (
             <li key={a.id} data-signal={a.kind} data-attention className="py-1">
               <div className={rowClass}>
                 <Link href={a.signal ? hrefForSignal(a.signal) : `/actions/${a.entity.id}`} className={linkClass}>{a.title}</Link>
@@ -366,19 +414,13 @@ export default function TodayCommandCenter() {
                   {a.secondaryReasons.map((r) => r.text).join(" ")}
                 </p>
               )}
-              {/* §13, §21. A rule appears ONLY where it is grounded in this
-                  item's own words, and only as context. It never reorders
-                  anything — `buildAttentionShortlist` asserts that separately. */}
+              {/* §46. A rule appears ONLY where it is grounded in this item's own
+                  words, and only as context. It never reorders anything. */}
               {a.ruleContext.length > 0 && (
                 <p data-rule-context className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                   Fits your rule: “{a.ruleContext[0]}”
                 </p>
               )}
-              {/* LIFEOS-071 §23. Controls attach to the PRIMARY row only —
-                  secondary reasons never grow a second menu. A shortlist row
-                  with no signal behind it (a repeated deferral) has no
-                  `CommitmentKind`, so it uses the record-based resolver rather
-                  than a synthesised signal — the split LIFEOS-072 made. */}
               {a.signal
                 ? <ResolutionControls title={a.title} actions={actionsFor(a.signal)} />
                 : a.actionId
@@ -386,154 +428,164 @@ export default function TodayCommandCenter() {
                   : null}
             </li>
           ))}
-      </ul>
-      </Section>
-
-      {/* ---- SINCE YESTERDAY ----
-          LIFEOS-083 §11. LIFEOS-081's executive changes, which no daily surface
-          read. Only what FINISHED, what stopped waiting, and what changed
-          direction — an item added yesterday is not news, and a typo edit was
-          never a change in the first place. Capped at three. */}
-      <Section title={SINCE_YESTERDAY_HEADING} id="since-yesterday" show={command.sinceYesterday.length > 0}>
-        <ul className="flex flex-col gap-1">
-          {command.sinceYesterday.map((c) => (
-            <li key={c.id} data-since-yesterday={c.kind} className={rowClass}>
-              <span className="text-sm text-zinc-700 dark:text-zinc-200">{c.title}</span>
-              <span className={metaClass}>
-                {c.from && c.to ? `${c.from} → ${c.to}` : changeWord(c.kind)}
-              </span>
-            </li>
-          ))}
         </ul>
       </Section>
 
-      {/* ---- WAITING ---- */}
-      <Section title="Waiting" show={view.waiting.length > 0}>
-        <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {view.waiting.map((w) => {
-            const days = waitingDays(w, today);
-            return (
-              <li key={w.action.id} data-waiting className="py-1">
-                <div className={rowClass}>
-                  <Link href={`/actions/${w.action.id}`} className={linkClass}>
-                    {w.waitingOn && <span className="font-medium">{w.waitingOn} · </span>}{w.action.title}
-                  </Link>
-                  <span className={metaClass}>
-                    {w.followUpDue ? "Follow-up due" : days !== undefined ? `Since ${formatDayKey(w.action.waitingSince!.slice(0, 10))}` : "Waiting"}
-                  </span>
-                </div>
-                {/* §14. Only a wait whose follow-up date has ARRIVED gets
-                    controls — a wait with no due follow-up is not actionable,
-                    and putting buttons on it would manufacture urgency the
-                    record does not support. */}
-                {/* LIFEOS-090 §41. …and only ONCE. A wait whose follow-up has
-                    arrived is also on the attention shortlist above, with these
-                    same three buttons. Two identical menus for one commitment,
-                    a few hundred pixels apart, is the "two controls that mean
-                    the same thing" §41 sends me looking for. The roster entry
-                    stays — it belongs in the waiting list — but the controls
-                    live on the row that led with the reason. */}
-                {waitingSignal(w.action.id) && !onAttentionList.has(w.action.id) && (
-                  <ResolutionControls
-                    title={w.action.title}
-                    actions={actionsFor(waitingSignal(w.action.id)!)}
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </Section>
-
-      {/* ---- PROJECT PULSE ---- */}
-      <Section title="Project pulse" id="pulse" show={view.pulse.length > 0}>
-        <ul className="flex flex-col gap-1.5">
-          {view.pulse.map((p) => (
-            <li key={p.project.id} data-pulse>
-              <Link href={`/project/${p.project.id}`} className="text-sm text-zinc-800 hover:underline dark:text-zinc-100">
-                {p.project.title}
-              </Link>
-              {/* Facts only. No health score, no percentage, no "at risk". */}
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-                {/* §11. One wording for this fact, shared with the signal layer
-                    and with Memory — "executable" is the load-bearing word,
-                    because a project whose only actions are blocked or waiting
-                    does have next actions, just none that can be started. */}
-                {p.nextAction ? `Next: ${p.nextAction.title}` : p.needsNextAction ? PROJECT_NO_NEXT_ACTION : ""}
-                {p.blockedCount > 0 ? ` · ${p.blockedCount} blocked` : ""}
-                {p.waitingCount > 0 ? ` · ${p.waitingCount} waiting` : ""}
-              </p>
-              {/* §16. The project's own signal carries "Add next action" — the
-                  one place 071 is genuinely executive, and still user-written. */}
-              {pulseSignal(p.project.id) && (
-                <ResolutionControls title={p.project.title} actions={actionsFor(pulseSignal(p.project.id)!)} />
-              )}
-            </li>
-          ))}
-        </ul>
-      </Section>
-
-      {/* ---- RETURN ----
-          Two things belong here (§16): a deferral the user themselves scheduled
-          to come back, and an open commitment that has simply gone quiet. Both
-          arrive as signals; the older single-record suggestion still appears for
-          NON-action records, and is suppressed when it duplicates a signal. */}
-      <Section title="Worth returning to" id="return"
-        show={returns.length > 0 || !!view.returnItem}>
-        <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {returns.map((s) => (
-            <li key={`${s.recordRef.kind}:${s.recordRef.id}`} data-signal={s.kind} className="py-1">
-              <div className={rowClass}>
-                <Link href={hrefForSignal(s)} className={linkClass}>{s.title}</Link>
-                <span className={metaClass}>{s.explanation}</span>
-              </div>
-              <ResolutionControls title={s.title} actions={actionsFor(s)} />
-            </li>
-          ))}
-          {view.returnItem && (
-            <li data-return className={rowClass}>
-              <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{view.returnItem.title}</span>
-              <span className={metaClass}>{view.returnItem.reason}</span>
-            </li>
-          )}
-        </ul>
-      </Section>
-
-      {/* ---- WHAT CAN WAIT ----
-          LIFEOS-083 §14. One grounded line, or nothing. Two sentences are
-          possible and both are arithmetic over records: what is due today, and
-          how many open items the user has already scheduled for later.
-
-          There is deliberately no third sentence. §14 forbids inferring "you
-          can ignore X", and `calmLine` has no notion of importance with which
-          to try. On a busy day with nothing scheduled ahead it renders nothing
-          at all rather than reaching for something reassuring to say. */}
-      {command.canWait && (
-        <p data-can-wait className="text-[11px] text-zinc-500 dark:text-zinc-400">{command.canWait}</p>
+      {/* ---- §14. One grounded calming line, or nothing. ---- */}
+      {cmd.canWait && (
+        <p data-can-wait className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400">{cmd.canWait}</p>
       )}
 
-      {/* ---- UPCOMING ---- */}
-      <Section title="Upcoming" show={view.upcoming.length > 0}>
-        <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-          {view.upcoming.map((u) => (
-            <li key={`${u.kind}:${u.id}:${u.date}`} data-upcoming className={rowClass}>
-              <span className="min-w-0 flex-1 truncate text-sm text-zinc-700 dark:text-zinc-200">
-                {u.title}{u.schedule && <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{u.schedule}</span>}
-              </span>
-              <span className={metaClass}>
-                {formatDayKey(u.date)}{u.time ? ` · ${formatLocalTime(u.time)}` : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Section>
+      {/* ---- 5. CONTEXT (§26, §29, §49, §50) ----
+          Since yesterday, the waiting roster, project pulse, what has gone quiet
+          and what is coming — five sections that were competing with the day,
+          collapsed into one.
 
-      {/* §28: Today reflects what was RECORDED. No data is not no life activity. */}
+          §26 says Since yesterday is context; §29 says tomorrow is not primary
+          morning content; §49 says the residue is collapsed and secondary. None
+          of it is removed and none of it is a click further away than the
+          disclosure: everything below still renders its own rows, with the same
+          controls, from the same builders. What changed is that a person
+          deciding what to do at 9 a.m. no longer scrolls through it first. */}
+      {hasLater && (
+        <details data-today-later className="lo-details rounded-2xl border border-black/[.06] p-4 dark:border-white/[.08]">
+          <summary className="flex items-center gap-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 hover:text-zinc-600 dark:text-zinc-400 dark:hover:text-zinc-300">
+            <span aria-hidden className="lo-caret text-[9px]">▸</span> Context and what&apos;s coming
+          </summary>
+          <div className="mt-3 flex flex-col gap-4">
+
+            {/* §26. What FINISHED, what stopped waiting, what changed direction. */}
+            {cmd.sinceYesterday.length > 0 && (
+              <div>
+                <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{SINCE_YESTERDAY_HEADING}</h3>
+                <ul className="flex flex-col gap-1">
+                  {cmd.sinceYesterday.map((c) => (
+                    <li key={c.id} data-since-yesterday={c.kind} className={rowClass}>
+                      <span className="text-sm text-zinc-700 dark:text-zinc-200">{c.title}</span>
+                      <span className={metaClass}>
+                        {c.from && c.to ? `${c.from} → ${c.to}` : changeWord(c.kind)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* §42. Waiting is not executable, and the roster never says it is.
+                A wait whose follow-up has ARRIVED is actionable — and it is
+                already on the attention shortlist above, with these same
+                controls, so it does not grow a second menu here (LIFEOS-090
+                §41). A wait with no follow-up date shows how long it has been
+                waiting and nothing else: §13 measured that 070 and 094 both
+                exclude it deliberately, and Today does not redefine that. */}
+            {cmd.later.waiting.length > 0 && (
+              <div>
+                <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Waiting</h3>
+                <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+                  {cmd.later.waiting.map((w) => {
+                    const days = waitingDays(w, today);
+                    return (
+                      <li key={w.action.id} data-waiting className="py-1">
+                        <div className={rowClass}>
+                          <Link href={`/actions/${w.action.id}`} className={linkClass}>
+                            {w.waitingOn && <span className="font-medium">{w.waitingOn} · </span>}{w.action.title}
+                          </Link>
+                          <span className={metaClass}>
+                            {w.followUpDue ? "Follow-up due" : days !== undefined ? `Since ${formatDayKey(w.action.waitingSince!.slice(0, 10))}` : "Waiting"}
+                          </span>
+                        </div>
+                        {waitingSignal(w.action.id) && !onAttentionList.has(w.action.id) && (
+                          <ResolutionControls
+                            title={w.action.title}
+                            actions={actionsFor(waitingSignal(w.action.id)!)}
+                          />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {/* §15, §44. Facts only. No health score, no percentage, no "at risk". */}
+            {cmd.later.pulse.length > 0 && (
+              <div>
+                <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Project pulse</h3>
+                <ul className="flex flex-col gap-1.5">
+                  {cmd.later.pulse.map((p) => (
+                    <li key={p.project.id} data-pulse>
+                      <Link href={`/project/${p.project.id}`} className="text-sm text-zinc-800 hover:underline dark:text-zinc-100">
+                        {p.project.title}
+                      </Link>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        {/* §18. "Executable" is the load-bearing word: a project
+                            whose only actions are blocked or waiting does have
+                            next actions, just none that can be started. */}
+                        {p.nextAction ? `Next: ${p.nextAction.title}` : p.needsNextAction ? PROJECT_NO_NEXT_ACTION : ""}
+                        {p.blockedCount > 0 ? ` · ${p.blockedCount} blocked` : ""}
+                        {p.waitingCount > 0 ? ` · ${p.waitingCount} waiting` : ""}
+                      </p>
+                      {pulseSignal(p.project.id) && (
+                        <ResolutionControls title={p.project.title} actions={actionsFor(pulseSignal(p.project.id)!)} />
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* A deferral the user themselves scheduled to come back, and an open
+                commitment that has simply gone quiet. */}
+            {(cmd.later.returns.length > 0 || cmd.later.returnItem) && (
+              <div>
+                <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Worth returning to</h3>
+                <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+                  {cmd.later.returns.map((sig) => (
+                    <li key={`${sig.recordRef.kind}:${sig.recordRef.id}`} data-signal={sig.kind} className="py-1">
+                      <div className={rowClass}>
+                        <Link href={hrefForSignal(sig)} className={linkClass}>{sig.title}</Link>
+                        <span className={metaClass}>{sig.explanation}</span>
+                      </div>
+                      <ResolutionControls title={sig.title} actions={actionsFor(sig)} />
+                    </li>
+                  ))}
+                  {cmd.later.returnItem && (
+                    <li data-return className={rowClass}>
+                      <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">{cmd.later.returnItem.title}</span>
+                      <span className={metaClass}>{cmd.later.returnItem.reason}</span>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            {/* §29. Tomorrow matters late in the day, not as primary morning
+                content. It is dated evidence either way. */}
+            {cmd.later.upcoming.length > 0 && (
+              <div>
+                <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Upcoming</h3>
+                <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
+                  {cmd.later.upcoming.map((u) => (
+                    <li key={`${u.kind}:${u.id}:${u.date}`} data-upcoming className={rowClass}>
+                      <span className="min-w-0 flex-1 truncate text-sm text-zinc-700 dark:text-zinc-200">
+                        {u.title}{u.schedule && <span className="ml-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">{u.schedule}</span>}
+                      </span>
+                      <span className={metaClass}>
+                        {formatDayKey(u.date)}{u.time ? ` · ${formatLocalTime(u.time)}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+
+      {/* §28 of 062: Today reflects what was RECORDED. No data is not no life activity. */}
       <p data-coverage className="px-1 text-[11px] text-zinc-500 dark:text-zinc-400">
         {COVERAGE_NOTE}{" "}
-        {/* LIFEOS-064 §19. One link, and nothing else — Today stays present
-            tense. Dropping the week's history onto this page would undo the
-            single thing LIFEOS-062 got right about it. */}
+        {/* LIFEOS-064 §19. One link, and nothing else — Today stays present tense. */}
         <Link href="/memory" data-review-week className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300">
           Review this week
         </Link>
