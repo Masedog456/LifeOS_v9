@@ -533,6 +533,149 @@ export function runTodaySurfaceSelfTests() {
   }
 
   // ======================================================================
+  // PR #110 review, A/B/C. Three P2 findings, each confirmed against the
+  // merged code before it was touched, each with the neighbour that must not
+  // change. All three are about the FIXED group, which LIFEOS-104 introduced
+  // and then under-served relative to the DO group beside it.
+  // ======================================================================
+  {
+    // ---- A. a timed action that is blocked says so ----------------------
+    const blocked = store({
+      nextActions: [
+        act({ id: "b", title: "Install the desk", dueDate: dk(0), dueTime: "14:00" }),
+        act({ id: "k", title: "Get lease approval" }),
+        act({ id: "w", title: "File the claim", dueDate: dk(-5) }),
+      ],
+      actionDependencies: [{ id: "d", blockedId: "b", blockerId: "k", createdAt: at(-10) }],
+    } as Partial<StoreState>);
+    const cb = surface(blocked);
+    const row = cb.fixed.find((f) => f.id === "b");
+    ok("104.81 A a blocked timed action is still a fixed row — its time is real", !!row);
+    eq("104.82 A …and the row names what is holding it", row?.blockedBy, ["Get lease approval"]);
+    ok("104.83 A …while nothing recommends it", cb.suggestedNext.recommendation?.action.id !== "b");
+    /**
+     * The neighbour, and the reason this is not a second blocking system: the
+     * names come from the dependency index, so completing the blocker clears
+     * them with no writer of our own.
+     */
+    const freed = store({
+      nextActions: [
+        act({ id: "b", title: "Install the desk", dueDate: dk(0), dueTime: "14:00" }),
+        act({ id: "k", title: "Get lease approval", status: "completed", completedAt: at(-1) }),
+        act({ id: "w", title: "File the claim", dueDate: dk(-5) }),
+      ],
+      actionDependencies: [{ id: "d", blockedId: "b", blockerId: "k", createdAt: at(-10) }],
+    } as Partial<StoreState>);
+    eq("104.84 A completing the blocker clears the row's blocked context",
+      surface(freed).fixed.find((f) => f.id === "b")?.blockedBy, undefined);
+    /**
+     * The sharper neighbour: TWO blockers, one finished. `blockersOf` returns
+     * every existing blocker regardless of status — it is a lookup, not a
+     * judgment — so the row would otherwise name a task the user has already
+     * done. `blockedActionIds` decides WHETHER the row is blocked; this decides
+     * which names are still true.
+     */
+    const mixed = store({
+      nextActions: [
+        act({ id: "b", title: "Install the desk", dueDate: dk(0), dueTime: "14:00" }),
+        act({ id: "k1", title: "Get lease approval" }),
+        act({ id: "k2", title: "Order the desk", status: "completed", completedAt: at(-2) }),
+        act({ id: "w", title: "File the claim", dueDate: dk(-5) }),
+      ],
+      actionDependencies: [
+        { id: "d1", blockedId: "b", blockerId: "k1", createdAt: at(-10) },
+        { id: "d2", blockedId: "b", blockerId: "k2", createdAt: at(-10) },
+      ],
+    } as Partial<StoreState>);
+    eq("104.85pre A only the UNFINISHED blocker is named",
+      surface(mixed).fixed.find((f) => f.id === "b")?.blockedBy, ["Get lease approval"]);
+
+    // …and a dangling blocker never hides work behind a name that is gone.
+    const dangling = store({
+      nextActions: [act({ id: "b", title: "Install the desk", dueDate: dk(0), dueTime: "14:00" })],
+      actionDependencies: [{ id: "d", blockedId: "b", blockerId: "ghost", createdAt: at(-10) }],
+    } as Partial<StoreState>);
+    eq("104.85 A a dependency on a record that does not exist blocks nothing",
+      surface(dangling).fixed.find((f) => f.id === "b")?.blockedBy, undefined);
+    // An EVENT is never blocked — nothing blocks attending something.
+    const evt = store({
+      events: [{ id: "e", title: "Standup", date: dk(0), startTime: "09:00", endTime: "09:15",
+        allDay: false, notes: "", linkedEntityRefs: [], createdAt: at(-10), updatedAt: at(-10) }],
+    } as unknown as Partial<StoreState>);
+    eq("104.86 A an Event carries no blocked context", surface(evt).fixed[0]?.blockedBy, undefined);
+
+    // ---- B. a recurring EVENT keeps its rule ----------------------------
+    const recurringEvent = (extra: Record<string, unknown>) => store({
+      events: [{ id: "e", title: "Standup", date: dk(0), notes: "", linkedEntityRefs: [],
+        // `weekdays`, not `daysOfWeek` — `readRule` rejects the latter, and a
+        // rejected rule describes as "". Several fixtures written across 104 and
+        // 105 carried the wrong field and so were not recurring at all.
+        recurrence: { frequency: "weekly", interval: 1, weekdays: [1] },
+        createdAt: at(-30), updatedAt: at(-30), ...extra }],
+    } as unknown as Partial<StoreState>);
+    eq("104.87 B a timed recurring Event says how often it repeats",
+      surface(recurringEvent({ startTime: "09:00", endTime: "09:15", allDay: false })).fixed[0]?.detail,
+      "Every Monday");
+    eq("104.88 B …and so does an all-day one",
+      surface(recurringEvent({ allDay: true })).fixed[0]?.detail, "Every Monday");
+    // The neighbour: a ONE-OFF event says nothing, and "All day" is not repeated
+    // beside the meta column that already says it.
+    const oneOff = store({
+      events: [{ id: "e", title: "Dentist", date: dk(0), startTime: "14:00",
+        allDay: false, notes: "", linkedEntityRefs: [], createdAt: at(-10), updatedAt: at(-10) }],
+    } as unknown as Partial<StoreState>);
+    eq("104.89 B a one-off Event claims no schedule", surface(oneOff).fixed[0]?.detail, undefined);
+    const allDayOnce = store({
+      events: [{ id: "e", title: "Parents' evening", date: dk(0), allDay: true,
+        notes: "", linkedEntityRefs: [], createdAt: at(-10), updatedAt: at(-10) }],
+    } as unknown as Partial<StoreState>);
+    eq("104.90 B …and an all-day one does not say All day twice",
+      surface(allDayOnce).fixed[0]?.detail, undefined);
+    // …and the recurring ACTION label, which already worked, still does.
+    const recAction = store({ nextActions: [
+      act({ id: "r", title: "Take the medication", dueTime: "08:00",
+        recurrence: { frequency: "daily", interval: 1 } } as Partial<A> & { id: string; title: string }),
+      act({ id: "w", title: "File the claim", dueDate: dk(-5) }),
+    ] });
+    eq("104.91 B a recurring Action still says its rule",
+      surface(recAction).fixed.find((f) => f.id === "r")?.detail, "Every day");
+
+    /**
+     * ---- C. a fixed row is not also the decision preview ----------------
+     *
+     * Reachable only when the attention shortlist's cap of three hides the same
+     * record: `onScreen` saw suggested, work and attention, and not `fixed`. The
+     * due TIME has passed so the record does not win the suggestion, and four
+     * overdue items fill the cap.
+     */
+    const both = store({ nextActions: [
+      act({ id: "o1", title: "Overdue one", dueDate: dk(-6) }),
+      act({ id: "o2", title: "Overdue two", dueDate: dk(-5) }),
+      act({ id: "o3", title: "Overdue three", dueDate: dk(-4) }),
+      act({ id: "o4", title: "Overdue four", dueDate: dk(-3) }),
+      deferred("dec", "Do the tax return", 3, dk(0)),
+    ] });
+    both.nextActions = both.nextActions.map((a) =>
+      a.id === "dec" ? { ...a, dueDate: dk(0), dueTime: "08:00" } : a) as StoreState["nextActions"];
+    const cc = surface(both);
+    ok("104.92 C the control: it IS a fixed row", cc.fixed.some((f) => f.id === "dec"));
+    ok("104.92b C …and it IS a decision", cc.decisions.total > 0);
+    ok("104.92c C …and the attention cap did hide it",
+      !cc.attention.some((x) => (x.actionId ?? x.entity.id) === "dec"),
+      JSON.stringify(cc.attention.map((x) => x.actionId ?? x.entity.id)));
+    eq("104.93 C …so it is not previewed a second time", cc.decisions.top?.entity.id, undefined);
+    eq("104.94 C …while the count still says a decision is waiting", cc.decisions.total, 1);
+    // The neighbour: a decision the page does NOT otherwise show is still
+    // previewed, so 104.93 is dedup and not deletion.
+    const elsewhere = store({
+      goals: [goal("g", "Learn to sail")],
+      nextActions: [act({ id: "a", title: "Draft the statement" })],
+    });
+    eq("104.95 C a decision with no row on this page is still previewed",
+      surface(elsewhere).decisions.top?.entity.id, "g");
+  }
+
+  // ======================================================================
   // §13 — waiting without a follow-up date is NOT redefined.
   // ======================================================================
   {

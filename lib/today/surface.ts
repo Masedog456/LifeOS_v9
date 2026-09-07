@@ -54,6 +54,7 @@ import type { ExecutiveAttentionItem } from "@/lib/guidance/attention";
 import type { RecommendResult } from "@/lib/today/recommend";
 import { isLive, dueKeyOf } from "@/lib/actions/due";
 import { describeRule } from "@/lib/time/recurrence";
+import { blockersOf } from "@/lib/actions/dependencies";
 import { isDeferredAhead } from "@/lib/actions/defer";
 
 // ------------------------------------------------------------------ types ---
@@ -87,6 +88,17 @@ export interface FixedRow {
   occurrenceKey?: DayKey;
   /** The rule in words, for the row that carries the occurrence control. */
   schedule?: string;
+  /**
+   * The unfinished prerequisites, when there are any (§14).
+   *
+   * A timed action can be blocked, and until now nothing on its row said so:
+   * "Install the reception desk · Due 2 PM" read as a commitment to keep while
+   * its blocker sat unfinished. `WorkRow` had carried this since LIFEOS-104;
+   * being fixed in the day does not make an action any more startable.
+   *
+   * Never set for an event — nothing blocks attending something.
+   */
+  blockedBy?: string[];
 }
 
 /** A row in TODAY that a person DOES (§21). */
@@ -116,8 +128,8 @@ export interface WorkRow {
    * covers this only when the blocked signal happens to survive the attention
    * shortlist's cap of three; in the torture world it did not, and "Install the
    * reception desk · Due today" rendered as ordinary work while its blocker sat
-   * unfinished. The blockers come from `view.blocked`, which already computed
-   * them, so this is a carried fact rather than a second derivation.
+   * unfinished. The names come from `blockersOf` over the dependency index —
+   * the same helper, for the same reason, as `FixedRow.blockedBy`.
    */
   blockedBy?: string[];
 }
@@ -196,6 +208,27 @@ export function buildTodayCommand(
 
   const suggestedId = view.suggestion.recommendation?.action.id;
 
+  /**
+   * Blockers for any row this surface renders, from the canonical dependency
+   * index (§A: "derived from canonical data rather than UI-local state").
+   *
+   * `view.blocked` was the source, and it deliberately narrows to items that
+   * would otherwise be DUE — "a blocked item with no deadline is not risk, it
+   * is just later", which is right for raising a signal and wrong here. By the
+   * time a row is on Today the question is settled; what is left is whether it
+   * can be started. That also reaches a blocked RECURRING action, which carries
+   * no `dueDate` for `view.blocked` to match on.
+   *
+   * `blockersOf` is LIFEOS-036's helper and skips dangling ids, so a deleted
+   * blocker cannot hide work behind a name that no longer exists.
+   */
+  const blockersFor = (id: string): string[] | undefined => {
+    if (!ix.blockedActionIds.has(id)) return undefined;
+    const names = blockersOf(id, ix.blockedByMap, ix.actionsById)
+      .filter((b) => b.status !== "completed" && b.status !== "cancelled")
+      .map((b) => b.title);
+    return names.length ? names : undefined;
+  };
   // ---- BE THERE (§21) ----------------------------------------------------
   //
   // The NOW card is gone, and this is where it went. It rendered a single line
@@ -217,14 +250,21 @@ export function buildTodayCommand(
     title: f.title,
     time: f.time,
     endTime: f.event?.endTime,
-    // A timed recurring action says its rule where an Event says "All day":
-    // "Every day" is the whole reason an 08:00 row is on today's list at all.
-    // "All day" itself is dropped — the row's own meta column already says it,
-    // and the audit's event-heavy world printed "Parents' evening · All day ·
-    // All day".
-    detail: f.detail === "All day"
-      ? undefined
-      : f.detail ?? (f.action?.recurrence ? describeRule(f.action.recurrence) : undefined),
+    /**
+     * The recurrence rule, for whichever kind carries one (§B).
+     *
+     * "Every day" is the whole reason an 08:00 row is on today's list at all,
+     * and that was true of EVENTS before LIFEOS-104 rewrote this section —
+     * `view.occurrences` rendered `describeRule(o.event.recurrence)` and the
+     * rewrite carried the label across for actions only. A standing Monday
+     * standup came through as an ordinary appointment.
+     *
+     * `describeRule` is the time system's own formatter; nothing is re-derived
+     * here. "All day" is deliberately NOT repeated — the row's meta column
+     * already says it, and the audit's event-heavy world printed
+     * "Parents' evening · All day · All day".
+     */
+    detail: recurrenceLabel(f),
     isNow: f.kind === "event"
       ? f.id === view.nowEvent?.event.id
       : false,
@@ -233,6 +273,8 @@ export function buildTodayCommand(
     action: f.action,
     occurrenceKey: f.kind === "action" ? recurringById.get(f.id)?.occurrence : undefined,
     schedule: f.kind === "action" ? recurringById.get(f.id)?.schedule : undefined,
+    // §A. Nothing blocks attending an Event.
+    blockedBy: f.kind === "action" ? blockersFor(f.id) : undefined,
   }));
 
   // ---- DO (§21, §24) -----------------------------------------------------
@@ -247,20 +289,16 @@ export function buildTodayCommand(
   // reason, and the SAME resolution controls the Today row would have offered —
   // `recommendationResolutionsFor` returns `complete_occurrence` for a recurring
   // action, which is the one control this row has that the others do not.
-  const blockersById = new Map<string, string[]>(
-    view.blocked.map((b) => [b.action.id, b.blockers.map((x) => x.title)]),
-  );
   const work: WorkRow[] = [];
   const seenWork = new Set<string>();
   const pushWork = (row: WorkRow) => {
     if (row.action.id === suggestedId) return;
     if (seenWork.has(row.action.id)) return;
     seenWork.add(row.action.id);
-    const blockedBy = blockersById.get(row.action.id);
     work.push({
       ...row,
       inlineReason: command.inlineReasons[row.action.id],
-      blockedBy: blockedBy && blockedBy.length ? blockedBy : undefined,
+      blockedBy: blockersFor(row.action.id),
     });
   };
   for (const a of view.dueToday) {
@@ -335,6 +373,13 @@ export function buildTodayCommand(
   const onScreen = new Set<string>([
     ...(suggestedId ? [suggestedId] : []),
     ...work.map((w) => w.action.id),
+    // §C. A FIXED row is on screen too. It was missing here, and the gap is
+    // reachable: a repeatedly-deferred action carrying a due time is a BE THERE
+    // row, and when three higher-ranked items fill the attention shortlist's
+    // cap it is absent from `attention` as well — so "Do the tax return"
+    // rendered at 8 AM in the schedule and again as the decision preview.
+    // Matched on the record's own id; no title comparison anywhere.
+    ...fixed.filter((f) => f.kind === "action").map((f) => f.id),
     ...attention.map((a) => a.actionId ?? a.entity.id),
   ]);
   const previewDecision = inbox.items.find((d) => !onScreen.has(d.entity.id));
@@ -427,6 +472,22 @@ export function buildTodayCommand(
     view,
     command,
   };
+}
+
+/**
+ * The recurrence rule on a fixed row, whichever kind carries it.
+ *
+ * One place, so an Event and an Action cannot end up described by two different
+ * formatters — `describeRule` belongs to the time system and is the only one.
+ */
+function recurrenceLabel(f: { detail?: string; event?: EventOccurrence; action?: NextAction }): string | undefined {
+  const rule = f.event?.event.recurrence ?? f.action?.recurrence;
+  // `describeRule` returns "" for a rule it cannot read — a stored shape from
+  // an older writer, say. An empty label is a blank span the reader cannot
+  // interpret, so it is treated as no label rather than rendered.
+  const said = rule ? describeRule(rule).trim() : "";
+  if (said) return said;
+  return f.detail === "All day" ? undefined : f.detail;
 }
 
 /** Every string this projection can put on screen, for the language sweep. */

@@ -65,6 +65,13 @@ async function seed(page, key) {
   await page.goto(BASE + "/today", { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1100);
 }
+/** Seed a world built here rather than one of the twenty. */
+async function seedWorld(page, world) {
+  await page.goto(BASE + "/", { waitUntil: "domcontentloaded" });
+  await page.evaluate(([k, s]) => localStorage.setItem(k, s), [KEY, JSON.stringify(shift(world))]);
+  await page.goto(BASE + "/today", { waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1100);
+}
 const body = (page) => page.evaluate(() => document.body.innerText);
 /**
  * Text INCLUDING the collapsed context block.
@@ -474,6 +481,76 @@ const mentions = async (page, title) => {
     ok("27c §12 …and the roster row changes with it",
       (await all(page, "[data-waiting]")).some((x) => /Follow-up due/.test(x)),
       JSON.stringify(await all(page, "[data-waiting]")));
+  }
+
+  /**
+   * ---- 29-31. The three P2 findings from PR #110's review.
+   *
+   * All three are about the FIXED group and all three needed a world the twenty
+   * do not contain, which is why the audit did not surface them: no fixture had
+   * a blocked TIMED action, a recurring EVENT, or a record that is both a fixed
+   * row and a decision the attention cap has hidden.
+   */
+  {
+    const F = require("./fixtures/lifeos-104-worlds.cjs");
+    const S = (p) => ({ ...F.EMPTY(), ...p });
+
+    // 29 §A — a blocked timed action says what is holding it.
+    await seedWorld(page, S({
+      nextActions: [
+        F.act({ id: "b", title: "Install the desk", dueDate: F.dk(0), dueTime: "14:00" }),
+        F.act({ id: "k", title: "Get lease approval" }),
+        F.act({ id: "w", title: "File the claim", dueDate: F.dk(-5) }),
+      ],
+      actionDependencies: [{ id: "d", blockedId: "b", blockerId: "k", createdAt: F.at(-10) }],
+    }));
+    const fixedRows = await all(page, '[data-today-fixed="action"]');
+    ok("29pre §A the control: it is a BE THERE row at its time",
+      fixedRows.some((t) => /Install the desk/.test(t) && /2 PM/.test(t)), JSON.stringify(fixedRows));
+    ok("29 §A …and the row says what is holding it",
+      fixedRows.some((t) => /Install the desk/.test(t) && /Blocked by Get lease approval/.test(t)),
+      JSON.stringify(fixedRows));
+    ok("29b §A …and it is not the recommendation",
+      !/Install the desk/.test(String(await one(page, "[data-suggested-next] > a"))));
+    ok("29c §A the blocked note is reachable to a screen reader as text, not colour alone",
+      (await count(page, "[data-today-blocked]")) >= 1);
+
+    // 30 §B — a recurring event keeps its rule.
+    await seedWorld(page, S({
+      events: [{ id: "e", title: "Standup", date: F.dk(0), startTime: "09:00", endTime: "09:15",
+        allDay: false, notes: "", linkedEntityRefs: [],
+        recurrence: { frequency: "weekly", interval: 1, weekdays: [new Date().getDay()] },
+        createdAt: F.at(-30), updatedAt: F.at(-30) }],
+      nextActions: [F.act({ id: "a", title: "Send the quote", dueDate: F.dk(0) })],
+    }));
+    const evRows = await all(page, '[data-today-fixed="event"]');
+    ok("30 §B a recurring Event says how often it repeats",
+      evRows.some((t) => /Standup/.test(t) && /Every /.test(t)), JSON.stringify(evRows));
+    // The neighbour: a one-off event claims no schedule.
+    await seed(page, "I");
+    const once = await all(page, '[data-today-fixed="event"]');
+    ok("30b §B …while a one-off Event claims none",
+      once.some((t) => /Dentist/.test(t)) && !once.some((t) => /Dentist/.test(t) && /Every /.test(t)),
+      JSON.stringify(once));
+
+    // 31 §C — a fixed row is not also the decision preview.
+    const dec = F.deferred("dec", "Do the tax return", 3, F.dk(0));
+    dec.dueDate = F.dk(0); dec.dueTime = "08:00";
+    await seedWorld(page, S({ nextActions: [
+      F.act({ id: "o1", title: "Overdue one", dueDate: F.dk(-6) }),
+      F.act({ id: "o2", title: "Overdue two", dueDate: F.dk(-5) }),
+      F.act({ id: "o3", title: "Overdue three", dueDate: F.dk(-4) }),
+      F.act({ id: "o4", title: "Overdue four", dueDate: F.dk(-3) }),
+      dec,
+    ] }));
+    const fx = await all(page, '[data-today-fixed="action"]');
+    const dsec = await one(page, "[data-today-section='decisions']");
+    ok("31pre §C the control: it IS on the schedule", fx.some((t) => /tax return/.test(t)), JSON.stringify(fx));
+    ok("31pre-b §C …and a decision is waiting", !!dsec && /item/.test(dsec), String(dsec));
+    ok("31 §C …and it is not previewed a second time",
+      !!dsec && !/tax return/.test(dsec), String(dsec));
+    ok("31b §C …while the count still says one is waiting",
+      !!dsec && /1 item/.test(dsec), String(dsec));
   }
 
   // 28. §66. The language is coherent with Home, and nothing threw.
