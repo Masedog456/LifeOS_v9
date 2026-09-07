@@ -38,6 +38,7 @@ import { occurrenceFor } from "@/lib/mvpStore";
 import { readRule, describeRule } from "@/lib/time/recurrence";
 import { upcomingOccurrences, type EventOccurrence } from "@/lib/time/events";
 import { returnSuggestion, type ReturnSuggestion } from "@/lib/planning/today-signals";
+import { isOwnMoveNow } from "@/lib/actions/lifecycle";
 import { recommendNextAction, type RecommendResult } from "@/lib/today/recommend";
 import {
   buildCommitmentSignals, returnedOn, type CommitmentSignal,
@@ -168,7 +169,29 @@ function isNow(o: EventOccurrence, now: string): boolean {
 export function buildTodayView(state: StoreState, ix: TodayIndexes): TodayView {
   const today = ix.today;
   const actions = state.nextActions ?? [];
-  const live = actions.filter(isLive);
+  /**
+   * LIFEOS-105 §40, §47. `isLive` alone is not the question Today is asking.
+   *
+   * It is true for `deferred` and for `waiting`, so this list carried both — and
+   * the audit measured what that cost. Deferring an action that was due today
+   * left it in the DO list (Not Today did not hold, §40), deferring a recurring
+   * series did the same, and a wait with a `dueDate` appeared as work to do AND
+   * on the waiting roster, a few hundred pixels apart.
+   *
+   * `alsoToday` below already re-checked the deferral by hand;
+   * `buildTodayOrientation` already filtered correctly. Three copies, two of
+   * them incomplete. This is the one predicate.
+   */
+  const live = actions.filter((a) => isOwnMoveNow(a, today));
+  /**
+   * Everything still in play, including waits and deferrals.
+   *
+   * Project pulse needs it: "2 waiting · 1 blocked" is a count of the project's
+   * unfinished work, not of the person's available work, and narrowing `live`
+   * silently zeroed both counts. The two lists answer different questions and
+   * now say which.
+   */
+  const inPlay = actions.filter(isLive);
 
   // ---- TODAY -------------------------------------------------------------
   // A recurring action is a standing source: its occurrence is asked for here,
@@ -256,9 +279,11 @@ export function buildTodayView(state: StoreState, ix: TodayIndexes): TodayView {
   const pulse: ProjectPulse[] = [];
   for (const project of state.projects ?? []) {
     if (project.status !== "active") continue;
-    const mine = live.filter((a) => a.projectId === project.id);
+    const mine = inPlay.filter((a) => a.projectId === project.id);
     if (mine.length === 0) continue;
-    const executable = mine.filter((a) => a.status !== "waiting" && !ix.blockedActionIds.has(a.id));
+    // A project's next action is work that can be STARTED: not waiting, not
+    // blocked, and not parked until a later day (§31).
+    const executable = mine.filter((a) => isOwnMoveNow(a, today) && !ix.blockedActionIds.has(a.id));
     const nextAction = sortByDue(executable, today)[0];
     const blockedCount = mine.filter((a) => ix.blockedActionIds.has(a.id)).length;
     const waitingCount = mine.filter((a) => a.status === "waiting").length;

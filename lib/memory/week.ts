@@ -361,15 +361,29 @@ export function buildAutobiographicalTimeline(
           out.push({ ...base, kind: "action_restored", evidence: "action.history[].restored" });
           break;
 
-        case "action_waiting_stopped":
-          // §12: leaving a wait is not finishing the work. `waitingOn` is only
-          // quoted when the record actually carries it.
+        case "action_waiting_stopped": {
+          /**
+           * §12: leaving a wait is not finishing the work.
+           *
+           * LIFEOS-105 §42. The name used to come from `a.waitingOn` — the
+           * CURRENT field, which `stopWaiting` clears as part of stopping. So
+           * the detail was `null` every single time, and the line read "Stopped
+           * waiting" about a wait whose person the record still remembers. A
+           * question about what happened is answered from history, not from a
+           * field the transition emptied: the `waiting` event that opened this
+           * wait carries the name, and it is still there.
+           */
+          const openedBy = [...(a.history ?? [])]
+            .filter((h) => h.action === "waiting" && h.at <= e.at)
+            .pop();
+          const who = openedBy?.detail?.trim() || a.waitingOn?.trim();
           out.push({
             ...base, kind: "waiting_stopped",
-            detail: a.waitingOn ? `on ${a.waitingOn}` : undefined,
-            evidence: "action.history[].edited fromStatus=waiting",
+            detail: who ? `on ${who}` : undefined,
+            evidence: "action.history[].waiting.detail",
           });
           break;
+        }
 
         case "action_due_cleared":
           out.push({ ...base, kind: "action_due_cleared", evidence: "action.history[].due_cleared" });

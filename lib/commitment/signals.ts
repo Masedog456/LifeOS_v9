@@ -49,7 +49,7 @@ import {
   UPCOMING_WINDOW_DAYS,
 } from "@/lib/actions/due";
 import { isFollowUpDue } from "@/lib/actions/waiting";
-import { isDeferredAhead } from "@/lib/actions/defer";
+import { isOwnMoveNow } from "@/lib/actions/lifecycle";
 import { actionDormancy, dormancyLine } from "@/lib/actions/dormancy";
 import { blockersOf } from "@/lib/actions/dependencies";
 import { readRule } from "@/lib/time/recurrence";
@@ -270,7 +270,12 @@ export function buildCommitmentSignals(
   // A deferral the user set for a LATER day is a decision, not a lapse — and a
   // stale `dueDate` does not override it. Shared with Suggested Next since
   // LIFEOS-072; see `isDeferredAhead` for why it is one predicate and not four.
-  const live = actions.filter((a) => isLive(a) && !isDeferredAhead(a, today));
+  // LIFEOS-105 §12, §47. `isOwnMoveNow` is the same three-clause question this
+  // line asked, plus the clause it was missing: a WAITING record's next move
+  // belongs to someone else, so a `dueDate` on it is not a deadline this layer
+  // may report. The audit measured a wait raising "Was due Fri, Sep 4" and
+  // "Due Fri, Sep 11" — a commitment signal about work that cannot be started.
+  const live = actions.filter((a) => isOwnMoveNow(a, today));
   // A recurring action is a standing source, not a dated task: its occurrence is
   // asked for by the schedule and it must never also appear as an ordinary due
   // item, or one responsibility becomes two rows.
