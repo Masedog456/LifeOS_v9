@@ -26,6 +26,7 @@
 
 import type { NextAction, StoreState } from "@/types/mvp";
 import type { DayKey } from "@/lib/reviews/dates";
+import { todayKey } from "@/lib/reviews/dates";
 import { emptyStoreState } from "@/lib/ux/backup";
 import {
   withIsolatedStore, replaceState, getSnapshot,
@@ -396,7 +397,19 @@ export function runCommitmentLifecycleSelfTests() {
     replaceState(store({ nextActions: [waiting("w", "Transcript", "Maria", { followUpDate: dk(0) } as Partial<A>)] }));
     stopWaiting("w");
     const s = getSnapshot();
-    const rr = buildRangeReview(s, resolveRange("today", { today: TODAY }), { today: TODAY, index: ixOf(s).activity });
+    /**
+     * The REAL today, not the fixture anchor.
+     *
+     * Every other assertion here reads a fixture whose dates are offsets from
+     * `TODAY`, so the anchor can stay pinned and the world means the same thing
+     * on any day. This one is different: `stopWaiting` is the product's writer
+     * and stamps its history event with the actual clock. Asking a one-day
+     * range about 2026-09-07 for an event written on 2026-09-08 finds nothing,
+     * so this suite passed on the anchor date and began failing the next
+     * morning — a property of the test, never of the product.
+     */
+    const realToday = todayKey();
+    const rr = buildRangeReview(s, resolveRange("today", { today: realToday }), { today: realToday, index: buildTodayIndexes(s, realToday, NOW).activity });
     const line = rr.timeline.find((e) => e.recordRef.id === "w" && e.kind === "waiting_stopped");
     ok("105.48 §42 the stopped wait is on the timeline", !!line);
     eq("105.49 §42 …and names the person, from the event that recorded the wait",
