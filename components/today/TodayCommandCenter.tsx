@@ -41,7 +41,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ROW_META } from "@/lib/design/tokens";
+import { ROW_META, TERTIARY_TEXT } from "@/lib/design/tokens";
 import { completeOccurrence, useStore } from "@/lib/mvpStore";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildTodayView, waitingDays, COVERAGE_NOTE, EMPTY_PROMPT } from "@/lib/today/view";
@@ -57,6 +57,7 @@ import { DECISION_HEADING } from "@/lib/guidance/decisions";
 import {
   buildTodayCommand, openWorkDetail, NOTHING_PRESSING, OPEN_WORK_NOTE,
 } from "@/lib/today/surface";
+import { conflictFor } from "@/lib/today/shape";
 import ResolutionControls from "@/components/commitment/ResolutionControls";
 import { toast } from "@/lib/ux/feedback";
 
@@ -273,6 +274,14 @@ export default function TodayCommandCenter() {
       <Section title="Today" show={cmd.fixed.length + cmd.work.length > 0}>
         {cmd.fixed.length > 0 && (
           <Group label="Be there">
+            {/* LIFEOS-106. The denominator. The orientation line above says how
+                many things there are to place; this says what they have to be
+                placed into, and both are arithmetic over the rows below. It is
+                deliberately not a warning: no threshold, no colour, no verdict —
+                the user decides what a full day means. */}
+            {cmd.shape.line && (
+              <p data-day-shape className={`mb-1.5 ${TERTIARY_TEXT} text-[11px]`}>{cmd.shape.line}</p>
+            )}
             <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
               {cmd.fixed.map((f) => (
                 // An Event carries no control. It happens; there is nothing to tick.
@@ -309,6 +318,16 @@ export default function TodayCommandCenter() {
                   {f.blockedBy && (
                     <p data-today-blocked className="basis-full text-[11px] text-amber-700 dark:text-amber-400">
                       Blocked by {f.blockedBy.join(", ")}.
+                    </p>
+                  )}
+                  {/* LIFEOS-106. Two commitments booked over each other — a
+                      recorded fact the product could not previously see at all.
+                      It sits on the row rather than in a banner because the
+                      collision is a property of these two rows, and the reader
+                      is already looking at one of them. */}
+                  {conflictFor(cmd.shape, f.id) && (
+                    <p data-day-conflict className="basis-full text-[11px] text-amber-700 dark:text-amber-400">
+                      {conflictFor(cmd.shape, f.id)}
                     </p>
                   )}
                   {/* §23. A timed standing responsibility is a BE THERE row AND a
