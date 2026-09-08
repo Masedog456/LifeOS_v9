@@ -49,7 +49,7 @@ import type { DayKey } from "@/lib/reviews/dates";
 import { todayKey, addDays, formatDayKey } from "@/lib/reviews/dates";
 import { resolveRange } from "@/lib/insights/range";
 import { isLive, dueKeyOf, sortByDue } from "@/lib/actions/due";
-import { isDeferredAhead } from "@/lib/actions/defer";
+import { isOwnMoveNow } from "@/lib/actions/lifecycle";
 import { readRule, describeRule } from "@/lib/time/recurrence";
 import { occurrenceFor } from "@/lib/mvpStore";
 import { upcomingOccurrences, type EventOccurrence } from "@/lib/time/events";
@@ -321,7 +321,28 @@ export function buildTodayOrientation(
   ix: TodayIndexes,
   today: DayKey = todayKey(),
 ): { fixedToday: FixedItem[]; flexibleToday: FlexibleItem[] } {
-  const live = (state.nextActions ?? []).filter((a) => isLive(a) && !isDeferredAhead(a, today));
+  /**
+   * The person's own available work — the fourth reader of LIFEOS-105 §47.
+   *
+   * 105 consolidated this question into `isOwnMoveNow` and fixed the three
+   * callers it had found: `recommend.ts`, `signals.ts`, `view.ts`. There were
+   * four. This one filtered `isLive && !isDeferredAhead` — the deferral half of
+   * the predicate but not the waiting half — and it is the list that actually
+   * builds Today's BE THERE rows, because `surface.ts` takes `fixedToday` from
+   * here rather than from `view.ts`.
+   *
+   * What that cost, measured: a wait carrying a time ("Keys from Sam", 14:00)
+   * rendered as a fixed timed commitment while sitting on the waiting roster in
+   * the same page, and the orientation line counted it — "1 timed commitment"
+   * for work whose next move is Sam's. `due_today` and `recurring_today` leaked
+   * the same way. Only `planned_today` was right, because it hand-rolled
+   * `a.status !== "waiting"` — a fourth copy of the clause, which is what made
+   * the other three look deliberate rather than missing.
+   *
+   * §12 is the rule being kept here: a date on a waiting record is a follow-up,
+   * not a deadline, and no surface may present one as work that can be started.
+   */
+  const live = (state.nextActions ?? []).filter((a) => isOwnMoveNow(a, today));
 
   // ---- FIXED: things that happen at a time (§3, §7) -----------------------
   const fixedToday: FixedItem[] = [];
@@ -388,7 +409,11 @@ export function buildTodayOrientation(
   }
   for (const a of live) {
     if (!ix.plannedTodayIds.has(a.id)) continue;
-    if (ix.blockedActionIds.has(a.id) || a.status === "waiting") continue;
+    // The waiting clause that used to sit here is gone, not weakened: `live` is
+    // now `isOwnMoveNow`, which excludes waits for every clause rather than for
+    // this one alone. Blocked is still checked here — it is deliberately not
+    // part of the predicate (a blocked action's next move is still the person's).
+    if (ix.blockedActionIds.has(a.id)) continue;
     pushFlexible(a, "planned_today", "Planned for today");
   }
   for (const a of placeable) {

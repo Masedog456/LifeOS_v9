@@ -282,7 +282,7 @@ export default function TodayCommandCenter() {
                   // to 3.51:1 and its "2 PM" to 2.11:1 — the 099 contrast probe
                   // caught it. A row you cannot read is worse than a row you
                   // cannot tell is behind you, and the action is still yours to do.
-                  className={`${rowClass} ${f.kind === "event" && !f.isNow && f.time && f.time < now ? "opacity-55" : ""}`}>
+                  className={`${rowClass} flex-wrap ${f.kind === "event" && !f.isNow && f.time && f.time < now ? "opacity-55" : ""}`}>
                   <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
                     {/* §29, §33 of 083: a marker on the row, not a section of
                         its own. The NOW card said "Next: Advisor meeting" for an
@@ -302,6 +302,15 @@ export default function TodayCommandCenter() {
                     {f.time ? formatLocalTime(f.time) : "All day"}
                     {f.time && f.endTime && f.kind === "event" ? `–${formatLocalTime(f.endTime)}` : ""}
                   </span>
+                  {/* §14, §A. A timed action can be blocked, and the row must
+                      say so — being fixed in the day does not make it any more
+                      startable. The DO rows have carried this since 104; this
+                      is the same sentence, from the same helper. */}
+                  {f.blockedBy && (
+                    <p data-today-blocked className="basis-full text-[11px] text-amber-700 dark:text-amber-400">
+                      Blocked by {f.blockedBy.join(", ")}.
+                    </p>
+                  )}
                   {/* §23. A timed standing responsibility is a BE THERE row AND a
                       closable occurrence. `completeOccurrence` closes today
                       without ending the series. */}

@@ -539,3 +539,48 @@ measures is unchanged, and each edit says so at the site:
    the probe to differ on exactly that record.
 6. **074, 082, 098** carry pre-existing failures, unchanged by this sprint and
    verified against the base commit.
+
+---
+
+## 6. Post-merge review follow-ups (PR #110)
+
+Three P2 findings were raised on the merged PR. **All three reproduce against
+`ec3690a`**, and all three are about the FIXED group — the half of Today's
+"BE THERE / DO" split that §21 introduced and that this sprint then served less
+carefully than the DO rows beside it. None of the twenty audit worlds contained
+a blocked *timed* action, a recurring *Event*, or a record that is both a fixed
+row and a decision the attention cap has hidden, which is why the audit missed
+them.
+
+| finding | reproduced | fix |
+| --- | --- | --- |
+| **A** a blocked timed action reads as freely actionable | `{"title":"Install the desk","time":"14:00"}` — a fixed row with nothing saying it is blocked | `FixedRow.blockedBy`, from `blockersOf` over the dependency index |
+| **B** a recurring Event loses its rule | `{"title":"Standup","time":"09:00"}` — no `detail`; the pre-104 code rendered `describeRule(o.event.recurrence)` and the rewrite carried the label across for actions only | one `recurrenceLabel` for both kinds |
+| **C** a fixed row duplicates in the decision preview | "Do the tax return" at 8 AM in the schedule **and** as the decision preview | `fixed` joins `onScreen`, matched on record id |
+
+Notes on the fixes:
+
+- **A** uses `blockersOf` — LIFEOS-036's helper — rather than `view.blocked`,
+  which deliberately narrows to items that would otherwise be *due* ("a blocked
+  item with no deadline is not risk, it is just later"). That is right for
+  raising a signal and wrong for a row already on the page, and it also reaches
+  a blocked **recurring** action, which carries no `dueDate` to match on. The
+  DO rows moved to the same source, which incidentally fixed a narrower bug:
+  `blockersOf` returns blockers of any status, so a mixed pair used to name a
+  blocker the user had already finished (104.85pre).
+- **B** `describeRule` returns `""` for a rule it cannot read. An empty label is
+  a blank the reader cannot interpret, so it is treated as no label.
+- **C** deduplicates on the record's id. No title comparison anywhere.
+
+**A fixture bug found on the way.** `RecurrenceRule` names the field
+`weekdays`; several fixtures written across LIFEOS-104 and 105 used
+`daysOfWeek`, which `readRule` rejects — so those "weekly" records were not
+recurring at all and `describeRule` returned `""` for them. Corrected in
+`lifeos-104-worlds.cjs`. No live assertion depended on those records recurring,
+but the fixtures were not testing what they claimed.
+
+**Coverage:** 5 deterministic assertions (104.81–104.95) and 10 browser
+assertions (29–31b), each paired with the neighbour that must not change — a
+completed blocker, a dangling blocker, an Event (never blocked), a one-off
+event, an all-day event, and a decision the page does not otherwise show.
+Reverting the three behaviours reddens 4 deterministic and 4 browser assertions.

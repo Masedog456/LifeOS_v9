@@ -127,7 +127,7 @@ const WORLDS = {
     act({ id: "h1", title: "Take the medication", dueTime: "08:00",
       recurrence: { frequency: "daily", interval: 1 } }),
     act({ id: "h2", title: "Water the plants",
-      recurrence: { frequency: "weekly", interval: 1, daysOfWeek: [1] } }),
+      recurrence: { frequency: "weekly", interval: 1, weekdays: [1] } }),
   ] }),
 
   /** I. Event-heavy day — four fixed-time obligations and one thing to do. §21. */
@@ -273,7 +273,7 @@ function noisy() {
       history: [H("completed", at(-(i % 6), 12), { fromStatus: "open", toStatus: "completed" })] }));
     else if (mod === 5) acts.push(deferred(`na${i}`, `Deferred item ${i}`, (i % 3) + 1, dk((i % 4) - 1), { projectId: p }));
     else if (mod === 6) acts.push(act({ id: `na${i}`, title: `Recurring item ${i}`, projectId: p,
-      recurrence: { frequency: "weekly", interval: 1, daysOfWeek: [i % 7] } }));
+      recurrence: { frequency: "weekly", interval: 1, weekdays: [i % 7] } }));
     else acts.push(act({ id: `na${i}`, title: `Open item ${i}`, projectId: p }));
   }
   s.nextActions = acts;

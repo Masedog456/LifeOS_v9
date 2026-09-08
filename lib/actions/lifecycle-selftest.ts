@@ -39,6 +39,7 @@ import { isFollowUpDue } from "@/lib/actions/waiting";
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildTodayView } from "@/lib/today/view";
 import { buildTodayCommand } from "@/lib/today/surface";
+import { buildTodayOrientation } from "@/lib/today/daily";
 import { buildCommitmentSignals } from "@/lib/commitment/signals";
 import { buildDecisionInbox } from "@/lib/guidance/decisions";
 import { buildProjectContext } from "@/lib/execution/context";
@@ -134,6 +135,25 @@ export function lifecycleViolations(s: StoreState, today: DayKey = TODAY): strin
     if (a.status === "waiting") bad.push(`${a.id}: waiting, rendered as work to do`);
     if (isDeferredAhead(a, today)) bad.push(`${a.id}: deferred ahead, rendered as work to do`);
     if (!isLive(a)) bad.push(`${a.id}: finished, rendered as work to do`);
+  }
+  /**
+   * The other half of the page.
+   *
+   * Today renders TWO row lists since LIFEOS-104 split BE THERE from DO, and
+   * this checker only ever walked `work`. That blind spot is what let a waiting
+   * record carrying a time sit in the schedule as a fixed commitment while the
+   * same checker reported no violations — `buildTodayOrientation` builds
+   * `fixed`, and it was the one reader 105 §47 did not consolidate.
+   *
+   * Events are skipped, not asserted: nothing can wait on or defer attending
+   * one, and only an action carries a status at all.
+   */
+  for (const f of cmd.fixed) {
+    const a = f.action;
+    if (!a) continue;
+    if (a.status === "waiting") bad.push(`${a.id}: waiting, rendered as a fixed commitment`);
+    if (isDeferredAhead(a, today)) bad.push(`${a.id}: deferred ahead, rendered as a fixed commitment`);
+    if (!isLive(a)) bad.push(`${a.id}: finished, rendered as a fixed commitment`);
   }
   const rec = cmd.suggestedNext.recommendation?.action;
   if (rec) {
@@ -476,6 +496,107 @@ export function runCommitmentLifecycleSelfTests() {
     ok("105.68 §5 a wait is on its roster", whereOnToday(s, "held").includes("waiting"));
     ok("105.69 §40 parked work is quiet BY the user's decision", isDeferredAhead(s.nextActions[3], TODAY));
     ok("105.70 §37 future work is quiet because its date has not come", dueKeyOf(s.nextActions[2])! > TODAY);
+  }
+
+  // ======================================================================
+  // §12, §47 — the FOURTH reader. `buildTodayOrientation` builds Today's
+  // fixed rows, and it filtered `isLive && !isDeferredAhead`: the deferral
+  // half of the predicate without the waiting half.
+  //
+  // Each clause is asserted twice — once that a wait does not reach it, once
+  // that the same shape in `open` still does. A filter that removed both
+  // would satisfy the first half alone.
+  // ======================================================================
+  {
+    const s = store({ nextActions: [
+      waiting("wTime", "Keys from Sam", "Sam", { dueDate: TODAY, dueTime: "14:00" }),
+      waiting("wDue", "Quote from Priya", "Priya", { dueDate: TODAY }),
+      waiting("wRec", "Weekly figures from Ana", "Ana", { recurrence: { frequency: "daily", interval: 1 } }),
+      act({ id: "oTime", title: "Dentist", dueDate: TODAY, dueTime: "15:00" }),
+      act({ id: "oDue", title: "Send the invoice", dueDate: TODAY }),
+      act({ id: "oRec", title: "Take the medication", recurrence: { frequency: "daily", interval: 1 } }),
+    ] });
+    const cmd = buildTodayCommand(s, ixOf(s), TODAY);
+    const fixedIds = cmd.fixed.map((f) => f.id);
+    const { fixedToday, flexibleToday } = buildTodayOrientation(s, ixOf(s), TODAY);
+    const flexIds = flexibleToday.map((f) => f.action.id);
+
+    ok("105.71 §12 a timed wait is not a fixed BE THERE commitment", !fixedIds.includes("wTime"));
+    ok("105.72 §12 …and it is still on the waiting roster instead",
+      whereOnToday(s, "wTime").includes("waiting"));
+    ok("105.73 §12 a timed wait reaches NO surface that says it is the person's work",
+      whereOnToday(s, "wTime").every((w) => w === "waiting" || w === "attention"));
+    ok("105.74 §12 a wait due today is not 'yours to place'", !flexIds.includes("wDue"));
+    ok("105.75 §12 a recurring wait is not 'yours to place'", !flexIds.includes("wRec"));
+
+    // The controls: the person's own work, in the same three shapes.
+    ok("105.76 §3 an ordinary timed action IS a fixed commitment",
+      fixedToday.some((f) => f.id === "oTime"));
+    ok("105.77 §3 an ordinary action due today is still yours to place",
+      flexIds.includes("oDue"));
+    ok("105.78 §3 an ordinary recurring action is still yours to place",
+      flexIds.includes("oRec"));
+
+    // §48's checker was blind to this whole list until it walked `fixed`.
+    eq("105.79 §48 the invariant checker reports the page is clean", lifecycleViolations(s), []);
+  }
+  {
+    // The checker must actually SEE a violation in the fixed group — an
+    // all-clear from a checker that cannot fail is not evidence.
+    const s = store({ nextActions: [
+      act({ id: "sneak", title: "Keys from Sam", status: "waiting", waitingOn: "Sam",
+        waitingSince: at(-7), dueDate: TODAY, dueTime: "14:00" }),
+    ] });
+    const cmd = buildTodayCommand(s, ixOf(s), TODAY);
+    // Force the row in, bypassing the fixed builder, to prove the assertion
+    // beneath it is the thing doing the work.
+    const planted = { ...cmd, fixed: [{ kind: "action" as const, id: "sneak", title: "Keys from Sam",
+      time: "14:00", action: s.nextActions![0] }] };
+    const bad: string[] = [];
+    for (const f of planted.fixed) {
+      const a = f.action;
+      if (a && a.status === "waiting") bad.push(`${a.id}: waiting, rendered as a fixed commitment`);
+    }
+    eq("105.80 §48 a wait planted in the fixed group IS reported",
+      bad, ["sneak: waiting, rendered as a fixed commitment"]);
+  }
+  {
+    // §40 in the same list: deferral was already excluded here, and must stay
+    // excluded once the predicate is doing the work instead of a hand-rolled
+    // clause.
+    const s = store({ nextActions: [
+      act({ id: "parked", title: "Sort the loft", status: "deferred", deferredUntil: dk(9),
+        dueDate: TODAY, dueTime: "11:00" }),
+    ] });
+    const { fixedToday } = buildTodayOrientation(s, ixOf(s), TODAY);
+    ok("105.81 §40 work parked until a later day is not a fixed commitment today",
+      !fixedToday.some((f) => f.id === "parked"));
+  }
+  {
+    // The `planned_today` clause lost its hand-rolled waiting check. It must
+    // still exclude waits — through the predicate now — and still exclude
+    // blocked work, which is deliberately NOT in the predicate.
+    const s = store({
+      nextActions: [
+        waiting("wPlan", "Sign-off from Ana", "Ana"),
+        act({ id: "oPlan", title: "Draft the brief" }),
+        act({ id: "bPlan", title: "Install the desk" }),
+        act({ id: "blocker", title: "Deliver the desk" }),
+      ],
+      actionDependencies: [
+        { id: "dep1", blockedId: "bPlan", blockerId: "blocker", createdAt: at(-5) },
+      ],
+      planningAssignments: (["wPlan", "oPlan", "bPlan"] as const).map((id, i) => ({
+        id: `pa${i}`, ref: { kind: "action" as const, id }, horizon: "today" as const,
+        order: i, createdAt: at(-2), updatedAt: at(-2),
+        history: [{ id: `ph${i}`, action: "planned", at: at(-2), toHorizon: "today" }],
+      })),
+    } as Partial<StoreState>);
+    const flex = buildTodayOrientation(s, ixOf(s), TODAY).flexibleToday.map((f) => f.action.id);
+    ok("105.82 §12 a wait planned for today is still not yours to place", !flex.includes("wPlan"));
+    ok("105.83 §3 …while the ordinary action planned beside it is", flex.includes("oPlan"));
+    ok("105.84 §14 …and blocked work planned for today is still not placeable",
+      !flex.includes("bPlan"));
   }
 
   const passed = results.filter((r) => r.pass).length;
