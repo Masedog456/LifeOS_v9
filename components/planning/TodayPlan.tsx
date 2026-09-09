@@ -27,7 +27,17 @@ export default function TodayPlan() {
       <header className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Today Plan</h1>
-          <p className="mt-0.5 text-sm text-zinc-500">What you have deliberately chosen for today. Nothing here is inferred or auto-filled.</p>
+          {/* LIFEOS-107. The old line — "Nothing here is inferred or
+              auto-filled" — was false of four of this projection's five
+              sources: pinned, in-progress, follow-ups due and returning
+              deferrals are all derived. Only assignments are chosen. Each row
+              already states which it is; the heading now agrees with them. */}
+          <p className="mt-0.5 text-sm text-zinc-500">
+            {plan.assignedCount > 0
+              ? `${plan.assignedCount} you placed here, plus what today's records already say belongs to it.`
+              : "What today's records say belongs to it. Place items from the board to lead this list."}
+            {" "}Every row says why it is here.
+          </p>
         </div>
         <Link href="/plan" className="shrink-0 rounded-full border border-black/[.12] px-3 py-1.5 text-xs dark:border-white/[.15]">Board →</Link>
       </header>
