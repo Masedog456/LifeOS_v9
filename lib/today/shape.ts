@@ -29,12 +29,36 @@
  * So the only minutes here come from events that carry BOTH a start and an end.
  * Everything else is counted, named, and left out of the total.
  *
+ * ## Two numbers, never added together (the review's correction)
+ *
+ * The first draft called the measurable part "committed" and stopped there. A
+ * day of four meetings plus "call the dentist at 2" and "submit the form at 5"
+ * printed "4h 30m committed · 4h unscheduled in between" — and the two
+ * commitments it could not measure appeared nowhere, so the reader was invited
+ * to infer four free hours that in fact contained both of them.
+ *
+ * The measurable part is now named for what it measures:
+ *
+ *   scheduledMinutes   time inside blocks with a known start AND end
+ *   withoutDuration    commitments at a set time whose length is unknown
+ *
+ * Both are stated. Neither is folded into the other, and no duration is
+ * invented for the second to make one tidy figure.
+ *
+ * ## "Between blocks", never "free"
+ *
+ * `betweenMinutes` is the gap between known blocks inside the observed span.
+ * It is deliberately not called free time, remaining capacity, or availability:
+ * a durationless commitment can sit inside one of those gaps without shortening
+ * it, and LifeOS has no working-hours model that would let it claim otherwise.
+ *
  * ## Overlapping time is counted once
  *
  * Two meetings booked over each other do not occupy the sum of their lengths.
  * Busy intervals are merged before the total is taken, so a double-booked
- * morning cannot inflate the committed figure — and the collision, which the
- * product could never previously see at all, is reported instead.
+ * morning cannot inflate the scheduled figure — and the collision, which the
+ * product could never previously see at all, is reported instead. One record
+ * rendered twice is not a collision: identity is canonical, never the title.
  *
  * ## Nothing is persisted, nothing is judged
  *
@@ -74,21 +98,37 @@ export interface DayShape {
   /** Commitments that name a time today — events and timed actions alike. */
   timed: number;
   /**
-   * Minutes today's commitments occupy, counting overlapping time ONCE.
+   * Minutes inside blocks that have a known start AND end, overlaps counted ONCE.
    *
-   * Only events carrying a start AND an end contribute. See the header.
+   * Named `scheduled`, not `committed`: it is the measurable part of the day's
+   * commitments, and `withoutDuration` counts the rest. The two must never be
+   * added together or presented as one figure.
    */
-  committedMinutes: number;
-  /** How many commitments contributed no duration, and why they could not. */
+  scheduledMinutes: number;
+  /**
+   * Timed commitments whose LENGTH is unknown — a `dueTime` with no end.
+   *
+   * This is the number the first draft computed and never showed. A day of four
+   * meetings plus "call the dentist at 2" and "submit the form at 5" reported
+   * "4h 30m committed" and left the reader to infer the rest of the day was
+   * free. The count is now disclosed in the sentence.
+   */
   withoutDuration: number;
   /** First start and last end across everything timed. */
   spanStart?: LocalTime;
   spanEnd?: LocalTime;
-  /** Unscheduled stretches BETWEEN commitments, inside the span. */
+  /** Stretches between the known blocks, inside the span. */
   gaps: DayGap[];
-  /** Unscheduled minutes inside the span. */
-  freeMinutes: number;
-  /** The longest single uninterrupted stretch inside the span. */
+  /**
+   * Minutes BETWEEN known blocks. Deliberately not called `free`.
+   *
+   * It is an observable gap in the known schedule, not available capacity:
+   * LifeOS has no working-hours model, and a durationless commitment can sit
+   * inside one of these gaps without shortening it — which is exactly why the
+   * count of those is disclosed beside this number rather than hidden.
+   */
+  betweenMinutes: number;
+  /** The longest single uninterrupted stretch between blocks. */
   longestGapMinutes: number;
   /** Commitments booked over each other. */
   conflicts: DayConflict[];
@@ -109,13 +149,29 @@ export function durationLabel(mins: number): string {
   return `${m}m`;
 }
 
-/** Start/end in minutes, for a row that has real extent. */
+/**
+ * Start/end in minutes, for a row that has real extent.
+ *
+ * Three kinds of row return null here, and each is deliberate:
+ *
+ *   no end            a `dueTime` names an instant, not a span
+ *   end === start     a zero-length event, which `isValidTimeRange` PERMITS
+ *                     (it rejects only `end < start`), so this is a record the
+ *                     product can really hold. Zero minutes is zero minutes.
+ *   end < start       an event running past midnight. The writer refuses these
+ *                     — "Events that run past midnight aren't supported yet" —
+ *                     so this is defence against a record canonical state
+ *                     cannot contain, not a feature gap being papered over. It
+ *                     contributes nothing rather than a negative, and is
+ *                     counted among the commitments whose length is unknown.
+ *
+ * An unparseable time string returns null the same way. Nothing here throws,
+ * fabricates minutes, or invents a collision.
+ */
 function extentOf(c: ShapeInput): { start: number; end: number } | null {
   if (!c.time || !c.endTime) return null;
   const s = minutesOf(c.time);
   const e = minutesOf(c.endTime);
-  // An end at or before its start is not a span. `isValidTimeRange` owns that
-  // rule at entry; here it simply contributes nothing rather than a negative.
   if (s === null || e === null || e <= s) return null;
   return { start: s, end: e };
 }
@@ -138,8 +194,8 @@ export function buildDayShape(
 
   if (timedRows.length === 0) {
     return {
-      timed: 0, committedMinutes: 0, withoutDuration: 0,
-      gaps: [], freeMinutes: 0, longestGapMinutes: 0, conflicts: [],
+      timed: 0, scheduledMinutes: 0, withoutDuration: 0,
+      gaps: [], betweenMinutes: 0, longestGapMinutes: 0, conflicts: [],
       flexible, quiet: true,
     };
   }
@@ -162,6 +218,11 @@ export function buildDayShape(
   for (let i = 0; i < withExtent.length; i++) {
     for (let j = i + 1; j < withExtent.length; j++) {
       const a = withExtent[i], b = withExtent[j];
+      // A record cannot collide with itself. Two rows carrying one canonical id
+      // are the SAME commitment rendered twice, and reporting that as a
+      // double-booking would turn a rendering bug into a fact about the day.
+      // Matched on id, never on title — two meetings really can share a name.
+      if (a.c.id === b.c.id) continue;
       const overlap = Math.min(a.ext.end, b.ext.end) - Math.max(a.ext.start, b.ext.start);
       if (overlap <= 0) continue;
       const [first, second] = a.ext.start <= b.ext.start ? [a, b] : [b, a];
@@ -180,7 +241,7 @@ export function buildDayShape(
     if (last && ext.start <= last.end) last.end = Math.max(last.end, ext.end);
     else merged.push({ ...ext });
   }
-  const committedMinutes = merged.reduce((m, iv) => m + (iv.end - iv.start), 0);
+  const scheduledMinutes = merged.reduce((m, iv) => m + (iv.end - iv.start), 0);
 
   // ---- gaps between commitments, inside the span --------------------------
   const gaps: DayGap[] = [];
@@ -190,7 +251,7 @@ export function buildDayShape(
     const start = fmtMin(from), end = fmtMin(to);
     if (start && end) gaps.push({ start, end, minutes: to - from });
   }
-  const freeMinutes = gaps.reduce((m, g) => m + g.minutes, 0);
+  const betweenMinutes = gaps.reduce((m, g) => m + g.minutes, 0);
   const longestGapMinutes = gaps.reduce((m, g) => Math.max(m, g.minutes), 0);
 
   const spanStart = fmtMin(spanStartMin);
@@ -198,12 +259,12 @@ export function buildDayShape(
 
   const shape: DayShape = {
     timed: timedRows.length,
-    committedMinutes,
+    scheduledMinutes,
     withoutDuration: timedRows.length - withExtent.length,
     spanStart,
     spanEnd,
     gaps,
-    freeMinutes,
+    betweenMinutes,
     longestGapMinutes,
     conflicts,
     flexible,
@@ -226,14 +287,43 @@ function fmtMin(n: number): LocalTime | undefined {
  */
 export function shapeLine(s: DayShape): string | undefined {
   const parts: string[] = [];
-  if (s.committedMinutes > 0 && s.spanStart && s.spanEnd) {
-    parts.push(`${durationLabel(s.committedMinutes)} committed between ${formatLocalTime(s.spanStart)} and ${formatLocalTime(s.spanEnd)}`);
+
+  // What is actually measurable: time inside blocks with a known start and end.
+  // "in scheduled blocks", not "committed" — the day holds commitments this
+  // figure does not measure, and the next clause is what says so.
+  if (s.scheduledMinutes > 0 && s.spanStart && s.spanEnd) {
+    parts.push(`${durationLabel(s.scheduledMinutes)} in scheduled blocks between ${formatLocalTime(s.spanStart)} and ${formatLocalTime(s.spanEnd)}`);
   }
-  if (s.freeMinutes > 0) {
-    parts.push(`${durationLabel(s.freeMinutes)} unscheduled in between`);
+
+  /**
+   * The disclosure that makes the rest of the sentence honest.
+   *
+   * "Call the dentist at 2 PM" is a real commitment with an unknown length. The
+   * first draft counted it, printed nothing about it, and let the reader infer
+   * the gaps were free. Saying how many there are costs one clause and is the
+   * difference between a measurement and a claim.
+   *
+   * It appears only alongside another clause: on its own it would restate the
+   * schedule immediately below it, which is noise rather than orientation.
+   */
+  const hasOther = parts.length > 0 || s.flexible > 0;
+  if (s.withoutDuration > 0 && hasOther) {
+    const more = s.scheduledMinutes > 0 ? "more " : "";
+    parts.push(`${s.withoutDuration} ${more}at a set time`);
   }
+
+  // Gaps BETWEEN the known blocks. Never "free": a durationless commitment can
+  // sit inside one of these without shortening it, which the clause above has
+  // just disclosed, and LifeOS has no working-hours model to call anything free.
+  if (s.betweenMinutes > 0) {
+    parts.push(`${durationLabel(s.betweenMinutes)} between blocks`);
+  }
+
+  // "to place", not "to place around it": with no scheduled clause there was no
+  // antecedent, and the day with only timed actions read "3 to place around it"
+  // with nothing for "it" to refer to.
   if (s.flexible > 0) {
-    parts.push(`${s.flexible} to place around it`);
+    parts.push(`${s.flexible} to place`);
   }
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
@@ -258,5 +348,19 @@ export function conflictFor(shape: DayShape, id: string): string | undefined {
       return `${c.titles[otherIx]} (${durationLabel(c.minutes)})`;
     });
   if (others.length === 0) return undefined;
+  /**
+   * Two are named; beyond that the row says how many.
+   *
+   * A row in four collisions reading "Overlaps A (1h), B (30m), C (45m), D
+   * (20m)." is a paragraph inside a list item, and the titles stop being the
+   * useful part once there are that many — the fact worth carrying is that this
+   * slot is contested. The two named are the ones the reader can act on first.
+   */
+  if (others.length > NAMED_CONFLICTS) {
+    return `Overlaps ${others.slice(0, NAMED_CONFLICTS).join(", ")} and ${others.length - NAMED_CONFLICTS} more.`;
+  }
   return `Overlaps ${others.join(", ")}.`;
 }
+
+/** How many colliding titles one row names before it switches to a count. */
+export const NAMED_CONFLICTS = 2;
