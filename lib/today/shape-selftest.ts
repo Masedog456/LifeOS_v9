@@ -20,6 +20,8 @@ import {
 import { buildTodayIndexes } from "@/lib/today/indexes";
 import { buildTodayCommand, todaySurfaceStrings } from "@/lib/today/surface";
 import { FORBIDDEN_TODAY_WORDS } from "@/lib/today/view";
+import { eventsOnDay } from "@/lib/time/events";
+import { addDays as addDaysLocal } from "@/lib/reviews/dates";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -461,6 +463,72 @@ export function runDayShapeSelfTests(): SelfTestReport {
     eq("106.102 §8 blocked work counts exactly as Today counts it", c.shape.flexible, c.work.length);
     ok("106.103 …and Today does still list it", c.work.some((w) => w.action.id === "b"),
       JSON.stringify(c.work.map((w) => w.action.id)));
+  }
+
+  // ======================================================================
+  // FINAL REVIEW — identity across recurrence, and the time model's edges.
+  //
+  // The behaviour below was already correct; none of it was asserted. Each of
+  // these is a place where a plausible future change would be silently wrong.
+  // ======================================================================
+  {
+    /**
+     * A recurring event has ONE canonical id for every occurrence it generates.
+     * If a day ever yielded both the anchor row and a derived occurrence, the
+     * schedule would hold one commitment twice — and before the self-conflict
+     * guard that would have been reported as a double-booking with itself, at
+     * twice its real length. Asserted through `eventsOnDay`, the generator Today
+     * actually uses, rather than a hand-built pair.
+     */
+    const s = store({
+      events: [ev("r1", "Daily standup", "09:00", "09:30")].map((e) => ({
+        ...e, recurrence: { frequency: "daily" as const, interval: 1 },
+      })),
+    } as Partial<StoreState>);
+    const onAnchor = eventsOnDay(s, TODAY);
+    const rows = onAnchor.map((x) => ({ id: x.event.id, title: x.event.title, time: x.startTime, endTime: x.endTime }));
+    const shape = buildDayShape(rows);
+    eq("106.104 the anchor day yields one occurrence, not a row plus a copy", onAnchor.length, 1);
+    eq("106.105 …so a recurring event never collides with itself", shape.conflicts.length, 0);
+    eq("106.106 …and its length is counted once", shape.scheduledMinutes, 30);
+    // A LATER day: the derived occurrence must carry real extent, or a recurring
+    // meeting would silently become a durationless commitment every day but one.
+    const later = eventsOnDay(s, addDaysLocal(TODAY, 3));
+    const laterShape = buildDayShape(later.map((x) => ({ id: x.event.id, title: x.event.title, time: x.startTime, endTime: x.endTime })));
+    eq("106.107 a DERIVED occurrence still carries its duration", laterShape.scheduledMinutes, 30);
+    eq("106.108 …and is a scheduled block, not a bare set time", laterShape.withoutDuration, 0);
+  }
+  {
+    /**
+     * A zero-length event is representable (`isValidTimeRange` permits
+     * `end === start`), and it is described as a commitment at a set time
+     * rather than as "0m in scheduled blocks". §7 prefers silence to a
+     * meaningless metric, and zero minutes of occupied time is exactly that.
+     */
+    const s = buildDayShape([C("z", "Instant", "10:00", "10:00")], { flexible: 1 });
+    eq("106.109 a zero-length event claims no scheduled minutes", s.scheduledMinutes, 0);
+    eq("106.110 …and is described as a set time, never as '0m'", s.line, "1 at a set time · 1 to place");
+    ok("106.111 …with no zero-valued fragment anywhere", !/\b0[hm]\b/.test(s.line ?? ""), String(s.line));
+  }
+  {
+    /**
+     * The time model is WALL CLOCK, deliberately.
+     *
+     * `LifeEvent` carries no timezone and its end "must be >= startTime on the
+     * same day; overnight is unsupported" — so every duration here is a
+     * difference between two clock readings, exactly as the user entered them.
+     * On a spring-forward day 01:30–03:30 is two hours of clock and one hour of
+     * elapsed time; this asserts the clock reading, because the figure sits
+     * beside "between 1:30 AM and 3:30 AM" and the two must agree.
+     *
+     * Changing this would need a timezone model the domain does not have, and
+     * would make the number disagree with the times printed next to it.
+     */
+    const spring = buildDayShape([C("a", "Across the skipped hour", "01:30", "03:30")]);
+    eq("106.112 durations are wall-clock differences, matching the times shown",
+      spring.scheduledMinutes, 120);
+    eq("106.113 …and the line states the same two clock readings", spring.line,
+      "2h in scheduled blocks between 1:30 AM and 3:30 AM");
   }
 
   const passed = results.filter((r) => r.pass).length;
