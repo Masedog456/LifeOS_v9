@@ -80,13 +80,15 @@ const domText = (page) => page.evaluate(() => {
     await seed(page, w);
     const line = await one(page, "[data-day-shape]");
     ok("1 the day's shape is on the page", !!line, String(line));
-    ok("1b …and states the committed time", /3h 30m committed/.test(line || ""), String(line));
+    ok("1b …and states the measurable scheduled time", /3h 30m in scheduled blocks/.test(line || ""), String(line));
     ok("1c …between the first start and the last end",
       /between 9 AM and 5:30 PM/.test(line || ""), String(line));
-    ok("1d …and the unscheduled time between commitments",
-      /5h unscheduled in between/.test(line || ""), String(line));
+    ok("1d …and the gap time, named for what it is",
+      /5h between blocks/.test(line || ""), String(line));
+    ok("1d2 …never calling that time free or unscheduled",
+      !/\bfree\b|unscheduled/.test(line || ""), String(line));
     ok("1e …and how much work has to fit around it",
-      /to place around it/.test(line || ""), String(line));
+      /2 to place/.test(line || "") && !/around it/.test(line || ""), String(line));
     // The numbers must be the numbers of the rows beneath the line.
     ok("1f the schedule it describes is the schedule rendered",
       (await count(page, "[data-today-fixed]")) === 3,
@@ -110,7 +112,7 @@ const domText = (page) => page.evaluate(() => {
     ok("2d …with the real overlap, not the shorter meeting's length",
       notes.every((t) => /15m/.test(t)), JSON.stringify(notes));
     ok("2e …and the booked time is not double-counted",
-      /1h 15m committed/.test((await one(page, "[data-day-shape]")) || ""),
+      /1h 15m in scheduled blocks/.test((await one(page, "[data-day-shape]")) || ""),
       String(await one(page, "[data-day-shape]")));
   }
 
@@ -122,7 +124,7 @@ const domText = (page) => page.evaluate(() => {
     ok("3 a schedule that does not collide says nothing about collisions",
       (await count(page, "[data-day-conflict]")) === 0);
     ok("3b …while still stating the day's shape",
-      /2h committed/.test((await one(page, "[data-day-shape]")) || ""),
+      /2h in scheduled blocks/.test((await one(page, "[data-day-shape]")) || ""),
       String(await one(page, "[data-day-shape]")));
   }
 
@@ -133,7 +135,7 @@ const domText = (page) => page.evaluate(() => {
     await seed(page, w);
     ok("4 a day with nothing timed prints no shape line",
       (await count(page, "[data-day-shape]")) === 0);
-    ok("4b …and never says '0m committed'", !/0m committed/.test(await domText(page)));
+    ok("4b …and no zero-valued fragment anywhere", !/\b0[hm]\b|between and/.test(await domText(page)));
   }
 
   // ---- 5. a WAIT with a time is not part of the day's arithmetic ---------
@@ -146,10 +148,40 @@ const domText = (page) => page.evaluate(() => {
     ];
     await seed(page, w);
     const line = await one(page, "[data-day-shape]");
-    ok("5 §12 a wait carrying a time does not change the day's committed hours",
-      /1h 30m committed/.test(line || ""), String(line));
+    ok("5 §12 a wait carrying a time does not change the day's scheduled hours",
+      /1h 30m in scheduled blocks/.test(line || ""), String(line));
     ok("5b …and the span ends at the meeting, not at the wait's time",
       /and 12:30 PM/.test(line || ""), String(line));
+  }
+
+  // ---- 5b. commitments whose LENGTH is unknown are disclosed -------------
+  //
+  // The review's central finding. Two meetings plus "call the dentist at 2 PM"
+  // and "submit the form at 5 PM": the first draft printed the meetings' total
+  // and said nothing about the other two, so the gap read as empty.
+  {
+    const w = EMPTY();
+    w.events = [EV("e1", "Standup", "09:00", "09:30"), EV("e2", "Board call", "16:00", "17:30")];
+    w.nextActions = [
+      ACT({ id: "a1", title: "Call the dentist", dueDate: today(), dueTime: "14:00" }),
+      ACT({ id: "a2", title: "Submit the form", dueDate: today(), dueTime: "17:00" }),
+      ACT({ id: "d1", title: "Draft the brief", dueDate: today() }),
+    ];
+    await seed(page, w);
+    const line = await one(page, "[data-day-shape]");
+    ok("5f measurable time is reported as scheduled blocks",
+      /2h in scheduled blocks/.test(line || ""), String(line));
+    ok("5g …and the commitments it cannot measure are disclosed",
+      /at a set time/.test(line || ""), String(line));
+    ok("5h …so no clause claims to describe the whole day",
+      !/committed|unscheduled|\bfree\b/.test(line || ""), String(line));
+    // The neighbour: with nothing durationless, that clause is absent.
+    const w2 = EMPTY();
+    w2.events = [EV("e1", "Standup", "09:00", "09:30"), EV("e2", "Board call", "16:00", "17:30")];
+    await seed(page, w2);
+    ok("5i …while a day of pure blocks does not mention it at all",
+      !/at a set time/.test((await one(page, "[data-day-shape]")) || ""),
+      String(await one(page, "[data-day-shape]")));
   }
 
   // ---- 6. an all-day event occupies no part of the day -------------------
@@ -157,8 +189,8 @@ const domText = (page) => page.evaluate(() => {
     const w = EMPTY();
     w.events = [EV("e1", "Parents' evening", undefined, undefined, true), EV("e2", "Client review", "11:00", "12:30")];
     await seed(page, w);
-    ok("6 an all-day commitment adds no committed time",
-      /1h 30m committed/.test((await one(page, "[data-day-shape]")) || ""),
+    ok("6 an all-day commitment adds no scheduled time",
+      /1h 30m in scheduled blocks/.test((await one(page, "[data-day-shape]")) || ""),
       String(await one(page, "[data-day-shape]")));
     ok("6b …while still appearing on the schedule",
       /Parents/.test(await domText(page)));
@@ -177,7 +209,7 @@ const domText = (page) => page.evaluate(() => {
     ok("7 a genuinely full day is still described, not judged",
       !/too much|too full|overloaded|unrealistic|impossible|behind schedule/i.test(t));
     ok("7b …and the arithmetic still states it plainly",
-      /12h committed/.test((await one(page, "[data-day-shape]")) || ""),
+      /12h in scheduled blocks/.test((await one(page, "[data-day-shape]")) || ""),
       String(await one(page, "[data-day-shape]")));
   }
 

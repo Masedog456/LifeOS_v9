@@ -283,7 +283,11 @@ export default function TodayCommandCenter() {
               <p data-day-shape className={`mb-1.5 ${TERTIARY_TEXT} text-[11px]`}>{cmd.shape.line}</p>
             )}
             <ul className="flex flex-col divide-y divide-black/[.05] dark:divide-white/[.06]">
-              {cmd.fixed.map((f) => (
+              {cmd.fixed.map((f) => {
+                // Asked once per row, not once per JSX branch: the note and the
+                // guard that renders it were two calls over the same list.
+                const overlaps = conflictFor(cmd.shape, f.id);
+                return (
                 // An Event carries no control. It happens; there is nothing to tick.
                 <li key={`${f.kind}:${f.id}`} data-today-fixed={f.kind}
                   // §61. Dimming is for EVENTS whose time has passed, exactly as
@@ -325,9 +329,9 @@ export default function TodayCommandCenter() {
                       It sits on the row rather than in a banner because the
                       collision is a property of these two rows, and the reader
                       is already looking at one of them. */}
-                  {conflictFor(cmd.shape, f.id) && (
+                  {overlaps && (
                     <p data-day-conflict className="basis-full text-[11px] text-amber-700 dark:text-amber-400">
-                      {conflictFor(cmd.shape, f.id)}
+                      {overlaps}
                     </p>
                   )}
                   {/* §23. A timed standing responsibility is a BE THERE row AND a
@@ -341,7 +345,8 @@ export default function TodayCommandCenter() {
                     </button>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </Group>
         )}
