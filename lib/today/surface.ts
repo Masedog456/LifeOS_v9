@@ -47,6 +47,7 @@ import {
   type UpcomingItem, type WaitingItem,
 } from "@/lib/today/view";
 import { buildTodayOrientation, orientationLine } from "@/lib/today/daily";
+import { buildDayShape, conflictLine, type DayShape } from "@/lib/today/shape";
 import { buildDailyCommandView, type DailyCommandView } from "@/lib/today/command";
 import { buildDecisionInbox, type DecisionItem } from "@/lib/guidance/decisions";
 import { signalsForSection, type CommitmentSignal } from "@/lib/commitment/signals";
@@ -175,6 +176,14 @@ export interface TodayCommand {
     returnItem: TodayView["returnItem"];
     upcoming: UpcomingItem[];
   };
+  /**
+   * LIFEOS-106. What today can actually hold, from the rows in `fixed`.
+   *
+   * The orientation line counted the work with no denominator — "3 to fit in"
+   * above a schedule that already ran 08:00 to 17:30. This is the denominator,
+   * and it is arithmetic over recorded start and end times only.
+   */
+  shape: DayShape;
   /** §14. One grounded calming line, or nothing. */
   canWait?: string;
   /** The line above everything. Counts the lists BELOW it, and nothing else. */
@@ -410,6 +419,25 @@ export function buildTodayCommand(
   const empty = !view.suggestion.recommendation && !anythingElse && openWork.length === 0;
 
   /**
+   * LIFEOS-106. The day's shape, from the rows this function just built.
+   *
+   * `fixed` is the input rather than the store: the durations printed above the
+   * schedule must be the durations OF that schedule, and the suggestion §24
+   * lifts out of `fixed` is added back — it is still a commitment on the day,
+   * it is merely rendered in a different card. Leaving it out would have the
+   * arithmetic quietly disagree with the page whenever the strongest next move
+   * happened to be timed.
+   */
+  const suggestedFixed = fixedToday.filter((f) => f.kind === "action" && f.id === suggestedId);
+  const shape = buildDayShape(
+    [
+      ...fixed.map((f) => ({ id: f.id, title: f.title, time: f.time, endTime: f.endTime })),
+      ...suggestedFixed.map((f) => ({ id: f.id, title: f.title, time: f.time, endTime: undefined })),
+    ],
+    { flexible: work.length },
+  );
+
+  /**
    * §33. What to say when 072 grounds nothing — never a fallback ranker.
    *
    * Two different silences were being reported with one sentence. "No single
@@ -445,6 +473,7 @@ export function buildTodayCommand(
     fixed,
     work,
     decisions: { total: inbox.total, top: previewDecision },
+    shape,
     attention,
     sinceYesterday: command.sinceYesterday,
     later: {
@@ -499,6 +528,11 @@ export function todaySurfaceStrings(c: TodayCommand): string[] {
     ...c.work.map((w) => `${w.detail} ${w.inlineReason ?? ""}`),
     ...c.attention.map((a) => a.explanation),
     ...(c.decisions.top ? [c.decisions.top.question, c.decisions.top.reason] : []),
+    // LIFEOS-106. The day's arithmetic is prose this surface prints, so it is
+    // held to the same vocabulary as everything else on the page — a capacity
+    // line is exactly the sort of copy that drifts into a verdict.
+    c.shape.line ?? "",
+    ...c.shape.conflicts.map((x) => conflictLine(x)),
   ].filter(Boolean);
 }
 

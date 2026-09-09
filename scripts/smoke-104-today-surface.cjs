@@ -535,7 +535,19 @@ const mentions = async (page, title) => {
 
     // 31 §C — a fixed row is not also the decision preview.
     const dec = F.deferred("dec", "Do the tax return", 3, F.dk(0));
-    dec.dueDate = F.dk(0); dec.dueTime = "08:00";
+    /**
+     * A due time that has ALREADY passed, whichever hour this suite runs in.
+     *
+     * §24 suppresses the suggestion from the fixed rows, so this scenario only
+     * measures the dedup it is named for while `dec` is not the suggestion.
+     * A hard-coded "08:00" made that depend on the wall clock: the recommender
+     * prefers a timed action whose time is still ahead ("it's due at 8 AM
+     * today, and that time hasn't passed yet"), so the control passed when run
+     * after 08:00 and failed at 04:39 the next morning. Flooring to the current
+     * hour is in the past at every minute of the day, including 00:xx.
+     */
+    const hh = String(new Date().getHours()).padStart(2, "0");
+    dec.dueDate = F.dk(0); dec.dueTime = `${hh}:00`;
     await seedWorld(page, S({ nextActions: [
       F.act({ id: "o1", title: "Overdue one", dueDate: F.dk(-6) }),
       F.act({ id: "o2", title: "Overdue two", dueDate: F.dk(-5) }),
