@@ -319,6 +319,7 @@ function SessionNotes({ session }: { session: WorkspaceSession }) {
         rows={4}
         className="w-full rounded-lg border border-black/10 px-3 py-2 font-mono text-xs outline-none focus:border-zinc-500 dark:border-white/12 dark:bg-black/20"
       />
+      <p className="mt-1 text-[10px] text-zinc-400">Saved automatically as you type. Ended-session notes remain available in the session timeline below.</p>
     </div>
   );
 }
@@ -343,6 +344,7 @@ function SessionTimeline({ groups }: { groups: import("@/lib/workspaces/sessions
               <ul className="space-y-1.5">
                 {groups[b.key].map((s) => {
                   const out = sessionOutputs(s);
+                  const notes = s.notes.trim();
                   return (
                     <li key={s.id} className="rounded-lg border border-black/[.06] px-3 py-2 text-sm dark:border-white/[.08]">
                       <div className="flex items-center justify-between gap-2">
@@ -352,6 +354,12 @@ function SessionTimeline({ groups }: { groups: import("@/lib/workspaces/sessions
                       <p className="mt-0.5 text-xs text-zinc-500">
                         {out.entitiesOpened} opened · {out.documentsRead} read · {out.capturesCreated} captured · {out.decisionsMade} decisions · {out.events} events
                       </p>
+                      {notes && (
+                        <details className="mt-2 rounded-md bg-black/[.025] px-2.5 py-2 dark:bg-white/[.04]">
+                          <summary className="cursor-pointer select-none text-xs font-medium text-zinc-600 dark:text-zinc-300">View session notes</summary>
+                          <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-200">{notes}</pre>
+                        </details>
+                      )}
                     </li>
                   );
                 })}
