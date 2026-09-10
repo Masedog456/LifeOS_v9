@@ -125,6 +125,18 @@ const rowFor = (text, title) => {
   await seed(page);
   const home = await visit(page, "/");
   const today = await visit(page, "/today");
+  /**
+   * Today, INCLUDING its collapsed context block (LIFEOS-107).
+   *
+   * §6 below asks whether a stored title is printed unrewritten — a vocabulary
+   * claim, not a fold claim — and the waiting roster lives inside
+   * `<details data-today-later>`, which `innerText` cannot see. Until 107 the
+   * Plan card happened to restate waiting follow-ups in expanded text, so
+   * `innerText` was accidentally enough; that card no longer repeats what Today
+   * already owns. `textContent` is the reading LIFEOS-104's own suite uses for
+   * exactly this reason.
+   */
+  const todayDom = await page.evaluate(() => (document.querySelector("main") || document.body).textContent || "");
   const evening = await visit(page, "/today/review");
   const project = await visit(page, "/project/p1");
   const goal = await visit(page, "/goal/g1");
@@ -265,7 +277,7 @@ const rowFor = (text, title) => {
   // Guards for a red that did NOT hold. LIFEOS-096 rewrites a capture's title
   // once, at capture time; nothing re-cleans per surface, and this is what would
   // catch a future surface deciding to.
-  for (const [n, label, text] of [[21, "Today", today], [22, "the project page", project], [23, "the goal page", goal]]) {
+  for (const [n, label, text] of [[21, "Today", todayDom], [22, "the project page", project], [23, "the goal page", goal]]) {
     ok(`${n} §6 ${label} prints the stored title, unrewritten`,
       text.includes("Transcript from Maria"), "");
   }

@@ -102,6 +102,76 @@ export function runPlanningSelfTests(): SelfTestReport {
     ok("4.4 empty plan not auto-filled", todayPlan(emptyState(), TODAY).items.length === 0);
   }
 
+  // ---- 4b. Tomorrow-focus: the one source that filtered nothing (LIFEOS-107) --
+  //
+  // A review carries the date it was WRITTEN and its focus is about the day
+  // after, so only the review dated YESTERDAY speaks for today. Every case here
+  // is paired with the live neighbour that must still appear, so the filtering
+  // cannot be mistaken for the clause being switched off.
+  {
+    const review = (date: string, refId: string | undefined, extra: Partial<StoreState["dailyReviews"][number]> = {}) => ({
+      id: `rev-${date}-${refId ?? "none"}`, date, status: "completed" as const, summary: "",
+      wins: [], lessons: [], friction: [], openLoops: [], notes: "",
+      linkedGoals: [], linkedProjects: [], linkedWorkspaces: [], linkedEntities: [],
+      tomorrowFocus: [{ id: `f-${date}-${refId ?? "none"}`, text: "chosen last night",
+        ref: refId ? { kind: "action" as const, id: refId } : undefined, order: 0, createdAt: `${date}T20:00:00.000Z` }],
+      createdAt: `${date}T20:00:00.000Z`, updatedAt: `${date}T20:00:00.000Z`, ...extra,
+    }) as StoreState["dailyReviews"][number];
+    const YESTERDAY = addDays(TODAY, -1);
+    const withFocus = (refId: string, a: StoreState["nextActions"], date = YESTERDAY) => {
+      const s = emptyState(); s.nextActions = a; s.dailyReviews = [review(date, refId)]; return s;
+    };
+    const focused = (s: StoreState) => todayPlan(s, TODAY).items.some((i) => i.sources.includes("tomorrow_focus"));
+
+    // The control: last night's choice, still live, still today's.
+    ok("4.5 §107 last night's focus is on today's plan",
+      focused(withFocus("live", [action("live")])));
+    // …and the same record chosen the night before last is NOT.
+    ok("4.6 §107 a focus chosen for a DIFFERENT day does not reach today",
+      !focused(withFocus("live", [action("live")], addDays(TODAY, -2))));
+    ok("4.7 §107 a focus written TODAY is about tomorrow, not today",
+      !focused(withFocus("live", [action("live")], TODAY)));
+    ok("4.8 §107 a focus from eight months ago does not reach today",
+      !focused(withFocus("live", [action("live")], addDays(TODAY, -240))));
+    // Lifecycle: the same filtering every other clause in this file already has.
+    ok("4.9 §107 a COMPLETED focused record does not reach today",
+      !focused(withFocus("x", [action("x", { status: "completed" })])));
+    ok("4.10 §107 a CANCELLED focused record does not reach today",
+      !focused(withFocus("x", [action("x", { status: "cancelled" })])));
+    ok("4.11 §107 a WAITING focused record does not reach today",
+      !focused(withFocus("x", [action("x", { status: "waiting", waitingOn: "Priya" })])));
+    ok("4.12 §107 a focused record deferred to a later day does not reach today",
+      !focused(withFocus("x", [action("x", { status: "deferred", deferredUntil: addDays(TODAY, 9) })])));
+    ok("4.13 §107 a focus pointing at a record that no longer exists is suppressed",
+      !focused(withFocus("ghost", [action("other")])));
+    // Identity, never title: a DIFFERENT record sharing the title is not focused.
+    {
+      const s = emptyState();
+      s.nextActions = [action("real", { title: "Draft the memo" }), action("twin", { title: "Draft the memo" })];
+      s.dailyReviews = [review(YESTERDAY, "real")];
+      const ids = todayPlan(s, TODAY).items.filter((i) => i.sources.includes("tomorrow_focus")).map((i) => i.ref.id);
+      ok("4.14 §107 focus resolves by canonical id, not by title", ids.length === 1 && ids[0] === "real", ids.join(","));
+    }
+    // Precedence when two reviews somehow carry the same date.
+    {
+      const s = emptyState();
+      s.nextActions = [action("older"), action("newer")];
+      s.dailyReviews = [
+        review(YESTERDAY, "older", { updatedAt: `${YESTERDAY}T18:00:00.000Z` }),
+        review(YESTERDAY, "newer", { updatedAt: `${YESTERDAY}T22:00:00.000Z` }),
+      ];
+      const ids = todayPlan(s, TODAY).items.filter((i) => i.sources.includes("tomorrow_focus")).map((i) => i.ref.id);
+      ok("4.15 §107 duplicate reviews for one date resolve to the last WRITTEN",
+        ids.length === 1 && ids[0] === "newer", ids.join(","));
+    }
+    // A day with no review at all still plans normally.
+    {
+      const s = emptyState();
+      s.nextActions = [action("p", { pinned: true })];
+      ok("4.16 §107 a day with no review still has a plan", todayPlan(s, TODAY).items.length === 1);
+    }
+  }
+
   // ---- 5. Weekly projection ----
   {
     const s = emptyState();
