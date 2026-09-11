@@ -33,33 +33,124 @@ client environment. A secret scan (`npm run audit:secrets`) enforces this.
 ## Supabase configuration
 
 - Create a Supabase project; note the URL and **anon** key (public).
-- Apply migrations `supabase/migrations/0001 … 0031` **in order** via the
-  Supabase SQL editor or CLI. The chain is idempotent (safe to re-run).
+- Apply **every canonical migration the production database has not yet applied,
+  in repository order**, then verify parity (below).
 - Row Level Security is defined by the migrations themselves; every user-owned
-  table enables RLS with `auth.uid()`-scoped policies. Verify with the queries in
-  `V1_ACCEPTANCE_REPORT.md` / `scripts/migration-rehearsal.mjs`.
+  table enables RLS with `auth.uid()`-scoped policies. Verify with
+  `npm run audit:rls` and `npm run release:migrations`.
 
-## Migration order
+## Migrations — derive the chain, never retype it
 
-Strictly ascending by filename: `0001_…` first, `0031_…` last. No `0032` ships in
-this release. A demonstrated release-blocking DB fix would add exactly
-`0032_v1_release_fix.sql` (additive, idempotent, RLS-protected).
+This instruction went stale once: it named a range ending at `0031` while the
+repository had already reached 47. A deployment run from it would have left production **sixteen migrations
+behind the build**. So the rule is procedural, not numeric:
+
+> Apply every canonical migration not yet present in production, in repository
+> order, and verify that production reaches the repository's head before the
+> frontend is deployed.
+
+Derive the current chain rather than trusting this document:
+
+```
+ls supabase/migrations/*.sql | sort     # canonical order IS filename order
+npm run audit:runbook                   # head, count, fix slot, and doc parity
+```
+
+*Current as of `9b2cb8f` (2026-09-11): **47** migrations, head
+`0047_goal_horizons_lifecycle_history.sql`.* That is an audit **result**, not a
+deployment constant — re-derive it on every release.
+
+Ordering and safety properties, all verified by `npm run release:migrations`
+(200/200 against Postgres 16 + pgvector as of `9b2cb8f`):
+
+- strictly ascending by filename; dense `0001..N` with no gaps or duplicates
+- `CREATE TABLE IF NOT EXISTS` throughout; policies use `DROP POLICY IF EXISTS`
+  + `CREATE POLICY` — the chain is **idempotent** and safe to re-run in full
+- no destructive DDL anywhere in the chain
+- every user-owned table enables RLS with `auth.uid()`-scoped policies
+
+Apply via the Supabase SQL editor or the Supabase CLI. Because the chain is
+idempotent, re-running it in full is the safest way to reach parity when the
+applied set is uncertain.
+
+### The next migration number
+
+Derive it; do not read a number out of prose. The next slot is **head + 1**, and
+the single permitted unplanned addition is named by
+`ALLOWED_RELEASE_FIX_MIGRATION` in `lib/release/migrations.ts`.
+`npm run audit:runbook` fails if that constant is not head + 1, and
+`npm run release:audit` rejects any migration beyond the head except that one.
 
 ## Pre-deploy checks
 
 ```
 npm run lint && npx tsc --noEmit && npm run build
-npm run audit:security          # rls + secrets + routes + deps
+npm run audit:runbook           # migration head/slot parity + doc drift  ← gate
+npm run audit:security          # rls + secrets + routes + auth + deps
 npm run release:audit           # schema/version/inventory
-npm run release:migrations      # Postgres rehearsal (local)
+npm run release:migrations      # Postgres rehearsal (local, needs pgvector)
 npm run release:export          # export/restore verification
 ```
 
-## Deploy steps
+`audit:runbook` is a **hard gate**: it fails the release if the migration chain,
+the build's declared head, the release-fix slot, or this document disagree. It
+needs no database and no credentials, so it runs in CI on every PR.
 
-1. Merge the release PR to `main` (do **not** tag yet).
-2. Trigger the Vercel production deployment from `main`.
-3. Wait for the build to succeed.
+The rehearsal requires the `vector` extension (migration `0010`). On Debian/
+Ubuntu: `apt-get install -y postgresql-16-pgvector`. Supabase provides it
+natively.
+
+## Deploy steps — database first, frontend second
+
+The order matters. The build ships a declared schema head; if the database is
+behind it, writes are gated and sync is paused (see *Schema parity* below), so
+the database must reach parity **before** the frontend that expects it.
+
+1. **Back up / confirm recovery.** See `BACKUP_AND_RECOVERY.md`. Do this before
+   any migration, not after.
+2. **Inspect production migration state.** Establish which migrations are
+   already applied. Because the chain is idempotent, re-running it in full is
+   acceptable and is the safest option when the applied set is uncertain.
+3. **Apply pending migrations** in repository order.
+4. **Verify schema parity** (next section). Do not proceed on a failure.
+5. **Configure the production environment** — public env vars in the Vercel
+   project; `LIFEOS_ENABLE_DEV_ROUTES` must be **absent**.
+6. **Merge the release PR to `main`** (do **not** tag yet) and trigger the Vercel
+   production deployment from `main`. Wait for the build to succeed.
+7. **Run acceptance**: post-deploy checks below, then the smoke, auth and
+   **two-user isolation** matrices in `FOUNDER_TO_MARKET_READINESS.md` §10.
+
+## Schema parity — what can and cannot be verified
+
+**There is no migration ledger in this database, by design.**
+`public.app_schema_contract()` (migration `0046`) reports *capabilities*, not a
+version number — its own comment says "never the migration ledger". Do not add
+one: a second copy of a client constant is the mistake that contract was written
+to replace.
+
+That makes parity verification capability-based:
+
+```
+-- against production, after applying migrations
+select public.app_schema_contract();
+```
+
+Confirm the response contains `"contract": 2` and the capability keys the build
+requires (currently `guarded_notes` and `guarded_next_actions` at level `2`).
+The values are literals written *inside* the migration, so the database cannot
+claim a capability it did not apply.
+
+> **Trap — read this.** `/security` (Diagnostics) displays a migration version,
+> but that number is `EXPECTED_MIGRATION_VERSION` from the **build**, not from
+> the database. It tells you what this app expects, never what production has.
+> It is not parity evidence.
+
+> **Known gap (Stage-1 bring-up, 2026-09-11).** `evaluateCompatibility()` has a
+> "server behind this build → read-only, sync paused" branch, but
+> `remoteMigrationVersion` is only ever supplied in self-tests — nothing in
+> production populates it. The runtime backstop therefore **cannot fire today**.
+> Until that is wired, the capability query above is the only real parity check,
+> and skipping it is skipping the whole safeguard.
 
 ## Post-deploy checks
 
@@ -67,8 +158,9 @@ npm run release:export          # export/restore verification
    Referrer-Policy, Permissions-Policy, `X-Content-Type-Options: nosniff`,
    `X-Frame-Options: DENY`.
 2. Confirm `<URL>/dev/cohesion-tests` returns **404** (dev routes excluded).
-3. Open `/security` (Diagnostics) — confirm app version `1.0.0-rc1`, migration
-   version `31`.
+3. Open `/security` (Diagnostics) — confirm the app version and build. Note that
+   the migration version shown is the **build's** expectation, not the
+   database's; parity is proven by the capability query above.
 4. Run the 22-step production smoke test (`SmokeTestGuide` / Feature 31) with a
    disposable account.
 5. Verify the auth callback works and HTTPS is enforced.
@@ -79,12 +171,26 @@ npm run release:export          # export/restore verification
 - Authenticated: Diagnostics reports versions, sync state, pending mutations,
   conflicts — all sanitized.
 
-## Rollback steps
+## Rollback — frontend and database are not the same operation
 
-See `V1_ROLLBACK_REPORT.md`. In short: in Vercel, **Promote** the previous
-deployment. The additive schema stays forward-compatible within the supported
-migration range (`20–31`), so the previous app build runs against the current
-schema. Do **not** attempt destructive database rollback.
+See `V1_ROLLBACK_REPORT.md`.
+
+**Frontend rollback is routine.** In Vercel, **Promote** the previous
+deployment. A rolled-back build must still run against the *upgraded* schema,
+and it does: the chain is additive, and clients are supported from
+`MIN_SUPPORTED_MIGRATION_VERSION` (currently **20**, read from
+`lib/release/versions.ts`) up to the head. Rolling the frontend back does not
+roll the database back, and must not be expected to.
+
+**Database rollback is not routine and is not automated.**
+
+- Applied migrations are **not** casually reversed. The chain contains no
+  destructive DDL precisely so that forward-only is viable.
+- A data-destructive migration would need its own reviewed, rehearsed reversal
+  plan written *before* it is applied. None exists in the current chain.
+- Recovery from a bad schema state is **restore from backup**, not a down
+  migration — which is why step 1 of the deploy order is the backup.
+- Rehearse recovery against disposable data, never against production.
 
 ## Cache invalidation
 
@@ -107,7 +213,7 @@ git push origin v1.0.0-rc1
 ```
 
 Then create a GitHub **prerelease** from the tag, attach `V1_RELEASE_NOTES.md`,
-and record the commit SHA and migration version (`31`). If the environment
+and record the commit SHA and the migration head derived by `npm run audit:runbook`. If the environment
 cannot push tags, create the tag via the GitHub UI (Releases → Draft a new
 release → choose `v1.0.0-rc1` → mark as prerelease) and verify the tag appears on
 the remote.
