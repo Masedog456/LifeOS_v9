@@ -31,13 +31,13 @@ checked. Unverified items are marked, not quietly upgraded.
 | Shipped brand | **Conqify** |
 | Release stage | **Late Stage 0 — Founder usable locally, not yet proven as an external-user product** |
 | Repository | `Masedog456/LifeOS_v9` |
-| Base SHA | `8ffb8f688bad396af7157b618ca3add5a84bd780` (`8ffb8f6`, 2026-09-10) `VERIFIED` |
+| Base SHA | `e1a9bec217b1a39ca2e5f53af2850ea478ba7c2d` (`e1a9bec`, 2026-09-10) `VERIFIED` |
 | Recommended operating mode | **Prove Stage 1 before building Stage 2.** Deploy and verify what exists; do not add product surface. |
-| Date last audited | 2026-09-11 |
-| Open launch blockers | **10** |
+| Date last audited | 2026-09-11 (Stage-1 bring-up attempted — see §15) |
+| Open launch blockers | **10** (B10 reclassified, 2 new findings registered) |
 | Critical blockers | **2** (B1 production never deployed, B2 two-user isolation unverified live) |
 | Next founder decision | **D1 — Initial commercial wedge / product identity** (§5) |
-| Next engineering action | Deploy current `main` to a real production environment (B1) |
+| Next engineering action | **BLOCKED — FOUNDER ACTION REQUIRED.** Deployment cannot be performed from an agent session (no Vercel/Supabase credentials; `api.vercel.com` and `api.supabase.com` denied by egress policy). Founder must run the deploy. |
 | Next operational action | Run credentialed Stage-1 acceptance, starting auth then two-user isolation (§10) |
 
 **Stage is not upgraded until §2 exit criteria are objectively satisfied.** A large codebase is not
@@ -150,7 +150,7 @@ Severity: **Critical** stops everything · **High** blocks the named stage · **
 | B7 | No error tracking | High | Stage 1/2 | OPEN |
 | B8 | No Terms of Service / commercial trust layer | High | Stage 2 | OPEN |
 | B9 | No billing | Medium | Stage 3 | OPEN |
-| B10 | 074 regression gate unusable | Medium | Stage 1 | OPEN |
+| B10 | 074 regression gate unusable | Medium | Stage 1 | **TOOLING FIXED** — gate now runs to completion and reports 123/145. Red for product reasons: see F1/F2. |
 
 ### Detail
 
@@ -209,8 +209,19 @@ Building any of them first means rebuilding them.
 **B10 — 074 regression gate unusable** · Medium · blocks Stage 1
 *Why:* Losing the integrity suite means lifecycle regressions ship silently — and lifecycle
 integrity is the product's core claim (§7).
-*Evidence:* `scripts/smoke-074-reachability.cjs` present `VERIFIED`; crash reported `FROM BRIEF`.
-*Done when:* Suite runs green in CI, or is formally retired with a replacement named.
+*Evidence:* Root-caused 2026-09-11 `VERIFIED`. Two distinct defects, both fixed on
+`beta/stage-1-production-bringup`:
+1. **`playwright-core` was undeclared in `package.json`** while **38 scripts require it** — the
+   entire browser acceptance layer (074, 075 cross-device, 099 accessibility, browser-matrix,
+   visual-regression, every `smoke-075`…`smoke-107`) could not run on a clean checkout.
+2. **Two unguarded null dereferences** (lines 236, 403) aborted the run before the summary
+   printed — which is why the gate was *unusable* rather than merely red. Every other nullable
+   handle in the file was already guarded; these were the outliers.
+
+*Now:* suite completes — **123/145 assertions pass**, 22 named failures reported, nothing
+downgraded to a skip.
+*Done when:* the two product root causes (F1, F2) are triaged and the gate is green, or the gate
+is formally retired with a replacement named.
 
 ### Resolved ledger
 
@@ -351,19 +362,19 @@ Status: `NOT RUN` · `PASS` · `FAIL` · `BLOCKED`. Run against **production**, 
 
 | # | Check | Status | Evidence / date |
 | --- | --- | --- | --- |
-| P1 | Production deployment reachable | NOT RUN | blocked by B1 |
-| P2 | Authentication acceptance | NOT RUN | blocked by P1 |
-| P3 | **Two-user isolation matrix** | NOT RUN | blocked by P1 — **critical (B2)** |
+| P1 | Production deployment reachable | **BLOCKED — FOUNDER ACTION** | No credentials; `api.vercel.com` egress-denied (2026-09-11) |
+| P2 | Authentication acceptance | **BLOCKED — FOUNDER ACTION** | Needs live Supabase + magic-link email |
+| P3 | **Two-user isolation matrix** | **BLOCKED (live)** · DB layer **PASS** | Migration rehearsal 200/200 on real Postgres 16 + pgvector: B cannot SELECT/UPDATE/DELETE A's rows; 35 isolation assertions; every policy scopes to `auth.uid()` (2026-09-11) |
 | P4 | Cross-device sync | NOT RUN | `CROSS_DEVICE_INTEGRITY_075.md` exists |
-| P5 | Account deletion | NOT RUN | `app/privacy/delete` exists `VERIFIED` |
-| P6 | Export / data preservation | NOT RUN | `release-evidence/export-verify.json` (local) `VERIFIED` |
-| P7 | Production security headers | NOT RUN | blocked by P1 |
-| P8 | Browser matrix | NOT RUN | `release-evidence/browser-matrix.json` (local) `VERIFIED` |
+| P5 | Account deletion | **BLOCKED (live)** · partial | Rehearsal: deleting a user removes integration metadata, pending OAuth states and every credential — no orphaned secret survives (2026-09-11) |
+| P6 | Export / data preservation | **PASS (local)** | `release:export` 14/14 — incl. no tokens/secrets in archive, no auth material, clean restore materializes records (2026-09-11) |
+| P7 | Production security headers | **PASS (local build)** | CSP (no `unsafe-eval`, `frame-ancestors 'none'`), HSTS, nosniff, Referrer-Policy, Permissions-Policy, `X-Frame-Options: DENY` (2026-09-11). Re-run against production URL. |
+| P8 | Browser matrix | **PARTIAL** | chromium 141 5/5 flows PASS; **6 real-browser rows (WebKit/Firefox) still MANUAL** (2026-09-11) |
 | P9 | Performance | NOT RUN | blocked by P1 |
 | P10 | Rollback rehearsal | NOT RUN | `BACKUP_AND_RECOVERY.md` exists `VERIFIED` |
-| P11 | Production smoke test | NOT RUN | `scripts/beta-smoke.mjs` exists `VERIFIED` |
-| P12 | Deployed route audit | NOT RUN | expect ≥109 routes exposed unless hidden (B4) |
-| P13 | Screen-reader acceptance | NOT RUN | `ACCESSIBILITY.md` exists `VERIFIED` |
+| P11 | Production smoke test | **PASS (local build) 14/15** | Only failure is `uses HTTPS` on localhost, which is correct. All header + route + dev-gating checks pass (2026-09-11) |
+| P12 | Deployed route audit | **PASS (local build)** | `release:routes` 25/25; `audit:routes`: 23 `/dev` routes present in build, all gated by production `notFound()`; `/dev/cohesion-tests` → 404 verified (2026-09-11) |
+| P13 | Screen-reader acceptance | **PASS (automated) 22/22** | Incl. focus management, named regions, live-region announcement, single main landmark, **no overflow at 200% zoom**. Manual SR pass still outstanding (2026-09-11) |
 
 **Run order:** P1 → P2 → **P3** → P5/P6 → P7 → P11 → P12 → remainder.
 P3 gates everything downstream. Do not invite users before it passes.
@@ -452,11 +463,143 @@ Kept separate so bounded engineering issues do not hijack launch priority.
 
 ---
 
-## 15. Change log
+---
+
+## 15. Stage-1 bring-up attempt — 2026-09-11
+
+Base `e1a9bec`. Objective: deploy and verify the live system. **Deployment was not possible from
+this session**; everything verifiable without live infrastructure was executed instead.
+
+### Why deployment is blocked
+
+Two independent hard stops, both `VERIFIED`:
+
+1. **No credentials.** No Vercel or Supabase token in the environment; only `.env.example` exists.
+2. **Egress policy.** `api.vercel.com` and `api.supabase.com` are denied at the organization proxy
+   (CONNECT rejected). Not retried or routed around.
+
+**BLOCKED — FOUNDER ACTION REQUIRED:** create/confirm the Vercel project, set the public env vars,
+create the Supabase project, apply migrations, and trigger the production deploy. Everything in §10
+that says "BLOCKED (live)" unblocks the moment a production URL exists.
+
+### Intended production topology `VERIFIED` from `V1_DEPLOYMENT_RUNBOOK.md` + `.env.example`
+
+| Layer | Design |
+| --- | --- |
+| Frontend | Next.js 16.2.12 on Vercel. `npm run build`, Node 20+. Middleware emits security headers — no Vercel header config needed. |
+| Backend | Supabase (optional). **Blank Supabase vars ⇒ local-only mode** (localStorage, no sync, no account). |
+| Authentication | **Email magic link only.** Anonymous sign-in forbidden and audited. Site URL + redirect URLs configured in the Supabase dashboard. |
+| Local-first | Full app works signed-out against localStorage. Sync and account are additive. |
+| AI | Anthropic, **server-only**, `app/api/ai`. Blank key ⇒ deterministic mock output. |
+| Embeddings | Optional, server-only, `app/api/embed`. Unset ⇒ built-in local lexical embedder. |
+| Secrets | Public: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_APP_VERSION`, `NEXT_PUBLIC_BUILD_ID`, `NEXT_PUBLIC_FEEDBACK_URL`. Server-only: `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `EMBEDDING_*`. **Service-role key is never used by the app.** |
+| Dev shortcut | `LIFEOS_ENABLE_DEV_ROUTES` **must be absent in production**. |
+| Domain | Temporary Vercel URL first; commercial domain later. |
+
+### Environment variable readiness (names only — no values read or printed)
+
+| Variable | Class | Status |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | public client | **NEEDS FOUNDER** |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public client | **NEEDS FOUNDER** |
+| `ANTHROPIC_API_KEY` | server secret | **NEEDS FOUNDER** (optional — mock without it) |
+| `ANTHROPIC_MODEL` | server, optional | absent (defaults) |
+| `EMBEDDING_PROVIDER_URL` / `_API_KEY` / `_MODEL` / `_DIMENSIONS` | server, optional | absent (local embedder) |
+| `NEXT_PUBLIC_APP_VERSION` / `NEXT_PUBLIC_BUILD_ID` | public, optional | absent |
+| `NEXT_PUBLIC_FEEDBACK_URL` | public, optional | absent — Help shows calm fallback |
+| `LIFEOS_ENABLE_DEV_ROUTES` | dev-only | **must stay absent in production** |
+| *service-role key* | — | **must never be set.** Enforced by `audit:secrets`. |
+
+### What was executed, and what it proves
+
+| Gate | Result |
+| --- | --- |
+| `npm run audit:security` | **PASS** — RLS (every user-owned table), secrets (no leaks), routes (`/dev` gated), auth (no signUp/OAuth/anonymous), deps (no un-allowlisted advisories) |
+| `npm run release:audit` | **PASS 17/17** — dense numbering, rerunnable, version alignment, **migration count 47** |
+| `npm run release:migrations` | **PASS 200/200** on real Postgres 16 + pgvector |
+| `npm run release:export` | **PASS 14/14** |
+| `npm run lint` / `tsc --noEmit` / `npm run build` | **PASS** (2 lint warnings, 0 errors) |
+| `npm run release:routes` | **PASS 25/25** (local build) |
+| `npm run beta:smoke` | **14/15** (local build; sole failure is `uses HTTPS` on localhost) |
+| `smoke-099-accessibility` | **PASS 22/22** |
+| `smoke-100-global-capture` | **PASS 28/28** |
+| `release:browsers` | **chromium PASS 5/5**; WebKit/Firefox unavailable here |
+| `smoke-074-reachability` | **123/145** — now reports instead of crashing (B10) |
+
+### Tenant isolation — the priority check
+
+Live production isolation (P3) remains **BLOCKED**. But isolation is now **proven at the database
+layer** against a real Postgres engine, which is where RLS actually enforces it:
+
+- `isolation: B cannot SELECT A's rows` · `cannot UPDATE` · `cannot DELETE` · `A still sees its own row`
+- Per-domain: `user B sees none of user A's horizons` (078), `…events` and `…completion history` (061)
+- `every policy scopes to auth.uid()` · `user_id columns default to auth.uid()`
+- Deleting a user removes integration metadata, pending OAuth states and **every credential — no orphaned secret survives**
+- **35 isolation/refusal assertions** inside 200 passing checks
+
+This does **not** close B2 — B2 requires two real accounts against live auth — but it substantially
+de-risks it. The remaining unknown is the live auth/session layer, not the data layer.
+
+### New findings registered this sprint
+
+| # | Finding | Severity | Status |
+| --- | --- | --- | --- |
+| F1 | **Occurrence-completion control never renders.** `[data-complete-occurrence]` absent on Today for the seeded recurring action — causes 13 of the 22 gate failures (C1–C6, C8, C11, D3, F10–F13, H5). Either a regression from LIFEOS-104…107 or a stale selector. | **High** — lifecycle integrity is the core product claim (V1) | OPEN — needs product triage |
+| F2 | **Defer → Someday absent.** `Someday` option/button not found — 6 failures (A20–A23, D17, H13, H14). | Medium | OPEN — needs product triage |
+| F3 | **`V1_DEPLOYMENT_RUNBOOK.md` is stale.** States migrations `0001…0031`, "migration version 31", app `1.0.0-rc1`, and `0032_v1_release_fix.sql`. Repo is at **47 migrations**; the allowed fix slot is `0048`. Following it would under-migrate production by 16 migrations. | **High** — it is the canonical deploy doc | OPEN — doc fix before deploy |
+| F4 | **`playwright-core` undeclared** while 38 scripts require it. | High | **FIXED** this sprint |
+| F5 | **Gate aborted instead of reporting** (2 unguarded null dereferences). | High | **FIXED** this sprint |
+
+F1 and F2 are product behaviour and were deliberately **not** fixed here — out of scope for a
+deployment sprint.
+
+### Observability — corrected picture
+
+The board recorded "no error tracking". More precisely `VERIFIED`:
+
+- `sanitized_error_events` **exists** (migration 0031, sanitized, rolling 30 days, RLS-protected)
+- `SecurityErrorBoundary` wraps individual surfaces
+- **But** the table is referenced only by `lib/privacy/retention.ts` and
+  `lib/security/authorization-audit.ts` — there is no wired client-error → table pipeline, no
+  global handler, and no aggregation surface
+
+**Gap:** after deploying, a production error is visible only in Vercel's runtime logs. The founder
+cannot see client-side crashes at all.
+
+**Smallest next step (recommended, not implemented):** wire the existing `SecurityErrorBoundary`
+and a global handler to write to the `sanitized_error_events` table that already exists, and show a
+count on `/security` Diagnostics. That reuses shipped infrastructure and adds **no vendor and no
+third-party data egress** — which matters for a privacy-positioned product.
+
+### Not executed — all BLOCKED — FOUNDER ACTION REQUIRED
+
+Live auth acceptance (11 steps) · live two-user isolation · cross-device sync (15-scenario matrix) ·
+live account deletion · live export · production headers · deployed route audit · performance ·
+WebKit/Firefox matrix · manual screen-reader pass · rollback rehearsal.
+
+Each needs a production URL and two disposable accounts. None were fabricated.
+
+### TD2 — likely resolved
+
+`smoke-099` asserts *"§20 no overflow at 200% zoom, no unnamed control, no heading jump"* and
+**passes**; `smoke-100-global-capture` passes 28/28. Evidence suggests the Quick Capture 200% zoom
+overflow is fixed. Recommend the founder confirm once on the live Quick Capture surface before
+closing TD2.
+
+### Stage verdict
+
+**Stage 1 criteria are NOT met. LifeOS remains Late Stage 0.** Zero of the seven Stage-1 exit
+criteria are satisfied, because all seven require a running production system. No blocker was
+closed by evidence this sprint; B10's *tooling* half is fixed and its product half is now visible
+and triageable rather than hidden behind a crash.
+
+
+## 16. Change log
 
 | Date | Change | Evidence | Blockers | Stage impact | Decision |
 | --- | --- | --- | --- | --- | --- |
 | 2026-09-11 | Artifact created. Initialized stages, scorecard (26 tracks), blocker register (10), decision register, beachhead + value hypotheses, activation model, journey, Stage-1 acceptance matrix, stop-the-line conditions, simplification register, tech debt, NOW/NEXT/LATER. | Verified against `8ffb8f6`: nav 44 `href:` entries · 109 route files · no analytics/error-tracking/billing dependencies · no Terms route · no root deploy config · privacy + delete routes present · 13 direct dependencies | Opened B1–B10. **Closed B0** (PR #115 already merged — corrected a stale NOW item). | Stage held at **Late Stage 0**. No exit criteria met for Stage 1. | None — D1 remains open |
+| 2026-09-11 | **Stage-1 bring-up attempted** (§15). Deployment BLOCKED — no Vercel/Supabase credentials and both APIs egress-denied by org policy. Executed everything verifiable without live infrastructure. Fixed B10 tooling: declared `playwright-core` (undeclared while 38 scripts require it) and guarded 2 crash-instead-of-report dereferences in the 074 gate. | `audit:security` PASS · `release:audit` 17/17 · **migration rehearsal 200/200 incl. 35 tenant-isolation assertions on real Postgres** · `release:export` 14/14 · build PASS · `release:routes` 25/25 · `beta:smoke` 14/15 · a11y 22/22 · capture 28/28 · chromium 5/5 · 074 gate 123/145 (now reports) | None closed. B10 reclassified. Opened **F1** occurrence-completion control missing, **F2** Defer→Someday missing, **F3** deployment runbook stale by 16 migrations. Fixed F4, F5. | **Stage held at Late Stage 0** — 0 of 7 Stage-1 criteria met; every one requires a live system. | None — D1 still open |
 
 **Update protocol:** append a row on every change. Never edit history. Move closed blockers to the
 §4 resolved ledger with date and evidence. Re-date §3 rows when re-verified.

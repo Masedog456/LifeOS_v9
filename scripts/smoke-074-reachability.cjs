@@ -233,11 +233,21 @@ const WORLD = {
   ok("C2 …showing its schedule AND its time (D-12)", (await all(RECUR)).some((t) => /ZZTakeMeds/.test(t) && /8\s*AM|08:00|8:00/.test(t)), JSON.stringify(await all(RECUR)));
   const occBtn = await page.$("[data-complete-occurrence]");
   ok("C3 the occurrence has a completing control", !!occBtn);
-  await occBtn.click(); await page.waitForTimeout(1100);
-  const s1 = await store();
-  ok("C4 one occurrence is recorded", (s1.recurrenceCompletions ?? []).length === 1, JSON.stringify(s1.recurrenceCompletions));
-  ok("C5 the SERIES is not completed", s1.nextActions.find((a) => a.id === "a4").status !== "completed");
-  ok("C6 the row leaves Today once done", !(await all(RECUR)).some((t) => /ZZTakeMeds/.test(t)));
+  if (occBtn) {
+    await occBtn.click(); await page.waitForTimeout(1100);
+    const s1 = await store();
+    ok("C4 one occurrence is recorded", (s1.recurrenceCompletions ?? []).length === 1, JSON.stringify(s1.recurrenceCompletions));
+    ok("C5 the SERIES is not completed", s1.nextActions.find((a) => a.id === "a4")?.status !== "completed");
+    ok("C6 the row leaves Today once done", !(await all(RECUR)).some((t) => /ZZTakeMeds/.test(t)));
+  } else {
+    // Every other nullable handle in this file is guarded (see D10, G2, the J-section loop).
+    // This one was not, so a missing control aborted the run before the summary printed —
+    // which is why the gate was unusable rather than merely red. Record the dependent checks
+    // as FAILURES so nothing is downgraded to a skip, and let the suite finish reporting.
+    ok("C4 one occurrence is recorded", false, "no completing control (C3 failed)");
+    ok("C5 the SERIES is not completed", false, "no completing control (C3 failed)");
+    ok("C6 the row leaves Today once done", false, "no completing control (C3 failed)");
+  }
 
   // duplicate click on a stale control (re-render a fresh page, click again)
   await goto("/today");
@@ -390,17 +400,29 @@ const WORLD = {
 
   // delete WITH history (a recurring action with completions)
   await seed("/today");
-  await page.click("[data-complete-occurrence]"); await page.waitForTimeout(1000);
-  await goto("/actions/a4");
-  await page.click("[data-delete-action]"); await page.waitForTimeout(400);
-  ok("F10 delete-with-history names the completions it will destroy",
-    /recorded completion/i.test(await body()), (await body()).match(/Delete this[^?]*\?/)?.[0]);
-  await page.click("[data-confirm-delete]"); await page.waitForTimeout(1400);
-  const afterDel = await store();
-  ok("F11 delete-with-history removes the action", !afterDel.nextActions.find((a) => a.id === "a4"));
-  ok("F12 …and its completion rows", (afterDel.recurrenceCompletions ?? []).length === 0, JSON.stringify(afterDel.recurrenceCompletions));
-  await goto("/today");
-  ok("F13 Today has no stale recurring row", !/ZZTakeMeds/.test(await body()));
+  // Needs a recorded completion first. If the occurrence control is absent the click would
+  // hang for the full 30s timeout and abort the run, so probe and report instead.
+  const occForDelete = await page.$("[data-complete-occurrence]");
+  if (occForDelete) {
+    await occForDelete.click(); await page.waitForTimeout(1000);
+    await goto("/actions/a4");
+    await page.click("[data-delete-action]"); await page.waitForTimeout(400);
+    ok("F10 delete-with-history names the completions it will destroy",
+      /recorded completion/i.test(await body()), (await body()).match(/Delete this[^?]*\?/)?.[0]);
+    await page.click("[data-confirm-delete]"); await page.waitForTimeout(1400);
+    const afterDel = await store();
+    ok("F11 delete-with-history removes the action", !afterDel.nextActions.find((a) => a.id === "a4"));
+    ok("F12 …and its completion rows", (afterDel.recurrenceCompletions ?? []).length === 0, JSON.stringify(afterDel.recurrenceCompletions));
+    await goto("/today");
+    ok("F13 Today has no stale recurring row", !/ZZTakeMeds/.test(await body()));
+  } else {
+    for (const n of [
+      "F10 delete-with-history names the completions it will destroy",
+      "F11 delete-with-history removes the action",
+      "F12 …and its completion rows",
+      "F13 Today has no stale recurring row"
+    ]) ok(n, false, "no completing control — history could not be created (see C3)");
+  }
 
   // ==================================================================
   // G. STALE CONTROLS — a second tab mutates while the first still renders
