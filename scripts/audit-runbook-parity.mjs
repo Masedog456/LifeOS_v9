@@ -37,8 +37,23 @@ const ok = (name, pass, detail) => {
   console.log(`${pass ? "✓" : "✗"} ${name}${pass ? "" : ` — ${detail ?? ""}`}`);
 };
 
-/** Operational documents that tell a human how to deploy. Historical reports are excluded. */
-const OPERATIONAL_DOCS = ["V1_DEPLOYMENT_RUNBOOK.md", "README.md"];
+/**
+ * Operational documents — the ones that tell a human how to deploy or release.
+ *
+ * Deliberately NOT every markdown file. Historical records (`PERSISTENCE_QA.md`,
+ * `V1_ROLLBACK_REPORT.md`, `V1_ACCEPTANCE_REPORT.md`, the LIFEOS-nnn reports)
+ * legitimately name the migration numbers that were current when they were
+ * written; rewriting those would destroy evidence rather than fix drift. Only
+ * instructions someone might FOLLOW are guarded.
+ */
+const OPERATIONAL_DOCS = [
+  "V1_DEPLOYMENT_RUNBOOK.md",
+  "README.md",
+  // Added after the checklist was found still asserting "Chain 0001→0031" and
+  // an "allowed 0032 release fix" — the same drift, one document over, which
+  // this gate could not see because it was not looking here.
+  "V1_RELEASE_CHECKLIST.md",
+];
 
 // ---------------------------------------------------------------- derive ----
 
@@ -67,9 +82,10 @@ function constFrom(relPath, name, { numeric = false } = {}) {
 const expectedMigrationVersion = constFrom("lib/security/schema-compatibility.ts", "EXPECTED_MIGRATION_VERSION", { numeric: true });
 const allowedFix = constFrom("lib/release/migrations.ts", "ALLOWED_RELEASE_FIX_MIGRATION");
 const minSupported = constFrom("lib/release/versions.ts", "MIN_SUPPORTED_MIGRATION_VERSION", { numeric: true });
+const clientContract = constFrom("lib/sync/contract.ts", "CLIENT_CONTRACT", { numeric: true });
 
 console.log(`\nDerived from the repository: ${count} migrations · head ${pad(head)} (${headFile})`);
-console.log(`Build declares EXPECTED_MIGRATION_VERSION=${expectedMigrationVersion} · fix slot ${allowedFix} · min supported ${minSupported}\n`);
+console.log(`Build declares EXPECTED_MIGRATION_VERSION=${expectedMigrationVersion} · fix slot ${allowedFix} · min supported ${minSupported} · CLIENT_CONTRACT=${clientContract}\n`);
 
 // ----------------------------------------------------------------- chain ----
 
@@ -97,22 +113,32 @@ const patterns = [
   { label: "migration range end", re: /0001\s*(?:…|\.\.\.|->|→|–|-|to)\s*0*(\d{2,4})\b/g },
   { label: "supported range end", re: /range\s*\(?`?\s*\d+\s*(?:–|-|to)\s*0*(\d{2,4})\s*`?\)?/gi },
   { label: "migration version", re: /migration version\s*\(?`?\s*0*(\d{1,4})\s*`?\)?/gi },
-  { label: "release-fix slot", re: /`?0*(\d{2,4})_v1_release_fix\.sql`?/g }
+  { label: "release-fix slot", re: /`?0*(\d{2,4})_v1_release_fix\.sql`?/g },
+  // The deploy-time parity expectation. This one said `"contract": 2` — the
+  // signature of a database one migration BEHIND the head — which would have
+  // certified an under-migrated production as correct. It is checked against
+  // CLIENT_CONTRACT rather than the migration head, because the contract
+  // generation moves only when client-visible capability does.
+  { label: "schema contract generation", re: /`?"?contract"?`?\s*[:=]\s*`?(\d+)`?/g, against: "contract" }
 ];
 
 /**
  * Find migration references in `text` that contradict `expectedHead`.
  * Pure, so the selftest below can exercise it without touching the filesystem.
  */
-function findDrift(text, expectedHead) {
+function findDrift(text, expectedHead, expectedContract = null) {
   const drift = [];
   for (const { label, re } of patterns) {
+    // Contract drift is only checkable when a contract expectation was supplied.
+    if (label === "schema contract generation" && expectedContract === null) continue;
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
       const found = Number(m[1]);
       // A release-fix slot must name head+1; every other pattern must name the head.
-      const expected = label === "release-fix slot" ? expectedHead + 1 : expectedHead;
+      const expected = label === "release-fix slot" ? expectedHead + 1
+        : label === "schema contract generation" ? expectedContract
+        : expectedHead;
       if (found !== expected) {
         drift.push({ label, found, expected, match: m[0], line: text.slice(0, m.index).split("\n").length });
       }
@@ -131,11 +157,16 @@ if (process.argv.includes("--selftest")) {
     ["catches a stale release-fix slot", "would add exactly `0032_v1_release_fix.sql`", 47, 1],
     ["accepts a correct range", "Apply migrations `0001 … 0047` in order.", 47, 0],
     ["accepts a correct fix slot", "would add exactly `0048_v1_release_fix.sql`", 47, 0],
-    ["ignores unrelated numbers", "The app version is 1.0.0-rc1 and 31 tables exist.", 47, 0]
+    ["ignores unrelated numbers", "The app version is 1.0.0-rc1 and 31 tables exist.", 47, 0],
+    // The parity expectation. A doc naming the PREVIOUS generation would have an
+    // operator certify a database one migration behind as correct.
+    ["catches a stale contract generation", 'confirm `contract: 2`', 47, 1, 3],
+    ["accepts the current contract generation", 'confirm `contract: 3`', 47, 0, 3],
+    ["ignores contract talk when no expectation is supplied", 'confirm `contract: 2`', 47, 0, null]
   ];
   let bad = 0;
-  for (const [name, text, h, want] of cases) {
-    const got = findDrift(text, h).length;
+  for (const [name, text, h, want, contract = null] of cases) {
+    const got = findDrift(text, h, contract).length;
     const pass = got === want;
     if (!pass) bad += 1;
     console.log(`${pass ? "✓" : "✗"} selftest: ${name}${pass ? "" : ` — expected ${want} drift, got ${got}`}`);
@@ -152,7 +183,7 @@ for (const doc of OPERATIONAL_DOCS) {
   } catch {
     continue;
   }
-  for (const d of findDrift(text, head)) {
+  for (const d of findDrift(text, head, clientContract)) {
     driftFound += 1;
     console.log(`  ✗ ${doc}:${d.line} — ${d.label} says ${d.found}, repository says ${d.expected}: ${JSON.stringify(d.match)}`);
   }

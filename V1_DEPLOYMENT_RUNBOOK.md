@@ -135,10 +135,35 @@ That makes parity verification capability-based:
 select public.app_schema_contract();
 ```
 
-Confirm the response contains `"contract": 2` and the capability keys the build
-requires (currently `guarded_notes` and `guarded_next_actions` at level `2`).
-The values are literals written *inside* the migration, so the database cannot
-claim a capability it did not apply.
+Confirm the reported `contract` equals **`CLIENT_CONTRACT`** in
+`lib/sync/contract.ts`, and that the capability keys the head migration publishes
+are all present. Derive both rather than reading them here:
+
+```
+grep "export const CLIENT_CONTRACT" lib/sync/contract.ts
+grep -nE "'contract',|'[a-z_]+', [0-9]+" $(ls supabase/migrations/*.sql | tail -1)
+```
+
+*Current as of `9b2cb8f` (2026-09-12): `contract: 3`, capabilities
+`guarded_notes` 2, `guarded_next_actions` 2, `goal_horizons` 1.* Written in the
+guarded form deliberately: `npm run audit:runbook` reads that number and fails
+the build if it stops matching `CLIENT_CONTRACT`, so this snapshot cannot go
+stale silently the way the instruction above it did.
+
+The values are literals written *inside* each migration, so the database cannot
+claim a capability it did not apply. That is exactly why the number matters: a
+database stopped one migration short of the head reports the PREVIOUS
+generation and omits that migration's capability.
+`scripts/migration-rehearsal.mjs` §5 proves this on real Postgres — it applies
+the chain to the second-to-last migration, records what the database advertises,
+then applies the head and watches the generation rise in the same step the
+columns arrive.
+
+> **This instruction was itself wrong once.** It named the previous generation —
+> the signature of a database one migration BEHIND the head — which would have
+> certified an under-migrated production as correct. Confirm against
+> `CLIENT_CONTRACT`, never against a number copied into prose.
+> `npm run audit:runbook` now fails if this document names one at all.
 
 > **Trap — read this.** `/security` (Diagnostics) displays a migration version,
 > but that number is `EXPECTED_MIGRATION_VERSION` from the **build**, not from
