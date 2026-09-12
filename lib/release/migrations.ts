@@ -8,17 +8,17 @@
  * module holds the deterministic expectations that both the rehearsal and the
  * release self-test check against, so the two can never disagree.
  *
- * Historical migrations are never modified. The current head is **0046**
- * (`0046_schema_compatibility_contract.sql`, LIFEOS-077 — the deployed database
- * describing its own capabilities, so a client can tell whether its writes will
- * be accepted before it attempts them). A demonstrated release-blocking
- * database defect would add exactly one narrowly-scoped
- * `0047_v1_release_fix.sql` beyond it; see `ALLOWED_RELEASE_FIX_MIGRATION`.
+ * Historical migrations are never modified. The head is not restated here —
+ * it drifted once and contradicted the constant below. Derive it:
+ * `npm run audit:runbook` reports the chain head and fails the build if this
+ * module, `EXPECTED_MIGRATION_VERSION`, or the deployment runbook disagree with
+ * it. A demonstrated release-blocking database defect may add exactly one
+ * narrowly-scoped migration at head + 1; see `ALLOWED_RELEASE_FIX_MIGRATION`.
  *
- * **Repository head is not deployed head.** This number is what the build
- * SHIPS. Production Supabase is verified at 0044 and 0045 is applied
- * separately, with parity verified, before merge/deploy sequencing is
- * finalised. Nothing in this module asserts anything about a live database.
+ * **Repository head is not deployed head.** These numbers are what the build
+ * SHIPS. Nothing in this module asserts anything about a live database; the
+ * deployed schema is verified separately at deploy time against
+ * `public.app_schema_contract()` — see `V1_DEPLOYMENT_RUNBOOK.md`.
  */
 
 import { RELEASE_MIGRATION_COUNT } from "@/lib/release/versions";
