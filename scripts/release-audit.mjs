@@ -6,7 +6,8 @@
  * it against the declared release model (lib/release/*). It verifies:
  *
  *   - migration count + dense numbering + no duplicate numbers
- *   - only an allowed 0035 release-fix migration may be added
+ *   - only the repository-declared release-fix slot may be added
+ *     (`ALLOWED_RELEASE_FIX_MIGRATION`; asserted against head+1 by audit:runbook)
  *   - expected public table count
  *   - every user-owned (user_id) table enables RLS and has policies (delegates
  *     the deep policy check to audit-rls.mjs, invoked separately)

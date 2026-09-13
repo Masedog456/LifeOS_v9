@@ -40,8 +40,8 @@ evidence, blocker classification, and date — no "probably done".
 
 | Item | Owner | Evidence | Status | Blocker | Date |
 |---|---|---|---|---|---|
-| Chain 0001→0031 applies clean; idempotent x3; checkpoints upgrade | persistence | scripts/migration-rehearsal.mjs | done | blocker | 2026-08-01 |
-| No new migration beyond an allowed 0032 release fix | persistence | lib/release/migrations isAllowedReleaseFixMigration + audit | done | blocker | 2026-08-01 |
+| Canonical migration chain through the repository head applies clean; idempotent x3; checkpoints upgrade | persistence | scripts/migration-rehearsal.mjs | done | blocker | 2026-08-01 |
+| No new migration beyond the repository-declared release-fix slot (`ALLOWED_RELEASE_FIX_MIGRATION`) | persistence | lib/release/migrations isAllowedReleaseFixMigration + audit | done | blocker | 2026-08-01 |
 
 ### database
 

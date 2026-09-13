@@ -349,7 +349,7 @@ audits under `scripts/`:
 
 ```bash
 npm run release:audit         # schema / version / inventory (static)
-npm run release:migrations    # Postgres rehearsal: 0001→0031, idempotent, RLS, 2-user isolation
+npm run release:migrations    # Postgres rehearsal: full chain in order, idempotent, RLS, 2-user isolation
 npm run release:export        # export + restore verification over the release fixture
 npm run release:checklist     # executable release checklist
 npm run release:routes        # live route smoke (needs a running build)
