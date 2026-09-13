@@ -86,15 +86,23 @@ the single permitted unplanned addition is named by
 ```
 npm run lint && npx tsc --noEmit && npm run build
 npm run audit:runbook           # migration head/slot parity + doc drift  ← gate
-npm run audit:security          # rls + secrets + routes + auth + deps
+npm run audit:compat            # runtime schema gating, proved end to end ← gate
+npm run audit:security          # runbook + compat + rls + secrets + routes + auth + deps
 npm run release:audit           # schema/version/inventory
 npm run release:migrations      # Postgres rehearsal (local, needs pgvector)
 npm run release:export          # export/restore verification
 ```
 
 `audit:runbook` is a **hard gate**: it fails the release if the migration chain,
-the build's declared head, the release-fix slot, or this document disagree. It
-needs no database and no credentials, so it runs in CI on every PR.
+the build's declared head, the release-fix slot, or this document disagree.
+
+`audit:compat` is the other: it builds the deterministic harnesses and runs the
+94 assertions that prove the runtime schema gate actually holds a write back
+(*The runtime backstop* below). It exists because that proof had been written and
+then left unrunnable, which is how this runbook came to carry a "known gap" that
+was not real.
+
+Neither needs a database or credentials, so both run in CI on every PR.
 
 The rehearsal requires the `vector` extension (migration `0010`). On Debian/
 Ubuntu: `apt-get install -y postgresql-16-pgvector`. Supabase provides it
@@ -165,17 +173,63 @@ columns arrive.
 > `CLIENT_CONTRACT`, never against a number copied into prose.
 > `npm run audit:runbook` now fails if this document names one at all.
 
-> **Trap — read this.** `/security` (Diagnostics) displays a migration version,
-> but that number is `EXPECTED_MIGRATION_VERSION` from the **build**, not from
-> the database. It tells you what this app expects, never what production has.
-> It is not parity evidence.
+> **Trap — read this.** `/security` (Diagnostics) shows a **Migration version**
+> row, but that number is `EXPECTED_MIGRATION_VERSION` from the **build**, not
+> from the database. It tells you what this app expects, never what production
+> has. It is not parity evidence.
+>
+> The rows beneath it are a different matter: **Compatibility**, and the schema
+> contract block in the downloaded report, *are* derived from what the deployed
+> database answered. They are a useful confirmation after the fact — read them
+> on a real session against production — but they report one browser's view, so
+> the query above remains the check you run.
 
-> **Known gap (Stage-1 bring-up, 2026-09-11).** `evaluateCompatibility()` has a
-> "server behind this build → read-only, sync paused" branch, but
-> `remoteMigrationVersion` is only ever supplied in self-tests — nothing in
-> production populates it. The runtime backstop therefore **cannot fire today**.
-> Until that is wired, the capability query above is the only real parity check,
-> and skipping it is skipping the whole safeguard.
+### The runtime backstop, and why it does not replace the check above
+
+There **is** a runtime gate, and it fires. A note in an earlier revision of this
+runbook said there was not; that note was wrong, and this section replaces it.
+
+The path is `public.app_schema_contract()` → `loadSchemaContract()` →
+`probeCompatibility()` → `evaluateContract()` → `compat.gatedDomains`, which the
+flush loop in `lib/persistence.ts` applies to the dirty set **before** the push.
+The database is asked once at session acquisition — before any incompatible
+write can be attempted — and again on an explicit retry or after a failure whose
+shape suggests the schema moved. A domain the deployed database cannot support
+is never attempted, stays dirty, and therefore cannot be reported as synced; the
+person is told their work is safe on this device, and it flushes by itself once
+the database catches up. `npm run audit:compat` proves this end to end.
+
+**What it does not cover, which is why step 4 is still mandatory:**
+
+- It holds back only the domains that declare a capability requirement in
+  `DOMAIN_CAPABILITY_REQUIREMENTS`. That is a deliberate blast radius, not full
+  coverage — a missing migration that adds no *client-visible capability* raises
+  no generation and gates nothing.
+- It is a client-side check of what the server *advertises*. It does not verify
+  that RLS policies, grants, indexes or column types actually match; the
+  advertised capability is a literal written inside a migration, so it proves
+  that migration ran, not that the schema is otherwise sound.
+- It degrades to "hold the guarded domains" when the contract cannot be read. It
+  cannot distinguish an under-migrated database from an unreachable one, and it
+  is not designed to.
+
+So the runtime gate protects **users** from a half-deployed database. The
+capability query in step 4 is what tells **you** whether the deployment is
+finished. Skipping it because "the app would catch it" is skipping the check the
+app cannot perform.
+
+> **Do not add a migration-version table to close the gaps above.** A second
+> copy of a client constant is the mistake `app_schema_contract()` was written to
+> replace. The gaps are the honest limits of a capability contract, not symptoms
+> of a missing ledger.
+>
+> The "known gap" this section replaces came from re-running
+> `scripts/audit-077-f3.cjs` — a diagnostic of a defect that had already been
+> repaired, which by design still prints that defect — and reading its output as
+> a present-tense measurement. It now prints a banner saying so. The lesson
+> generalises past this document: **before recording a protection as missing,
+> run the thing that would prove it present.** Here that is
+> `npm run audit:compat`, which exists because it previously could not be run.
 
 ## Post-deploy checks
 

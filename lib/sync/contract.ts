@@ -23,6 +23,19 @@
  * write gate: gating asks a narrower question — "can THIS domain use THIS
  * server capability?" — so one missing capability pauses one domain instead of
  * turning into a 46-domain outage.
+ *
+ * ## Where the proof is
+ *
+ * `npm run audit:compat` — 94 assertions driving the real persistence module
+ * against a backend whose advertised contract is set per test, including the
+ * write path holding a gated domain back rather than reporting it synced.
+ *
+ * That gate was added late, and the reason is worth keeping: the assertions
+ * existed from this sprint onward but needed a build step no npm script
+ * performed, so they never ran again. A later audit, finding only the
+ * superseded pre-repair diagnostic runnable, concluded LifeOS had no runtime
+ * schema protection at all — and that conclusion reached the deployment
+ * runbook. Protection nothing exercises is indistinguishable from none.
  */
 
 import type { StoreState } from "@/types/mvp";
