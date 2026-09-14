@@ -1,0 +1,30 @@
+/*
+ * Compiles `lib/` and `types/` to CommonJS at `scripts/out`.
+ *
+ * The deterministic injection harnesses under `scripts/` drive the REAL modules
+ * — `lib/persistence.ts`, the Supabase adapter, the contract evaluator — rather
+ * than a reimplementation of them, which is the only way an assertion about the
+ * write path can mean anything. They need those modules as CommonJS, and until
+ * now that tree was built by hand, so the harnesses could only be run by someone
+ * who already knew the incantation. `npm run audit:compat` builds it.
+ *
+ * Not part of `npm run build`: the app itself is compiled by Next.
+ */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "noEmitOnError": true,
+    "outDir": "./scripts/out",
+    "rootDir": ".",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2022",
+    "jsx": "react-jsx",
+    "declaration": false,
+    "incremental": false,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["lib/**/*.ts", "types/**/*.ts"]
+}

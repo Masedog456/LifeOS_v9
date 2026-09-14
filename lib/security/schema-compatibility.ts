@@ -1,20 +1,49 @@
 /**
- * Client/server schema compatibility (LIFEOS-040, Feature 20).
+ * Client/server schema compatibility — DIAGNOSTIC SUMMARY ONLY (LIFEOS-040,
+ * Feature 20).
  *
- * On startup LifeOS compares three numbers: the local persisted-state version,
- * the version this app build expects, and (when a remote is configured) the
- * highest migration the server reports. The gate DECIDES a mode:
+ * Read this paragraph before the rest. **Nothing in the write path consults
+ * this module.** It computes a human-readable mode for the Diagnostics screen
+ * and the sanitized report, and that is its entire job today. `syncIsSafe()` has
+ * no caller outside self-tests. The decision that actually stops a write from
+ * reaching a database that cannot accept it lives in `lib/sync/contract.ts`
+ * (`evaluateContract` → `gatedDomains`) and is consumed by the flush loop in
+ * `lib/persistence.ts`; `npm run audit:compat` proves it end to end.
  *
- *   ok           → normal read + write
- *   read-only    → the server is AHEAD of this client (its schema is newer): we
- *                  still let the user read and EXPORT, but block writes/sync so a
- *                  stale client can't clobber newer data
+ * That distinction has been misread twice, in opposite directions, and both
+ * misreadings were expensive:
+ *
+ *   LIFEOS-077 F-3  treated this module as load-bearing when it was not — the
+ *                   write landed while it said `canSync: false`. The repair was
+ *                   not to wire this up; it was to gate on the contract, whose
+ *                   per-domain answer has a far smaller blast radius.
+ *   A later audit   read a superseded diagnostic of that same defect (see
+ *                   `scripts/audit-077-f3.cjs`) and concluded the opposite —
+ *                   that no runtime protection existed anywhere. It does. The
+ *                   claim reached the deployment runbook before it was caught.
+ *
+ * So: if you are here because you want writes blocked, you are in the wrong
+ * file. If you are here because a row on `/security` is wrong, you are in the
+ * right one.
+ *
+ * The modes it reports:
+ *
+ *   ok           → nothing to say
+ *   read-only    → client and server schema generations differ in either
+ *                  direction; sync is described as paused
  *   upgrade      → local state is OLDER than this build expects: a safe in-app
  *                  state upgrade should run before writes
- *   blocked      → versions are irreconcilable / unknown; read + export only
+ *   blocked      → local state is NEWER than this build understands
  *
- * The rule the spec insists on: never continue DESTRUCTIVE synchronization under
- * unknown schema compatibility. When in doubt we fail closed to read/export.
+ * SCALE HAZARD. `remoteMigrationVersion` and `expectedMigrationVersion` are
+ * compared directly, so they must be two values on the SAME scale — and the
+ * names are now a historical accident. The sole production caller
+ * (`DiagnosticsCenter`) passes the server's *capability contract generation*
+ * against `CLIENT_CONTRACT`, which is a valid like-for-like comparison. But
+ * `expectedMigrationVersion` defaults to `EXPECTED_MIGRATION_VERSION`, a
+ * migration count — so a caller who supplies only the remote side silently
+ * compares a contract generation against a migration number and gets a
+ * meaningless answer. Pass both, always.
  */
 
 import { CURRENT_STATE_VERSION } from "@/lib/migrations/state-version";
@@ -29,9 +58,22 @@ export interface CompatInput {
   localStateVersion: number;
   /** The state version this build understands. */
   expectedStateVersion?: number;
-  /** Highest migration the remote reports, or null when offline / local-only. */
+  /**
+   * The remote's schema generation, or null when offline / local-only.
+   *
+   * Despite the name, the production caller supplies the server's *capability
+   * contract generation* — there is no migration ledger to read (migration
+   * 0046, deliberately). Whatever scale you use here, use the same one below.
+   */
   remoteMigrationVersion?: number | null;
-  /** Highest migration this build ships. */
+  /**
+   * The generation this build expects, on the SAME scale as the field above.
+   *
+   * Defaults to `EXPECTED_MIGRATION_VERSION`, which is a migration count. That
+   * default is only correct if the remote side is also a migration count — so
+   * a caller passing a contract generation MUST pass `CLIENT_CONTRACT` here
+   * rather than relying on it.
+   */
   expectedMigrationVersion?: number;
 }
 

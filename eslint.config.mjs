@@ -20,6 +20,10 @@ const eslintConfig = defineConfig([
     // cannot do — so the repo-wide ban on `require()` does not apply to them.
     // They are never imported by the app and never shipped.
     "scripts/**/*.cjs",
+    // The throwaway tsc build those harnesses resolve against — generated
+    // CommonJS, gitignored, rebuilt by `npm run audit:compat`. Linting emitted
+    // output says nothing about the sources it came from.
+    "scripts/out/**",
   ]),
 ]);
 

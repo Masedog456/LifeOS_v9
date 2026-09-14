@@ -43,5 +43,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# CommonJS build of lib/ consumed by the deterministic harnesses under scripts/
+# (produced by `npm run audit:compat` via tsconfig.selftest.json)
+/scripts/out/
+
 # pdf.js worker (copied from node_modules at build time)
 /public/pdf.worker.min.js
