@@ -14,10 +14,24 @@
  *
  * Requires the compiled tree at scripts/out.
  */
-process.env.LIFEOS_ROOT = "/home/user/LifeOS";
+/*
+ * REPO ROOT, derived (LIFEOS-BILLING, incidental repair).
+ *
+ * These two lines used to read `process.env.LIFEOS_ROOT = "/home/user/LifeOS"`
+ * and then open files under that absolute path. It is the machine the harness
+ * was written on; on any other checkout — a CI runner, a fresh clone, a second
+ * working copy — the require throws ENOENT before the first assertion, and
+ * `npm run audit:security` fails as a whole because `audit:compat` sits in the
+ * chain. That is the same class of defect this harness exists to prevent: a
+ * proof that cannot be executed is not a proof.
+ *
+ * Derived from __dirname, like every other audit in scripts/.
+ */
+const REPO = require("path").join(__dirname, "..");
+process.env.LIFEOS_ROOT = REPO;
 const path = require("path"), Module = require("module"), ROOT = path.join(__dirname, "out");
 const orig = Module._resolveFilename;
-Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: ["/home/user/LifeOS/node_modules"] }); } };
+Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: [require("path").join(REPO, "node_modules")] }); } };
 
 const fs = require("fs");
 const store = new Map();
@@ -38,7 +52,7 @@ const K = require("@/lib/sync/contract");
 const results = [];
 const ok = (n, p, d) => { results.push({ n, p, d }); console.log(`${p ? "PASS" : "FAIL"}  ${n}${p ? "" : ` — ${d ?? ""}`}`); };
 
-const LIB = "/home/user/LifeOS";
+const LIB = REPO;
 const iso = (h = 8) => `2026-08-29T${String(h).padStart(2, "0")}:00:00.000Z`;
 const e = () => emptyStoreState();
 const act = (p) => ({ description: "", status: "open", updatedAt: iso(8), notes: "", linkedEntityRefs: [], tags: [], estimatedSize: "unspecified", energy: "unspecified", order: 1, history: [], createdAt: iso(8), ...p });
