@@ -17,9 +17,45 @@ Names only — never commit values. See `.env.example`.
 | `NEXT_PUBLIC_APP_VERSION` | public | optional | Overrides the version shown in diagnostics/exports (defaults to `1.0.0-rc1`). |
 | `NEXT_PUBLIC_BUILD_ID` | public | optional | Build identifier shown in diagnostics. |
 | `LIFEOS_ENABLE_DEV_ROUTES` | server | optional | **Must be unset/absent in production** — exposes `/dev` test routes only when `=1` in non-production. |
+| `STRIPE_SECRET_KEY` | server | billing | **Secret.** Stripe API key. Sandbox first; live only after sandbox verification passes. |
+| `STRIPE_WEBHOOK_SECRET` | server | billing | **Secret.** Signing secret of the webhook endpoint below. |
+| `STRIPE_PRICE_MONTHLY` | server | billing | Recurring price id for $9/month. Not a secret; kept server-side so the browser never names a price. |
+| `STRIPE_PRICE_ANNUAL` | server | billing | Recurring price id for $79/year. |
+| `SUPABASE_SERVICE_ROLE_KEY` | server | billing | **Secret.** Used by the Stripe webhook alone — see the note below. |
+| `APP_URL` | server | optional | Absolute origin for Stripe return URLs. Defaults to the request's own origin. |
+| `NEXT_PUBLIC_REQUIRE_PAID_ACCESS` | public | optional | `"true"` engages the paid-access gate. **Unset = no paywall**, which is the safe default for an existing beta. |
 
-The **service-role key is never used by the app** and must never be added to the
-client environment. A secret scan (`npm run audit:secrets`) enforces this.
+### The service-role key (changed in LIFEOS-BILLING)
+
+This runbook previously said the service-role key is *never* used by the app.
+That is no longer true, and the reason is worth stating rather than quietly
+editing: a Stripe webhook arrives from Stripe's servers with no user session,
+and it must write the one table the user is forbidden to write. No RLS policy
+can express that, so the write needs a privileged connection.
+
+It is contained rather than trusted:
+
+- read only by modules carrying `import "server-only"`, which makes a client
+  import a **build error**, not a leak;
+- used only by `lib/billing/store.ts` and the three billing API routes;
+- limited at the database to two functions granted to `service_role`
+  (migration 0048).
+
+`npm run audit:secrets` still forbids the key anywhere a browser could reach,
+and `npm run audit:billing` asserts the containment on every run. **Set it in
+the server scope only. It must never appear as a `NEXT_PUBLIC_` variable.**
+
+Billing is entirely optional: with the Stripe variables blank, checkout, the
+portal and the webhook report themselves unavailable and the gate stands down.
+
+### Stripe webhook endpoint
+
+Register `https://<your-domain>/api/billing/webhook` in the Stripe dashboard
+and subscribe it to `checkout.session.completed`,
+`customer.subscription.created`, `customer.subscription.updated`,
+`customer.subscription.deleted`, `invoice.paid` and `invoice.payment_failed`.
+Copy that endpoint's signing secret into `STRIPE_WEBHOOK_SECRET`. Full detail
+in `BILLING.md`.
 
 ## Vercel configuration
 
