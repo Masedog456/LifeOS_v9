@@ -54,7 +54,9 @@ const createTable = (allSql.match(/create table if not exists/gi) || []).length;
 // integration_oauth_states in `public`, and integration_credentials in the
 // `private` schema — which is why this total is THREE higher while the public
 // table count the rehearsal asserts only rose by two.
-ok("65 CREATE TABLE IF NOT EXISTS", createTable === 65, `found ${createTable}`);
+// 66 since LIFEOS-BILLING's 0048 added `billing_subscriptions` — one public
+// table, read-only to its owner and written only by the service role.
+ok("66 CREATE TABLE IF NOT EXISTS", createTable === 66, `found ${createTable}`);
 const userOwned = (allSql.match(/user_id\s+uuid\s+not null\s+default\s+auth\.uid\(\)/gi) || []).length;
 ok("user-owned tables default user_id to auth.uid()", userOwned >= 40, `found ${userOwned}`);
 ok("every table uses IF NOT EXISTS (rerunnable)", (allSql.match(/create table\b/gi) || []).length === createTable, "found a CREATE TABLE without IF NOT EXISTS");

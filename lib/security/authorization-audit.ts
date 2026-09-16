@@ -79,6 +79,14 @@ export const TABLE_REGISTRY: readonly TableAudit[] = [
   // undeletable merely because history exists. Tombstones carry no content.
   { table: "constitution_elements", migration: "0038", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "constitutionElements" },
   { table: "constitution_revisions", migration: "0038/0039", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ALL_FOUR, deletion: "tombstone", tombstoneDomain: "constitutionRevisions" },
+  // LIFEOS-BILLING — the canonical subscription projection. The ONLY entry with
+  // a read-only policy set, and deliberately so: every other table here holds
+  // content the person authored, while this one holds a claim ABOUT them made
+  // by Stripe. A user who could write it could grant themselves the product, so
+  // the four-policy pattern would be exactly wrong. Writes arrive only through
+  // functions granted to the service role (migration 0048); the live proof that
+  // an ordinary connection is refused is in scripts/migration-rehearsal.mjs.
+  { table: "billing_subscriptions", migration: "0048", ownershipColumn: "user_id", defaultsToAuthUid: true, policies: ["select"], deletion: "cascade-from-user" },
 ];
 
 export interface PolicyPresence {

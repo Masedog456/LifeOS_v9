@@ -159,7 +159,7 @@ function applyChain(db, files) {
 
 function run() {
   const files = migrationFiles();
-  ok("migration files present", files.length === 47, `found ${files.length} migration files, expected 47`);
+  ok("migration files present", files.length === 48, `found ${files.length} migration files, expected 48`);
 
   // 1) Clean apply 0001 -> 0039 on a fresh database.
   createDbWithAuth("rc_clean");
@@ -171,13 +171,14 @@ function run() {
   // LIFEOS-068's 0042 adds TWO public tables (integration_accounts,
   // integration_oauth_states) and one PRIVATE one, which is not counted here
   // because it is deliberately outside `public` — see the credential checks below.
-  ok("clean apply 0001->0042 (64 public tables)", tableCount === 64, `got ${tableCount} public tables`);
+  // LIFEOS-BILLING's 0048 adds ONE public table (billing_subscriptions).
+  ok("clean apply 0001->0048 (65 public tables)", tableCount === 65, `got ${tableCount} public tables`);
 
   // 2) Idempotency: re-apply the whole chain twice more on the same DB.
   applyChain("rc_clean", files);
   applyChain("rc_clean", files);
   const tableCount3 = Number(psql("rc_clean", "select count(*) from pg_tables where schemaname='public';").trim());
-  ok("idempotent x3 (stable table count)", tableCount3 === 64, `after 3x got ${tableCount3}`);
+  ok("idempotent x3 (stable table count)", tableCount3 === 65, `after 3x got ${tableCount3}`);
 
   // 3) RLS enabled on every public table + each has policies.
   const noRls = psql("rc_clean", `select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity=false order by 1;`).trim();
@@ -207,6 +208,9 @@ function run() {
     ["pre-reading-ingestion", 31], ["pre-reading-originals", 32], ["pre-reading-semantic", 33], ["pre-constitution", 37], ["pre-successor-cascade", 38],
     // LIFEOS-078: an installed client sitting on 0046 must reach 0047 cleanly.
     ["pre-goal-horizons", 46],
+    // LIFEOS-BILLING: and a database at 0047 — which is what production is on
+    // the day billing ships — must reach 0048 cleanly.
+    ["pre-billing", 47],
   ];
   for (const [id, through] of checkpoints) {
     const db = `rc_cp_${through}`;
@@ -220,7 +224,7 @@ function run() {
     // exactly the same table count as a clean install — only the number moves as
     // planned migrations add tables. 64 since LIFEOS-068's 0042 added
     // `integration_accounts` and `integration_oauth_states`.
-    ok(`checkpoint upgrade ${id} (through ${through})`, c === 64, `reached ${c} tables`);
+    ok(`checkpoint upgrade ${id} (through ${through})`, c === 65, `reached ${c} tables`);
     psql("postgres", `drop database if exists ${db} with (force);`);
   }
 
@@ -259,6 +263,93 @@ function run() {
   // A still sees exactly its own row.
   const aSees = psql("rc_clean", `set role rc_app; set app.uid='${A}'; select count(*) from public.captures;`).trim();
   ok("isolation: A still sees its own row", aSees === "1", `A saw ${aSees} rows`);
+
+  // 7a) LIFEOS-BILLING §7 — THE FORGERY PROBE.
+  //
+  // The claim under test is the one §7 calls a stop-the-line defect if it
+  // fails: a signed-in person, on their own connection, cannot set
+  // `status = active` and take the product for free.
+  //
+  // It is probed here rather than asserted in a unit test because the control
+  // IS Postgres, not application code. A mocked client can only show that our
+  // own stub refuses; only a real cluster can show that the database does.
+  //
+  // Note that `rc_app` was granted INSERT/UPDATE/DELETE on every public table a
+  // few lines above. That is left in place deliberately: it stacks the table
+  // privileges in the attacker's favour, so what follows proves RLS alone
+  // refuses. The REVOKE is then checked separately, on the role Supabase
+  // actually uses.
+  {
+    const asApp = (uid, sql) => psql("rc_clean", `set role rc_app; set app.uid='${uid}'; ${sql}`);
+    const asSuper = (sql) => psql("rc_clean", sql);
+    const refuses = (fn) => { try { fn(); return false; } catch { return true; } };
+
+    // A legitimate row, written the way the webhook writes one: privileged.
+    asSuper(`insert into public.billing_subscriptions
+      (user_id, stripe_customer_id, status, current_period_end, last_event_at)
+      values ('${A}', 'cus_forgery_probe_A', 'canceled', now() + interval '30 days', now())
+      on conflict (user_id) do nothing;`);
+
+    ok("billing: a user can read their own subscription row",
+      asApp(A, "select count(*) from public.billing_subscriptions;").trim() === "1");
+    ok("billing: B cannot see A's subscription row",
+      asApp(B, "select count(*) from public.billing_subscriptions;").trim() === "0");
+
+    const updated = asApp(A, `with u as (update public.billing_subscriptions set status='active' where user_id='${A}' returning 1) select count(*) from u;`).trim();
+    ok("billing: a user cannot UPDATE their own status to active", updated === "0", `updated ${updated} rows`);
+    const stillCanceled = asSuper(`select status from public.billing_subscriptions where user_id='${A}';`).trim();
+    ok("billing: …and the stored status is unchanged", stillCanceled === "canceled", `status is ${stillCanceled}`);
+
+    ok("billing: a user cannot INSERT a subscription for themselves",
+      refuses(() => asApp(B, `insert into public.billing_subscriptions(user_id, stripe_customer_id, status) values ('${B}', 'cus_forged_B', 'active');`)));
+    ok("billing: …and no row appeared for them",
+      asSuper(`select count(*) from public.billing_subscriptions where user_id='${B}';`).trim() === "0");
+
+    ok("billing: a user cannot claim another user's Stripe customer",
+      refuses(() => asApp(B, `insert into public.billing_subscriptions(user_id, stripe_customer_id, status) values ('${B}', 'cus_forgery_probe_A', 'active');`)));
+
+    const deleted = asApp(A, "with d as (delete from public.billing_subscriptions returning 1) select count(*) from d;").trim();
+    ok("billing: a user cannot DELETE their subscription row", deleted === "0", `deleted ${deleted} rows`);
+
+    // The privilege layer, on the role Supabase really uses. Independent of the
+    // policy set, so a future policy edit cannot open this on its own.
+    const dml = asSuper(`select count(*) from information_schema.role_table_grants
+      where grantee='authenticated' and table_schema='public' and table_name='billing_subscriptions'
+        and privilege_type in ('INSERT','UPDATE','DELETE');`).trim();
+    ok("billing: the authenticated role holds no INSERT/UPDATE/DELETE privilege", dml === "0", `found ${dml} grants`);
+    const sel = asSuper(`select count(*) from information_schema.role_table_grants
+      where grantee='authenticated' and table_schema='public' and table_name='billing_subscriptions'
+        and privilege_type='SELECT';`).trim();
+    ok("billing: …but it may still SELECT its own row", sel === "1", `found ${sel} grants`);
+
+    // The write door is granted to nobody the browser can be.
+    const applySig = "public.apply_stripe_subscription(uuid,text,text,text,text,text,timestamptz,boolean,timestamptz)";
+    const attachSig = "public.attach_stripe_customer(uuid,text)";
+    for (const [role, sig, label] of [
+      ["authenticated", applySig, "apply_stripe_subscription"],
+      ["authenticated", attachSig, "attach_stripe_customer"],
+      ["anon", applySig, "apply_stripe_subscription"],
+      ["anon", attachSig, "attach_stripe_customer"],
+    ]) {
+      const can = asSuper(`select has_function_privilege('${role}', '${sig}', 'execute');`).trim();
+      ok(`billing: ${role} cannot execute ${label}`, can === "f", `has_function_privilege returned ${can}`);
+    }
+    // …and the write door is open to the one role that needs it. A revoke that
+    // took the grant away from everybody would pass the four checks above while
+    // breaking every webhook.
+    for (const [sig, label] of [[applySig, "apply_stripe_subscription"], [attachSig, "attach_stripe_customer"]]) {
+      const can = asSuper(`select has_function_privilege('service_role', '${sig}', 'execute');`).trim();
+      ok(`billing: service_role CAN execute ${label}`, can === "t", `has_function_privilege returned ${can}`);
+    }
+    const srDml = asSuper(`select count(*) from information_schema.role_table_grants
+      where grantee='service_role' and table_schema='public' and table_name='billing_subscriptions'
+        and privilege_type in ('INSERT','UPDATE','SELECT');`).trim();
+    ok("billing: service_role can write the projection", srDml === "3", `found ${srDml} of 3 grants`);
+
+    // Leave the table as we found it so later sections see a clean fixture.
+    asSuper(`delete from public.billing_subscriptions where user_id in ('${A}', '${B}');`);
+  }
+
   // 7b) LIFEOS-056D — the Constitution deletion-privacy cascade, probed against
   //     real Postgres. A conceptual revision spans two elements: the transition
   //     row is OWNED by the predecessor but carries the SUCCESSOR's wording.

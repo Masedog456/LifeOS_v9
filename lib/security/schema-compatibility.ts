@@ -49,7 +49,7 @@
 import { CURRENT_STATE_VERSION } from "@/lib/migrations/state-version";
 
 /** The latest migration number this build ships (keep in step with supabase/migrations). */
-export const EXPECTED_MIGRATION_VERSION = 47;   // 0047_goal_horizons_lifecycle_history (LIFEOS-078)
+export const EXPECTED_MIGRATION_VERSION = 48;   // 0048_billing_subscriptions (LIFEOS-BILLING)
 
 export type CompatMode = "ok" | "read-only" | "upgrade" | "blocked";
 

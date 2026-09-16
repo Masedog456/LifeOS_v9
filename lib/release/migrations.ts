@@ -120,9 +120,14 @@ export function validateMigrationList(numbers: number[]): MigrationListReport {
  * Eight: LIFEOS-078 spent 0047 on Goal horizon, successor and lifecycle
  * history — three additive columns and the contract that advertises them,
  * reported at a §22 gate and approved before the migration was written. The
- * hatch moves to 0048, still never spent — which is the point of counting.
+ * hatch moved to 0048.
+ *
+ * Nine: LIFEOS-BILLING spent 0048 on `billing_subscriptions` — the canonical
+ * subscription projection, a planned launch change whose migration-number
+ * collision with the hatch was reported before any SQL was written. The hatch
+ * moves to 0049, still never spent, which is the point of counting.
  */
-export const ALLOWED_RELEASE_FIX_MIGRATION = "0048_v1_release_fix.sql";
+export const ALLOWED_RELEASE_FIX_MIGRATION = "0049_v1_release_fix.sql";
 
 /** Whether a proposed new migration filename is an allowed release-fix addition. */
 export function isAllowedReleaseFixMigration(filename: string): boolean {

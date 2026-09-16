@@ -9,6 +9,7 @@ import Inspector from "@/components/entity/Inspector";
 import SessionBanner from "@/components/workspace/SessionBanner";
 import ToastProvider from "@/components/ux/ToastProvider";
 import ConfirmHost from "@/components/ux/ConfirmDialog";
+import PaidAccessGate from "@/components/billing/PaidAccessGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,7 +54,18 @@ export default function RootLayout({
           Fixed here rather than on one page: every route ends somewhere, and a
           bar that covers content covers it everywhere.
         */}
-        <div className="flex flex-1 flex-col pb-16 sm:pb-0">{children}</div>
+        {/*
+          LIFEOS-BILLING §18. The paid-access boundary, in one place.
+
+          It wraps the route tree and nothing else: `Nav` above it keeps the
+          sign-in/sign-out control reachable from every route, and the command
+          centre, inspector and dialog hosts below it are chrome rather than
+          content. Off unless NEXT_PUBLIC_REQUIRE_PAID_ACCESS is "true" — see
+          lib/billing/gate.ts.
+        */}
+        <div className="flex flex-1 flex-col pb-16 sm:pb-0">
+          <PaidAccessGate>{children}</PaidAccessGate>
+        </div>
         <CommandCenter />
         <Inspector />
         <ToastProvider />

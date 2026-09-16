@@ -28,6 +28,26 @@ const NO_DELETE = new Set([    // no DELETE policy required
   "account_deletion_requests", "reflections", "retrieval_feedback",
 ]);
 
+/**
+ * Tables the user may READ but must never WRITE (LIFEOS-BILLING §7).
+ *
+ * Every other user-owned table in LifeOS holds content the person authored, so
+ * the four-policy pattern is right: the rows are theirs to change.
+ * `billing_subscriptions` is different in kind — it is a claim ABOUT the user,
+ * made by Stripe. Anyone who can write it can grant themselves the product for
+ * free, which §7 names a stop-the-line defect.
+ *
+ * For these tables the requirement is INVERTED: a SELECT policy must exist, and
+ * an INSERT, UPDATE or DELETE policy must NOT. Listing a table here is not an
+ * exemption from review but a stricter one — adding a write policy later fails
+ * this audit rather than passing it silently.
+ *
+ * Writes reach these tables only through functions granted to `service_role`.
+ * The live proof that an ordinary signed-in connection is refused runs against
+ * a real PostgreSQL cluster in `scripts/migration-rehearsal.mjs`.
+ */
+const SERVER_WRITTEN = new Set(["billing_subscriptions"]);
+
 function userOwnedTables(sql) {
   const out = [];
   const re = /create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s*\(([\s\S]*?)\)\s*;/gi;
@@ -68,20 +88,32 @@ let failures = 0;
 const rows = [];
 for (const t of tables) {
   const p = checkPolicies(tableToFile.get(t), t);
-  const required = ["select", "insert"];
-  if (!APPEND_ONLY.has(t)) required.push("update");
-  if (!NO_DELETE.has(t)) required.push("delete");
   const missing = [];
   if (!p.rls) missing.push("rls");
-  for (const r of required) if (!p[r]) missing.push(r);
+
+  if (SERVER_WRITTEN.has(t)) {
+    // Read-only to its owner. A write policy here is the defect, so the check
+    // runs the other way round.
+    if (!p.select) missing.push("select");
+    for (const forbidden of ["insert", "update", "delete"]) {
+      if (p[forbidden]) missing.push(`FORBIDDEN ${forbidden} policy (server-written table)`);
+    }
+  } else {
+    const required = ["select", "insert"];
+    if (!APPEND_ONLY.has(t)) required.push("update");
+    if (!NO_DELETE.has(t)) required.push("delete");
+    for (const r of required) if (!p[r]) missing.push(r);
+  }
+
   const ok = missing.length === 0;
   if (!ok) failures++;
-  rows.push({ table: t, ok, missing });
+  rows.push({ table: t, ok, missing, serverWritten: SERVER_WRITTEN.has(t) });
 }
 
 console.log(`RLS audit: ${tables.length} user-owned tables across ${files.length} migrations`);
 for (const r of rows.sort((a, b) => Number(a.ok) - Number(b.ok))) {
-  console.log(`  ${r.ok ? "✓" : "✗"} ${r.table}${r.ok ? "" : "  missing: " + r.missing.join(", ")}`);
+  const note = r.serverWritten ? "  (read-only to its owner; written only by the server)" : "";
+  console.log(`  ${r.ok ? "✓" : "✗"} ${r.table}${note}${r.ok ? "" : "  missing: " + r.missing.join(", ")}`);
 }
 if (failures) { console.error(`\nFAIL — ${failures} user-owned table(s) lack required RLS policies.`); process.exit(1); }
 console.log("\nPASS — every user-owned table enables RLS with the required policies.");

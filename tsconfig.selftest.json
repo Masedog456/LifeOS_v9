@@ -26,5 +26,10 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["lib/**/*.ts", "types/**/*.ts"]
+  // `app/api/billing` is included so the billing route harness can drive the
+  // REAL handlers (LIFEOS-BILLING §25) rather than a reimplementation of them.
+  // A test that re-states a route's logic proves only that it was re-stated
+  // consistently; the point of asserting "an unauthenticated checkout is
+  // rejected" is that the assertion runs against the code that ships.
+  "include": ["lib/**/*.ts", "types/**/*.ts", "app/api/billing/**/*.ts"]
 }
