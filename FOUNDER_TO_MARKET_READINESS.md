@@ -33,8 +33,8 @@ checked. Unverified items are marked, not quietly upgraded.
 | Repository | `Masedog456/LifeOS_v9` |
 | Base SHA | `e1a9bec217b1a39ca2e5f53af2850ea478ba7c2d` (`e1a9bec`, 2026-09-10) `VERIFIED` |
 | Recommended operating mode | **Prove Stage 1 before building Stage 2.** Deploy and verify what exists; do not add product surface. |
-| Date last audited | 2026-09-11 (Stage-1 bring-up attempted — see §15) |
-| Open launch blockers | **10** (B10 reclassified, 2 new findings registered) |
+| Date last audited | 2026-09-16 (Stripe paid-subscription infrastructure — see §16) |
+| Open launch blockers | **10** (B9 advanced from *not started* to *built, sandbox-unverified*) |
 | Critical blockers | **2** (B1 production never deployed, B2 two-user isolation unverified live) |
 | Next founder decision | **D1 — Initial commercial wedge / product identity** (§5) |
 | Next engineering action | **BLOCKED — FOUNDER ACTION REQUIRED.** Deployment cannot be performed from an agent session (no Vercel/Supabase credentials; `api.vercel.com` and `api.supabase.com` denied by egress policy). Founder must run the deploy. |
@@ -127,11 +127,12 @@ monetization · segment expansion.
 | Activation | ⚪ | Model defined, unmeasured (§8) `HYPOTHESIS` | B6 | E/F | B6 | Activation rate observed | 2026-09-11 |
 | Retention | ⚪ | No external users | — | F | Stage 2 | Week-2 return observed | 2026-09-11 |
 | Monetization | 🔴 | No pricing decided `FROM BRIEF` | — | **F** | Stage 3 | Price + WTP evidence | 2026-09-11 |
-| Billing | 🔴 | No billing dependency `VERIFIED` | B9 | E | Stage 3 | Charge + cancel works | 2026-09-11 |
+| Billing | 🟡 | Stripe Checkout + webhook + entitlement + gate implemented and proved deterministically `VERIFIED`; **never exercised against Stripe** | B9 | E | Stage 3 | A sandbox card is charged and a cancellation completes end to end | 2026-09-16 |
 | Growth | ⚪ | Not started | — | F | Stage 4 | — | 2026-09-11 |
 | Operations | 🔴 | `INCIDENT_RESPONSE.md`, `BACKUP_AND_RECOVERY.md` exist `VERIFIED`; never rehearsed in prod | B1 | O | B1 | Rollback rehearsed | 2026-09-11 |
 
 Counts at 2026-09-11: 🟢 2 · 🟡 6 · 🔴 13 · ⚪ 5
+Counts at 2026-09-16: 🟢 2 · 🟡 7 · 🔴 12 · ⚪ 5 (Billing 🔴 → 🟡)
 
 ---
 
@@ -149,7 +150,7 @@ Severity: **Critical** stops everything · **High** blocks the named stage · **
 | B6 | No privacy-respecting analytics | High | Stage 2/3 | OPEN |
 | B7 | No error tracking | High | Stage 1/2 | OPEN |
 | B8 | No Terms of Service / commercial trust layer | High | Stage 2 | OPEN |
-| B9 | No billing | Medium | Stage 3 | OPEN |
+| B9 | No billing | Medium | Stage 3 | **BUILT, UNVERIFIED** — code complete and proved offline; no Stripe account has ever been contacted. |
 | B10 | 074 regression gate unusable | Medium | Stage 1 | **TOOLING FIXED** — gate now runs to completion and reports 123/145. Red for product reasons: see F1/F2. |
 
 ### Detail
@@ -203,8 +204,19 @@ Building any of them first means rebuilding them.
 
 **B9 — No billing** · Medium · blocks Stage 3
 *Why:* Gates paid beta only. Deliberately not a Stage-2 blocker.
-*Evidence:* No billing dependency `VERIFIED`. *Depends on:* retention evidence first.
-*Done when:* A real card is charged and a cancellation completes.
+*Evidence (2026-09-16):* Stripe-hosted Checkout, a signature-verified webhook, one canonical
+subscription projection (`billing_subscriptions`, migration 0048), one entitlement predicate
+(`hasPaidAccess`), a Customer Portal route and a single paid-access boundary are implemented and
+proved by 178 deterministic assertions plus 17 live-Postgres forgery checks `VERIFIED`.
+*What is NOT evidence:* **no Stripe account has been contacted.** Every assertion above runs against
+a stub or a local cluster. A green offline suite is not a charged card, and the distinction is the
+whole point of this register.
+*Depends on:* retention evidence first (unchanged — building billing does not make it time to sell).
+*Done when:* a sandbox card is charged, the webhook arrives, entitlement appears, the Portal opens
+and a cancellation completes — then the same on the live account.
+*Remaining to live payments:* configure five server variables, register the webhook endpoint,
+run the sandbox flow, then swap four values for the live account's. All founder actions; none are
+code.
 
 **B10 — 074 regression gate unusable** · Medium · blocks Stage 1
 *Why:* Losing the integrity suite means lifecycle regressions ship silently — and lifecycle
@@ -605,6 +617,7 @@ and triageable rather than hidden behind a crash.
 | 2026-09-11 | **Production runbook repair** (Stage-1 follow-up). Replaced hard-coded migration ranges with derived procedure; added an explicit database-first deploy order, a capability-based schema-parity step, and a frontend-vs-database rollback distinction. Added `npm run audit:runbook` and wired it into `audit:security`. | Parity audit **5/5** + selftest **7/7**; detected all 5 stale references with file:line before the fix and passes after. `audit:security` PASS · `release:audit` 17/17 · rehearsal 200/200 · lint/tsc/build PASS. | **Closed F3.** Opened **F6** (runtime parity backstop is dead code). B1, B2, auth, cross-device and deletion acceptance remain OPEN — all require a live environment. | **Stage held at Late Stage 0.** | None — D1 still open |
 
 | 2026-09-13 | **F6 investigated — and withdrawn as a misdiagnosis.** A deterministic reproduction was written before any fix, per brief. It showed the runtime gate is present and fires: a database one migration behind gates `goals` and nothing else; an unreadable contract fails closed; a client below `min_client_contract` is refused; a head database gates nothing. F6 had described `evaluateCompatibility()` — a display-only summary — and mistaken it for the write gate. **No speculative protection was added; none was needed.** The real defect found underneath was that the 94 assertions already proving the gate could not be run, so the protection was invisible to every gate and to auditors. Added `npm run audit:compat` (builds the harnesses, runs them, asserts the counts), wired into `audit:security`. Corrected the runbook's false "known gap"; banner-marked the superseded diagnostic that caused it; corrected the module docs on both sides of the confusion. | Reproduction: 4/4 verdicts as predicted. `audit:compat` **4/4** (inject-077 **51/51**, inject-078 **43/43**), runner selftest **6/6**. **Distinguishing:** deleting the consumption point at `persistence.ts:458` fails 8 assertions across both harnesses incl. *"sync is not pretended to succeed"* and *"per-domain decision consumed by the DISPATCHER, not just the UI"*; reverted clean. `audit:runbook` 5/5 · `audit:security` PASS · `release:audit` 17/17 · `release:export` 14/14 · lint/tsc/build PASS. | **Withdrew F6** (not a defect). **Opened and closed F7** (the proof was unrunnable). **B1 and B2 remain OPEN and untouched** — nothing here is a substitute for deploying and exercising two real accounts. | **Stage held at Late Stage 0.** No Stage-1 criterion is met by this work; it removes a false statement from the deploy path, it does not advance the deploy. | None — D1 still open |
+| 2026-09-16 | **Stripe paid-subscription infrastructure** (`launch/stripe-paid-subscriptions`). Stripe-hosted Checkout, a signature-verified webhook, one canonical projection (`billing_subscriptions`, migration **0048**), one entitlement predicate (`hasPaidAccess`), a Customer Portal route, and ONE paid-access boundary at the root layout — off unless `NEXT_PUBLIC_REQUIRE_PAID_ACCESS=true`, so merging does not paywall the beta. Reported 5 architectural collisions before writing code (privileged connection, migration-slot 0048, no SSR auth, local-first vs entitlement, RLS audit shape); resolved each explicitly rather than around. | **178 deterministic assertions** — pure suite 97/97, route harness 81/81 (drives the real handlers and **Stripe's own signature verifier**) — plus **17 live-Postgres forgery checks**. Regression-proved: removing signature verification fails 6 assertions; letting the client name a price fails 1; flipping the `past_due` policy fails 2; disabling the staleness guard fails 2; importing the Stripe client from a client component **fails the build**. `audit:security` PASS (incl. new `audit:billing` 16/16) · `release:audit` 17/17 · **rehearsal 218/218** · `release:routes` 25/25 · `beta:smoke` 14/15 (HTTPS n/a on localhost) · 074 gate 123/145 — unchanged · lint 0 errors · tsc 0 errors · build PASS. | **B9 advanced** to BUILT/UNVERIFIED — not closed: no Stripe account has been contacted. Two defects found by my own gates and fixed in-sprint: (a) `revoke … from public` left Supabase's per-role EXECUTE grants intact, so the billing write functions were callable by `authenticated`; (b) `audit:compat`'s two harnesses hard-coded `/home/user/LifeOS`, so `audit:security` could not pass on any other checkout — a pre-existing break from PR #120, repaired incidentally. | **Stage held at Late Stage 0.** Billing is Stage 3 work; building it advances no Stage-1 criterion, and B1/B2 remain untouched. | None — D1 still open. Entitlement policy for `past_due` (access continues through Stripe's retries) and the 3-day staleness guard are documented decisions, not silent ones. |
 
 **Update protocol:** append a row on every change. Never edit history. Move closed blockers to the
 §4 resolved ledger with date and evidence. Re-date §3 rows when re-verified.

@@ -438,6 +438,10 @@ overwrites your own conclusions.
   (design/spec only — nothing here is implemented yet)
 - [INGESTION.md](./INGESTION.md) — the ingestion architecture: adapters,
   the extraction seam, and the replaceable processing pipeline (LIFEOS-006)
+- [BILLING.md](./BILLING.md) — how Conqify charges for itself: Stripe
+  Checkout, the webhook that is the only writer of subscription truth, the
+  entitlement policy status by status, and what has to be configured before
+  any money moves
 - [AI_AGENT_RULES.md](./AI_AGENT_RULES.md) — rules AI agents must follow
   when working on this codebase
 - [PILOT_GOSPEL_OF_THOMAS_SAYING_37.md](./PILOT_GOSPEL_OF_THOMAS_SAYING_37.md)

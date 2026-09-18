@@ -24,8 +24,28 @@ const FINDINGS = [];
 // The rule targets CLIENT-bundleable code (app/components/lib); real secret VALUES
 // are still caught everywhere by the JWT / private-key rules below.
 const SERVER_ONLY = /^scripts[\\/]/;
+/**
+ * The `server-only` marker (LIFEOS-BILLING §7).
+ *
+ * A module whose top has `import "server-only"` CANNOT reach a client bundle:
+ * Next's bundler raises a build error at the first client import, at any depth.
+ * That is a stronger guarantee than the directory rule above, because the
+ * compiler enforces it rather than a convention somebody has to keep — so this
+ * exception tracks the marker, not the path.
+ *
+ * It exists because the Stripe webhook needs a privileged connection for a
+ * reason no policy can remove: it arrives from Stripe's servers carrying no
+ * user session, and it must write the one table the user is forbidden to
+ * write. `lib/billing/admin.ts` carries the marker; `scripts/audit-billing.mjs`
+ * asserts that it still does and that nothing reachable from a page imports it;
+ * `npm run build` fails if either stops being true.
+ *
+ * Real secret VALUES are still caught everywhere by the JWT / private-key rules
+ * below — this waives only the "names the variable" rule.
+ */
+const SERVER_ONLY_MARKER = /^\s*import\s+["']server-only["']\s*;?\s*$/m;
 const RULES = [
-  { name: "service-role key usage in client", re: /SUPABASE_SERVICE_ROLE|service_role_key|serviceRoleKey/, only: /\.(ts|tsx|js|jsx|mjs)$/, skip: SERVER_ONLY },
+  { name: "service-role key usage in client", re: /SUPABASE_SERVICE_ROLE|service_role_key|serviceRoleKey/, only: /\.(ts|tsx|js|jsx|mjs)$/, skip: SERVER_ONLY, allowServerOnly: true },
   { name: "private key block", re: /-----BEGIN (RSA |EC )?PRIVATE KEY-----/ },
   { name: "hardcoded JWT", re: /eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/ },
   { name: "openai-style key", re: /\bsk-[A-Za-z0-9]{20,}\b/ },
@@ -53,6 +73,7 @@ function walk(dir) {
     for (const rule of RULES) {
       if (rule.only && !rule.only.test(entry)) continue;
       if (rule.skip && rule.skip.test(rel)) continue;
+      if (rule.allowServerOnly && SERVER_ONLY_MARKER.test(body)) continue;
       if (rule.re.test(body)) FINDINGS.push({ file: rel, rule: rule.name });
     }
     // NEXT_PUBLIC_ carrying a service-role-looking value.

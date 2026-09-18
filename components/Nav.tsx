@@ -77,6 +77,9 @@ const NAV: NavItem[] = [
         { href: "/orchestrator", label: "Conqify Inbox" },
       ] },
       { heading: "System & privacy", links: [
+        // LIFEOS-BILLING §17/§21: the one entry point to subscription state and
+        // the Stripe Customer Portal. A link, not a billing section.
+        { href: "/billing", label: "Subscription" },
         { href: "/maintenance", label: "Maintenance" },
         { href: "/health", label: "System Health" },
         { href: "/security", label: "Diagnostics" },
