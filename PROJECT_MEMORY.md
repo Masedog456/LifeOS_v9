@@ -2906,6 +2906,19 @@ scope or order.
   are sufficient, and Ask/Summarize remaining unpersisted stays an accepted
   observation limitation to be answered by watching rather than by counters.
 
+- 2026-11-19 — PR 1 (security): `next` and `eslint-config-next` 16.2.12 →
+  16.4.6 and `npm audit fix` (0 advisories after). `POST /api/extract` now
+  requires a signed-in user (503 when Supabase is unconfigured, so URL import
+  falls back to paste in local-only mode), is rate-limited to 20 a minute per
+  user per instance, caps its request body at 8 KB, and fetches only through
+  the new `lib/security/safe-fetch.ts`: address checked inside the socket's
+  DNS lookup (no check/use gap, DNS rebinding refused), every answer must be
+  public, manual redirects (max 3) re-validated per hop, one total deadline,
+  3 MB cap after decompression, ports 80/443 only. Helpers moved to
+  `lib/ingestion/extract-server.ts`. New `npm run audit:extract`
+  (route harness + safe-fetch suite, local servers only) added to
+  `audit:security`. Stale name-based dependency exceptions removed.
+
 ---
 
 ## BETA-EVIDENCE CANDIDATES (recorded LIFEOS-050C — none implemented)

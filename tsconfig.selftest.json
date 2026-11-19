@@ -31,5 +31,6 @@
   // A test that re-states a route's logic proves only that it was re-stated
   // consistently; the point of asserting "an unauthenticated checkout is
   // rejected" is that the assertion runs against the code that ships.
-  "include": ["lib/**/*.ts", "types/**/*.ts", "app/api/billing/**/*.ts"]
+  // `app/api/extract` is included for the same reason (PR 1: scripts/inject-extract-route.cjs).
+  "include": ["lib/**/*.ts", "types/**/*.ts", "app/api/billing/**/*.ts", "app/api/extract/**/*.ts"]
 }

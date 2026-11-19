@@ -39,9 +39,13 @@ for (const sev of ["critical", "high", "moderate", "low", "info"]) {
 // attack surface, and only "fixable" by a breaking framework downgrade. These
 // are tracked in PRODUCTION_OPERATIONS.md and re-reviewed each release.
 const ALLOWLIST = {
-  next: "On the latest patch (16.2.12). Residual high is inherited from transitive postcss/sharp (below); the Next-specific advisories (Server Actions SSRF/DoS, image-opt, rewrites) do not apply — LifeOS uses no Server Actions, no custom server, no next/image rewrites.",
-  postcss: "Transitive build-time CSS tool under `next`; processes our own source at build, never untrusted runtime CSS. Resolves when Next bumps its pin.",
-  sharp: "Next image-optimizer dep (libvips); LifeOS is local-first and does not optimize untrusted remote images. Not in runtime attack surface.",
+  // Emptied in PR 1 (Next.js 16.2.12 -> 16.4.6, `npm audit fix`): `npm audit`
+  // now reports no advisories at all. The previous entries excepted `next`,
+  // `postcss` and `sharp` BY PACKAGE NAME, which would also have silently
+  // excepted any NEW high/critical advisory in those packages — including the
+  // critical Next.js advisories published after the entries were written.
+  // If an exception is ever needed again, record the advisory, the version
+  // range and a review date, and prefer upgrading.
 };
 
 // Iterate per-package advisories to separate allowlisted from actionable.
