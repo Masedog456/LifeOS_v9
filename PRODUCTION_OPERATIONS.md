@@ -44,17 +44,14 @@ npm run audit:deps       # no un-allowlisted high/critical prod advisories
 - **Cadence:** run `npm audit` each release; patch security fixes promptly;
   **do not** auto-upgrade major versions without review.
 - **Emergency patches:** apply the smallest version bump that clears a
-  high/critical advisory (this sprint bumped `next` 16.2.10 → 16.2.12).
-- **Accepted exceptions** (allowlisted in `scripts/audit-deps.mjs`, re-reviewed
-  each release):
-  - `next` — on the latest patch; residual high is inherited from postcss/sharp
-    below; the Next-specific advisories (Server Actions SSRF/DoS, image-opt,
-    rewrites) do not apply (no Server Actions, no custom server, no next/image
-    rewrites in LifeOS).
-  - `postcss` — Next's build-time CSS tool; processes our own source at build,
-    never untrusted runtime CSS.
-  - `sharp` — Next's image-optimizer (libvips); LifeOS is local-first and does
-    not optimize untrusted remote images.
+  high/critical advisory (LIFEOS-040 bumped `next` 16.2.10 → 16.2.12; PR 1
+  bumped `next` and `eslint-config-next` 16.2.12 → 16.4.6 for critical
+  remote-code-execution advisories, plus `npm audit fix` for transitive
+  advisories — `npm audit` then reported 0).
+- **Accepted exceptions:** none. `scripts/audit-deps.mjs` used to except
+  `next`, `postcss` and `sharp` by package name, which would also have hidden
+  any new advisory in those packages. If an exception is ever needed, record
+  the specific advisory, affected range, reason and a review date.
 
 ## Migration safety / release checklist
 

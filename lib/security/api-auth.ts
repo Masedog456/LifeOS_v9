@@ -201,7 +201,11 @@ export function isOverLimit(b: Bucket, max = RATE_LIMIT_MAX): boolean {
  * Identity is a user id when authenticated; unauthenticated callers never reach
  * a cost-bearing provider, so they are not the case this protects.
  */
-export function rateLimit(identity: string, now = Date.now()): { limited: boolean; retryAfterSeconds: number } {
+export function rateLimit(
+  identity: string,
+  now = Date.now(),
+  max = RATE_LIMIT_MAX,
+): { limited: boolean; retryAfterSeconds: number } {
   // Opportunistic cleanup so the map cannot grow without bound on a warm instance.
   if (buckets.size > 5_000) {
     for (const [k, v] of buckets) if (now >= v.resetAt) buckets.delete(k);
@@ -209,7 +213,7 @@ export function rateLimit(identity: string, now = Date.now()): { limited: boolea
   const b = nextBucket(buckets.get(identity), now);
   buckets.set(identity, b);
   return {
-    limited: isOverLimit(b),
+    limited: isOverLimit(b, max),
     retryAfterSeconds: Math.max(1, Math.ceil((b.resetAt - now) / 1000)),
   };
 }
