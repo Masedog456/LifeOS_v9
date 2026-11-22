@@ -5,10 +5,10 @@
  * a fake Supabase client, so the assertions are about the shipped code path and
  * not about a reimplementation of it.
  */
-process.env.LIFEOS_ROOT = "/home/user/LifeOS";
+process.env.LIFEOS_ROOT ??= require("path").join(__dirname, "..");
 const path = require("path"), Module = require("module"), ROOT = path.join(__dirname, "out");
 const orig = Module._resolveFilename;
-Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: ["/home/user/LifeOS/node_modules"] }); } };
+Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: [path.join(__dirname, "..", "node_modules")] }); } };
 
 const store = new Map();
 const localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k), clear: () => store.clear() };

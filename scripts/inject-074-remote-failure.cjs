@@ -5,10 +5,10 @@
  * believe afterwards". Every case records what actually reached the fake
  * database, so a silently-skipped write is visible.
  */
-process.env.LIFEOS_ROOT = "/home/user/LifeOS";
+process.env.LIFEOS_ROOT ??= require("path").join(__dirname, "..");
 const path = require("path"), Module = require("module"), ROOT = path.join(__dirname, "out");
 const orig = Module._resolveFilename;
-Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: ["/home/user/LifeOS/node_modules"] }); } };
+Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: [path.join(__dirname, "..", "node_modules")] }); } };
 
 const { SupabasePersistenceAdapter, rowToAction, actionToRow, rowToSession, sessionToRow } = require("@/lib/adapters/supabaseAdapter");
 const { STORE_DOMAINS } = require("@/lib/ux/backup");

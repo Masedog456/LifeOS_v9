@@ -305,9 +305,16 @@ export function runCommitmentLifecycleSelfTests() {
     // THE NEIGHBOURS. This must be recovery, not an accidental un-defer.
     replaceState(world());
     deferAction("x", "next_week");
+    // `next_week` resolves against the REAL clock (next Monday from the day the
+    // suite runs), not this file's fixed TODAY. Comparing to dk(7) only held on
+    // 2026-09-07, the Monday this was written, and failed every day after. The
+    // promise under test is that clearing the date leaves the deferral exactly
+    // as deferAction set it, so that is what is compared.
+    const parkedUntil = find("x")?.deferredUntil;
+    ok("105.24a §16 deferring set a concrete return date", typeof parkedUntil === "string" && parkedUntil.length === 10);
     setActionDueDate("x", undefined);
     eq("105.24 §16 CLEARING a date is not a decision to start", find("x")?.status, "deferred");
-    eq("105.25 §16 …and the deferral survives it", find("x")?.deferredUntil, dk(7));
+    eq("105.25 §16 …and the deferral survives it", find("x")?.deferredUntil, parkedUntil);
     replaceState(world());
     setActionDueDate("y", dk(3));
     eq("105.26 §15 …and dating ordinary work changes no status", find("y")?.status, "open");

@@ -40,13 +40,15 @@ import {
   PROTOCOL_CHANGE_LIMITATION, REPEATED_THRESHOLD,
   type ExecutiveChange,
 } from "@/lib/memory/changes";
+import { localIso } from "@/lib/testing/local-time";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
 
 const TODAY = "2026-09-03";
 /** Sep 1–3 2026. `d` is the day of month, `h` the hour. */
-const T = (d: number, h: number) => `2026-09-0${d}T${String(h).padStart(2, "0")}:00:00.000Z`;
+// Local wall time — see lib/testing/local-time.ts for why not `…Z`.
+const T = (d: number, h: number) => localIso(`2026-09-0${d}`, h);
 
 const act = (p: Partial<NextAction> & { id: string; title: string }): NextAction => ({
   description: "", status: "open", notes: "", linkedEntityRefs: [], tags: [],

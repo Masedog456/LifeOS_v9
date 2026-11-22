@@ -29,7 +29,11 @@ Set by `middleware.ts` from `lib/security/headers.ts` on every response. See
 
 ## Automated audits (run each release)
 
+Every pull request runs these in GitHub Actions (`.github/workflows/ci.yml`);
+what CI proves and what stays manual is in `docs/TESTING.md`.
+
 ```
+npm test                 # every self-test suite + deterministic harnesses
 npm run audit:security   # rls + secrets + routes + deps
 npm run audit:rls        # every user-owned table has RLS + required policies
 npm run audit:secrets    # no committed secrets / client-bundle key leaks
@@ -56,10 +60,10 @@ npm run audit:deps       # no un-allowlisted high/critical prod advisories
 ## Migration safety / release checklist
 
 - [ ] `tsc`, `lint`, production `build` clean.
-- [ ] New self-tests + full regression green (do not weaken prior tests).
+- [ ] New self-tests + full regression green (`npm test`, CI "CI passed"; do not weaken prior tests).
 - [ ] Security + backup E2E green.
 - [ ] `npm run audit:security` green.
-- [ ] Migration chain `0001..NNNN` applies **idempotently 3×** on Postgres 16.
+- [ ] Migration chain `0001..NNNN` applies **idempotently 3×** on Postgres 16 with the real pgvector (`npm run release:migrations` must print PASS; exit 2 means NOT RUN, never a pass).
 - [ ] Non-superuser RLS isolation holds for any new user-owned table.
 - [ ] Tombstones, histories, and user ownership preserved across the chain.
 - [ ] Never rewrite a historical migration; only add the next number.
