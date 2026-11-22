@@ -9,6 +9,7 @@
  */
 
 import type { IngestionAdapter, UrlIngestionRequest } from "@/lib/ingestion/types";
+import { authedJsonHeaders } from "@/lib/security/api-token";
 
 export const urlAdapter: IngestionAdapter<UrlIngestionRequest> = {
   kind: "url",
@@ -29,9 +30,13 @@ export const urlAdapter: IngestionAdapter<UrlIngestionRequest> = {
     try {
       const res = await fetch("/api/extract", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        // The route requires a signed-in user (it fetches on the server's behalf).
+        headers: await authedJsonHeaders(),
         body: JSON.stringify({ mode: "url", url }),
       });
+      if (res.status === 401) {
+        return { ...fallback, note: "Sign in to import from a link — or paste the article text below." };
+      }
       if (!res.ok) return fallback;
       const data = (await res.json()) as {
         text?: string;
