@@ -5,10 +5,10 @@
  * command, then asks the question that matters: after the failure, what does
  * the persisted system believe, and what does the product SAY it believes?
  */
-process.env.LIFEOS_ROOT = "/home/user/LifeOS";
+process.env.LIFEOS_ROOT ??= require("path").join(__dirname, "..");
 const path = require("path"), Module = require("module"), ROOT = path.join(__dirname, "out");
 const orig = Module._resolveFilename;
-Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: ["/home/user/LifeOS/node_modules"] }); } };
+Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: [path.join(__dirname, "..", "node_modules")] }); } };
 
 // ---- a localStorage we control, installed BEFORE persistence.ts loads -------
 const store = new Map();

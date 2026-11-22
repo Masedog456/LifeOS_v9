@@ -32,6 +32,7 @@ import { resolveRange } from "@/lib/insights/range";
 import { planMemoryQuery } from "@/lib/memory/query";
 import { answerMemoryQuery } from "@/lib/memory/answer";
 import { NO_STANDOUT } from "@/lib/today/recommend";
+import { localIso } from "@/lib/testing/local-time";
 
 export interface SelfTestResult { name: string; pass: boolean; detail?: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -43,8 +44,8 @@ const TOMORROW = "2026-08-26";
 const FAR = "2026-09-15";
 const OLD = "2026-04-27";
 
-const iso = (d: string, h = 8, m = 0) =>
-  `${d}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00.000Z`;
+// Local wall time on day `d` — see lib/testing/local-time.ts for why not `…Z`.
+const iso = (d: string, h = 8, m = 0) => localIso(d, h, m);
 
 function emptyState(): StoreState {
   return Object.fromEntries((STORE_DOMAINS as string[]).map((d) => [d, []])) as unknown as StoreState;

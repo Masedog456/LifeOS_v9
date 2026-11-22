@@ -7,10 +7,10 @@
  * constants — the memory suite already had to be repaired for exactly that
  * reason when the container changed underneath it.
  */
-process.env.LIFEOS_ROOT = "/home/user/LifeOS";
+process.env.LIFEOS_ROOT ??= require("path").join(__dirname, "..");
 const path = require("path"), Module = require("module"), ROOT = path.join(__dirname, "out");
 const orig = Module._resolveFilename;
-Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: ["/home/user/LifeOS/node_modules"] }); } };
+Module._resolveFilename = function (r, ...a) { if (r.startsWith("@/")) r = path.join(ROOT, r.slice(2)); try { return orig.call(this, r, ...a); } catch (e) { if (r.startsWith(".") || path.isAbsolute(r)) throw e; return require.resolve(r, { paths: [path.join(__dirname, "..", "node_modules")] }); } };
 
 const St = require("@/lib/mvpStore");
 const { STORE_DOMAINS, backupCounts, totalRecords } = require("@/lib/ux/backup");

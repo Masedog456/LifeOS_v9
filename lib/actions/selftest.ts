@@ -33,6 +33,7 @@ import { todayKey, addDays, dayDiff } from "@/lib/reviews/dates";
 // behind (LIFEOS-074 §1).
 import * as St from "@/lib/mvpStore";
 import { withIsolatedStore } from "@/lib/mvpStore";
+import { localIso } from "@/lib/testing/local-time";
 
 export interface SelfTestResult { name: string; pass: boolean; detail: string }
 export interface SelfTestReport { pass: boolean; total: number; passed: number; failed: number; ms: number; results: SelfTestResult[] }
@@ -237,7 +238,7 @@ export function runActionSelfTests(): SelfTestReport {
     const s = emptyState();
     s.nextActions = [
       act({ id: "x1", status: "open", projectId: "p1", milestoneId: "m1" }),
-      act({ id: "x2", status: "completed", projectId: "p1", milestoneId: "m1", completedAt: `${TODAY}T12:00:00.000Z` }),
+      act({ id: "x2", status: "completed", projectId: "p1", milestoneId: "m1", completedAt: localIso(TODAY, 12) }),
       act({ id: "x3", status: "in_progress", projectId: "p1" }),
       act({ id: "x4", status: "waiting", waitingOn: "client", followUpDate: addDays(TODAY, -1), projectId: "p1" }),
     ];

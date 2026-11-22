@@ -18,7 +18,7 @@
  */
 const { chromium } = require("playwright-core");
 
-const BASE = "http://localhost:3111";
+const BASE = process.env.BASE || "http://localhost:3111";
 const KEY = "lifeos.mvp.v1";
 const results = [];
 let VP = "DESKTOP";
@@ -71,7 +71,7 @@ const shownTitles = (page) => page.evaluate(() =>
   }));
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await chromium.launch({ executablePath: process.env.CHROME || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome", args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   const errors = [];
 
   for (const vp of [{ label: "DESKTOP", viewport: { width: 1280, height: 2000 }, mobile: false },

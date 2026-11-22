@@ -49,3 +49,6 @@ next-env.d.ts
 
 # pdf.js worker (copied from node_modules at build time)
 /public/pdf.worker.min.js
+
+# PR 2: npm test --json output
+/test-results/

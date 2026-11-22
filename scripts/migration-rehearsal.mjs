@@ -15,23 +15,82 @@
  *
  * It NEVER modifies historical migrations and NEVER touches a real database.
  * Postgres refuses to run as root, so every step runs as the `postgres` OS user.
- * Emits a concise PASS/FAIL report; exit 1 on any failure.
+ *
+ * ## Requirements (PR 2: explicit, never silently substituted)
+ *
+ *   - PostgreSQL 16 server binaries: `initdb`, `pg_ctl`, `postgres`, `psql` in
+ *     $PG_BIN (default /usr/lib/postgresql/16/bin). Debian/Ubuntu package:
+ *     `postgresql-16`.
+ *   - The REAL pgvector extension for that server (`postgresql-16-pgvector`).
+ *     Migration 0010 runs `create extension vector`; a stand-in (for example a
+ *     `vector` domain over text) is detected and REFUSED, because it lets the
+ *     chain apply while proving nothing about the vector columns and functions.
+ *   - A `postgres` OS user, and either running as root or passwordless
+ *     `sudo -n` (CI runners have both).
+ *
+ * Function bodies ARE validated (`check_function_bodies = on`). An earlier
+ * version turned validation off to tolerate a pgvector stand-in; with the real
+ * extension required there is nothing left to tolerate.
+ *
+ * Exit codes — distinct so no caller can mistake one for another:
+ *   0  MIGRATION REHEARSAL PASS     every check ran and passed
+ *   1  MIGRATION REHEARSAL FAIL     a check failed or the rehearsal errored
+ *   2  MIGRATION REHEARSAL NOT RUN  a requirement above is missing; nothing
+ *                                   was rehearsed and nothing may be inferred
  */
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, rmSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, rmSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const migDir = join(root, "supabase", "migrations");
-const PGBIN = "/usr/lib/postgresql/16/bin";
+const PGBIN = process.env.PG_BIN || "/usr/lib/postgresql/16/bin";
+const REQUIRED_PG_MAJOR = 16;
 const DATADIR = "/tmp/pg-rc-rehearsal/data";
 const PORT = "54329";
 const PGUSER = "postgres";
 
 const results = [];
 const ok = (name, cond, detail = "") => { results.push({ name, pass: !!cond, detail: cond ? "" : detail }); };
+
+const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+/** Run a command with root privileges: directly when root, else `sudo -n`. */
+function asRoot(cmd, args, opts = {}) {
+  return isRoot
+    ? execFileSync(cmd, args, { encoding: "utf8", ...opts })
+    : execFileSync("sudo", ["-n", cmd, ...args], { encoding: "utf8", ...opts });
+}
+
+/**
+ * Requirements that must hold before anything is rehearsed. Each missing one is
+ * reported by name with the package that provides it; any → exit 2, NOT RUN.
+ */
+function preflight() {
+  const missing = [];
+  for (const bin of ["initdb", "pg_ctl", "postgres", "psql"]) {
+    if (!existsSync(join(PGBIN, bin))) missing.push(`${join(PGBIN, bin)} not found — install postgresql-${REQUIRED_PG_MAJOR} or set PG_BIN`);
+  }
+  if (!missing.length) {
+    const v = execFileSync(join(PGBIN, "postgres"), ["--version"], { encoding: "utf8" });
+    const major = Number((v.match(/(\d+)(?:\.\d+)?/) || [])[1]);
+    if (major !== REQUIRED_PG_MAJOR) missing.push(`PostgreSQL ${REQUIRED_PG_MAJOR} required, found: ${v.trim()}`);
+  }
+  try { execFileSync("id", ["-u", PGUSER], { stdio: "ignore" }); }
+  catch { missing.push(`OS user '${PGUSER}' does not exist (created by the postgresql-${REQUIRED_PG_MAJOR} package)`); }
+  if (!isRoot) {
+    try { execFileSync("sudo", ["-n", "true"], { stdio: "ignore" }); }
+    catch { missing.push("not root and passwordless `sudo -n` is unavailable (needed to run as the postgres user)"); }
+  }
+  return missing;
+}
+
+function notRun(reasons) {
+  console.log("MIGRATION REHEARSAL NOT RUN — requirements missing; nothing was rehearsed:");
+  for (const r of reasons) console.log(`  - ${r}`);
+  process.exit(2);
+}
 
 function asPostgres(cmd, args, opts = {}) {
   return execFileSync("sudo", ["-n", "-u", PGUSER, cmd, ...args], { encoding: "utf8", ...opts });
@@ -96,25 +155,34 @@ create or replace function storage.foldername(name text) returns text[]
   language sql immutable as $$ select string_to_array(name, '/') $$;
 `;
 
+/**
+ * Migrations are applied from a staged copy, not from the checkout: psql runs
+ * as the `postgres` OS user, which cannot read a checkout under a home
+ * directory that is not world-readable (a GitHub runner's /home/runner is 750).
+ * The copy is byte-identical; the source files are never modified.
+ */
+const SQL_STAGE = "/tmp/pg-rc-rehearsal/sql";
+
 function setup() {
-  rmSync("/tmp/pg-rc-rehearsal", { recursive: true, force: true });
-  mkdirSync("/tmp/pg-rc-rehearsal", { recursive: true });
-  execFileSync("chown", ["-R", "postgres:postgres", "/tmp/pg-rc-rehearsal"]);
+  asRoot("rm", ["-rf", "/tmp/pg-rc-rehearsal"]);
+  mkdirSync(SQL_STAGE, { recursive: true });
+  for (const f of migrationFiles()) copyFileSync(join(migDir, f), join(SQL_STAGE, f));
+  asRoot("chown", ["-R", "postgres:postgres", "/tmp/pg-rc-rehearsal"]);
   asPostgres(join(PGBIN, "initdb"), ["-D", DATADIR, "-A", "trust", "--username", PGUSER], { stdio: "ignore" });
   asPostgres(join(PGBIN, "pg_ctl"), ["-D", DATADIR, "-o", `-p ${PORT} -k /tmp/pg-rc-rehearsal -c listen_addresses=''`, "-w", "start"], { stdio: "ignore" });
 }
 function teardown() {
   try { asPostgres(join(PGBIN, "pg_ctl"), ["-D", DATADIR, "-w", "-m", "immediate", "stop"], { stdio: "ignore" }); } catch { /* ignore */ }
-  rmSync("/tmp/pg-rc-rehearsal", { recursive: true, force: true });
+  try { asRoot("rm", ["-rf", "/tmp/pg-rc-rehearsal"]); } catch { rmSync("/tmp/pg-rc-rehearsal", { recursive: true, force: true }); }
 }
 
 function createDbWithAuth(name) {
   psql("postgres", `drop database if exists ${name} with (force);`).trim();
   psql("postgres", `create database ${name};`);
-  // pgvector is a local stub (domain over text); similarity operators are only
-  // referenced inside SQL function bodies, so skip body validation — exactly as
-  // the stub's own documentation prescribes. Schema/DDL is still fully applied.
-  psql("postgres", `alter database ${name} set check_function_bodies = off;`);
+  // Function bodies are validated as they are created. (This used to be OFF to
+  // tolerate a pgvector stand-in whose operators did not exist; the real
+  // extension is now required — see requireRealPgvector — so validation is on.)
+  psql("postgres", `alter database ${name} set check_function_bodies = on;`);
   psql(name, AUTH_BOOTSTRAP);
   psql(name, STORAGE_BOOTSTRAP);
   psql(name, SUPABASE_DEFAULT_PRIVILEGES);
@@ -154,7 +222,7 @@ alter default privileges in schema public grant all on tables to anon, authentic
 `;
 
 function applyChain(db, files) {
-  for (const f of files) psqlFile(db, join(migDir, f));
+  for (const f of files) psqlFile(db, join(SQL_STAGE, f));
 }
 
 function run() {
@@ -1100,10 +1168,35 @@ function run() {
   ok("every policy scopes to auth.uid()", weakPolicies === "", `policies not scoped by uid: ${weakPolicies.replace(/\n/g, ", ")}`);
 }
 
+/** Refuse to rehearse unless the server offers the REAL pgvector extension. */
+function requireRealPgvector() {
+  const avail = psql("postgres", `select coalesce(max(default_version), '') from pg_available_extensions where name = 'vector';`).trim();
+  if (!avail) return [`pgvector is not installed for this server — install postgresql-${REQUIRED_PG_MAJOR}-pgvector`];
+  return [];
+}
+
+/** After the chain: prove `vector` is the real extension type, with its operators. */
+function verifyPgvectorIsReal(db) {
+  const ext = psql(db, `select coalesce(max(extversion), '') from pg_extension where extname = 'vector';`).trim();
+  ok("pgvector: extension created by the chain (0010)", !!ext, "no 'vector' row in pg_extension");
+  const typtype = psql(db, `select coalesce(max(typtype::text), '') from pg_type where typname = 'vector';`).trim();
+  ok("pgvector: `vector` is a base type, not a stand-in domain", typtype === "b", `typtype '${typtype}' (d = domain stand-in)`);
+  let dist = "";
+  try { dist = psql(db, `select ('[1,2,3]'::vector <=> '[1,2,4]'::vector) > 0;`).trim(); } catch (e) { dist = `error: ${String(e.stderr || e.message).split("\n")[0]}`; }
+  ok("pgvector: cosine-distance operator <=> works", dist === "t", dist);
+  console.log(`pgvector ${ext || "(absent)"} on PostgreSQL ${psql("postgres", "show server_version;").trim()}`);
+}
+
+const missingBeforeStart = preflight();
+if (missingBeforeStart.length) notRun(missingBeforeStart);
+
 let failed = false;
 try {
   setup();
+  const missingInCluster = requireRealPgvector();
+  if (missingInCluster.length) { teardown(); notRun(missingInCluster); }
   run();
+  verifyPgvectorIsReal("rc_clean");
 } catch (e) {
   failed = true;
   console.error("REHEARSAL ERROR:", e.message);

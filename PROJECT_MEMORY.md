@@ -2919,6 +2919,24 @@ scope or order.
   (route harness + safe-fetch suite, local servers only) added to
   `audit:security`. Stale name-based dependency exceptions removed.
 
+- 2026-11-22 — PR 2 (testing & CI): `npm test` (`scripts/run-tests.mjs`) now
+  compiles `lib/` and runs every self-test suite plus 6 deterministic harnesses,
+  failing on any failed assertion, throw, load error, empty suite, or selftest
+  file that nothing runs. `scripts/test-guard.cjs` deletes credential-shaped env
+  vars and refuses non-loopback DNS/TCP/fetch for every test process. The four
+  long-standing failures are fixed: three stale release pins (0048 head, 0049
+  fix slot) and 105.25, which compared a real-clock deferral with a fixed date.
+  Fixture timestamps meaning local times now use `lib/testing/local-time.ts`
+  (fixed a Los Angeles crash in today/daily); far-from-UTC zones still fail in
+  several suites and are listed as a tracked gap in docs/TESTING.md. New suites
+  for `lib/reasoning` (42) and `lib/decision` (53), which had none. The
+  migration rehearsal now requires PostgreSQL 16 and the REAL pgvector (exit 2
+  = NOT RUN), validates function bodies, and refuses a stand-in. New
+  `.github/workflows/ci.yml` (typecheck, lint, self-tests ×5 clocks/zones,
+  audits, migration rehearsal, 30 browser smokes in 3 shards, route smoke) with
+  no secrets and a read-only token. 30 browser smokes made portable
+  (`CHROME`, `BASE`) and run via `npm run test:browser`. See docs/TESTING.md.
+
 ---
 
 ## BETA-EVIDENCE CANDIDATES (recorded LIFEOS-050C — none implemented)
