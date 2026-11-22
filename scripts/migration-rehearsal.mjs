@@ -40,7 +40,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, rmSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, rmSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -155,9 +155,18 @@ create or replace function storage.foldername(name text) returns text[]
   language sql immutable as $$ select string_to_array(name, '/') $$;
 `;
 
+/**
+ * Migrations are applied from a staged copy, not from the checkout: psql runs
+ * as the `postgres` OS user, which cannot read a checkout under a home
+ * directory that is not world-readable (a GitHub runner's /home/runner is 750).
+ * The copy is byte-identical; the source files are never modified.
+ */
+const SQL_STAGE = "/tmp/pg-rc-rehearsal/sql";
+
 function setup() {
   asRoot("rm", ["-rf", "/tmp/pg-rc-rehearsal"]);
-  mkdirSync("/tmp/pg-rc-rehearsal", { recursive: true });
+  mkdirSync(SQL_STAGE, { recursive: true });
+  for (const f of migrationFiles()) copyFileSync(join(migDir, f), join(SQL_STAGE, f));
   asRoot("chown", ["-R", "postgres:postgres", "/tmp/pg-rc-rehearsal"]);
   asPostgres(join(PGBIN, "initdb"), ["-D", DATADIR, "-A", "trust", "--username", PGUSER], { stdio: "ignore" });
   asPostgres(join(PGBIN, "pg_ctl"), ["-D", DATADIR, "-o", `-p ${PORT} -k /tmp/pg-rc-rehearsal -c listen_addresses=''`, "-w", "start"], { stdio: "ignore" });
@@ -213,7 +222,7 @@ alter default privileges in schema public grant all on tables to anon, authentic
 `;
 
 function applyChain(db, files) {
-  for (const f of files) psqlFile(db, join(migDir, f));
+  for (const f of files) psqlFile(db, join(SQL_STAGE, f));
 }
 
 function run() {
